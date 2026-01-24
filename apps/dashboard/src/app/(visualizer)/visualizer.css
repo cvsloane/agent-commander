@@ -1,0 +1,192 @@
+/* Visualizer Main CSS */
+/* Imports all theme files and shared styles */
+
+@import './themes/base.css';
+@import './themes/botspace-ui.css';
+@import './themes/botspace.css';
+@import './themes/civilization.css';
+@import './themes/bridge-control.css';
+
+/* Base visualizer layout */
+.visualizer-root {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  font-family: var(--viz-font-sans);
+  background: var(--viz-bg-primary);
+  color: var(--viz-text-primary);
+  overflow: hidden;
+  position: relative;
+}
+
+.visualizer-root * {
+  box-sizing: border-box;
+}
+
+.visualizer-root * {
+  margin: 0;
+  padding: 0;
+}
+
+/* Scene panel (left - 3D canvas or map) */
+.visualizer-scene-panel {
+  width: 60%;
+  height: 100%;
+  position: relative;
+  border-right: 1px solid var(--viz-border-subtle);
+}
+
+.visualizer-canvas-container {
+  width: 100%;
+  height: 100%;
+}
+
+/* Feed panel (right - activity feed and controls) */
+.visualizer-feed-panel {
+  width: 40%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--viz-bg-secondary);
+  position: relative;
+}
+
+/* Legacy workshop layout IDs (used by existing Workshop markup) */
+#scene-panel {
+  width: 60%;
+  height: 100%;
+  position: relative;
+  border-right: 1px solid var(--viz-border-subtle);
+}
+
+#canvas-container {
+  width: 100%;
+  height: 100%;
+}
+
+#feed-panel {
+  width: 40%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--viz-bg-secondary);
+  position: relative;
+}
+
+/* Theme switcher container in corner */
+.visualizer-theme-switcher-container {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: var(--viz-z-overlay);
+}
+
+.visualizer-exit-container {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: var(--viz-z-overlay);
+}
+
+.visualizer-exit-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--viz-bg-surface, rgba(20, 20, 25, 0.95));
+  border: 1px solid var(--viz-border-subtle, rgba(255, 255, 255, 0.1));
+  border-radius: var(--viz-border-radius, 8px);
+  color: var(--viz-text-secondary, rgba(255, 255, 255, 0.7));
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all 150ms;
+  backdrop-filter: blur(8px);
+}
+
+.visualizer-exit-button:hover {
+  background: var(--viz-bg-tertiary, #1a1a1a);
+  border-color: var(--viz-border-default, rgba(255, 255, 255, 0.15));
+  color: var(--viz-text-primary, #fff);
+}
+
+/* Notification container */
+.visualizer-notifications {
+  position: absolute;
+  bottom: 80px;
+  left: 16px;
+  width: 300px;
+  z-index: var(--viz-z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.visualizer-notifications > * {
+  pointer-events: auto;
+}
+
+/* Legacy keyframes used by existing workshop CSS */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Loading state */
+.visualizer-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: var(--viz-text-muted);
+}
+
+.visualizer-loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--viz-border-subtle);
+  border-top-color: var(--viz-accent-primary);
+  border-radius: 50%;
+  animation: viz-spin 1s linear infinite;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1024px) {
+  .visualizer-scene-panel {
+    width: 50%;
+  }
+
+  .visualizer-feed-panel {
+    width: 50%;
+  }
+}
+
+@media (max-width: 768px) {
+  .visualizer-root {
+    flex-direction: column;
+  }
+
+  .visualizer-scene-panel {
+    width: 100%;
+    height: 50%;
+    border-right: none;
+    border-bottom: 1px solid var(--viz-border-subtle);
+  }
+
+  .visualizer-feed-panel {
+    width: 100%;
+    height: 50%;
+  }
+}

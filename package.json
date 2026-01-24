@@ -1,0 +1,30 @@
+{
+  "name": "agent-command",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agent Commander - Mission control dashboard for AI agent sessions",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "test": "turbo test",
+    "lint": "turbo lint",
+    "db:migrate": "psql $DATABASE_URL -f migrations/001_init.sql && psql $DATABASE_URL -f migrations/002_events_indexes.sql && psql $DATABASE_URL -f migrations/003_host_seq.sql",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "typecheck": "turbo typecheck"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "14.2.0",
+    "prettier": "^3.2.0",
+    "turbo": "^2.3.0",
+    "typescript": "^5.3.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

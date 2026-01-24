@@ -1,0 +1,123 @@
+@import "xterm/css/xterm.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Console styling */
+.console-output {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  color: #e5e7eb;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+.console-html {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.console-html span {
+  font-family: inherit;
+}
+
+.bg-console {
+  background:
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.12), transparent 45%),
+    radial-gradient(circle at 30% 30%, rgba(16, 185, 129, 0.12), transparent 40%),
+    #0b0f14;
+}
+
+/* Improve touch scrolling for xterm on mobile */
+.xterm .xterm-viewport {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+/* Mobile text selection support */
+@media (max-width: 767px) {
+  /* Enable text selection on xterm screen */
+  .xterm .xterm-screen {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    -webkit-touch-callout: default !important;
+  }
+
+  /* Enable text selection on console output */
+  .console-output {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    -webkit-touch-callout: default !important;
+  }
+
+  /* Ensure xterm viewport still allows vertical scrolling */
+  .xterm .xterm-viewport {
+    touch-action: pan-y;
+  }
+
+  /* Selection styling for better visibility */
+  .xterm .xterm-screen ::selection,
+  .console-output ::selection {
+    background: rgba(59, 130, 246, 0.4);
+  }
+}

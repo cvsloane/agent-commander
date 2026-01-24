@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+"""
+Agent Commander Claude Hook Proxy
+
+This script is invoked by Claude Code hooks to forward events to agentd.
+It reads hook JSON from stdin, adds local metadata, and POSTs to agentd.
+
+For PermissionRequest hooks, it can optionally block waiting for a decision.
+
+Install:
+  sudo cp ac-claude-hook /usr/local/bin/
+  sudo chmod +x /usr/local/bin/ac-claude-hook
+
+Usage in ~/.claude/settings.json:
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "/usr/local/bin/ac-claude-hook" }] }
+    ]
+  }
+"""
+
+import json
+import os
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+
+# Configuration
+DEFAULT_AGENTD_URL_BASE = "http://127.0.0.1:7777/v1/hooks"
+TIMEOUT = int(os.environ.get("AC_HOOK_TIMEOUT", "600"))  # 10 minutes for permission requests
+
+
+def get_tmux_socket():
+    override = os.environ.get("AC_TMUX_SOCKET", "").strip()
+    if override:
+        return override
+
+    tmux_env = os.environ.get("TMUX", "")
+    if tmux_env:
+        return tmux_env.split(",")[0]
+
+    default_socket = f"/tmp/tmux-{os.getuid()}/default"
+    if os.path.exists(default_socket):
+        return default_socket
+
+    return ""
+
+
+def run_tmux(args):
+    tmux_bin = os.environ.get("AC_TMUX_BIN", "tmux")
+    cmd = [tmux_bin]
+    socket_path = get_tmux_socket()
+    if socket_path:
+        cmd.extend(["-S", socket_path])
+    cmd.extend(args)
+    try:
+        result = subprocess.run(
+            cmd,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except Exception:
+        return ""
+
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def get_ppid(pid):
+    try:
+        with open(f"/proc/{pid}/status", "r") as handle:
+            for line in handle:
+                if line.startswith("PPid:"):
+                    return int(line.split()[1])
+    except Exception:
+        return None
+    return None
+
+
+def get_ancestor_pids(pid, limit=25):
+    ancestors = set()
+    current = pid
+    for _ in range(limit):
+        ppid = get_ppid(current)
+        if not ppid or ppid <= 1:
+            break
+        ancestors.add(ppid)
+        current = ppid
+    return ancestors
+
+
+def read_cmdline(pid):
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as handle:
+            raw = handle.read().decode("utf-8", errors="ignore")
+            if not raw:
+                return ""
+            return " ".join(part for part in raw.split("\x00") if part)
+    except Exception:
+        return ""
+
+
+def detect_provider():
+    override = os.environ.get("AC_PROVIDER") or os.environ.get("AC_HOOK_PROVIDER")
+    if override:
+        return override
+
+    # Best-effort: inspect ancestor command lines
+    for pid in get_ancestor_pids(os.getpid()):
+        cmdline = read_cmdline(pid).lower()
+        if "codex" in cmdline:
+            return "codex"
+        if "claude" in cmdline:
+            return "claude"
+
+    return "claude"
+
+
+def get_tmux_pane():
+    """Best-effort resolution of current tmux pane."""
+    pane = os.environ.get("TMUX_PANE", "").strip()
+    if pane:
+        return pane
+
+    pane = run_tmux(["display-message", "-p", "#{pane_id}"])
+    if pane:
+        return pane
+
+    # Fallback: match pane_pid to our process tree
+    pane_list = run_tmux(["list-panes", "-a", "-F", "#{pane_id} #{pane_pid}"])
+    if not pane_list:
+        return ""
+
+    ancestors = get_ancestor_pids(os.getpid())
+    if not ancestors:
+        return ""
+
+    for line in pane_list.splitlines():
+        parts = line.strip().split()
+        if len(parts) != 2:
+            continue
+        pane_id, pane_pid = parts
+        try:
+            if int(pane_pid) in ancestors:
+                return pane_id
+        except ValueError:
+            continue
+
+    return ""
+
+
+def get_session_id():
+    """Get AC session ID from environment (set when spawned by agentd)."""
+    return os.environ.get("AC_SESSION_ID", "")
+
+
+def main():
+    provider = detect_provider()
+    agentd_url = os.environ.get("AC_AGENTD_URL", f"{DEFAULT_AGENTD_URL_BASE}/{provider}")
+
+    # Read hook input from stdin
+    try:
+        hook_input = json.load(sys.stdin)
+    except json.JSONDecodeError as e:
+        print(f"Error parsing hook input: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Build metadata
+    meta = {
+        "tmux_pane": get_tmux_pane(),
+        "pwd": os.getcwd(),
+        "ac_session_id": get_session_id(),
+        "hook_pid": os.getpid(),
+        "provider": provider,
+    }
+
+    # Build payload
+    payload = {
+        "hook": hook_input,
+        "meta": meta,
+    }
+
+    # Send to agentd
+    try:
+        req = urllib.request.Request(
+            agentd_url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as response:
+            status = response.status
+
+            # For permission requests, agentd may return a decision
+            if status == 200:
+                response_data = response.read()
+                if response_data:
+                    try:
+                        decision = json.loads(response_data)
+                        # Output decision for Claude to read
+                        print(json.dumps(decision))
+                        return
+                    except json.JSONDecodeError:
+                        pass
+
+            # No decision or 204 No Content - return empty
+            return
+
+    except urllib.error.URLError as e:
+        # If agentd is not running, log but don't fail
+        print(f"Warning: Could not reach agentd: {e}", file=sys.stderr)
+        return
+    except TimeoutError:
+        print("Warning: Timeout waiting for agentd response", file=sys.stderr)
+        return
+
+
+if __name__ == "__main__":
+    main()

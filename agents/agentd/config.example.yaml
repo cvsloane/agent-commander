@@ -1,0 +1,60 @@
+# agentd configuration example
+# Copy to /etc/agentd/config.yaml
+
+host:
+  id: "REPLACE-WITH-UUID"  # Generate with: uuidgen
+  name: "devbox"
+
+control_plane:
+  ws_url: "wss://agentcommander.example/v1/agent/connect"
+  token: "ac_agent_REPLACE_WITH_TOKEN" # Or set AGENTD_CONTROL_PLANE_TOKEN
+  reconnect_backoff_ms: [250, 500, 1000, 2000, 5000]
+
+tmux:
+  bin: "/usr/bin/tmux"
+  socket: ""  # Leave empty for default (if you use -L, set /tmp/tmux-UID/<label>)
+  poll_interval_ms: 2000
+  snapshot_lines: 200
+  snapshot_interval_ms: 2000
+  snapshot_max_bytes: 65536
+  option_session_id: "@ac_session_id"
+
+spawn:
+  tmux_session_name: "agents"
+  default_shell: "/bin/bash"
+  worktrees_root: "/home/me/repos/.worktrees"
+
+security:
+  allow_send_input: true
+  allow_kill: true
+  allow_spawn: true
+  allow_console_stream: true
+
+providers:
+  claude:
+    hooks_http_listen: "127.0.0.1:7777"
+    permission_strategy: "both"  # hook, keystroke, or both
+    approval_allow_keys: ["y", "Enter"]
+    approval_deny_keys: ["n", "Enter"]
+    # usage_command: "claude /usage"
+    # usage_interval_ms: 300000
+    # usage_parse_json: false
+    # usage_session_name: "claude-usage"
+    # usage_idle_ms: 15000
+  codex:
+    exec_path: "/usr/local/bin/codex"
+    job_tmp_root: "/home/me/.agentcommander/jobs"
+    approval_allow_keys: ["y", "Enter"]
+    approval_deny_keys: ["n", "Enter"]
+    # usage_command: "codex /status"
+    # usage_interval_ms: 300000
+    # usage_parse_json: false
+  gemini:
+    # stats_command: "/stats session"
+    # stats_interval_ms: 300000
+    # stats_idle_ms: 15000
+    # stats_session_name: "gemini-stats"  # Only query sessions with this name
+
+storage:
+  state_dir: "/var/lib/agentd"
+  outbound_queue_max: 50000

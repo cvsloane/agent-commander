@@ -1,0 +1,60 @@
+services:
+  control-plane:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.control-plane.base
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      HOST: "0.0.0.0"
+      PORT: "8080"
+    restart: always
+    networks:
+      - coolify
+      - agent-commander
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=coolify"
+      - "traefik.http.routers.ac-api.rule=Host(`${DOMAIN}`) && (PathPrefix(`/v1`) || Path(`/health`))"
+      - "traefik.http.routers.ac-api.entrypoints=https"
+      - "traefik.http.routers.ac-api.tls=true"
+      - "traefik.http.routers.ac-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.ac-api.priority=100"
+      - "traefik.http.services.ac-api.loadbalancer.server.port=8080"
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.dashboard.base
+    environment:
+      NEXTAUTH_URL: ${NEXTAUTH_URL}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      CONTROL_PLANE_JWT_SECRET: ${CONTROL_PLANE_JWT_SECRET}
+      ADMIN_EMAILS: ${ADMIN_EMAILS}
+      ALLOWED_EMAILS: ${ALLOWED_EMAILS}
+      ACCESS_SECRET: ${ACCESS_SECRET}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      NEXT_PUBLIC_CONTROL_PLANE_URL: ${NEXT_PUBLIC_CONTROL_PLANE_URL:-}
+      NEXT_PUBLIC_CONTROL_PLANE_WS_URL: ${NEXT_PUBLIC_CONTROL_PLANE_WS_URL:-}
+    depends_on:
+      - control-plane
+    restart: always
+    networks:
+      - coolify
+      - agent-commander
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=coolify"
+      - "traefik.http.routers.ac-dashboard.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.ac-dashboard.entrypoints=https"
+      - "traefik.http.routers.ac-dashboard.tls=true"
+      - "traefik.http.routers.ac-dashboard.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.ac-dashboard.priority=50"
+      - "traefik.http.services.ac-dashboard.loadbalancer.server.port=3000"
+
+networks:
+  coolify:
+    external: true
+  agent-commander:
+    driver: bridge

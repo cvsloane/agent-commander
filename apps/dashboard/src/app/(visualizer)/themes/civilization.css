@@ -1,0 +1,1520 @@
+/* Civilization Theme - Strategic Map Aesthetic */
+/* Gold/bronze/amber palette with parchment backgrounds */
+
+[data-visualizer-theme="civilization"] .visualizer-root {
+  background: var(--viz-bg-primary);
+  color: var(--viz-text-primary);
+  font-family: var(--viz-font-sans);
+}
+
+/* Theme root layout */
+.civ-theme-root {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* Loading state */
+.civ-loading {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.civ-loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: var(--viz-text-secondary);
+}
+
+.civ-loading-icon {
+  font-size: 48px;
+  animation: civ-pulse 2s ease-in-out infinite;
+}
+
+.civ-loading-text {
+  font-size: 14px;
+}
+
+@keyframes civ-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(0.95); }
+}
+
+/* Main content area */
+.civ-main-area {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+/* Map container and placeholder */
+.civ-map-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.civ-map-placeholder {
+  text-align: center;
+  padding: 32px;
+}
+
+.civ-placeholder-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  color: var(--viz-text-secondary);
+}
+
+.civ-placeholder-icon {
+  font-size: 64px;
+  opacity: 0.6;
+}
+
+.civ-placeholder-content h2 {
+  color: var(--viz-accent-primary);
+  font-size: 24px;
+}
+
+.civ-placeholder-content p {
+  color: var(--viz-text-muted);
+}
+
+.civ-placeholder-features {
+  display: flex;
+  gap: 24px;
+  margin-top: 24px;
+}
+
+.civ-feature {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  background: var(--viz-bg-tertiary);
+  border: 1px solid var(--viz-border-subtle);
+  border-radius: var(--viz-border-radius);
+  min-width: 120px;
+}
+
+.civ-feature span:first-child {
+  font-size: 28px;
+}
+
+.civ-feature span:last-child {
+  font-size: 12px;
+  color: var(--viz-text-muted);
+}
+
+/* Sidebar */
+.civ-sidebar {
+  width: 280px;
+  background: var(--viz-bg-secondary);
+  border-left: 1px solid var(--viz-border-subtle);
+  display: flex;
+  flex-direction: column;
+}
+
+.civ-sidebar-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--viz-border-subtle);
+}
+
+.civ-sidebar-header h3 {
+  font-size: 14px;
+  color: var(--viz-accent-primary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* Territory list */
+.civ-territory-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.civ-no-territories {
+  text-align: center;
+  padding: 24px;
+  color: var(--viz-text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.civ-hint {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* Parchment texture overlay (optional, applied via pseudo-element) */
+[data-visualizer-theme="civilization"] .visualizer-root::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 20% 30%, rgba(212, 175, 55, 0.03) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 70%, rgba(205, 127, 50, 0.03) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Top bar - resource counters */
+.civ-top-bar {
+  display: flex;
+  gap: 16px;
+  padding: 12px 16px;
+  background: linear-gradient(180deg, var(--viz-bg-secondary) 0%, var(--viz-bg-primary) 100%);
+  border-bottom: 2px solid var(--viz-border-default);
+}
+
+.civ-resource-counter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--viz-bg-tertiary);
+  border: 1px solid var(--viz-border-subtle);
+  border-radius: 6px;
+}
+
+.civ-resource-icon {
+  font-size: 20px;
+}
+
+.civ-resource-counter > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.civ-resource-value {
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  transition: transform var(--viz-duration-instant) var(--viz-easing-out-back);
+}
+
+/* Animate resource value changes */
+.civ-resource-value.civ-updating {
+  animation: civ-value-bounce var(--viz-duration-fast) var(--viz-easing-out-back);
+}
+
+@keyframes civ-value-bounce {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+.civ-resource-label {
+  font-size: 10px;
+  color: var(--viz-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Resource colors */
+.civ-resource-gold .civ-resource-value { color: var(--viz-resource-gold); }
+.civ-resource-science .civ-resource-value { color: var(--viz-resource-science); }
+.civ-resource-production .civ-resource-value { color: var(--viz-resource-production); }
+.civ-resource-culture .civ-resource-value { color: var(--viz-resource-culture); }
+
+/* Advisor panel */
+.civ-advisor-panel {
+  position: absolute;
+  bottom: 120px;
+  left: 16px;
+  width: 280px;
+  background: var(--viz-bg-surface);
+  border: 2px solid var(--viz-border-default);
+  border-radius: var(--viz-border-radius);
+  overflow: hidden;
+  animation: civ-advisor-enter var(--viz-duration-normal) var(--viz-easing-smooth);
+}
+
+@keyframes civ-advisor-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.civ-advisor-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: linear-gradient(90deg, var(--viz-accent-tertiary) 0%, var(--viz-bg-tertiary) 100%);
+  border-bottom: 1px solid var(--viz-border-subtle);
+}
+
+.civ-advisor-portrait {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--viz-bg-primary);
+  border: 2px solid var(--viz-accent-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+}
+
+.civ-advisor-title {
+  flex: 1;
+}
+
+.civ-advisor-name {
+  font-weight: 600;
+  color: var(--viz-text-primary);
+}
+
+.civ-advisor-role {
+  font-size: 12px;
+  color: var(--viz-text-muted);
+}
+
+.civ-advisor-body {
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--viz-text-secondary);
+  animation: civ-advisor-message var(--viz-duration-normal) var(--viz-easing-smooth);
+}
+
+@keyframes civ-advisor-message {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Notification banner (ribbon style) */
+.civ-notification {
+  position: relative;
+  padding: 12px 20px;
+  margin: 8px 16px;
+  background: linear-gradient(135deg, var(--viz-bg-tertiary) 0%, var(--viz-bg-secondary) 100%);
+  border: 1px solid var(--viz-border-default);
+  border-left: 4px solid var(--viz-accent-primary);
+  border-radius: 0 var(--viz-border-radius) var(--viz-border-radius) 0;
+  animation: viz-slideIn var(--viz-transition-normal) ease-out;
+}
+
+.civ-notification-title {
+  font-weight: 600;
+  color: var(--viz-accent-primary);
+  margin-bottom: 4px;
+}
+
+.civ-notification-body {
+  font-size: 13px;
+  color: var(--viz-text-secondary);
+}
+
+/* Session territory card */
+.civ-territory-card {
+  background: var(--viz-bg-surface);
+  border: 2px solid var(--viz-border-default);
+  border-radius: var(--viz-border-radius);
+  padding: 12px;
+  cursor: pointer;
+  transition: transform var(--viz-duration-fast) var(--viz-easing-bounce),
+              border-color var(--viz-duration-fast) var(--viz-easing-smooth),
+              box-shadow var(--viz-duration-fast) var(--viz-easing-smooth);
+  text-align: left;
+}
+
+.civ-territory-card:hover {
+  border-color: var(--viz-accent-primary);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.civ-territory-card:active {
+  transform: translateY(0);
+}
+
+.civ-territory-card.selected {
+  border-color: var(--viz-accent-primary);
+  box-shadow: 0 0 16px var(--viz-accent-subtle), 0 4px 12px rgba(0, 0, 0, 0.3);
+  transform: scale(1.02);
+  animation: civ-card-select var(--viz-duration-normal) var(--viz-easing-bounce);
+}
+
+@keyframes civ-card-select {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+  100% { transform: scale(1.02); }
+}
+
+/* Focused territory card for keyboard navigation */
+.civ-territory-card.focused {
+  outline: 2px dashed var(--viz-accent-primary);
+  outline-offset: 2px;
+  border-color: var(--viz-accent-secondary);
+}
+
+.civ-territory-name {
+  font-weight: 600;
+  color: var(--viz-text-primary);
+  margin-bottom: 6px;
+}
+
+.civ-territory-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--viz-text-muted);
+}
+
+.civ-territory-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.civ-territory-status-dot.idle { background: var(--viz-status-idle); }
+.civ-territory-status-dot.working { background: var(--viz-status-working); }
+.civ-territory-status-dot.waiting { background: var(--viz-status-waiting); }
+.civ-territory-status-dot.error { background: var(--viz-status-error); }
+
+/* Hex map terrain (for 2D/3D map view) */
+.civ-hex-terrain {
+  fill: var(--viz-bg-tertiary);
+  stroke: var(--viz-border-subtle);
+  stroke-width: 1;
+  transition: fill var(--viz-transition-fast);
+}
+
+.civ-hex-terrain:hover {
+  fill: var(--viz-bg-secondary);
+}
+
+.civ-hex-terrain.claimed {
+  stroke: var(--viz-accent-primary);
+  stroke-width: 2;
+}
+
+/* Minimap */
+.civ-minimap {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  width: 200px;
+  height: 150px;
+  background: var(--viz-bg-surface);
+  border: 2px solid var(--viz-border-default);
+  border-radius: var(--viz-border-radius);
+  overflow: hidden;
+}
+
+.civ-minimap-viewport {
+  stroke: var(--viz-accent-primary);
+  stroke-width: 2;
+  fill: none;
+}
+
+.civ-minimap svg {
+  width: 100%;
+  height: 100%;
+}
+
+.civ-minimap-marker {
+  transition: fill var(--viz-duration-fast) var(--viz-easing-smooth),
+              transform var(--viz-duration-fast) var(--viz-easing-bounce);
+  cursor: pointer;
+  transform-origin: center;
+}
+
+.civ-minimap-marker:hover {
+  transform: scale(1.5);
+  filter: drop-shadow(0 0 4px currentColor);
+}
+
+.civ-minimap-marker--pulse {
+  animation: civ-pulse 1.5s ease-in-out infinite;
+}
+
+.civ-minimap-selection {
+  animation: civ-pulse 1s ease-in-out infinite;
+}
+
+/* Map scene */
+.civ-map-scene {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+}
+
+.civ-map-scene:active {
+  cursor: grabbing;
+}
+
+.civ-map-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.civ-hex-grid polygon {
+  transition: fill var(--viz-transition-fast);
+}
+
+/* Territory styles */
+.civ-territory {
+  cursor: pointer;
+  transition: filter var(--viz-duration-fast) var(--viz-easing-smooth);
+}
+
+.civ-territory:hover {
+  filter: drop-shadow(0 0 8px var(--viz-accent-subtle));
+}
+
+.civ-territory-hex {
+  fill: var(--viz-bg-secondary);
+  stroke: var(--viz-border-default);
+  stroke-width: 2;
+  transition: fill var(--viz-duration-fast) var(--viz-easing-smooth),
+              stroke var(--viz-duration-fast) var(--viz-easing-smooth),
+              stroke-width var(--viz-duration-fast);
+}
+
+.civ-territory:hover .civ-territory-hex {
+  fill: var(--viz-bg-tertiary);
+  stroke: var(--viz-accent-secondary);
+}
+
+.civ-territory--selected {
+  filter: drop-shadow(0 0 12px var(--viz-accent-primary));
+  animation: civ-territory-select var(--viz-duration-normal) var(--viz-easing-bounce);
+}
+
+.civ-territory--selected .civ-territory-hex {
+  stroke: var(--viz-accent-primary);
+  stroke-width: 3;
+}
+
+@keyframes civ-territory-select {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+/* Focused territory for keyboard navigation */
+.civ-territory--focused {
+  outline: none;
+}
+
+.civ-territory--focused .civ-territory-hex {
+  stroke: var(--viz-accent-primary);
+  stroke-width: 3;
+  stroke-dasharray: 4 2;
+  animation: civ-focus-pulse 1s ease-in-out infinite;
+}
+
+@keyframes civ-focus-pulse {
+  0%, 100% { stroke-opacity: 1; }
+  50% { stroke-opacity: 0.5; }
+}
+
+.civ-territory--idle .civ-territory-hex {
+  fill: rgba(107, 147, 214, 0.15);
+}
+
+.civ-territory--working .civ-territory-hex {
+  fill: rgba(224, 112, 32, 0.2);
+}
+
+.civ-territory--waiting .civ-territory-hex {
+  fill: rgba(155, 89, 182, 0.2);
+}
+
+.civ-territory--error .civ-territory-hex {
+  fill: rgba(192, 57, 43, 0.2);
+}
+
+.civ-territory-icon {
+  font-size: 24px;
+  pointer-events: none;
+}
+
+.civ-territory-status-indicator {
+  transition: fill var(--viz-transition-fast);
+}
+
+.civ-territory-status-indicator--idle {
+  fill: var(--viz-status-idle);
+}
+
+.civ-territory-status-indicator--working {
+  fill: var(--viz-status-working);
+  animation: civ-pulse 1s ease-in-out infinite;
+}
+
+.civ-territory-status-indicator--waiting {
+  fill: var(--viz-status-waiting);
+  animation: civ-pulse 1.5s ease-in-out infinite;
+}
+
+.civ-territory-status-indicator--error {
+  fill: var(--viz-status-error);
+}
+
+.civ-territory-label {
+  font-size: 10px;
+  fill: var(--viz-text-primary);
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+/* Map controls */
+.civ-map-controls {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.civ-map-control-btn {
+  width: 36px;
+  height: 36px;
+  background: var(--viz-bg-surface);
+  border: 1px solid var(--viz-border-default);
+  border-radius: 6px;
+  color: var(--viz-text-primary);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--viz-transition-fast);
+}
+
+.civ-map-control-btn:hover {
+  background: var(--viz-bg-tertiary);
+  border-color: var(--viz-accent-primary);
+}
+
+/* Notification stack */
+.civ-notification-stack {
+  position: absolute;
+  top: 16px;
+  left: 60px;
+  right: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+  z-index: var(--viz-z-overlay);
+}
+
+.civ-notification {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--viz-bg-surface);
+  border: 1px solid var(--viz-border-default);
+  border-left: 4px solid var(--viz-accent-primary);
+  border-radius: 0 var(--viz-border-radius) var(--viz-border-radius) 0;
+  animation: civ-notification-slide 0.3s ease-out;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+@keyframes civ-notification-slide {
+  0% {
+    opacity: 0;
+    transform: translateX(-20px) scale(0.95);
+  }
+  50% {
+    transform: translateX(4px) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+.civ-notification--info {
+  border-left-color: var(--viz-resource-science);
+}
+
+.civ-notification--success {
+  border-left-color: var(--viz-status-success);
+}
+
+.civ-notification--warning {
+  border-left-color: var(--viz-status-working);
+}
+
+.civ-notification--error {
+  border-left-color: var(--viz-status-error);
+}
+
+.civ-notification-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--viz-bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.civ-notification-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.civ-notification-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--viz-text-primary);
+  margin-bottom: 2px;
+}
+
+.civ-notification-body {
+  font-size: 12px;
+  color: var(--viz-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.civ-notification-dismiss {
+  background: none;
+  border: none;
+  color: var(--viz-text-muted);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  opacity: 0.6;
+  transition: opacity var(--viz-transition-fast);
+}
+
+.civ-notification-dismiss:hover {
+  opacity: 1;
+}
+
+/* Territory list enhancements */
+.civ-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.civ-territory-count {
+  background: var(--viz-accent-tertiary);
+  color: var(--viz-text-primary);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.civ-territory-group {
+  margin-bottom: 16px;
+}
+
+.civ-territory-group:last-child {
+  margin-bottom: 0;
+}
+
+.civ-territory-group-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--viz-text-muted);
+  padding: 4px 0;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--viz-border-subtle);
+}
+
+.civ-territory-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.civ-territory-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.civ-territory-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.civ-territory-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.civ-territory-approval-flag {
+  font-size: 16px;
+  animation: civ-pulse 1s ease-in-out infinite;
+}
+
+/* Advisor panel enhancements */
+.civ-advisor-session-info {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--viz-border-subtle);
+}
+
+.civ-advisor-session-name {
+  font-weight: 600;
+  color: var(--viz-accent-primary);
+  margin-bottom: 4px;
+}
+
+.civ-advisor-git-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--viz-text-muted);
+}
+
+.civ-advisor-branch-icon {
+  opacity: 0.7;
+}
+
+.civ-advisor-action {
+  margin-top: 12px;
+  padding: 8px 16px;
+  background: var(--viz-accent-tertiary);
+  border: 1px solid var(--viz-accent-primary);
+  border-radius: 6px;
+  color: var(--viz-text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--viz-transition-fast);
+}
+
+.civ-advisor-action:hover {
+  background: var(--viz-accent-secondary);
+}
+
+/* Command bar overrides */
+.civ-theme-root #prompt-container {
+  background: var(--viz-bg-secondary);
+  border-top: 2px solid var(--viz-border-default);
+}
+
+.civ-theme-root #prompt-input {
+  background: var(--viz-bg-tertiary);
+  border-color: var(--viz-border-subtle);
+  color: var(--viz-text-primary);
+}
+
+.civ-theme-root #prompt-input:focus {
+  border-color: var(--viz-accent-primary);
+  box-shadow: 0 0 0 3px var(--viz-accent-subtle);
+}
+
+.civ-theme-root #prompt-submit {
+  background: var(--viz-bg-tertiary);
+  border-color: var(--viz-border-default);
+  color: var(--viz-text-primary);
+}
+
+.civ-theme-root #prompt-submit:hover {
+  background: rgba(212, 175, 55, 0.15);
+  border-color: var(--viz-accent-primary);
+}
+
+.civ-theme-root #prompt-cancel {
+  background: rgba(192, 57, 43, 0.2);
+  border-color: rgba(192, 57, 43, 0.4);
+  color: var(--viz-text-primary);
+}
+
+.civ-theme-root .send-toggle input[type="checkbox"] {
+  accent-color: var(--viz-accent-primary);
+}
+
+.civ-theme-root #prompt-target {
+  background: rgba(212, 175, 55, 0.15);
+}
+
+/* ===========================================
+   MOBILE RESPONSIVE IMPROVEMENTS
+   =========================================== */
+
+/* Tablet breakpoint */
+@media (max-width: 1024px) {
+  .civ-sidebar {
+    width: 240px;
+  }
+
+  .civ-advisor-panel {
+    width: 240px;
+  }
+
+  .civ-minimap {
+    width: 160px;
+    height: 120px;
+  }
+
+  .civ-resource-counter {
+    padding: 4px 10px;
+  }
+
+  .civ-resource-value {
+    font-size: 14px;
+  }
+
+  .civ-resource-label {
+    font-size: 9px;
+  }
+}
+
+/* Mobile breakpoint */
+@media (max-width: 768px) {
+  .civ-theme-root {
+    flex-direction: column;
+  }
+
+  /* Top bar - icon-only on mobile */
+  .civ-top-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+    justify-content: center;
+  }
+
+  .civ-resource-counter {
+    padding: 6px 10px;
+    min-width: 0;
+    flex: 0 0 auto;
+  }
+
+  .civ-resource-label {
+    display: none;
+  }
+
+  .civ-resource-icon {
+    font-size: 18px;
+  }
+
+  /* Main area - stacked layout */
+  .civ-main-area {
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* Map container */
+  .civ-map-scene {
+    flex: 1;
+    min-height: 200px;
+  }
+
+  /* Sidebar as bottom sheet */
+  .civ-sidebar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-height: 50vh;
+    border-left: none;
+    border-top: 2px solid var(--viz-border-default);
+    border-radius: var(--viz-border-radius-lg) var(--viz-border-radius-lg) 0 0;
+    transform: translateY(calc(100% - 48px));
+    transition: transform var(--viz-duration-normal) var(--viz-easing-smooth);
+    z-index: var(--viz-z-panel);
+    background: var(--viz-bg-surface);
+  }
+
+  .civ-sidebar.open {
+    transform: translateY(0);
+  }
+
+  .civ-sidebar-header {
+    cursor: pointer;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--viz-border-subtle);
+  }
+
+  /* Add drag handle indicator */
+  .civ-sidebar-header::before {
+    content: '';
+    display: block;
+    width: 40px;
+    height: 4px;
+    background: var(--viz-border-default);
+    border-radius: 2px;
+    margin: 0 auto 8px;
+  }
+
+  .civ-territory-list {
+    max-height: calc(50vh - 60px);
+    overflow-y: auto;
+  }
+
+  /* Advisor panel - hide on mobile, show as modal */
+  .civ-advisor-panel {
+    display: none;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: calc(100% - 32px);
+    max-width: 320px;
+    bottom: auto;
+    z-index: var(--viz-z-modal);
+    animation: civ-modal-enter var(--viz-duration-normal) var(--viz-easing-bounce);
+  }
+
+  @keyframes civ-modal-enter {
+    from {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.9);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+  }
+
+  .civ-advisor-panel.visible {
+    display: block;
+  }
+
+  /* Minimap - floating action button on mobile */
+  .civ-minimap {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    bottom: 60px;
+    right: 12px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all var(--viz-duration-normal) var(--viz-easing-smooth);
+  }
+
+  .civ-minimap.expanded {
+    width: 200px;
+    height: 150px;
+    border-radius: var(--viz-border-radius);
+    bottom: 60px;
+  }
+
+  .civ-minimap svg {
+    opacity: 0;
+  }
+
+  .civ-minimap.expanded svg {
+    opacity: 1;
+  }
+
+  /* Show a map icon when collapsed */
+  .civ-minimap::before {
+    content: '🗺️';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 24px;
+  }
+
+  .civ-minimap.expanded::before {
+    display: none;
+  }
+
+  /* Map controls - adjust position */
+  .civ-map-controls {
+    top: 8px;
+    left: 8px;
+  }
+
+  .civ-map-control-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Notification stack - full width */
+  .civ-notification-stack {
+    left: 8px;
+    right: 8px;
+    top: 8px;
+  }
+
+  /* Territory cards - ensure touch targets */
+  .civ-territory-card {
+    min-height: 56px;
+    padding: 12px;
+  }
+}
+
+/* ===========================================
+   VISUAL POLISH - PHASE 8.2
+   =========================================== */
+
+/* Fog-of-war effect for idle sessions */
+.civ-territory--idle {
+  opacity: 0.7;
+}
+
+.civ-territory--idle .civ-territory-hex {
+  fill: rgba(107, 147, 214, 0.1);
+  filter: saturate(0.5);
+}
+
+.civ-territory--idle::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 40%,
+    rgba(26, 26, 26, 0.4) 100%
+  );
+  pointer-events: none;
+}
+
+/* Fog overlay for unexplored areas */
+.civ-fog-overlay {
+  fill: url(#civ-fog-pattern);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Fog pattern definition (add to SVG defs) */
+.civ-map-svg defs .civ-fog-gradient {
+  --fog-color: rgba(26, 26, 26, 0.8);
+}
+
+/* Turn notification banner for waiting sessions */
+.civ-turn-banner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 16px 32px;
+  background: linear-gradient(
+    135deg,
+    rgba(212, 175, 55, 0.95) 0%,
+    rgba(205, 127, 50, 0.95) 100%
+  );
+  border: 3px solid var(--viz-accent-primary);
+  border-radius: var(--viz-border-radius);
+  box-shadow:
+    0 0 30px rgba(212, 175, 55, 0.5),
+    0 8px 32px rgba(0, 0, 0, 0.5);
+  text-align: center;
+  z-index: var(--viz-z-overlay);
+  animation: civ-turn-banner-enter 0.5s var(--viz-easing-bounce);
+}
+
+@keyframes civ-turn-banner-enter {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.8);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.civ-turn-banner-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--viz-bg-primary);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin-bottom: 4px;
+}
+
+.civ-turn-banner-session {
+  font-size: 14px;
+  color: rgba(26, 26, 26, 0.8);
+}
+
+.civ-turn-banner-action {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 8px 20px;
+  background: var(--viz-bg-primary);
+  border: 2px solid var(--viz-bg-secondary);
+  border-radius: 6px;
+  color: var(--viz-accent-primary);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all var(--viz-duration-fast) var(--viz-easing-smooth);
+}
+
+.civ-turn-banner-action:hover {
+  background: var(--viz-bg-secondary);
+  transform: scale(1.05);
+}
+
+/* Advisor panel speech bubble tail */
+.civ-advisor-panel::after {
+  content: '';
+  position: absolute;
+  bottom: -12px;
+  left: 40px;
+  width: 0;
+  height: 0;
+  border-left: 12px solid transparent;
+  border-right: 12px solid transparent;
+  border-top: 12px solid var(--viz-bg-surface);
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.3));
+}
+
+.civ-advisor-panel::before {
+  content: '';
+  position: absolute;
+  bottom: -16px;
+  left: 38px;
+  width: 0;
+  height: 0;
+  border-left: 14px solid transparent;
+  border-right: 14px solid transparent;
+  border-top: 14px solid var(--viz-border-default);
+}
+
+/* Terrain variety textures */
+.civ-terrain--plains .civ-territory-hex {
+  fill: url(#civ-terrain-plains);
+}
+
+.civ-terrain--hills .civ-territory-hex {
+  fill: url(#civ-terrain-hills);
+}
+
+.civ-terrain--forest .civ-territory-hex {
+  fill: url(#civ-terrain-forest);
+}
+
+.civ-terrain--desert .civ-territory-hex {
+  fill: url(#civ-terrain-desert);
+}
+
+.civ-terrain--coast .civ-territory-hex {
+  fill: url(#civ-terrain-coast);
+}
+
+/* Inline terrain color fallbacks */
+.civ-terrain--plains .civ-territory-hex {
+  fill: rgba(139, 180, 75, 0.25);
+}
+
+.civ-terrain--hills .civ-territory-hex {
+  fill: rgba(139, 119, 101, 0.25);
+}
+
+.civ-terrain--forest .civ-territory-hex {
+  fill: rgba(34, 85, 51, 0.3);
+}
+
+.civ-terrain--desert .civ-territory-hex {
+  fill: rgba(210, 180, 140, 0.25);
+}
+
+.civ-terrain--coast .civ-territory-hex {
+  fill: rgba(70, 130, 180, 0.2);
+}
+
+/* Provider-based territory glow colors */
+.civ-territory--provider-anthropic .civ-territory-hex {
+  stroke: #d97706;
+}
+
+.civ-territory--provider-anthropic.civ-territory--selected {
+  filter: drop-shadow(0 0 16px rgba(217, 119, 6, 0.6));
+}
+
+.civ-territory--provider-openai .civ-territory-hex {
+  stroke: #10b981;
+}
+
+.civ-territory--provider-openai.civ-territory--selected {
+  filter: drop-shadow(0 0 16px rgba(16, 185, 129, 0.6));
+}
+
+.civ-territory--provider-google .civ-territory-hex {
+  stroke: #4285f4;
+}
+
+.civ-territory--provider-google.civ-territory--selected {
+  filter: drop-shadow(0 0 16px rgba(66, 133, 244, 0.6));
+}
+
+.civ-territory--provider-local .civ-territory-hex {
+  stroke: #8b5cf6;
+}
+
+.civ-territory--provider-local.civ-territory--selected {
+  filter: drop-shadow(0 0 16px rgba(139, 92, 246, 0.6));
+}
+
+.civ-territory--provider-other .civ-territory-hex {
+  stroke: #6b7280;
+}
+
+.civ-territory--provider-other.civ-territory--selected {
+  filter: drop-shadow(0 0 16px rgba(107, 114, 128, 0.6));
+}
+
+/* Improvement icons on active hexes */
+.civ-territory-improvement {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 20px;
+  height: 20px;
+  background: var(--viz-bg-surface);
+  border: 2px solid var(--viz-border-default);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  pointer-events: none;
+  animation: civ-improvement-pop 0.3s var(--viz-easing-bounce);
+}
+
+@keyframes civ-improvement-pop {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.civ-territory-improvement--tool {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: var(--viz-status-working);
+}
+
+.civ-territory-improvement--read {
+  background: rgba(107, 147, 214, 0.2);
+  border-color: var(--viz-status-idle);
+}
+
+.civ-territory-improvement--write {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: var(--viz-status-success);
+}
+
+.civ-territory-improvement--bash {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: #8b5cf6;
+}
+
+/* SVG improvement icons on hex territories */
+.civ-territory-improvement-icon {
+  transform-origin: center;
+  opacity: 0.9;
+  animation: civ-icon-pulse 2s ease-in-out infinite;
+}
+
+@keyframes civ-icon-pulse {
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 0.6; }
+}
+
+.civ-territory--working .civ-territory-improvement-icon {
+  animation: civ-icon-working 1s ease-in-out infinite;
+}
+
+@keyframes civ-icon-working {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.8;
+  }
+}
+
+/* Territory card provider icons in sidebar */
+.civ-territory-provider-badge {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.civ-territory-provider-badge--anthropic {
+  background: rgba(217, 119, 6, 0.2);
+  border: 1px solid #d97706;
+}
+
+.civ-territory-provider-badge--openai {
+  background: rgba(16, 185, 129, 0.2);
+  border: 1px solid #10b981;
+}
+
+.civ-territory-provider-badge--google {
+  background: rgba(66, 133, 244, 0.2);
+  border: 1px solid #4285f4;
+}
+
+.civ-territory-provider-badge--local {
+  background: rgba(139, 92, 246, 0.2);
+  border: 1px solid #8b5cf6;
+}
+
+/* Parchment texture enhancement for panels */
+.civ-sidebar,
+.civ-advisor-panel,
+.civ-notification {
+  position: relative;
+}
+
+.civ-sidebar::before,
+.civ-advisor-panel .civ-advisor-body::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(212, 175, 55, 0.03) 0%, transparent 50%),
+    radial-gradient(ellipse at 70% 80%, rgba(205, 127, 50, 0.03) 0%, transparent 50%);
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* Age/wear effect on territory borders */
+.civ-territory-hex {
+  stroke-dasharray: none;
+}
+
+.civ-territory--aged .civ-territory-hex {
+  stroke-dasharray: 8 2 4 2;
+}
+
+/* Resource icon animations */
+.civ-resource-icon {
+  transition: transform var(--viz-duration-fast) var(--viz-easing-bounce);
+}
+
+.civ-resource-counter:hover .civ-resource-icon {
+  transform: scale(1.1);
+}
+
+.civ-resource-icon.civ-bouncing {
+  animation: civ-resource-bounce 0.4s var(--viz-easing-bounce);
+}
+
+@keyframes civ-resource-bounce {
+  0% { transform: scale(1) rotate(0deg); }
+  30% { transform: scale(1.2) rotate(-10deg); }
+  60% { transform: scale(0.9) rotate(5deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+/* Parchment scroll effect on sidebar scroll */
+.civ-territory-list {
+  background:
+    linear-gradient(to bottom, var(--viz-bg-secondary) 10%, transparent),
+    linear-gradient(to top, var(--viz-bg-secondary) 10%, transparent),
+    linear-gradient(to bottom, var(--viz-border-subtle), transparent 10%),
+    linear-gradient(to top, var(--viz-border-subtle), transparent 10%);
+  background-attachment: local, local, scroll, scroll;
+  background-size: 100% 30px, 100% 30px, 100% 8px, 100% 8px;
+  background-position: top, bottom, top, bottom;
+  background-repeat: no-repeat;
+}
+
+/* ===========================================
+   END VISUAL POLISH
+   =========================================== */
+
+/* Small mobile breakpoint */
+@media (max-width: 480px) {
+  .civ-top-bar {
+    padding: 6px 8px;
+    gap: 4px;
+  }
+
+  .civ-resource-counter {
+    padding: 4px 8px;
+  }
+
+  .civ-resource-icon {
+    font-size: 16px;
+  }
+
+  .civ-resource-value {
+    font-size: 12px;
+  }
+
+  .civ-map-scene {
+    min-height: 150px;
+  }
+
+  .civ-sidebar {
+    max-height: 60vh;
+  }
+
+  .civ-territory-list {
+    max-height: calc(60vh - 60px);
+  }
+
+  .civ-notification {
+    padding: 10px 12px;
+  }
+
+  .civ-notification-title {
+    font-size: 12px;
+  }
+
+  .civ-notification-body {
+    font-size: 11px;
+  }
+}

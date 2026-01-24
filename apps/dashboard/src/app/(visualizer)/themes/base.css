@@ -1,0 +1,956 @@
+/* Visualizer Base CSS Variables */
+/* Shared tokens used across all themes */
+
+:root {
+  /* Layout */
+  --viz-panel-gap: 1px;
+  --viz-border-radius: 8px;
+  --viz-border-radius-lg: 12px;
+
+  /* Typography */
+  --viz-font-mono: ui-monospace, 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', 'Droid Sans Mono', 'Source Code Pro', monospace;
+  --viz-font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  /* Animation durations - legacy (keep for compatibility) */
+  --viz-transition-fast: 150ms;
+  --viz-transition-normal: 250ms;
+  --viz-transition-slow: 400ms;
+
+  /* Animation durations - new standardized */
+  --viz-duration-instant: 100ms;
+  --viz-duration-fast: 150ms;
+  --viz-duration-normal: 300ms;
+  --viz-duration-slow: 500ms;
+
+  /* Easing functions */
+  --viz-easing-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+  --viz-easing-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --viz-easing-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  --viz-easing-out-back: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Z-index layers */
+  --viz-z-canvas: 1;
+  --viz-z-overlay: 10;
+  --viz-z-panel: 20;
+  --viz-z-modal: 100;
+  --viz-z-toast: 200;
+}
+
+/* Default/Botspace theme */
+[data-visualizer-theme="botspace"],
+:root {
+  /* Backgrounds */
+  --viz-bg-primary: #0a0a0a;
+  --viz-bg-secondary: #111111;
+  --viz-bg-tertiary: #1a1a1a;
+  --viz-bg-surface: rgba(20, 20, 25, 0.98);
+  --viz-bg-overlay: rgba(0, 0, 0, 0.6);
+
+  /* Text */
+  --viz-text-primary: #ffffff;
+  --viz-text-secondary: rgba(255, 255, 255, 0.7);
+  --viz-text-muted: rgba(255, 255, 255, 0.5);
+  --viz-text-disabled: rgba(255, 255, 255, 0.3);
+
+  /* Accent colors */
+  --viz-accent-primary: #a78bfa;
+  --viz-accent-secondary: #8b5cf6;
+  --viz-accent-tertiary: #7c3aed;
+  --viz-accent-subtle: rgba(167, 139, 250, 0.2);
+
+  /* Status colors */
+  --viz-status-idle: #4ade80;
+  --viz-status-working: #fbbf24;
+  --viz-status-waiting: #60a5fa;
+  --viz-status-error: #ef4444;
+  --viz-status-success: #22c55e;
+
+  /* Borders */
+  --viz-border-subtle: rgba(255, 255, 255, 0.1);
+  --viz-border-default: rgba(255, 255, 255, 0.15);
+  --viz-border-strong: rgba(255, 255, 255, 0.25);
+
+  /* Shadows */
+  --viz-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --viz-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+  --viz-shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
+
+  /* Tool-specific colors (station colors) */
+  --viz-tool-read: #60a5fa;
+  --viz-tool-write: #4ade80;
+  --viz-tool-edit: #fbbf24;
+  --viz-tool-bash: #f87171;
+  --viz-tool-search: #a78bfa;
+  --viz-tool-web: #2dd4bf;
+  --viz-tool-task: #f472b6;
+}
+
+/* Civilization theme (gold/bronze/amber on parchment) */
+[data-visualizer-theme="civilization"] {
+  /* Backgrounds */
+  --viz-bg-primary: #1a1510;
+  --viz-bg-secondary: #241d15;
+  --viz-bg-tertiary: #2d241a;
+  --viz-bg-surface: rgba(42, 35, 25, 0.98);
+  --viz-bg-overlay: rgba(20, 15, 10, 0.7);
+
+  /* Text */
+  --viz-text-primary: #f5e6c8;
+  --viz-text-secondary: rgba(245, 230, 200, 0.8);
+  --viz-text-muted: rgba(245, 230, 200, 0.6);
+  --viz-text-disabled: rgba(245, 230, 200, 0.35);
+
+  /* Accent colors (gold/bronze) */
+  --viz-accent-primary: #d4af37;
+  --viz-accent-secondary: #cd7f32;
+  --viz-accent-tertiary: #b8860b;
+  --viz-accent-subtle: rgba(212, 175, 55, 0.2);
+
+  /* Status colors (Civ-style) */
+  --viz-status-idle: #6b93d6;      /* Science blue */
+  --viz-status-working: #e07020;   /* Production orange */
+  --viz-status-waiting: #9b59b6;   /* Culture purple */
+  --viz-status-error: #c0392b;     /* Red */
+  --viz-status-success: #27ae60;   /* Green */
+
+  /* Borders */
+  --viz-border-subtle: rgba(212, 175, 55, 0.15);
+  --viz-border-default: rgba(212, 175, 55, 0.25);
+  --viz-border-strong: rgba(212, 175, 55, 0.4);
+
+  /* Shadows */
+  --viz-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --viz-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.5);
+  --viz-shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.6);
+
+  /* Resource-specific colors */
+  --viz-resource-gold: #f4e4ba;
+  --viz-resource-science: #6b93d6;
+  --viz-resource-production: #e07020;
+  --viz-resource-culture: #9b59b6;
+}
+
+/* Bridge Control theme (LCARS-style - orange/purple/blue on black) */
+[data-visualizer-theme="bridge-control"] {
+  /* Backgrounds */
+  --viz-bg-primary: #000000;
+  --viz-bg-secondary: #0a0a0a;
+  --viz-bg-tertiary: #111111;
+  --viz-bg-surface: rgba(10, 10, 10, 0.98);
+  --viz-bg-overlay: rgba(0, 0, 0, 0.8);
+
+  /* Text */
+  --viz-text-primary: #ffcc99;
+  --viz-text-secondary: rgba(255, 204, 153, 0.85);
+  --viz-text-muted: rgba(255, 204, 153, 0.6);
+  --viz-text-disabled: rgba(255, 204, 153, 0.35);
+
+  /* Accent colors (LCARS orange/purple) */
+  --viz-accent-primary: #ff9900;
+  --viz-accent-secondary: #cc99cc;
+  --viz-accent-tertiary: #9999ff;
+  --viz-accent-subtle: rgba(255, 153, 0, 0.2);
+
+  /* Status colors (LCARS-style) */
+  --viz-status-idle: #99cc99;      /* Green */
+  --viz-status-working: #ffcc66;   /* Yellow */
+  --viz-status-waiting: #9999ff;   /* Blue */
+  --viz-status-error: #cc6666;     /* Red */
+  --viz-status-success: #99cc99;   /* Green */
+
+  /* Borders */
+  --viz-border-subtle: rgba(255, 153, 0, 0.2);
+  --viz-border-default: rgba(255, 153, 0, 0.35);
+  --viz-border-strong: rgba(255, 153, 0, 0.5);
+
+  /* Shadows (minimal for LCARS) */
+  --viz-shadow-sm: none;
+  --viz-shadow-md: 0 0 8px rgba(255, 153, 0, 0.2);
+  --viz-shadow-lg: 0 0 16px rgba(255, 153, 0, 0.3);
+
+  /* LCARS-specific colors */
+  --viz-lcars-orange: #ff9900;
+  --viz-lcars-peach: #ffcc99;
+  --viz-lcars-purple: #cc99cc;
+  --viz-lcars-blue: #9999ff;
+  --viz-lcars-red-alert: #cc6666;
+}
+
+/* Common animations - shared across themes */
+@keyframes viz-fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes viz-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes viz-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes viz-slideIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes viz-slideInFromTop {
+  from { opacity: 0; transform: translateY(-20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes viz-slideInFromBottom {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes viz-scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes viz-bounceIn {
+  0% { opacity: 0; transform: scale(0.8); }
+  50% { transform: scale(1.05); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes viz-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes viz-countUp {
+  from { opacity: 0.5; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Staggered entrance animation helper classes */
+.viz-stagger-1 { animation-delay: 50ms; }
+.viz-stagger-2 { animation-delay: 100ms; }
+.viz-stagger-3 { animation-delay: 150ms; }
+.viz-stagger-4 { animation-delay: 200ms; }
+.viz-stagger-5 { animation-delay: 250ms; }
+.viz-stagger-6 { animation-delay: 300ms; }
+.viz-stagger-7 { animation-delay: 350ms; }
+.viz-stagger-8 { animation-delay: 400ms; }
+
+/* Typography reset - consistent heading/paragraph spacing */
+.visualizer-root h1,
+.visualizer-root h2,
+.visualizer-root h3,
+.visualizer-root h4,
+.visualizer-root h5,
+.visualizer-root h6 {
+  margin: 0;
+  padding: 0;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.visualizer-root p {
+  margin: 0;
+  padding: 0;
+  line-height: 1.5;
+}
+
+.visualizer-root h1 { font-size: 2rem; }
+.visualizer-root h2 { font-size: 1.5rem; }
+.visualizer-root h3 { font-size: 1.125rem; }
+.visualizer-root h4 { font-size: 1rem; }
+
+/* Button reset for theme buttons */
+.visualizer-root button {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+/* ============================================
+   FOCUS STATE SYSTEM - WCAG 2.2 Compliance
+   ============================================ */
+
+/* Standard focus ring for all focusable elements */
+.visualizer-root *:focus-visible {
+  outline: 2px solid var(--viz-accent-primary);
+  outline-offset: 2px;
+}
+
+/* Utility class for focusable elements */
+.viz-focusable {
+  cursor: pointer;
+}
+
+.viz-focusable:focus-visible {
+  outline: 2px solid var(--viz-accent-primary);
+  outline-offset: 2px;
+}
+
+/* High contrast focus for dark themes */
+[data-visualizer-theme="bridge-control"] .visualizer-root *:focus-visible {
+  outline-color: var(--viz-lcars-orange);
+  box-shadow: 0 0 0 4px rgba(255, 153, 0, 0.2);
+}
+
+[data-visualizer-theme="civilization"] .visualizer-root *:focus-visible {
+  outline-color: var(--viz-accent-primary);
+  box-shadow: 0 0 0 4px var(--viz-accent-subtle);
+}
+
+/* Remove default focus outline for buttons with custom styling */
+.visualizer-root button:focus {
+  outline: none;
+}
+
+.visualizer-root button:focus-visible {
+  outline: 2px solid var(--viz-accent-primary);
+  outline-offset: 2px;
+}
+
+/* Skip link for accessibility */
+.viz-skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  padding: 8px 16px;
+  background: var(--viz-bg-surface);
+  border: 2px solid var(--viz-accent-primary);
+  border-radius: var(--viz-border-radius);
+  color: var(--viz-text-primary);
+  z-index: calc(var(--viz-z-modal) + 10);
+  transition: top var(--viz-duration-fast) var(--viz-easing-smooth);
+}
+
+.viz-skip-link:focus {
+  top: 8px;
+}
+
+/* Keyboard navigation indicator */
+.viz-keyboard-focused {
+  outline: 2px dashed var(--viz-accent-primary);
+  outline-offset: 2px;
+}
+
+/* Screen reader only content */
+.viz-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ===========================================
+   SKELETON LOADING STATES
+   =========================================== */
+
+.viz-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--viz-bg-tertiary) 25%,
+    var(--viz-bg-secondary) 50%,
+    var(--viz-bg-tertiary) 75%
+  );
+  background-size: 200% 100%;
+  animation: viz-shimmer 1.5s ease-in-out infinite;
+  border-radius: 4px;
+}
+
+/* Skeleton list container */
+.viz-skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+/* Skeleton card (for sessions/territories) */
+.viz-skeleton-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--viz-bg-secondary);
+  border-radius: var(--viz-border-radius);
+  animation: viz-fadeIn var(--viz-duration-normal) var(--viz-easing-smooth) both;
+}
+
+.viz-skeleton-card--lcars {
+  border-radius: 50px;
+}
+
+.viz-skeleton-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.viz-skeleton-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.viz-skeleton-title {
+  height: 14px;
+  width: 70%;
+}
+
+.viz-skeleton-subtitle {
+  height: 10px;
+  width: 50%;
+}
+
+/* Activity feed skeleton */
+.viz-skeleton-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.viz-skeleton-feed-item {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  animation: viz-fadeIn var(--viz-duration-normal) var(--viz-easing-smooth) both;
+}
+
+.viz-skeleton-category {
+  width: 8px;
+  border-radius: 4px 0 0 4px;
+  background: var(--viz-accent-subtle);
+}
+
+.viz-skeleton-feed-content {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--viz-bg-secondary);
+  border-radius: 0 4px 4px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.viz-skeleton-tool {
+  height: 12px;
+  width: 40%;
+}
+
+.viz-skeleton-context {
+  height: 10px;
+  width: 60%;
+}
+
+.viz-skeleton-time {
+  width: 60px;
+  height: 32px;
+  margin-left: 8px;
+  align-self: center;
+}
+
+/* Metrics skeleton */
+.viz-skeleton-metrics {
+  display: flex;
+  gap: 12px;
+  padding: 8px 16px;
+}
+
+.viz-skeleton-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+  background: var(--viz-bg-secondary);
+  border-radius: 6px;
+  animation: viz-fadeIn var(--viz-duration-normal) var(--viz-easing-smooth) both;
+}
+
+.viz-skeleton-metric-value {
+  height: 24px;
+  width: 48px;
+}
+
+.viz-skeleton-metric-label {
+  height: 10px;
+  width: 40px;
+}
+
+/* Hex map skeleton */
+.viz-skeleton-hexmap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--viz-bg-primary);
+}
+
+.viz-skeleton-hexmap-svg {
+  width: 100%;
+  max-width: 400px;
+  height: auto;
+}
+
+.viz-skeleton-hex {
+  fill: var(--viz-bg-tertiary);
+  stroke: var(--viz-border-subtle);
+  stroke-width: 1;
+  animation: viz-pulse 2s ease-in-out infinite;
+}
+
+/* Territory list skeleton */
+.viz-skeleton-territories {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.viz-skeleton-group-title {
+  height: 12px;
+  width: 80px;
+  margin-bottom: 8px;
+}
+
+.viz-skeleton-territory {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--viz-bg-secondary);
+  border-radius: var(--viz-border-radius);
+  animation: viz-fadeIn var(--viz-duration-normal) var(--viz-easing-smooth) both;
+}
+
+.viz-skeleton-territory-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.viz-skeleton-territory-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.viz-skeleton-territory-name {
+  height: 14px;
+  width: 60%;
+}
+
+.viz-skeleton-territory-status {
+  height: 10px;
+  width: 40%;
+}
+
+/* Panel skeleton */
+.viz-skeleton-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: var(--viz-bg-secondary);
+  border-radius: var(--viz-border-radius);
+}
+
+.viz-skeleton-panel-header {
+  height: 16px;
+  width: 50%;
+}
+
+.viz-skeleton-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.viz-skeleton-line {
+  height: 12px;
+}
+
+/* ===========================================
+   ERROR STATES
+   =========================================== */
+
+/* Main error state container */
+.viz-error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 32px;
+  text-align: center;
+  background: var(--viz-bg-secondary);
+  border: 2px solid var(--viz-status-error);
+  border-radius: var(--viz-border-radius);
+  animation: viz-fadeIn var(--viz-duration-normal) var(--viz-easing-smooth);
+}
+
+.viz-error-icon {
+  font-size: 48px;
+  animation: viz-pulse 2s ease-in-out infinite;
+}
+
+.viz-error-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.viz-error-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--viz-status-error);
+  margin: 0;
+}
+
+.viz-error-message {
+  font-size: 14px;
+  color: var(--viz-text-secondary);
+  margin: 0;
+  max-width: 300px;
+}
+
+.viz-error-retry {
+  padding: 10px 20px;
+  background: var(--viz-status-error);
+  border: none;
+  border-radius: 6px;
+  color: var(--viz-text-primary);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: filter var(--viz-duration-fast) var(--viz-easing-smooth),
+              transform var(--viz-duration-fast) var(--viz-easing-bounce);
+}
+
+.viz-error-retry:hover {
+  filter: brightness(1.15);
+  transform: scale(1.02);
+}
+
+.viz-error-retry:active {
+  transform: scale(0.98);
+}
+
+/* Bridge Control theme error overrides */
+.viz-error-state--bridge-control {
+  border-radius: 12px;
+  border-width: 4px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  animation: lcars-alert-pulse 1s ease-in-out infinite, viz-fadeIn var(--viz-duration-normal) var(--viz-easing-smooth);
+}
+
+.viz-error-state--bridge-control .viz-error-retry {
+  border-radius: 50px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* Connection lost banner */
+.viz-connection-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(204, 102, 102, 0.15);
+  border: 1px solid var(--viz-status-error);
+  border-radius: var(--viz-border-radius);
+  animation: viz-slideInFromTop var(--viz-duration-normal) var(--viz-easing-smooth);
+}
+
+.viz-connection-icon {
+  font-size: 20px;
+}
+
+.viz-connection-content {
+  flex: 1;
+}
+
+.viz-connection-status {
+  font-weight: 600;
+  color: var(--viz-status-error);
+}
+
+.viz-connection-retry {
+  padding: 6px 12px;
+  background: var(--viz-status-error);
+  border: none;
+  border-radius: 4px;
+  color: var(--viz-text-primary);
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  transition: filter var(--viz-duration-fast);
+}
+
+.viz-connection-retry:hover {
+  filter: brightness(1.15);
+}
+
+.viz-connection-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--viz-status-error);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: viz-spin 1s linear infinite;
+}
+
+/* Inline error (for activity feed) */
+.viz-inline-error {
+  background: rgba(204, 102, 102, 0.1);
+  border: 1px solid var(--viz-status-error);
+  border-radius: var(--viz-border-radius);
+  overflow: hidden;
+}
+
+.viz-inline-error-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.viz-inline-error-icon {
+  font-size: 14px;
+}
+
+.viz-inline-error-message {
+  flex: 1;
+  font-size: 13px;
+  color: var(--viz-status-error);
+}
+
+.viz-inline-error-toggle {
+  background: none;
+  border: none;
+  color: var(--viz-text-muted);
+  font-size: 10px;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.viz-inline-error-details {
+  padding: 8px 12px;
+  background: var(--viz-bg-tertiary);
+  border-top: 1px solid var(--viz-border-subtle);
+}
+
+.viz-inline-error-details code {
+  font-size: 11px;
+  color: var(--viz-text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Session error card */
+.viz-session-error {
+  background: rgba(204, 102, 102, 0.1);
+  border: 2px solid var(--viz-status-error);
+  border-radius: var(--viz-border-radius);
+  padding: 12px;
+  animation: viz-fadeIn var(--viz-duration-normal) var(--viz-easing-smooth);
+}
+
+.viz-session-error-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.viz-session-error-icon {
+  font-size: 16px;
+}
+
+.viz-session-error-name {
+  flex: 1;
+  font-weight: 600;
+  color: var(--viz-text-primary);
+}
+
+.viz-session-error-dismiss {
+  background: none;
+  border: none;
+  color: var(--viz-text-muted);
+  font-size: 18px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+
+.viz-session-error-message {
+  font-size: 13px;
+  color: var(--viz-text-secondary);
+  margin: 0 0 12px 0;
+}
+
+.viz-session-error-retry {
+  padding: 6px 12px;
+  background: var(--viz-status-error);
+  border: none;
+  border-radius: 4px;
+  color: var(--viz-text-primary);
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  transition: filter var(--viz-duration-fast);
+}
+
+.viz-session-error-retry:hover {
+  filter: brightness(1.15);
+}
+
+/* ===========================================
+   EMPTY STATES
+   =========================================== */
+
+/* Main empty state container */
+.viz-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 48px 32px;
+  text-align: center;
+  animation: viz-fadeIn var(--viz-duration-normal) var(--viz-easing-smooth);
+}
+
+.viz-empty-icon {
+  font-size: 64px;
+  opacity: 0.8;
+  animation: viz-bounceIn var(--viz-duration-slow) var(--viz-easing-bounce);
+}
+
+.viz-empty-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 320px;
+}
+
+.viz-empty-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--viz-text-primary);
+  margin: 0;
+}
+
+.viz-empty-description {
+  font-size: 14px;
+  color: var(--viz-text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.viz-empty-action {
+  padding: 12px 24px;
+  background: var(--viz-accent-primary);
+  border: none;
+  border-radius: 8px;
+  color: var(--viz-bg-primary);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: filter var(--viz-duration-fast) var(--viz-easing-smooth),
+              transform var(--viz-duration-fast) var(--viz-easing-bounce);
+}
+
+.viz-empty-action:hover {
+  filter: brightness(1.1);
+  transform: scale(1.02);
+}
+
+.viz-empty-action:active {
+  transform: scale(0.98);
+}
+
+/* Bridge Control theme empty state */
+.viz-empty-state--bridge-control {
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.viz-empty-state--bridge-control .viz-empty-title {
+  color: var(--viz-lcars-orange);
+}
+
+.viz-empty-state--bridge-control .viz-empty-action {
+  background: var(--viz-lcars-orange);
+  border-radius: 50px;
+  color: #000;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* Civilization theme empty state */
+.viz-empty-state--civilization .viz-empty-title {
+  color: var(--viz-accent-primary);
+}
+
+.viz-empty-state--civilization .viz-empty-action {
+  background: var(--viz-accent-tertiary);
+  border: 2px solid var(--viz-accent-primary);
+  color: var(--viz-text-primary);
+  border-radius: 6px;
+}
+
+.viz-empty-state--civilization .viz-empty-action:hover {
+  background: var(--viz-accent-secondary);
+}
+
+/* Inline empty state (for smaller containers) */
+.viz-inline-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 16px;
+  color: var(--viz-text-muted);
+  font-size: 13px;
+}
+
+.viz-inline-empty-icon {
+  font-size: 20px;
+  opacity: 0.7;
+}
+
+.viz-inline-empty-message {
+  text-align: center;
+}
+
+/* Bridge Control inline empty */
+.viz-inline-empty--bridge-control {
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-size: 11px;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .visualizer-root,
+  .visualizer-root *,
+  .visualizer-root *::before,
+  .visualizer-root *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

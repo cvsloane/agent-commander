@@ -1,0 +1,52 @@
+# Dashboard Dockerfile
+FROM node:20-alpine AS base
+
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+FROM base AS builder
+
+WORKDIR /app
+
+# Copy workspace files
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY packages/ac-schema/package.json ./packages/ac-schema/
+COPY apps/dashboard/package.json ./apps/dashboard/
+
+# Install dependencies
+RUN pnpm install --frozen-lockfile
+
+# Copy source files
+COPY tsconfig.base.json ./
+COPY .eslintrc.cjs ./
+COPY packages/ac-schema/ ./packages/ac-schema/
+COPY apps/dashboard/ ./apps/dashboard/
+
+# Build
+RUN pnpm --filter @agent-command/schema build
+RUN pnpm --filter @agent-command/dashboard build
+
+FROM base AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV production
+ENV NEXT_TELEMETRY_DISABLED 1
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# Copy built files
+COPY --from=builder /app/apps/dashboard/public ./apps/dashboard/public
+COPY --from=builder --chown=nextjs:nodejs /app/apps/dashboard/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/apps/dashboard/.next/static ./apps/dashboard/.next/static
+
+USER nextjs
+
+EXPOSE 3000
+
+ENV PORT 3000
+ENV HOSTNAME 0.0.0.0
+
+CMD ["node", "apps/dashboard/server.js"]

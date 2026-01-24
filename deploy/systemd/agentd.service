@@ -1,0 +1,31 @@
+[Unit]
+Description=Agent Commander Host Agent
+Documentation=https://github.com/your-org/agent-commander
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/agentd --config /etc/agentd/config.yaml
+Restart=always
+RestartSec=2
+StateDirectory=agentd
+StateDirectoryMode=0755
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=agentd
+
+# Resource limits
+LimitNOFILE=65535
+
+# Security hardening (optional, adjust as needed)
+# ProtectSystem=strict
+# ProtectHome=read-only
+# PrivateTmp=true
+# NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

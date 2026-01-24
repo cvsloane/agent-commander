@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export AC_PROVIDER="codex"
+exec /usr/local/bin/ac-claude-hook "$@"

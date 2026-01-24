@@ -1,0 +1,62 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+.next/
+out/
+build/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+deploy/.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Testing
+coverage/
+playwright-report/
+test-results/
+artifacts/
+
+# Turbo
+.turbo/
+
+# Go
+agents/agentd/agentd
+agents/agentd/bin/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Temp files
+*.tmp
+*.temp
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Local usage/install scripts (not for git)
+scripts/claude-usage
+scripts/codex-usage
+scripts/config.yaml.new
+scripts/install-usage-commands.sh

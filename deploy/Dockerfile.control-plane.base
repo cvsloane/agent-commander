@@ -1,0 +1,45 @@
+# Control Plane Dockerfile
+FROM node:20-alpine AS base
+
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+FROM base AS builder
+
+WORKDIR /app
+
+# Copy workspace files
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY packages/ac-schema/package.json ./packages/ac-schema/
+COPY services/control-plane/package.json ./services/control-plane/
+
+# Install dependencies
+RUN pnpm install --frozen-lockfile
+
+# Copy source files
+COPY tsconfig.base.json ./
+COPY packages/ac-schema/ ./packages/ac-schema/
+COPY services/control-plane/ ./services/control-plane/
+
+# Build
+RUN pnpm --filter @agent-command/schema build
+RUN pnpm --filter @agent-command/control-plane build
+
+FROM base AS runner
+
+WORKDIR /app
+
+# Copy built files
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages/ac-schema/dist ./packages/ac-schema/dist
+COPY --from=builder /app/packages/ac-schema/package.json ./packages/ac-schema/
+COPY --from=builder /app/packages/ac-schema/node_modules ./packages/ac-schema/node_modules
+COPY --from=builder /app/services/control-plane/dist ./services/control-plane/dist
+COPY --from=builder /app/services/control-plane/package.json ./services/control-plane/
+COPY --from=builder /app/services/control-plane/node_modules ./services/control-plane/node_modules
+
+WORKDIR /app/services/control-plane
+
+EXPOSE 8080
+
+CMD ["node", "dist/index.js"]

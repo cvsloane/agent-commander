@@ -1,0 +1,378 @@
+/* Prompt input and voice control */
+
+/* Prompt input at bottom of feed */
+#prompt-container {
+  padding: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.3);
+  position: relative;
+}
+
+#prompt-form {
+  display: flex;
+  gap: 8px;
+}
+
+#prompt-input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 12px 16px;
+  color: #fff;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  resize: none;
+  min-height: 44px;
+  max-height: 200px;
+  overflow-y: auto;
+  line-height: 1.4;
+}
+
+#prompt-input:focus {
+  border-color: #a78bfa;
+  box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.2);
+}
+
+#prompt-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+#prompt-input::-webkit-scrollbar {
+  width: 6px;
+}
+
+#prompt-input::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#prompt-input::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+#prompt-input::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+#prompt-submit, #prompt-cancel {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+#prompt-submit {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+#prompt-submit:hover {
+  background: rgba(167, 139, 250, 0.15);
+  border-color: rgba(167, 139, 250, 0.3);
+  color: #a78bfa;
+}
+
+#prompt-submit:disabled {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.25);
+  cursor: not-allowed;
+}
+
+#prompt-cancel {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+#prompt-cancel:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.btn-icon {
+  font-size: 11px;
+  opacity: 0.9;
+}
+
+#prompt-options {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.send-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.send-toggle input[type="checkbox"] {
+  accent-color: #a78bfa;
+}
+
+#prompt-target {
+  font-size: 11px;
+  font-family: monospace;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#prompt-target .target-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+#prompt-target .target-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: #000;
+}
+
+#prompt-status {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+#prompt-status.success {
+  color: #4ade80;
+}
+
+#prompt-status.error {
+  color: #f87171;
+}
+
+/* Wrapper for input */
+.input-wrapper {
+  position: relative;
+  flex: 1;
+  display: flex;
+}
+
+.input-wrapper #prompt-input {
+  flex: 1;
+  border-radius: 8px;
+}
+
+/* Voice transcript indicator */
+#voice-transcript {
+  position: absolute;
+  bottom: 100%;
+  left: 16px;
+  right: 16px;
+  margin-bottom: 8px;
+  padding: 10px 14px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.9);
+  display: none;
+  animation: fadeIn 0.2s ease-out;
+}
+
+#voice-transcript.visible {
+  display: block;
+}
+
+#voice-transcript.interim {
+  color: rgba(255, 255, 255, 0.6);
+  font-style: italic;
+}
+
+#voice-transcript .transcript-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #ef4444;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#voice-transcript .transcript-label .recording-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Voice control - center bottom of 3D scene */
+.voice-control {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 100;
+}
+
+/* Idle state - mic button with hint */
+.voice-idle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  transition: opacity 0.2s;
+}
+
+.voice-control.recording .voice-idle {
+  display: none;
+}
+
+.voice-trigger {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.5);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 20px;
+  cursor: pointer;
+  transition: all 0.2s;
+  backdrop-filter: blur(8px);
+}
+
+.voice-trigger:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #fff;
+  transform: scale(1.05);
+}
+
+.voice-hint {
+  display: flex;
+  gap: 4px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.voice-hint kbd {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-family: monospace;
+}
+
+/* Disabled state - no API key configured */
+.voice-control.disabled .voice-trigger {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.voice-control.disabled .voice-hint {
+  display: none;
+}
+
+.voice-control.disabled::after {
+  content: 'Set DEEPGRAM_API_KEY in .env';
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+  margin-top: 8px;
+  text-align: center;
+}
+
+/* Recording state - bars + dot */
+.voice-recording {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.voice-control.recording .voice-recording {
+  display: flex;
+}
+
+.voice-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 40px;
+}
+
+/* Recording status row - dot + hint */
+.voice-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.voice-record-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.8), 0 0 20px rgba(239, 68, 68, 0.4);
+  animation: record-pulse 1.2s ease-in-out infinite;
+}
+
+.voice-send-hint {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.voice-send-hint kbd {
+  background: rgba(255, 255, 255, 0.15);
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 10px;
+}
+
+@keyframes record-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.85); }
+}
+
+.voice-bar {
+  width: 14px;
+  height: 8px;
+  min-height: 8px;
+  border-radius: 3px;
+  transition: height 0.05s ease-out;
+  box-shadow: 0 0 10px currentColor;
+}
+
+/* Colors sorted by frequency: low (warm) -> high (cool) - muted tones */
+.voice-bar[data-bar="0"] { background: #9d6ba3; color: rgba(157, 107, 163, 0.4); }
+.voice-bar[data-bar="1"] { background: #8b7cb5; color: rgba(139, 124, 181, 0.4); }
+.voice-bar[data-bar="2"] { background: #7e82b8; color: rgba(126, 130, 184, 0.4); }
+.voice-bar[data-bar="3"] { background: #7388bb; color: rgba(115, 136, 187, 0.4); }
+.voice-bar[data-bar="4"] { background: #6a8ebe; color: rgba(106, 142, 190, 0.4); }
+.voice-bar[data-bar="5"] { background: #6993c0; color: rgba(105, 147, 192, 0.4); }
+.voice-bar[data-bar="6"] { background: #6898c2; color: rgba(104, 152, 194, 0.4); }
+.voice-bar[data-bar="7"] { background: #6a9dc4; color: rgba(106, 157, 196, 0.4); }
+.voice-bar[data-bar="8"] { background: #6fa2c6; color: rgba(111, 162, 198, 0.4); }
+.voice-bar[data-bar="9"] { background: #78a7c8; color: rgba(120, 167, 200, 0.4); }
