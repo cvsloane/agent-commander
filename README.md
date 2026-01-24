@@ -77,6 +77,9 @@ pnpm db:migrate
 | [API Reference](docs/api.md) | REST + WS endpoints |
 | [Security](docs/security.md) | Security best practices |
 
+Public site:
+- Documentation site (Coolify + Cloudflare): `docs/deployment-coolify.md`
+
 ## Architecture
 
 <p align="center">

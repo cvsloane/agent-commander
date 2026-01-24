@@ -1,0 +1,7 @@
+FROM nginx:alpine
+
+# Docsify static site + markdown docs
+COPY docs-site/ /usr/share/nginx/html/
+COPY docs/ /usr/share/nginx/html/docs/
+
+# Basic gzip + caching handled by nginx defaults.

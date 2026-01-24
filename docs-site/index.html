@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Commander</title>
+  <meta name="description" content="Agent Commander documentation and system overview." />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/docsify-themeable@0/dist/css/theme-simple.css" />
+  <style>
+    :root {
+      --theme-color: #2dd4bf;
+      --base-background-color: #0b1220;
+      --base-color: #e2e8f0;
+      --sidebar-background: #0f172a;
+      --sidebar-color: #cbd5f5;
+      --sidebar-nav-link-color: #cbd5f5;
+      --heading-color: #f8fafc;
+      --link-color: #2dd4bf;
+      --link-color--hover: #5eead4;
+      --blockquote-border-color: #2dd4bf;
+      --code-inline-background: #111827;
+      --code-inline-color: #e2e8f0;
+      --code-theme-background: #0f172a;
+    }
+    .cover-main h1 {
+      font-weight: 700;
+      letter-spacing: 0.2px;
+    }
+    .cover-main p {
+      max-width: 720px;
+      margin: 0 auto 1.25rem;
+    }
+    .cover-main .buttons a {
+      border-radius: 999px;
+      padding: 0.6rem 1.2rem;
+    }
+    .sidebar {
+      border-right: 1px solid #1e293b;
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script>
+    window.$docsify = {
+      name: 'Agent Commander',
+      repo: 'https://github.com/cvsloane/agent-commander',
+      homepage: 'docs/overview.md',
+      loadSidebar: '_sidebar.md',
+      coverpage: '_coverpage.md',
+      auto2top: true,
+      subMaxLevel: 2,
+      search: 'auto'
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify/lib/plugins/search.min.js"></script>
+</body>
+</html>
