@@ -12,7 +12,7 @@ Agent Commander is a mission-control dashboard for managing AI agent sessions ac
 ## Screenshots
 
 <p align="center">
-  <img src="docs/images/dashboard-overview.svg" alt="Dashboard Overview" width="800">
+  <img src="docs/images/dashboard-overview.png" alt="Dashboard Overview" width="800">
 </p>
 
 <details>
@@ -20,7 +20,13 @@ Agent Commander is a mission-control dashboard for managing AI agent sessions ac
 
 | Sessions | Approvals |
 | --- | --- |
-| ![Sessions](docs/images/sessions-view.svg) | ![Approvals](docs/images/approvals-queue.svg) |
+| ![Sessions](docs/images/sessions-view.png) | ![Approvals](docs/images/orchestrator.png) |
+
+| Session Detail | Visualizer |
+| --- | --- |
+| ![Session Detail](docs/images/session-detail.png) | ![Visualizer](docs/images/visualizer.png) |
+
+![Settings](docs/images/settings-alerts.png)
 
 </details>
 
@@ -40,27 +46,34 @@ cp services/control-plane/.env.example services/control-plane/.env
 cp apps/dashboard/.env.example apps/dashboard/.env
 ```
 
+Run migrations:
+```bash
+pnpm db:migrate
+```
+
 ## Features
 
-- **Session Management** — view and control Claude Code, Codex, Gemini, and shell sessions
-- **Approvals Queue** — review and allow/deny permission requests
-- **Console Streaming** — live tmux output in the dashboard
-- **Real-time Updates** — WebSocket-driven state updates
-- **Usage Tracking** — provider utilization + alerts
-- **Alerts & Notifications** — browser, audio, in-app toasts, Clawdbot
-- **Multi-host Support** — manage sessions across many machines
+- **tmux-native sessions** — discover and manage real tmux panes across hosts
+- **Interactive console** — live streaming with full terminal control and read-only viewers
+- **Orchestrator + approvals** — attention queue for input, approvals, and errors
+- **Session generator** — spawn multi-session templates with groups and links
+- **Visualizer** — immersive full-screen activity view
+- **Search + analytics** — global search and usage tracking
+- **Alerts** — browser, audio, in-app toasts, Clawdbot
+- **Multi-host** — one dashboard for many machines
 
 ## Documentation
 
 | Guide | Description |
 | --- | --- |
+| [Docs Index](docs/README.md) | Full documentation map |
+| [Overview](docs/overview.md) | Concepts and workflows |
 | [Getting Started](docs/getting-started.md) | Install and run locally |
-| [Configuration](docs/configuration.md) | Environment variables and config |
-| [Deployment](docs/deployment.md) | Docker + production setup |
-| [agentd](docs/agentd.md) | Install and run the daemon |
-| [Alerts](docs/alerts.md) | Event and provider alerts |
-| [Clawdbot](docs/clawdbot.md) | Notification integration |
-| [API Summary](docs/api.md) | Key REST endpoints |
+| [Sessions](docs/sessions.md) | Session lifecycle and actions |
+| [Console Streaming](docs/console.md) | Interactive tmux in the browser |
+| [Orchestrator](docs/orchestrator.md) | Attention queue and summaries |
+| [Approvals](docs/approvals.md) | Permission requests and decisions |
+| [API Reference](docs/api.md) | REST + WS endpoints |
 | [Security](docs/security.md) | Security best practices |
 
 ## Architecture
