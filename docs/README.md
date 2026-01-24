@@ -5,6 +5,7 @@ Start here:
 - [Getting Started](getting-started.md)
 - [Configuration](configuration.md)
 - [Deployment](deployment.md)
+- [Coolify Deployment](deployment-coolify.md)
 - [Architecture](architecture.md)
 
 Core guides:

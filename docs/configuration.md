@@ -50,7 +50,9 @@ File: `deploy/.env`
 
 Key values:
 - `DATABASE_URL`
-- `DOMAIN` - public domain for the dashboard
+- `DOMAIN` - base domain (optional)
+- `APP_DOMAIN` - dashboard domain
+- `API_DOMAIN` - control plane domain
 - `JWT_SECRET`, `NEXTAUTH_SECRET`, `CONTROL_PLANE_JWT_SECRET`
 - Optional `ACCESS_SECRET`, GitHub OAuth values
 

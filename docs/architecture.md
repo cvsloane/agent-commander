@@ -7,6 +7,8 @@ Agent Commander has four primary components:
 - agentd (Go) - host agent that discovers tmux panes and streams output.
 - PostgreSQL - session state, events, approvals, analytics, and settings.
 
+![Architecture Diagram](images/architecture-diagram.svg)
+
 ```
 Browser (Dashboard)
   |  REST + WS

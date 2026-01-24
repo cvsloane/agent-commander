@@ -15,7 +15,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=coolify"
-      - "traefik.http.routers.ac-api.rule=Host(`${DOMAIN}`) && (PathPrefix(`/v1`) || Path(`/health`))"
+      - "traefik.http.routers.ac-api.rule=Host(`${API_DOMAIN}`) && (PathPrefix(`/v1`) || Path(`/health`))"
       - "traefik.http.routers.ac-api.entrypoints=https"
       - "traefik.http.routers.ac-api.tls=true"
       - "traefik.http.routers.ac-api.tls.certresolver=letsencrypt"
@@ -46,7 +46,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=coolify"
-      - "traefik.http.routers.ac-dashboard.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.ac-dashboard.rule=Host(`${APP_DOMAIN}`)"
       - "traefik.http.routers.ac-dashboard.entrypoints=https"
       - "traefik.http.routers.ac-dashboard.tls=true"
       - "traefik.http.routers.ac-dashboard.tls.certresolver=letsencrypt"

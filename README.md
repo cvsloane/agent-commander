@@ -73,6 +73,7 @@ pnpm db:migrate
 | [Console Streaming](docs/console.md) | Interactive tmux in the browser |
 | [Orchestrator](docs/orchestrator.md) | Attention queue and summaries |
 | [Approvals](docs/approvals.md) | Permission requests and decisions |
+| [Coolify Deployment](docs/deployment-coolify.md) | Production setup on Coolify + Cloudflare |
 | [API Reference](docs/api.md) | REST + WS endpoints |
 | [Security](docs/security.md) | Security best practices |
 

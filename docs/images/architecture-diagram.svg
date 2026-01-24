@@ -1,23 +1,51 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700">
-  <rect width="1200" height="700" fill="#0f172a" />
-  <text x="600" y="80" fill="#e2e8f0" font-size="32" font-family="Arial" text-anchor="middle">Agent Commander Architecture</text>
-  <rect x="120" y="160" width="280" height="140" rx="16" fill="#1f2937" stroke="#334155" />
-  <text x="260" y="240" fill="#e2e8f0" font-size="18" font-family="Arial" text-anchor="middle">Dashboard</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760">
+  <rect width="1200" height="760" fill="#0b1220" />
+  <text x="600" y="60" fill="#e2e8f0" font-size="30" font-family="Arial" text-anchor="middle">Agent Commander Architecture</text>
 
-  <rect x="460" y="160" width="280" height="140" rx="16" fill="#1f2937" stroke="#334155" />
-  <text x="600" y="240" fill="#e2e8f0" font-size="18" font-family="Arial" text-anchor="middle">Control Plane</text>
+  <!-- Dashboard -->
+  <rect x="80" y="130" width="320" height="150" rx="18" fill="#111827" stroke="#334155" />
+  <text x="240" y="190" fill="#e2e8f0" font-size="18" font-family="Arial" text-anchor="middle">Dashboard (Next.js)</text>
+  <text x="240" y="220" fill="#94a3b8" font-size="13" font-family="Arial" text-anchor="middle">UI + Auth + JWT minting</text>
 
-  <rect x="800" y="160" width="280" height="140" rx="16" fill="#1f2937" stroke="#334155" />
-  <text x="940" y="240" fill="#e2e8f0" font-size="18" font-family="Arial" text-anchor="middle">PostgreSQL</text>
+  <!-- Control Plane -->
+  <rect x="440" y="130" width="320" height="150" rx="18" fill="#111827" stroke="#334155" />
+  <text x="600" y="190" fill="#e2e8f0" font-size="18" font-family="Arial" text-anchor="middle">Control Plane (Fastify)</text>
+  <text x="600" y="220" fill="#94a3b8" font-size="13" font-family="Arial" text-anchor="middle">REST + WS + RBAC</text>
 
-  <rect x="460" y="380" width="280" height="140" rx="16" fill="#1f2937" stroke="#334155" />
-  <text x="600" y="460" fill="#e2e8f0" font-size="18" font-family="Arial" text-anchor="middle">agentd</text>
+  <!-- Postgres -->
+  <rect x="800" y="130" width="320" height="150" rx="18" fill="#111827" stroke="#334155" />
+  <text x="960" y="190" fill="#e2e8f0" font-size="18" font-family="Arial" text-anchor="middle">PostgreSQL</text>
+  <text x="960" y="220" fill="#94a3b8" font-size="13" font-family="Arial" text-anchor="middle">Sessions, events, approvals</text>
 
-  <line x1="400" y1="230" x2="460" y2="230" stroke="#94a3b8" stroke-width="3" />
-  <line x1="740" y1="230" x2="800" y2="230" stroke="#94a3b8" stroke-width="3" />
-  <line x1="600" y1="300" x2="600" y2="380" stroke="#94a3b8" stroke-width="3" />
+  <!-- Agentd -->
+  <rect x="440" y="360" width="320" height="170" rx="18" fill="#111827" stroke="#334155" />
+  <text x="600" y="425" fill="#e2e8f0" font-size="18" font-family="Arial" text-anchor="middle">agentd (Go)</text>
+  <text x="600" y="455" fill="#94a3b8" font-size="13" font-family="Arial" text-anchor="middle">tmux discovery + streaming</text>
+  <text x="600" y="475" fill="#94a3b8" font-size="13" font-family="Arial" text-anchor="middle">hooks + commands + snapshots</text>
 
-  <text x="430" y="215" fill="#94a3b8" font-size="14" font-family="Arial" text-anchor="middle">REST + WS</text>
-  <text x="770" y="215" fill="#94a3b8" font-size="14" font-family="Arial" text-anchor="middle">SQL</text>
-  <text x="620" y="350" fill="#94a3b8" font-size="14" font-family="Arial" text-anchor="middle">Agent WS</text>
+  <!-- Tmux + Providers -->
+  <rect x="80" y="560" width="320" height="150" rx="18" fill="#111827" stroke="#334155" />
+  <text x="240" y="620" fill="#e2e8f0" font-size="18" font-family="Arial" text-anchor="middle">tmux + Providers</text>
+  <text x="240" y="650" fill="#94a3b8" font-size="13" font-family="Arial" text-anchor="middle">Claude, Codex, Gemini, shell</text>
+
+  <!-- External services -->
+  <rect x="800" y="560" width="320" height="150" rx="18" fill="#111827" stroke="#334155" />
+  <text x="960" y="620" fill="#e2e8f0" font-size="18" font-family="Arial" text-anchor="middle">External Services</text>
+  <text x="960" y="650" fill="#94a3b8" font-size="13" font-family="Arial" text-anchor="middle">Clawdbot, Deepgram, OpenAI</text>
+
+  <!-- Lines -->
+  <line x1="400" y1="205" x2="440" y2="205" stroke="#94a3b8" stroke-width="3" />
+  <line x1="760" y1="205" x2="800" y2="205" stroke="#94a3b8" stroke-width="3" />
+  <line x1="600" y1="280" x2="600" y2="360" stroke="#94a3b8" stroke-width="3" />
+  <line x1="440" y1="445" x2="400" y2="445" stroke="#94a3b8" stroke-width="3" />
+  <line x1="760" y1="445" x2="800" y2="445" stroke="#94a3b8" stroke-width="3" />
+  <line x1="240" y1="530" x2="240" y2="560" stroke="#94a3b8" stroke-width="3" />
+  <line x1="960" y1="530" x2="960" y2="560" stroke="#94a3b8" stroke-width="3" />
+
+  <!-- Labels -->
+  <text x="420" y="190" fill="#94a3b8" font-size="12" font-family="Arial" text-anchor="middle">REST + WS</text>
+  <text x="780" y="190" fill="#94a3b8" font-size="12" font-family="Arial" text-anchor="middle">SQL</text>
+  <text x="620" y="330" fill="#94a3b8" font-size="12" font-family="Arial" text-anchor="middle">Agent WS</text>
+  <text x="420" y="435" fill="#94a3b8" font-size="12" font-family="Arial" text-anchor="middle">PTY/FIFO</text>
+  <text x="780" y="435" fill="#94a3b8" font-size="12" font-family="Arial" text-anchor="middle">APIs</text>
 </svg>

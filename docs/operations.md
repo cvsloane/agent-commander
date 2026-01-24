@@ -28,3 +28,9 @@ This guide covers operational best practices for running Agent Commander.
 
 - Rotate host tokens if a host is compromised.
 - Rotate `JWT_SECRET` and `NEXTAUTH_SECRET` on a schedule.
+
+## DNS and TLS
+
+- If using Cloudflare, set SSL/TLS to Full (strict).
+- Ensure WebSockets are enabled (default on Cloudflare).
+- Use proxied records for `app` and `api` unless you have a reason not to.

@@ -3,6 +3,9 @@
 Agent Commander ships as two services (dashboard + control plane) plus Postgres.
 The host agent (agentd) runs separately on each machine you want to manage.
 
+See [Coolify Deployment](deployment-coolify.md) for a production setup with
+`app.agentcommander.co` and `api.agentcommander.co` subdomains.
+
 ## Docker Compose (quick start)
 
 ```bash
@@ -12,6 +15,8 @@ cd deploy
 
 docker compose up -d
 ```
+
+For subdomains, set `APP_DOMAIN` and `API_DOMAIN` in `deploy/.env`.
 
 This starts:
 - Control plane (Fastify)
