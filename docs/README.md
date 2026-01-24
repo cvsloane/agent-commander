@@ -7,6 +7,7 @@ Start here:
 - [Deployment](deployment.md)
 - [Coolify Deployment](deployment-coolify.md)
 - [Architecture](architecture.md)
+- Public feature site: `deploy/Dockerfile.site`
 
 Core guides:
 - [Sessions](sessions.md)

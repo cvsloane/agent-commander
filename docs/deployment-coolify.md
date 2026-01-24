@@ -4,13 +4,13 @@ This guide deploys Agent Commander on Coolify with Cloudflare DNS.
 
 ## Recommended subdomains
 
-- `agentcommander.co` - documentation (or redirect to docs)
+- `agentcommander.co` - public feature dive site
 - `docs.agentcommander.co` - documentation
 - `app.agentcommander.co` - dashboard (keep private if not public)
 - `api.agentcommander.co` - control plane (keep private if not public)
 
-If you are not running a public app, only create DNS records for `agentcommander.co`
-and `docs.agentcommander.co`.
+If you are not running a public app, only create DNS records for `agentcommander.co`,
+`docs.agentcommander.co`, and `www.agentcommander.co` (redirect to apex).
 
 ## Coolify setup
 
@@ -55,18 +55,17 @@ If using GitHub OAuth, set:
 - Homepage URL: `https://app.agentcommander.co`
 - Callback URL: `https://app.agentcommander.co/api/auth/callback/github`
 
-## Docs site (public)
+## Public sites
 
-Create a simple public docs service from this repo using `deploy/Dockerfile.docs`.
-Bind it to `agentcommander.co` and/or `docs.agentcommander.co`.
+Create two static services from this repo:\n\n1) **Feature site** (apex)\n- Dockerfile: `deploy/Dockerfile.site`\n- Domain: `agentcommander.co`\n\n2) **Docs site**\n- Dockerfile: `deploy/Dockerfile.docs`\n- Domain: `docs.agentcommander.co`
 
 ## Cloudflare DNS
 
 Create A records pointing to your Coolify server IP:
 
 - `agentcommander.co` -> `<server-ip>`
-- `docs.agentcommander.co` -> `<server-ip>` (optional)
-- `www.agentcommander.co` -> `<server-ip>` (optional)
+- `docs.agentcommander.co` -> `<server-ip>`
+- `www.agentcommander.co` -> `<server-ip>` (redirect to apex)
 
 Recommended Cloudflare settings:
 - SSL/TLS mode: Full (strict)
@@ -75,6 +74,7 @@ Recommended Cloudflare settings:
 - Proxy status: proxied (orange cloud)
 
 If you want a scripted setup, see `scripts/cloudflare-dns.mjs`.
+For `www` redirects, see `scripts/cloudflare-redirect.README.md`.
 
 ## Notes
 

@@ -78,7 +78,7 @@ pnpm db:migrate
 | [Security](docs/security.md) | Security best practices |
 
 Public site:
-- Documentation site (Coolify + Cloudflare): `docs/deployment-coolify.md`
+- Feature site (apex) + docs site: `docs/deployment-coolify.md`
 
 ## Architecture
 

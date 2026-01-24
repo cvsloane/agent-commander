@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Commander — Mission Control for AI Sessions</title>
+  <meta name="description" content="Agent Commander is a mission control system for AI agent sessions: tmux-native, live streaming, approvals, orchestration, analytics, and multi-host control." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="hero">
+    <nav class="nav">
+      <div class="brand">Agent Commander</div>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#ops">Operations</a>
+        <a class="btn secondary" href="https://docs.agentcommander.co/#/docs/overview.md">Docs</a>
+      </div>
+    </nav>
+    <div class="hero-grid">
+      <div class="hero-copy">
+        <div class="eyebrow">Open source mission control</div>
+        <h1>Coordinate AI agents across every machine you own.</h1>
+        <p>
+          Agent Commander discovers real tmux sessions, streams them live into the browser,
+          and gives you one place to orchestrate approvals, errors, and multi-host activity.
+        </p>
+        <div class="hero-actions">
+          <a class="btn primary" href="https://docs.agentcommander.co/#/docs/getting-started.md">Read the docs</a>
+          <a class="btn ghost" href="https://github.com/cvsloane/agent-commander">GitHub</a>
+        </div>
+        <div class="hero-badges">
+          <span>tmux-native</span>
+          <span>Live streaming</span>
+          <span>Approvals + orchestration</span>
+          <span>Multi-host</span>
+        </div>
+      </div>
+      <div class="hero-media">
+        <img src="https://docs.agentcommander.co/docs/images/dashboard-overview.png" alt="Agent Commander dashboard overview" />
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section id="features" class="section">
+      <div class="section-head">
+        <h2>Feature deep dive</h2>
+        <p>Everything Agent Commander does, distilled from the docs.</p>
+      </div>
+      <div class="feature-grid">
+        <article class="feature-card">
+          <h3>Session control</h3>
+          <p>Discover tmux panes, spawn new sessions, fork, rename, archive, and bulk-manage workstreams.</p>
+          <ul>
+            <li>Session templates for multi-agent workflows</li>
+            <li>Groups, links, and session relationships</li>
+            <li>Snapshots and event timelines</li>
+          </ul>
+          <a href="https://docs.agentcommander.co/#/docs/sessions.md">Read session docs →</a>
+        </article>
+        <article class="feature-card">
+          <h3>Interactive console</h3>
+          <p>Stream tmux panes in real time with full terminal semantics and secure control handoff.</p>
+          <ul>
+            <li>PTY-based streaming (cursor, color, Ctrl+C)</li>
+            <li>Read-only viewers with control requests</li>
+            <li>Idle timeouts and detach handling</li>
+          </ul>
+          <a href="https://docs.agentcommander.co/#/docs/console.md">Console streaming →</a>
+        </article>
+        <article class="feature-card">
+          <h3>Orchestrator + approvals</h3>
+          <p>Centralize sessions that need attention: approvals, input, or error recovery.</p>
+          <ul>
+            <li>Approval queue with hook + keystroke decisions</li>
+            <li>Session idle/wake controls</li>
+            <li>Summaries for fast context</li>
+          </ul>
+          <a href="https://docs.agentcommander.co/#/docs/orchestrator.md">Orchestrator →</a>
+        </article>
+        <article class="feature-card">
+          <h3>Visualizer</h3>
+          <p>Immersive full-screen activity view for monitoring live agent work.</p>
+          <ul>
+            <li>Multiple themes</li>
+            <li>Live activity feed</li>
+            <li>Quick command bar</li>
+          </ul>
+          <a href="https://docs.agentcommander.co/#/docs/visualizer.md">Visualizer →</a>
+        </article>
+        <article class="feature-card">
+          <h3>Alerts + notifications</h3>
+          <p>Browser, audio, toast, and Clawdbot alerts with per-provider filters.</p>
+          <ul>
+            <li>Usage thresholds</li>
+            <li>Approval and error alerts</li>
+            <li>Clawdbot routing (Telegram, Slack, Discord)</li>
+          </ul>
+          <a href="https://docs.agentcommander.co/#/docs/alerts.md">Alerts →</a>
+        </article>
+        <article class="feature-card">
+          <h3>Analytics + search</h3>
+          <p>Track usage, approval outcomes, and search across sessions and snapshots.</p>
+          <ul>
+            <li>Weekly and per-session metrics</li>
+            <li>Full-text search</li>
+            <li>Project history</li>
+          </ul>
+          <a href="https://docs.agentcommander.co/#/docs/search-and-projects.md">Search + projects →</a>
+        </article>
+        <article class="feature-card">
+          <h3>MCP + voice</h3>
+          <p>Configure MCP servers per host or session and enable live voice transcription.</p>
+          <ul>
+            <li>MCP config sync</li>
+            <li>Deepgram transcription proxy</li>
+            <li>Session-level toggles</li>
+          </ul>
+          <a href="https://docs.agentcommander.co/#/docs/mcp.md">MCP →</a>
+        </article>
+        <article class="feature-card">
+          <h3>Security + control</h3>
+          <p>Role-based access, scoped host tokens, and configurable agentd capabilities.</p>
+          <ul>
+            <li>Admin/operator/viewer roles</li>
+            <li>Host-level permission toggles</li>
+            <li>JWT-based control plane auth</li>
+          </ul>
+          <a href="https://docs.agentcommander.co/#/docs/security.md">Security →</a>
+        </article>
+      </div>
+    </section>
+
+    <section id="how" class="section section-dark">
+      <div class="section-head">
+        <h2>How it works</h2>
+        <p>Agent Commander is a four-part system: dashboard, control plane, agentd, and Postgres.</p>
+      </div>
+      <div class="diagram">
+        <img src="https://docs.agentcommander.co/docs/images/architecture-diagram.svg" alt="Agent Commander architecture" />
+      </div>
+      <div class="flow-grid">
+        <div>
+          <h3>1. agentd discovers tmux</h3>
+          <p>agentd runs on each host, polls tmux panes, captures snapshots, and streams output.</p>
+        </div>
+        <div>
+          <h3>2. Control plane brokers events</h3>
+          <p>REST + WebSocket APIs persist session state, approvals, and analytics in Postgres.</p>
+        </div>
+        <div>
+          <h3>3. Dashboard orchestrates</h3>
+          <p>The UI subscribes to live updates, provides terminal control, and manages approvals.</p>
+        </div>
+        <div>
+          <h3>4. Optional services</h3>
+          <p>OpenAI summaries, Deepgram transcription, and Clawdbot notifications plug in as needed.</p>
+        </div>
+      </div>
+      <div class="cta-row">
+        <a class="btn primary" href="https://docs.agentcommander.co/#/docs/architecture.md">Architecture details</a>
+        <a class="btn secondary" href="https://docs.agentcommander.co/#/docs/console.md">Streaming pipeline</a>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <h2>Live views</h2>
+        <p>Real screenshots from the running system.</p>
+      </div>
+      <div class="screenshot-grid">
+        <img src="https://docs.agentcommander.co/docs/images/sessions-view.png" alt="Sessions view" />
+        <img src="https://docs.agentcommander.co/docs/images/orchestrator.png" alt="Orchestrator" />
+        <img src="https://docs.agentcommander.co/docs/images/visualizer.png" alt="Visualizer" />
+      </div>
+    </section>
+
+    <section id="ops" class="section section-muted">
+      <div class="section-head">
+        <h2>Operations</h2>
+        <p>Run the stack privately and keep the docs public.</p>
+      </div>
+      <div class="ops-grid">
+        <div>
+          <h3>Private deployment</h3>
+          <p>Keep the app on your internal domain. Use VPN or Cloudflare Access for gating.</p>
+        </div>
+        <div>
+          <h3>Public docs</h3>
+          <p>Serve this feature dive at agentcommander.co and the full docs at docs.agentcommander.co.</p>
+        </div>
+        <div>
+          <h3>Coolify + Cloudflare</h3>
+          <p>Deploy static docs with a single Dockerfile and manage DNS in Cloudflare.</p>
+        </div>
+      </div>
+      <div class="cta-row">
+        <a class="btn primary" href="https://docs.agentcommander.co/#/docs/deployment-coolify.md">Coolify guide</a>
+        <a class="btn secondary" href="https://docs.agentcommander.co/#/docs/operations.md">Ops playbook</a>
+      </div>
+    </section>
+
+    <section class="section faq">
+      <div class="section-head">
+        <h2>FAQ</h2>
+      </div>
+      <div class="faq-grid">
+        <div>
+          <h3>Is there a public demo?</h3>
+          <p>No. The public site is docs only. The live app runs on private infrastructure.</p>
+        </div>
+        <div>
+          <h3>What does it require?</h3>
+          <p>tmux, Postgres, Node 20+, and Go 1.22+. See the getting started guide.</p>
+        </div>
+        <div>
+          <h3>Can I run it on one machine?</h3>
+          <p>Yes. The control plane and dashboard can run together with local Postgres.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div>
+      <strong>Agent Commander</strong>
+      <p>Open source mission control for AI agent sessions.</p>
+    </div>
+    <div class="footer-links">
+      <a href="https://docs.agentcommander.co/#/docs/overview.md">Docs</a>
+      <a href="https://github.com/cvsloane/agent-commander">GitHub</a>
+      <a href="https://docs.agentcommander.co/#/docs/security.md">Security</a>
+    </div>
+  </footer>
+</body>
+</html>
