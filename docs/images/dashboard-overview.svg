@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700">
+  <rect width="1200" height="700" fill="#0f172a" />
+  <rect x="60" y="80" width="1080" height="540" rx="24" fill="#111827" stroke="#334155" />
+  <text x="600" y="180" fill="#e2e8f0" font-size="36" font-family="Arial" text-anchor="middle">Agent Commander Dashboard</text>
+  <text x="600" y="240" fill="#94a3b8" font-size="18" font-family="Arial" text-anchor="middle">Placeholder screenshot</text>
+  <rect x="120" y="280" width="960" height="260" rx="16" fill="#1f2937" stroke="#334155" />
+  <text x="600" y="420" fill="#94a3b8" font-size="16" font-family="Arial" text-anchor="middle">Replace with real UI capture</text>
+</svg>

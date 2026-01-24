@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  node:
+    name: Node build + lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+        env:
+          NEXTAUTH_URL: http://localhost:3000
+          NEXTAUTH_SECRET: ci-secret
+          CONTROL_PLANE_JWT_SECRET: ci-secret
+          NEXT_PUBLIC_CONTROL_PLANE_URL: http://localhost:8080
+          NEXT_PUBLIC_CONTROL_PLANE_WS_URL: ws://localhost:8080/v1/ui/stream
+
+  go:
+    name: Go tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+
+      - name: Test
+        working-directory: agents/agentd
+        run: go test ./...
+
+      - name: Build
+        working-directory: agents/agentd
+        run: go build ./cmd/agentd
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build control-plane image
+        run: docker build -f deploy/Dockerfile.control-plane.base -t agent-commander-control-plane .
+
+      - name: Build dashboard image
+        run: docker build -f deploy/Dockerfile.dashboard.base -t agent-commander-dashboard .

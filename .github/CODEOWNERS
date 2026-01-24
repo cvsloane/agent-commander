@@ -1,0 +1,14 @@
+# Default owners for everything
+* @cvsloane
+
+# Application code
+/apps/ @cvsloane
+/services/ @cvsloane
+/agents/ @cvsloane
+/packages/ @cvsloane
+
+# Docs
+/docs/ @cvsloane
+
+# GitHub configuration
+/.github/ @cvsloane
