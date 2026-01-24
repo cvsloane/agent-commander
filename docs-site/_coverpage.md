@@ -9,4 +9,4 @@ activity. It is designed for serious multi-agent operations, not toy demos.
 [Read the docs](#/docs/overview.md)
 [GitHub](https://github.com/cvsloane/agent-commander)
 
-![Dashboard Overview](docs/images/dashboard-overview.png)
+![Dashboard Overview](/docs/images/dashboard-overview.png)
