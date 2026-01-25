@@ -16,7 +16,8 @@ endpoint="${base_url%/}/v1/api/openplatform/coding_plan/remains"
 response=""
 if ! response="$(curl -sS --show-error --fail --connect-timeout 5 --max-time 10 \
   -H "Authorization: Bearer $api_key" \
-  -H "Content-Type: application/json" 2>/dev/null)"; then
+  -H "Content-Type: application/json" \
+  "$endpoint" 2>/dev/null)"; then
   if [[ "$debug" == "1" ]]; then
     echo "Failed to fetch OpenCode usage from Minimax" >&2
   fi
