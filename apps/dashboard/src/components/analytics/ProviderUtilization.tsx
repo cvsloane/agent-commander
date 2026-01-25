@@ -373,8 +373,16 @@ export function ProviderUtilization({ usage }: ProviderUtilizationProps) {
     }
 
     let utilization: number | null = null;
+    let usedFromRemaining: number | null = null;
     if (effectiveTotal != null && effectiveTotal > 0) {
-      if (usedRequests != null) {
+      if (overrideLimit != null) {
+        if (remainingRequests != null) {
+          usedFromRemaining = Math.max(0, effectiveTotal - remainingRequests);
+          utilization = (usedFromRemaining / effectiveTotal) * 100;
+        } else if (usedRequests != null) {
+          utilization = (usedRequests / effectiveTotal) * 100;
+        }
+      } else if (usedRequests != null) {
         utilization = (usedRequests / effectiveTotal) * 100;
       } else if (remainingRequests != null) {
         utilization = ((effectiveTotal - remainingRequests) / effectiveTotal) * 100;
@@ -392,7 +400,7 @@ export function ProviderUtilization({ usage }: ProviderUtilizationProps) {
     const remainingLabel =
       remainingRequests != null
         ? overrideLimit != null
-          ? `${Math.max(0, Math.round(remainingRequests)).toLocaleString()} / ${Math.round(overrideLimit).toLocaleString()} requests remaining`
+          ? `${Math.round((usedFromRemaining ?? Math.max(0, overrideLimit - remainingRequests))).toLocaleString()} / ${Math.round(overrideLimit).toLocaleString()} used • ${Math.max(0, Math.round(remainingRequests)).toLocaleString()} remaining`
           : `${Math.max(0, Math.round(remainingRequests)).toLocaleString()} requests remaining`
         : null;
 
