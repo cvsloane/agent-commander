@@ -14,7 +14,8 @@ base_url="${MINIMAX_API_BASE_URL:-https://www.minimax.io}"
 endpoint="${base_url%/}/v1/api/openplatform/coding_plan/remains"
 
 response=""
-if ! response="$(curl -sS -X POST "$endpoint" \
+if ! response="$(curl -sS --show-error --fail --connect-timeout 5 --max-time 10 \
+  -X POST "$endpoint" \
   -H "Authorization: Bearer $api_key" \
   -H "Content-Type: application/json" 2>/dev/null)"; then
   if [[ "$debug" == "1" ]]; then
