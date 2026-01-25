@@ -27,6 +27,7 @@ export const VisibleProvidersSchema = z.object({
   claude_code: z.boolean(),
   codex: z.boolean(),
   gemini_cli: z.boolean(),
+  opencode: z.boolean(),
 });
 export type VisibleProviders = z.infer<typeof VisibleProvidersSchema>;
 

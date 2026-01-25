@@ -679,6 +679,17 @@ export function SettingsPanel({ className }: SettingsPanelProps) {
               onCheckedChange={(checked) => setProviderVisibility('gemini_cli', checked)}
             />
           </div>
+
+          <div className="flex items-center justify-between">
+            <Label htmlFor="show-opencode" className="cursor-pointer">
+              Show OpenCode
+            </Label>
+            <Switch
+              id="show-opencode"
+              checked={visibleProviders.opencode}
+              onCheckedChange={(checked) => setProviderVisibility('opencode', checked)}
+            />
+          </div>
         </div>
       </section>
 

@@ -298,6 +298,7 @@ interface SettingsStore {
     claude_code: boolean;
     codex: boolean;
     gemini_cli: boolean;
+    opencode: boolean;
   };
   setProviderVisibility: (provider: keyof SettingsStore['visibleProviders'], visible: boolean) => void;
 
@@ -372,6 +373,7 @@ export const useSettingsStore = create<SettingsStore>()(
         claude_code: true,
         codex: true,
         gemini_cli: true,
+        opencode: true,
       },
       setProviderVisibility: (provider, visible) =>
         set((state) => ({
