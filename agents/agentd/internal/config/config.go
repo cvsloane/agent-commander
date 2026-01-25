@@ -51,9 +51,10 @@ type SecurityConfig struct {
 }
 
 type ProvidersConfig struct {
-	Claude ClaudeConfig `yaml:"claude"`
-	Codex  CodexConfig  `yaml:"codex"`
-	Gemini GeminiConfig `yaml:"gemini"`
+	Claude   ClaudeConfig   `yaml:"claude"`
+	Codex    CodexConfig    `yaml:"codex"`
+	Gemini   GeminiConfig   `yaml:"gemini"`
+	OpenCode OpenCodeConfig `yaml:"opencode"`
 }
 
 type ClaudeConfig struct {
@@ -86,6 +87,12 @@ type GeminiConfig struct {
 	StatsIntervalMs  int    `yaml:"stats_interval_ms"`
 	StatsIdleMs      int    `yaml:"stats_idle_ms"`
 	StatsSessionName string `yaml:"stats_session_name"`
+}
+
+type OpenCodeConfig struct {
+	UsageCommand    string `yaml:"usage_command"`
+	UsageIntervalMs int    `yaml:"usage_interval_ms"`
+	UsageParseJSON  bool   `yaml:"usage_parse_json"`
 }
 
 type StorageConfig struct {
@@ -164,6 +171,9 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if cfg.Providers.Gemini.UsageIntervalMs == 0 && cfg.Providers.Gemini.UsageCommand != "" {
 		cfg.Providers.Gemini.UsageIntervalMs = 300000
+	}
+	if cfg.Providers.OpenCode.UsageIntervalMs == 0 && cfg.Providers.OpenCode.UsageCommand != "" {
+		cfg.Providers.OpenCode.UsageIntervalMs = 300000
 	}
 	if cfg.Providers.Gemini.StatsIntervalMs == 0 && cfg.Providers.Gemini.StatsCommand != "" {
 		cfg.Providers.Gemini.StatsIntervalMs = 300000

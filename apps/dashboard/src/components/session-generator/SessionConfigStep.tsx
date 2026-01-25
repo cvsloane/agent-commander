@@ -15,6 +15,7 @@ const PROVIDERS: Array<{ id: SpawnProvider; name: string }> = [
   { id: 'claude_code', name: 'Claude Code' },
   { id: 'codex', name: 'Codex' },
   { id: 'gemini_cli', name: 'Gemini CLI' },
+  { id: 'opencode', name: 'OpenCode' },
   { id: 'aider', name: 'Aider' },
   { id: 'shell', name: 'Shell' },
 ];

@@ -12,6 +12,7 @@ const PROVIDERS: Array<{ id: SpawnProvider; name: string; description: string }>
   { id: 'claude_code', name: 'Claude Code', description: 'Anthropic Claude CLI agent' },
   { id: 'codex', name: 'Codex', description: 'OpenAI Codex CLI agent' },
   { id: 'gemini_cli', name: 'Gemini CLI', description: 'Google Gemini CLI agent' },
+  { id: 'opencode', name: 'OpenCode', description: 'OpenCode CLI agent (Minimax)' },
   { id: 'aider', name: 'Aider', description: 'GPT-powered coding assistant' },
   { id: 'shell', name: 'Shell', description: 'Plain bash shell' },
 ];

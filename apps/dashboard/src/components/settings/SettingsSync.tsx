@@ -71,6 +71,7 @@ function mergeSettings(settings: UserSettings | null): NormalizedUserSettings {
         claude_code: true,
         codex: true,
         gemini_cli: true,
+        opencode: true,
         ...(data.visibleProviders || {}),
       },
       showVisualizerInSidebar: data.showVisualizerInSidebar ?? true,
@@ -90,7 +91,7 @@ function mergeSettings(settings: UserSettings | null): NormalizedUserSettings {
   };
 }
 
-const allowedProviders: SpawnProvider[] = ['claude_code', 'codex', 'gemini_cli', 'aider', 'shell'];
+const allowedProviders: SpawnProvider[] = ['claude_code', 'codex', 'gemini_cli', 'opencode', 'aider', 'shell'];
 
 function coerceProvider(value: unknown): SpawnProvider {
   if (allowedProviders.includes(value as SpawnProvider)) {

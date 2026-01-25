@@ -54,6 +54,10 @@ providers:
     # stats_interval_ms: 300000
     # stats_idle_ms: 15000
     # stats_session_name: "gemini-stats"  # Only query sessions with this name
+  opencode:
+    # usage_command: "/usr/local/bin/opencode-usage"
+    # usage_interval_ms: 300000
+    # usage_parse_json: true
 
 storage:
   state_dir: "/var/lib/agentd"

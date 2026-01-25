@@ -679,6 +679,17 @@ export function SettingsPanel({ className }: SettingsPanelProps) {
               onCheckedChange={(checked) => setProviderVisibility('gemini_cli', checked)}
             />
           </div>
+
+          <div className="flex items-center justify-between">
+            <Label htmlFor="show-opencode" className="cursor-pointer">
+              Show OpenCode
+            </Label>
+            <Switch
+              id="show-opencode"
+              checked={visibleProviders.opencode}
+              onCheckedChange={(checked) => setProviderVisibility('opencode', checked)}
+            />
+          </div>
         </div>
       </section>
 
@@ -936,6 +947,7 @@ export function SettingsPanel({ className }: SettingsPanelProps) {
             <option value="claude_code">Claude Code</option>
             <option value="codex">Codex</option>
             <option value="gemini_cli">Gemini CLI</option>
+            <option value="opencode">OpenCode</option>
             <option value="aider">Aider</option>
             <option value="shell">Shell</option>
           </select>
