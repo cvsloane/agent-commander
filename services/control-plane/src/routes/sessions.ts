@@ -422,7 +422,7 @@ export function registerSessionRoutes(app: FastifyInstance): void {
       const ForkRequestSchema = z.object({
         branch: z.string().optional(),
         cwd: z.string().optional(),
-        provider: z.enum(['claude_code', 'codex', 'shell']).optional(),
+        provider: z.enum(['claude_code', 'codex', 'opencode', 'shell']).optional(),
         note: z.string().optional(),
         group_id: z.string().uuid().optional(),
       });
@@ -745,7 +745,7 @@ export function registerSessionRoutes(app: FastifyInstance): void {
   // POST /v1/sessions/spawn - Spawn a new session from dashboard
   const DashboardSpawnRequestSchema = z.object({
     host_id: z.string().uuid(),
-    provider: z.enum(['claude_code', 'codex', 'gemini_cli', 'aider', 'shell']),
+    provider: z.enum(['claude_code', 'codex', 'gemini_cli', 'opencode', 'aider', 'shell']),
     working_directory: z.string().min(1),
     title: z.string().optional(),
     flags: z.array(z.string()).optional(),

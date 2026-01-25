@@ -738,7 +738,7 @@ export async function getToolStats(sessionId: string): Promise<{ stats: ToolStat
 }
 
 // Spawn Session API
-export type SpawnProvider = 'claude_code' | 'codex' | 'gemini_cli' | 'aider' | 'shell';
+export type SpawnProvider = 'claude_code' | 'codex' | 'gemini_cli' | 'opencode' | 'aider' | 'shell';
 
 export interface SpawnSessionRequest {
   host_id: string;

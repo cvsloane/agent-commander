@@ -467,6 +467,15 @@ func (a *Agent) pollProviderUsage() {
 		)
 	}
 
+	if a.cfg.Providers.OpenCode.UsageCommand != "" && a.cfg.Providers.OpenCode.UsageIntervalMs > 0 {
+		go a.pollProviderUsageCommand(
+			"opencode",
+			a.cfg.Providers.OpenCode.UsageCommand,
+			time.Duration(a.cfg.Providers.OpenCode.UsageIntervalMs)*time.Millisecond,
+			a.cfg.Providers.OpenCode.UsageParseJSON,
+		)
+	}
+
 	if a.cfg.Providers.Gemini.UsageCommand != "" && a.cfg.Providers.Gemini.UsageIntervalMs > 0 {
 		go a.pollProviderUsageCommand(
 			"gemini_cli",

@@ -54,6 +54,39 @@ Disable these if you want read only mode on a host.
 agentd can handle provider specific hooks and usage parsing.
 See [Provider Hooks](hooks.md) for setup details.
 
+### Provider usage polling
+
+agentd can run periodic commands to pull usage data from provider CLIs or APIs
+and report it to the control plane.
+
+Example: OpenCode (Minimax) usage polling
+
+1) Install the helper script and make it executable:
+```bash
+sudo cp scripts/opencode-usage.sh /usr/local/bin/opencode-usage
+sudo chmod +x /usr/local/bin/opencode-usage
+```
+
+2) Store the API key outside git (systemd environment is recommended):
+```bash
+sudo systemctl edit agentd
+# add:
+# [Service]
+# Environment="MINIMAX_API_KEY=YOUR_KEY_HERE"
+```
+
+3) Configure agentd:
+```yaml
+providers:
+  opencode:
+    usage_command: "/usr/local/bin/opencode-usage"
+    usage_interval_ms: 300000
+    usage_parse_json: true
+```
+
+Keep `MINIMAX_API_KEY` out of version control. The script reads it from the
+environment at runtime.
+
 ### Storage
 
 - `storage.state_dir` - local state + outbound queue.

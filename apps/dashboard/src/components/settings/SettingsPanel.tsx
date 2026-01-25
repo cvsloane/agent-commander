@@ -936,6 +936,7 @@ export function SettingsPanel({ className }: SettingsPanelProps) {
             <option value="claude_code">Claude Code</option>
             <option value="codex">Codex</option>
             <option value="gemini_cli">Gemini CLI</option>
+            <option value="opencode">OpenCode</option>
             <option value="aider">Aider</option>
             <option value="shell">Shell</option>
           </select>
