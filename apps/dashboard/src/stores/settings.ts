@@ -55,11 +55,18 @@ export const CLAWDBOT_CHANNEL_OPTIONS = [
   'imessage',
 ] as const;
 export type ClawdbotChannelOption = (typeof CLAWDBOT_CHANNEL_OPTIONS)[number];
+export type ClawdbotThrottleSettings = {
+  maxPerHour: number;
+  batchDelayMs: number;
+  sessionCooldownMs: number;
+};
 export type ClawdbotChannelSettings = AlertChannelSettings & {
   baseUrl?: string;
   token?: string;
   channel?: ClawdbotChannelOption;
   recipient?: string;
+  throttle?: ClawdbotThrottleSettings;
+  actionableOnly?: boolean;
 };
 export type UsageThresholds = Record<AlertProviderKey, number[]>;
 export type AlertSettings = {
@@ -83,6 +90,8 @@ export type ClawdbotChannelSettingsInput = AlertChannelSettingsInput & {
   token?: string;
   channel?: ClawdbotChannelOption;
   recipient?: string;
+  throttle?: Partial<ClawdbotThrottleSettings>;
+  actionableOnly?: boolean;
 };
 export type AlertSettingsInput = {
   browser?: AlertChannelSettingsInput;
@@ -118,15 +127,32 @@ export const DEFAULT_USAGE_THRESHOLDS: UsageThresholds = ALERT_PROVIDER_KEYS.red
   },
   {} as UsageThresholds
 );
+// Clawdbot-specific event defaults (only critical events enabled)
+export const DEFAULT_CLAWDBOT_EVENTS: AlertEventToggles = {
+  approvals: true,
+  waiting_input: false,      // OFF by default (noisy)
+  waiting_approval: false,   // OFF by default (redundant with approvals)
+  error: true,
+  snapshot_action: true,
+  usage_thresholds: true,
+  approval_decisions: false, // OFF by default (noisy)
+};
+export const DEFAULT_CLAWDBOT_THROTTLE: ClawdbotThrottleSettings = {
+  maxPerHour: 30,
+  batchDelayMs: 1000,
+  sessionCooldownMs: 30000,
+};
 export const DEFAULT_CLAWDBOT_SETTINGS: ClawdbotChannelSettings = {
   enabled: false,
   onlyWhenUnfocused: false,
-  events: { ...DEFAULT_ALERT_EVENTS },
+  events: { ...DEFAULT_CLAWDBOT_EVENTS },
   providers: { ...DEFAULT_ALERT_PROVIDERS },
   baseUrl: 'http://localhost:18789',
   token: '',
   channel: undefined,
   recipient: '',
+  throttle: { ...DEFAULT_CLAWDBOT_THROTTLE },
+  actionableOnly: true,
 };
 export const DEFAULT_ALERT_SETTINGS: AlertSettings = {
   browser: {
@@ -228,6 +254,10 @@ export const normalizeAlertSettings = (
         ...DEFAULT_CLAWDBOT_SETTINGS.providers,
         ...(overrides?.clawdbot?.providers ?? {}),
       },
+      throttle: {
+        ...DEFAULT_CLAWDBOT_THROTTLE,
+        ...(overrides?.clawdbot?.throttle ?? {}),
+      },
     },
     usageThresholds: {
       ...DEFAULT_ALERT_SETTINGS.usageThresholds,
@@ -265,13 +295,22 @@ export const normalizeAlertSettings = (
   const mergeClawdbotChannel = (
     channel: ClawdbotChannelSettingsInput | undefined,
     defaults: ClawdbotChannelSettings
-  ): ClawdbotChannelSettings => ({
-    ...mergeChannel(channel, defaults),
-    baseUrl: channel?.baseUrl ?? defaults.baseUrl,
-    token: channel?.token ?? defaults.token,
-    channel: channel?.channel ?? defaults.channel,
-    recipient: channel?.recipient ?? defaults.recipient,
-  });
+  ): ClawdbotChannelSettings => {
+    const throttle: ClawdbotThrottleSettings = {
+      maxPerHour: channel?.throttle?.maxPerHour ?? defaults.throttle?.maxPerHour ?? DEFAULT_CLAWDBOT_THROTTLE.maxPerHour,
+      batchDelayMs: channel?.throttle?.batchDelayMs ?? defaults.throttle?.batchDelayMs ?? DEFAULT_CLAWDBOT_THROTTLE.batchDelayMs,
+      sessionCooldownMs: channel?.throttle?.sessionCooldownMs ?? defaults.throttle?.sessionCooldownMs ?? DEFAULT_CLAWDBOT_THROTTLE.sessionCooldownMs,
+    };
+    return {
+      ...mergeChannel(channel, defaults),
+      baseUrl: channel?.baseUrl ?? defaults.baseUrl,
+      token: channel?.token ?? defaults.token,
+      channel: channel?.channel ?? defaults.channel,
+      recipient: channel?.recipient ?? defaults.recipient,
+      throttle,
+      actionableOnly: channel?.actionableOnly ?? defaults.actionableOnly ?? true,
+    };
+  };
 
   const usageThresholds: UsageThresholds = { ...base.usageThresholds };
   if (input?.usageThresholds) {
@@ -333,6 +372,8 @@ interface SettingsStore {
   setClawdbotToken: (token: string) => void;
   setClawdbotChannel: (channel: ClawdbotChannelOption | undefined) => void;
   setClawdbotRecipient: (recipient: string) => void;
+  setClawdbotThrottle: (throttle: Partial<ClawdbotThrottleSettings>) => void;
+  setClawdbotActionableOnly: (actionableOnly: boolean) => void;
 
   // Virtual keyboard
   virtualKeyboardKeys: VirtualKeyboardKey[];
@@ -545,6 +586,32 @@ export const useSettingsStore = create<SettingsStore>()(
             clawdbot: {
               ...(state.alertSettings.clawdbot ?? DEFAULT_CLAWDBOT_SETTINGS),
               recipient,
+            },
+          },
+        })),
+      setClawdbotThrottle: (throttle) =>
+        set((state) => {
+          const current = state.alertSettings.clawdbot ?? DEFAULT_CLAWDBOT_SETTINGS;
+          return {
+            alertSettings: {
+              ...state.alertSettings,
+              clawdbot: {
+                ...current,
+                throttle: {
+                  ...(current.throttle ?? DEFAULT_CLAWDBOT_THROTTLE),
+                  ...throttle,
+                },
+              },
+            },
+          };
+        }),
+      setClawdbotActionableOnly: (actionableOnly) =>
+        set((state) => ({
+          alertSettings: {
+            ...state.alertSettings,
+            clawdbot: {
+              ...(state.alertSettings.clawdbot ?? DEFAULT_CLAWDBOT_SETTINGS),
+              actionableOnly,
             },
           },
         })),

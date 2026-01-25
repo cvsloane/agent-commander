@@ -34,7 +34,9 @@ import {
   CLAWDBOT_CHANNEL_OPTIONS,
   DEFAULT_ALERT_EVENTS,
   DEFAULT_ALERT_SETTINGS,
+  DEFAULT_CLAWDBOT_EVENTS,
   DEFAULT_CLAWDBOT_SETTINGS,
+  DEFAULT_CLAWDBOT_THROTTLE,
   DEFAULT_USAGE_THRESHOLDS,
   DEFAULT_VIRTUAL_KEY_ORDER,
   type AlertEventKey,
@@ -120,6 +122,8 @@ export function SettingsPanel({ className }: SettingsPanelProps) {
     setClawdbotToken,
     setClawdbotChannel,
     setClawdbotRecipient,
+    setClawdbotThrottle,
+    setClawdbotActionableOnly,
     // Repo Picker settings
     devFolders,
     addDevFolder,
@@ -292,13 +296,14 @@ export function SettingsPanel({ className }: SettingsPanelProps) {
     const channelSettings = channel === 'clawdbot'
       ? (alertSettings.clawdbot ?? DEFAULT_CLAWDBOT_SETTINGS)
       : alertSettings[channel];
+    const defaultEvents = channel === 'clawdbot' ? DEFAULT_CLAWDBOT_EVENTS : DEFAULT_ALERT_EVENTS;
     return (
       <div className="grid gap-2 sm:grid-cols-2">
         {alertEvents.map((event) => (
           <div key={`${channel}-${event}`} className="flex items-center justify-between gap-3">
             <Label className="text-xs text-muted-foreground">{EVENT_LABELS[event]}</Label>
             <Switch
-              checked={channelSettings.events[event] ?? DEFAULT_ALERT_EVENTS[event]}
+              checked={channelSettings.events[event] ?? defaultEvents[event]}
               onCheckedChange={(checked) => setAlertChannelEvent(channel, event, checked)}
             />
           </div>
@@ -597,6 +602,76 @@ export function SettingsPanel({ className }: SettingsPanelProps) {
                 placeholder="Channel-specific recipient"
                 className="w-full px-3 py-2 border rounded-md bg-background text-sm"
               />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-sm font-medium">Actionable Items Only</Label>
+                <div className="text-xs text-muted-foreground">
+                  Only notify for items requiring immediate action
+                </div>
+              </div>
+              <Switch
+                checked={alertSettings.clawdbot?.actionableOnly ?? true}
+                onCheckedChange={(checked) => setClawdbotActionableOnly(checked)}
+              />
+            </div>
+
+            <div className="space-y-4 pt-2 border-t">
+              <div className="text-xs font-medium text-muted-foreground">Rate Limiting</div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground">Max notifications per hour</Label>
+                  <span className="text-xs font-mono">
+                    {alertSettings.clawdbot?.throttle?.maxPerHour ?? DEFAULT_CLAWDBOT_THROTTLE.maxPerHour}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={1}
+                  max={100}
+                  value={alertSettings.clawdbot?.throttle?.maxPerHour ?? DEFAULT_CLAWDBOT_THROTTLE.maxPerHour}
+                  onChange={(e) => setClawdbotThrottle({ maxPerHour: Number(e.target.value) })}
+                  className="w-full"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground">Batch window</Label>
+                  <span className="text-xs font-mono">
+                    {((alertSettings.clawdbot?.throttle?.batchDelayMs ?? DEFAULT_CLAWDBOT_THROTTLE.batchDelayMs) / 1000).toFixed(1)}s
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={100}
+                  max={5000}
+                  step={100}
+                  value={alertSettings.clawdbot?.throttle?.batchDelayMs ?? DEFAULT_CLAWDBOT_THROTTLE.batchDelayMs}
+                  onChange={(e) => setClawdbotThrottle({ batchDelayMs: Number(e.target.value) })}
+                  className="w-full"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground">Session cooldown</Label>
+                  <span className="text-xs font-mono">
+                    {Math.round((alertSettings.clawdbot?.throttle?.sessionCooldownMs ?? DEFAULT_CLAWDBOT_THROTTLE.sessionCooldownMs) / 1000)}s
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={300000}
+                  step={5000}
+                  value={alertSettings.clawdbot?.throttle?.sessionCooldownMs ?? DEFAULT_CLAWDBOT_THROTTLE.sessionCooldownMs}
+                  onChange={(e) => setClawdbotThrottle({ sessionCooldownMs: Number(e.target.value) })}
+                  className="w-full"
+                />
+              </div>
             </div>
 
             <div className="space-y-2">
