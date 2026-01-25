@@ -31,8 +31,10 @@ if [[ -z "$response" ]]; then
   exit 1
 fi
 
+limit_override="${OPENCODE_REQUEST_LIMIT:-}"
+
 if command -v jq >/dev/null 2>&1; then
-  jq -c '
+  jq -c --arg limit_override "$limit_override" '
     def to_number:
       if type == "number" then .
       elif type == "string" then (gsub(","; "") | tonumber?)
@@ -81,6 +83,11 @@ if command -v jq >/dev/null 2>&1; then
           "expires_at", "expire_at", "expire_time", "expiration", "quota_reset_at"
         ])) // (compute_reset_at($root)))
       }
+    | (if ($limit_override | length) > 0 then
+        . + { request_limit: ($limit_override | tonumber?) }
+       else
+        .
+       end)
     | with_entries(select(.value != null))
   ' <<<"$response"
 else

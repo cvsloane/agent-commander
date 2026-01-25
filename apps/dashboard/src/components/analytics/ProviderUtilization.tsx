@@ -347,6 +347,14 @@ export function ProviderUtilization({ usage }: ProviderUtilizationProps) {
         firstModel?.interval_total ??
         firstModel?.limit
     );
+    const overrideLimit = parseNumber(
+      rawJson?.request_limit ??
+        rawJson?.requestLimit ??
+        rawJson?.limit_requests ??
+        rawJson?.requests_limit ??
+        rawJson?.requestLimitCount
+    );
+    const effectiveTotal = overrideLimit ?? totalRequests;
     const usedRequests = parseNumber(
       firstModel?.current_interval_usage_count ??
         firstModel?.used ??
@@ -357,16 +365,19 @@ export function ProviderUtilization({ usage }: ProviderUtilizationProps) {
       entry.remaining_requests ??
       parseNumber(firstModel?.remaining ?? firstModel?.remaining_count ?? firstModel?.remaining_requests);
 
-    if (remainingRequests == null && totalRequests != null && usedRequests != null) {
-      remainingRequests = totalRequests - usedRequests;
+    if (remainingRequests == null && effectiveTotal != null && usedRequests != null) {
+      remainingRequests = effectiveTotal - usedRequests;
+    }
+    if (overrideLimit != null && remainingRequests != null && remainingRequests > overrideLimit) {
+      remainingRequests = overrideLimit;
     }
 
     let utilization: number | null = null;
-    if (totalRequests != null && totalRequests > 0) {
+    if (effectiveTotal != null && effectiveTotal > 0) {
       if (usedRequests != null) {
-        utilization = (usedRequests / totalRequests) * 100;
+        utilization = (usedRequests / effectiveTotal) * 100;
       } else if (remainingRequests != null) {
-        utilization = ((totalRequests - remainingRequests) / totalRequests) * 100;
+        utilization = ((effectiveTotal - remainingRequests) / effectiveTotal) * 100;
       }
     }
     if (utilization != null) {
@@ -380,7 +391,9 @@ export function ProviderUtilization({ usage }: ProviderUtilizationProps) {
 
     const remainingLabel =
       remainingRequests != null
-        ? `${Math.max(0, Math.round(remainingRequests)).toLocaleString()} requests remaining`
+        ? overrideLimit != null
+          ? `${Math.max(0, Math.round(remainingRequests)).toLocaleString()} / ${Math.round(overrideLimit).toLocaleString()} requests remaining`
+          : `${Math.max(0, Math.round(remainingRequests)).toLocaleString()} requests remaining`
         : null;
 
     return { modelLabel, utilization, remainingLabel, resetAt };
