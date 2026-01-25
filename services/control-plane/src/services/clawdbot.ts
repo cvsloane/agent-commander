@@ -229,7 +229,7 @@ class ClawdbotNotifier {
     const throttle = config.throttle ?? DEFAULT_THROTTLE;
 
     // Consume rate limit only after passing all checks
-    this.consumeRateLimit(userId, throttle.maxPerHour);
+    this.consumeRateLimit(userId);
 
     // Record this notification for deduplication
     this.recordNotification(
@@ -263,7 +263,7 @@ class ClawdbotNotifier {
     return entry.count < maxPerHour;
   }
 
-  private consumeRateLimit(userId: string, maxPerHour: number): void {
+  private consumeRateLimit(userId: string): void {
     const now = Date.now();
     const hourMs = 60 * 60 * 1000;
     const entry = this.rateLimits.get(userId);
