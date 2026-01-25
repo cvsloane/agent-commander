@@ -109,6 +109,7 @@ interface ProviderUsageData {
   remaining_tokens?: number | null;
   remaining_requests?: number | null;
   weekly_remaining_tokens?: number | null;
+  reset_at?: string | null;
   raw_json?: Record<string, unknown> | null;
 }
 
@@ -146,6 +147,22 @@ export function ProviderUtilization({ usage }: ProviderUtilizationProps) {
       if (!trimmed) return null;
       const parsed = Number(trimmed.replace(/[$,]/g, '').replace(/%$/, ''));
       return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  };
+
+  const normalizeTimestamp = (value: unknown): string | null => {
+    if (value == null) return null;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const ts = value > 1_000_000_000_000 ? value : value * 1000;
+      const date = new Date(ts);
+      return Number.isNaN(date.getTime()) ? null : date.toISOString();
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      const date = new Date(trimmed);
+      return Number.isNaN(date.getTime()) ? trimmed : date.toISOString();
     }
     return null;
   };
@@ -297,6 +314,78 @@ export function ProviderUtilization({ usage }: ProviderUtilizationProps) {
     return null;
   };
 
+  const getOpenCodeStats = (entry: ProviderUsageData): {
+    modelLabel?: string | null;
+    utilization?: number | null;
+    remainingLabel?: string | null;
+    resetAt?: string | null;
+  } | null => {
+    const rawJson = entry.raw_json as Record<string, any> | null;
+    const modelRemains =
+      (Array.isArray(rawJson?.model_remains) ? rawJson?.model_remains : undefined) ??
+      (Array.isArray(rawJson?.data?.model_remains) ? rawJson?.data?.model_remains : undefined);
+    const firstModel = Array.isArray(modelRemains) ? modelRemains[0] : null;
+    if (!firstModel && entry.remaining_requests == null && entry.reset_at == null) {
+      return null;
+    }
+
+    const modelLabel =
+      typeof firstModel?.model === 'string'
+        ? firstModel.model
+        : typeof firstModel?.model_name === 'string'
+          ? firstModel.model_name
+          : typeof firstModel?.model_id === 'string'
+            ? firstModel.model_id
+            : typeof firstModel?.name === 'string'
+              ? firstModel.name
+              : null;
+
+    const totalRequests = parseNumber(
+      firstModel?.current_interval_total_count ??
+        firstModel?.total ??
+        firstModel?.total_count ??
+        firstModel?.interval_total ??
+        firstModel?.limit
+    );
+    const usedRequests = parseNumber(
+      firstModel?.current_interval_usage_count ??
+        firstModel?.used ??
+        firstModel?.used_count ??
+        firstModel?.usage_count
+    );
+    let remainingRequests =
+      entry.remaining_requests ??
+      parseNumber(firstModel?.remaining ?? firstModel?.remaining_count ?? firstModel?.remaining_requests);
+
+    if (remainingRequests == null && totalRequests != null && usedRequests != null) {
+      remainingRequests = totalRequests - usedRequests;
+    }
+
+    let utilization: number | null = null;
+    if (totalRequests != null && totalRequests > 0) {
+      if (usedRequests != null) {
+        utilization = (usedRequests / totalRequests) * 100;
+      } else if (remainingRequests != null) {
+        utilization = ((totalRequests - remainingRequests) / totalRequests) * 100;
+      }
+    }
+    if (utilization != null) {
+      utilization = Math.max(0, Math.min(100, utilization));
+    }
+
+    const resetAt =
+      normalizeTimestamp(firstModel?.end_time ?? firstModel?.reset_at ?? firstModel?.resetAt ?? firstModel?.reset_time) ??
+      entry.reset_at ??
+      null;
+
+    const remainingLabel =
+      remainingRequests != null
+        ? `${Math.max(0, Math.round(remainingRequests)).toLocaleString()} requests remaining`
+        : null;
+
+    return { modelLabel, utilization, remainingLabel, resetAt };
+  };
+
   const getWeeklyUtilizationFromRawJson = (rawJson?: Record<string, unknown> | null): number | null => {
     if (!rawJson || typeof rawJson !== 'object') return null;
     const record = rawJson as Record<string, any>;
@@ -383,6 +472,7 @@ export function ProviderUtilization({ usage }: ProviderUtilizationProps) {
       case 'claude_code': return 'Claude';
       case 'codex': return 'Codex';
       case 'gemini_cli': return 'Gemini';
+      case 'opencode': return 'OpenCode';
       default: return provider;
     }
   };
@@ -493,6 +583,7 @@ export function ProviderUtilization({ usage }: ProviderUtilizationProps) {
   return (
     <div className="space-y-4">
       {filteredEntries.map((entry, index) => {
+        const openCodeStats = entry.provider === 'opencode' ? getOpenCodeStats(entry) : null;
         const geminiModels = entry.provider === 'gemini_cli' ? getGeminiModels(entry) : [];
         const parsedEntries = getParsedEntries(entry.raw_json);
         const fiveHourRemaining = getRemainingPercentLabel(parsedEntries, (label) => label.includes('5h'));
@@ -532,6 +623,16 @@ export function ProviderUtilization({ usage }: ProviderUtilizationProps) {
           </div>
 
           <div className="space-y-2">
+            {entry.provider === 'opencode' && openCodeStats?.utilization != null && (
+              <UtilizationBar
+                label={openCodeStats.modelLabel ? `${openCodeStats.modelLabel} requests` : 'Requests'}
+                utilization={openCodeStats.utilization}
+                resetAt={openCodeStats.resetAt}
+                remainingLabel={openCodeStats.remainingLabel}
+                icon={<Clock className="h-3 w-3" />}
+              />
+            )}
+
             {entry.five_hour_utilization != null && (
               <UtilizationBar
                 label="5-hour limit"
@@ -580,7 +681,7 @@ export function ProviderUtilization({ usage }: ProviderUtilizationProps) {
               />
             )}
 
-            {remainingLabel && (
+            {remainingLabel && !(entry.provider === 'opencode' && openCodeStats?.remainingLabel) && (
               <div className="text-xs text-foreground/80">{remainingLabel}</div>
             )}
 
