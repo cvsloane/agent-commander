@@ -2,6 +2,42 @@ import type { WebSocket } from '@fastify/websocket';
 import type { ServerToUIMessage, Session, Approval, ToolEvent } from '@agent-command/schema';
 import { clawdbotNotifier } from './clawdbot.js';
 
+// Tools that don't block workflow - user can respond async
+const NON_BLOCKING_APPROVAL_TOOLS = new Set([
+  'askuserquestion',
+  'exitplanmode',
+  'enterplanmode',
+]);
+
+// Check if an approval payload contains an actual decision (allow/deny choices)
+function approvalHasDecisionPayload(payload: unknown): boolean {
+  if (!payload || typeof payload !== 'object') return false;
+  const p = payload as Record<string, unknown>;
+  // Check for explicit decision indicators
+  if (p.requires_decision === true) return true;
+  if (p.choices && Array.isArray(p.choices)) return true;
+  // Default to true for standard tool approvals
+  return true;
+}
+
+// Extract tool name from approval payload
+function extractApprovalTool(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const p = payload as Record<string, unknown>;
+  if (typeof p.tool === 'string') return p.tool;
+  if (typeof p.tool_name === 'string') return p.tool_name;
+  return null;
+}
+
+// Determine if an approval requires immediate action (mirrors orchestrator queue logic)
+function isActionableApproval(approval: Approval): boolean {
+  const tool = extractApprovalTool(approval.requested_payload);
+  if (tool && NON_BLOCKING_APPROVAL_TOOLS.has(tool.toLowerCase())) {
+    return false;
+  }
+  return approvalHasDecisionPayload(approval.requested_payload);
+}
+
 type TopicType =
   | 'sessions'
   | 'approvals'
@@ -304,10 +340,11 @@ class PubSub {
       payload: { sessions, deleted },
     });
 
-    // Clean up notification tracking for deleted sessions
+    // Clean up notification tracking and clawdbot state for deleted sessions
     if (deleted) {
       for (const sessionId of deleted) {
         this.notifiedSessionStatus.delete(sessionId);
+        clawdbotNotifier.clearSessionState(sessionId);
       }
     }
 
@@ -331,15 +368,18 @@ class PubSub {
       this.notifiedSessionStatus.set(session.id, session.status);
 
       if (session.status === 'ERROR') {
-        clawdbotNotifier.notifySessionError(session).catch((err) => {
+        // Errors are actionable
+        clawdbotNotifier.notifySessionError(session, true).catch((err) => {
           console.error('[pubsub] Error sending clawdbot error notification:', err);
         });
       } else if (session.status === 'WAITING_FOR_INPUT') {
-        clawdbotNotifier.notifyWaitingInput(session).catch((err) => {
+        // waiting_input is NOT actionable (redundant with approval notifications)
+        clawdbotNotifier.notifyWaitingInput(session, false).catch((err) => {
           console.error('[pubsub] Error sending clawdbot waiting input notification:', err);
         });
       } else if (session.status === 'WAITING_FOR_APPROVAL') {
-        clawdbotNotifier.notifyWaitingApproval(session).catch((err) => {
+        // waiting_approval is NOT actionable (redundant with approval notifications)
+        clawdbotNotifier.notifyWaitingApproval(session, false).catch((err) => {
           console.error('[pubsub] Error sending clawdbot waiting approval notification:', err);
         });
       }
@@ -360,8 +400,11 @@ class PubSub {
       },
     });
 
+    // Determine if this approval is actionable (requires immediate response)
+    const actionable = isActionableApproval(approval);
+
     // Send clawdbot notification for new approvals
-    clawdbotNotifier.notifyApprovalCreated(approval, session ?? null).catch((err) => {
+    clawdbotNotifier.notifyApprovalCreated(approval, session ?? null, actionable).catch((err) => {
       console.error('[pubsub] Error sending clawdbot approval notification:', err);
     });
   }

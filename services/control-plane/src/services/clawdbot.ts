@@ -2,6 +2,12 @@ import type { Session, Approval } from '@agent-command/schema';
 import * as db from '../db/index.js';
 import { pool } from '../db/index.js';
 
+interface ClawdbotThrottleSettings {
+  maxPerHour: number;
+  batchDelayMs: number;
+  sessionCooldownMs: number;
+}
+
 interface ClawdbotConfig {
   enabled: boolean;
   baseUrl?: string;
@@ -10,6 +16,8 @@ interface ClawdbotConfig {
   recipient?: string;
   events: Record<string, boolean>;
   providers: Record<string, boolean>;
+  throttle?: ClawdbotThrottleSettings;
+  actionableOnly?: boolean;
 }
 
 interface QueuedNotification {
@@ -24,28 +32,181 @@ interface RateLimitEntry {
   windowStart: number;
 }
 
+// Default events: only critical ones enabled
 const DEFAULT_CLAWDBOT_EVENTS: Record<string, boolean> = {
   approvals: true,
-  waiting_input: true,
-  waiting_approval: true,
+  waiting_input: false,      // OFF by default (noisy)
+  waiting_approval: false,   // OFF by default (redundant with approvals)
   error: true,
   snapshot_action: true,
   usage_thresholds: true,
-  approval_decisions: true,
+  approval_decisions: false, // OFF by default (noisy)
+};
+
+const DEFAULT_THROTTLE: ClawdbotThrottleSettings = {
+  maxPerHour: 30,
+  batchDelayMs: 1000,
+  sessionCooldownMs: 30000,
 };
 
 class ClawdbotNotifier {
   private queue: QueuedNotification[] = [];
   private flushTimer: NodeJS.Timeout | null = null;
   private rateLimits: Map<string, RateLimitEntry> = new Map();
-  private readonly maxPerHour = 30;
-  private readonly flushDelayMs = 1000;
+
+  // Deduplication tracking
+  private notificationHistory: Map<string, number> = new Map(); // dedupeKey -> timestamp
+  private approvalNotified: Map<string, number> = new Map(); // userId|approvalId -> timestamp
+  private sessionLastNotified: Map<string, number> = new Map(); // userId|sessionId -> timestamp
+
+  // Clear old deduplication entries periodically
+  private cleanupInterval: NodeJS.Timeout | null = null;
+
+  constructor() {
+    // Clean up stale entries every 5 minutes
+    this.cleanupInterval = setInterval(() => {
+      this.cleanupStaleEntries();
+    }, 5 * 60 * 1000);
+  }
+
+  private cleanupStaleEntries(): void {
+    const now = Date.now();
+    const maxAge = 60 * 60 * 1000; // 1 hour
+
+    for (const [key, timestamp] of this.notificationHistory) {
+      if (now - timestamp > maxAge) {
+        this.notificationHistory.delete(key);
+      }
+    }
+
+    for (const [key, timestamp] of this.approvalNotified) {
+      if (now - timestamp > maxAge) {
+        this.approvalNotified.delete(key);
+      }
+    }
+
+    // Clean up old session last notified entries
+    for (const [sessionId, timestamp] of this.sessionLastNotified) {
+      if (now - timestamp > maxAge) {
+        this.sessionLastNotified.delete(sessionId);
+      }
+    }
+  }
+
+  private generateDedupeKey(
+    userId: string,
+    eventType: string,
+    sessionId?: string,
+    approvalId?: string,
+    status?: string
+  ): string {
+    return [
+      userId,
+      eventType,
+      sessionId ?? '',
+      approvalId ?? '',
+      status ?? '',
+    ].join('|');
+  }
+
+  private approvalKey(userId: string, approvalId: string): string {
+    return `${userId}|${approvalId}`;
+  }
+
+  private sessionKey(userId: string, sessionId: string): string {
+    return `${userId}|${sessionId}`;
+  }
+
+  private shouldNotify(
+    userId: string,
+    eventType: string,
+    config: ClawdbotConfig,
+    options: {
+      isActionable?: boolean;
+      sessionId?: string;
+      approvalId?: string;
+      status?: string;
+    } = {}
+  ): { allowed: boolean; reason?: string } {
+    const { isActionable, sessionId, approvalId, status } = options;
+    const throttle = config.throttle ?? DEFAULT_THROTTLE;
+    const actionable = isActionable !== false;
+    const actionableOnly = config.actionableOnly ?? true;
+
+    // 1. Check actionableOnly filter
+    if (actionableOnly && !actionable) {
+      return { allowed: false, reason: 'actionableOnly filter (not actionable)' };
+    }
+
+    // 2. Check event type filter
+    const eventEnabled = config.events[eventType] ?? DEFAULT_CLAWDBOT_EVENTS[eventType] ?? true;
+    if (!eventEnabled) {
+      return { allowed: false, reason: `event type '${eventType}' disabled` };
+    }
+
+    // 3. Check rate limit (non-mutating)
+    if (!this.canSend(userId, throttle.maxPerHour)) {
+      return { allowed: false, reason: 'rate limit exceeded' };
+    }
+
+    // 4. Approval-specific deduplication
+    if (approvalId && this.approvalNotified.has(this.approvalKey(userId, approvalId))) {
+      return { allowed: false, reason: `approval ${approvalId} already notified` };
+    }
+
+    // 5. Strong deduplication by dedupeKey
+    const dedupeKey = this.generateDedupeKey(userId, eventType, sessionId, approvalId, status);
+    const lastNotified = this.notificationHistory.get(dedupeKey);
+    if (lastNotified) {
+      const dedupeWindowMs = 5 * 60 * 1000; // 5 minutes
+      if (Date.now() - lastNotified < dedupeWindowMs) {
+        return { allowed: false, reason: `duplicate notification (key: ${dedupeKey})` };
+      }
+    }
+
+    // 6. Session cooldown check
+    if (sessionId && !actionable) {
+      const sessionLastTime = this.sessionLastNotified.get(this.sessionKey(userId, sessionId));
+      if (sessionLastTime && Date.now() - sessionLastTime < throttle.sessionCooldownMs) {
+        return { allowed: false, reason: `session ${sessionId} cooldown active` };
+      }
+    }
+
+    return { allowed: true };
+  }
+
+  private recordNotification(
+    userId: string,
+    eventType: string,
+    sessionId?: string,
+    approvalId?: string,
+    status?: string,
+    isActionable?: boolean
+  ): void {
+    const now = Date.now();
+    const dedupeKey = this.generateDedupeKey(userId, eventType, sessionId, approvalId, status);
+    this.notificationHistory.set(dedupeKey, now);
+
+    if (approvalId) {
+      this.approvalNotified.set(this.approvalKey(userId, approvalId), now);
+    }
+
+    if (sessionId && isActionable === false) {
+      this.sessionLastNotified.set(this.sessionKey(userId, sessionId), now);
+    }
+  }
 
   async queueNotification(
     userId: string,
     eventType: string,
     provider: string | null,
-    message: string
+    message: string,
+    options: {
+      isActionable?: boolean;
+      sessionId?: string;
+      approvalId?: string;
+      status?: string;
+    } = {}
   ): Promise<void> {
     const config = await this.getUserClawdbotConfig(userId);
     if (!config) return;
@@ -53,21 +214,33 @@ class ClawdbotNotifier {
     if (!config.enabled) return;
     if (!config.baseUrl || !config.token) return;
 
-    // Check event filter
-    const eventEnabled = config.events[eventType] ?? DEFAULT_CLAWDBOT_EVENTS[eventType] ?? true;
-    if (!eventEnabled) return;
-
     // Check provider filter
     if (provider) {
       const providerEnabled = config.providers[provider] ?? true;
       if (!providerEnabled) return;
     }
 
-    // Check rate limit
-    if (!this.checkRateLimit(userId)) {
-      console.log(`[clawdbot] Rate limit exceeded for user ${userId}`);
+    // Run shouldNotify checks
+    const { allowed, reason } = this.shouldNotify(userId, eventType, config, options);
+    if (!allowed) {
+      console.log(`[clawdbot] Notification blocked for user ${userId}: ${reason}`);
       return;
     }
+
+    const throttle = config.throttle ?? DEFAULT_THROTTLE;
+
+    // Consume rate limit only after passing all checks
+    this.consumeRateLimit(userId);
+
+    // Record this notification for deduplication
+    this.recordNotification(
+      userId,
+      eventType,
+      options.sessionId,
+      options.approvalId,
+      options.status,
+      options.isActionable
+    );
 
     this.queue.push({
       userId,
@@ -76,34 +249,41 @@ class ClawdbotNotifier {
       timestamp: Date.now(),
     });
 
-    this.scheduleFlush();
+    this.scheduleFlush(throttle.batchDelayMs);
   }
 
-  private checkRateLimit(userId: string): boolean {
+  private canSend(userId: string, maxPerHour: number): boolean {
+    const now = Date.now();
+    const hourMs = 60 * 60 * 1000;
+    const entry = this.rateLimits.get(userId);
+
+    if (!entry || now - entry.windowStart > hourMs) {
+      return true;
+    }
+
+    return entry.count < maxPerHour;
+  }
+
+  private consumeRateLimit(userId: string): void {
     const now = Date.now();
     const hourMs = 60 * 60 * 1000;
     const entry = this.rateLimits.get(userId);
 
     if (!entry || now - entry.windowStart > hourMs) {
       this.rateLimits.set(userId, { count: 1, windowStart: now });
-      return true;
-    }
-
-    if (entry.count >= this.maxPerHour) {
-      return false;
+      return;
     }
 
     entry.count++;
-    return true;
   }
 
-  private scheduleFlush(): void {
+  private scheduleFlush(delayMs: number = DEFAULT_THROTTLE.batchDelayMs): void {
     if (this.flushTimer) return;
     this.flushTimer = setTimeout(() => {
       this.flush().catch((err) => {
         console.error('[clawdbot] Flush error:', err);
       });
-    }, this.flushDelayMs);
+    }, delayMs);
   }
 
   private async flush(): Promise<void> {
@@ -175,6 +355,23 @@ This is a test from Agent Command. If you received this message, your Clawdbot i
     return this.sendToClawdbot(config, message);
   }
 
+  // Clear state for a deleted session
+  clearSessionState(sessionId: string): void {
+    const sessionSuffix = `|${sessionId}`;
+    for (const key of this.sessionLastNotified.keys()) {
+      if (key.endsWith(sessionSuffix)) {
+        this.sessionLastNotified.delete(key);
+      }
+    }
+    // Clean up any deduplication entries for this session
+    for (const key of this.notificationHistory.keys()) {
+      const parts = key.split('|');
+      if (parts[2] === sessionId) {
+        this.notificationHistory.delete(key);
+      }
+    }
+  }
+
   // Notification formatters
   formatApprovalMessage(approval: Approval, session: Session | null): string {
     const sessionTitle = session?.title || session?.id?.slice(0, 8) || 'Unknown';
@@ -239,33 +436,59 @@ The session is waiting for an approval decision.`;
   async notifyAllUsers(
     eventType: string,
     provider: string | null,
-    message: string
+    message: string,
+    options: {
+      isActionable?: boolean;
+      sessionId?: string;
+      approvalId?: string;
+      status?: string;
+    } = {}
   ): Promise<void> {
     const userIds = await this.getUsersWithClawdbot();
     for (const userId of userIds) {
-      await this.queueNotification(userId, eventType, provider, message);
+      await this.queueNotification(userId, eventType, provider, message, options);
     }
   }
 
   // High-level notification methods for pubsub integration
-  async notifyApprovalCreated(approval: Approval, session: Session | null): Promise<void> {
+  async notifyApprovalCreated(
+    approval: Approval,
+    session: Session | null,
+    isActionable: boolean = true
+  ): Promise<void> {
     const message = this.formatApprovalMessage(approval, session);
-    await this.notifyAllUsers('approvals', approval.provider, message);
+    await this.notifyAllUsers('approvals', approval.provider, message, {
+      isActionable,
+      sessionId: approval.session_id,
+      approvalId: approval.id,
+    });
   }
 
-  async notifySessionError(session: Session): Promise<void> {
+  async notifySessionError(session: Session, isActionable: boolean = true): Promise<void> {
     const message = this.formatErrorMessage(session);
-    await this.notifyAllUsers('error', session.provider, message);
+    await this.notifyAllUsers('error', session.provider, message, {
+      isActionable,
+      sessionId: session.id,
+      status: session.status,
+    });
   }
 
-  async notifyWaitingInput(session: Session): Promise<void> {
+  async notifyWaitingInput(session: Session, isActionable: boolean = false): Promise<void> {
     const message = this.formatWaitingInputMessage(session);
-    await this.notifyAllUsers('waiting_input', session.provider, message);
+    await this.notifyAllUsers('waiting_input', session.provider, message, {
+      isActionable,
+      sessionId: session.id,
+      status: session.status,
+    });
   }
 
-  async notifyWaitingApproval(session: Session): Promise<void> {
+  async notifyWaitingApproval(session: Session, isActionable: boolean = false): Promise<void> {
     const message = this.formatWaitingApprovalMessage(session);
-    await this.notifyAllUsers('waiting_approval', session.provider, message);
+    await this.notifyAllUsers('waiting_approval', session.provider, message, {
+      isActionable,
+      sessionId: session.id,
+      status: session.status,
+    });
   }
 }
 

@@ -79,11 +79,20 @@ export const ClawdbotChannelOptionsSchema = z.enum([
 ]);
 export type ClawdbotChannelOption = z.infer<typeof ClawdbotChannelOptionsSchema>;
 
+export const ClawdbotThrottleSettingsSchema = z.object({
+  maxPerHour: z.number().int().min(1).max(200).default(30),
+  batchDelayMs: z.number().int().min(100).max(10000).default(1000),
+  sessionCooldownMs: z.number().int().min(0).max(600000).default(30000),
+});
+export type ClawdbotThrottleSettings = z.infer<typeof ClawdbotThrottleSettingsSchema>;
+
 export const ClawdbotChannelSchema = AlertChannelSchema.extend({
   baseUrl: z.string().url().optional(),
   token: z.string().optional(),
   channel: ClawdbotChannelOptionsSchema.optional(),
   recipient: z.string().optional(),
+  throttle: ClawdbotThrottleSettingsSchema.optional(),
+  actionableOnly: z.boolean().optional(),
 });
 export type ClawdbotChannelSettings = z.infer<typeof ClawdbotChannelSchema>;
 
