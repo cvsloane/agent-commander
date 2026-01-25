@@ -15,7 +15,6 @@ endpoint="${base_url%/}/v1/api/openplatform/coding_plan/remains"
 
 response=""
 if ! response="$(curl -sS --show-error --fail --connect-timeout 5 --max-time 10 \
-  -X POST "$endpoint" \
   -H "Authorization: Bearer $api_key" \
   -H "Content-Type: application/json" 2>/dev/null)"; then
   if [[ "$debug" == "1" ]]; then
@@ -48,21 +47,38 @@ if command -v jq >/dev/null 2>&1; then
       | .[0];
     def pick_number($keys): (pick($keys) | to_number);
     def pick_time($keys): (pick($keys) | normalize_time);
+    def compute_remaining_requests($root):
+      ($root.model_remains // []) as $models
+      | if ($models|type) == "array" then
+          ($models
+            | map({total: (.current_interval_total_count | to_number), used: (.current_interval_usage_count | to_number)})
+            | map(select(.total != null and .used != null))
+            | map(.total - .used)
+            | if length > 0 then .[0] else null end)
+        else null end;
+    def compute_reset_at($root):
+      ($root.model_remains // []) as $models
+      | if ($models|type) == "array" then
+          ($models
+            | map(.end_time | to_number)
+            | map(select(. != null))
+            | if length > 0 then (min | normalize_time) else null end)
+        else null end;
     (if type == "object" then . else { data: . } end) as $root
     | $root + {
         remaining_tokens: ($root | pick_number([
           "remaining_tokens", "tokens_remaining", "token_remaining", "remaining_token", "remain_tokens",
           "remaining_token_count", "tokens_left", "left_tokens", "left_token"
         ])),
-        remaining_requests: ($root | pick_number([
+        remaining_requests: (($root | pick_number([
           "remaining_requests", "requests_remaining", "remaining_requests_count",
           "remaining_count", "remain_count", "remaining", "remain", "remaining_times", "remain_times",
           "quota_remaining", "quota_left", "requests_left", "left", "balance"
-        ])),
-        reset_at: ($root | pick_time([
+        ])) // (compute_remaining_requests($root))),
+        reset_at: (($root | pick_time([
           "reset_at", "resets_at", "reset_time", "resetAt",
           "expires_at", "expire_at", "expire_time", "expiration", "quota_reset_at"
-        ]))
+        ])) // (compute_reset_at($root)))
       }
     | with_entries(select(.value != null))
   ' <<<"$response"
