@@ -630,7 +630,7 @@ export function SettingsPanel({ className }: SettingsPanelProps) {
                 <input
                   type="range"
                   min={1}
-                  max={100}
+                  max={200}
                   value={alertSettings.clawdbot?.throttle?.maxPerHour ?? DEFAULT_CLAWDBOT_THROTTLE.maxPerHour}
                   onChange={(e) => setClawdbotThrottle({ maxPerHour: Number(e.target.value) })}
                   className="w-full"
@@ -647,7 +647,7 @@ export function SettingsPanel({ className }: SettingsPanelProps) {
                 <input
                   type="range"
                   min={100}
-                  max={5000}
+                  max={10000}
                   step={100}
                   value={alertSettings.clawdbot?.throttle?.batchDelayMs ?? DEFAULT_CLAWDBOT_THROTTLE.batchDelayMs}
                   onChange={(e) => setClawdbotThrottle({ batchDelayMs: Number(e.target.value) })}
@@ -665,7 +665,7 @@ export function SettingsPanel({ className }: SettingsPanelProps) {
                 <input
                   type="range"
                   min={0}
-                  max={300000}
+                  max={600000}
                   step={5000}
                   value={alertSettings.clawdbot?.throttle?.sessionCooldownMs ?? DEFAULT_CLAWDBOT_THROTTLE.sessionCooldownMs}
                   onChange={(e) => setClawdbotThrottle({ sessionCooldownMs: Number(e.target.value) })}

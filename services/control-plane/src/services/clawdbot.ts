@@ -131,9 +131,10 @@ class ClawdbotNotifier {
     const { isActionable, sessionId, approvalId, status } = options;
     const throttle = config.throttle ?? DEFAULT_THROTTLE;
     const actionable = isActionable !== false;
+    const actionableOnly = config.actionableOnly ?? true;
 
     // 1. Check actionableOnly filter
-    if (config.actionableOnly && !actionable) {
+    if (actionableOnly && !actionable) {
       return { allowed: false, reason: 'actionableOnly filter (not actionable)' };
     }
 
