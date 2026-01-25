@@ -4,7 +4,11 @@ Agent Commander ships as two services (dashboard + control plane) plus Postgres.
 The host agent (agentd) runs separately on each machine you want to manage.
 
 See [Coolify Deployment](deployment-coolify.md) for a production setup with
-`app.agentcommander.co` and `api.agentcommander.co` subdomains.
+`app.yourdomain.com` and `api.yourdomain.com` subdomains.
+
+**Example URLs:**
+- Production: `app.yourdomain.com`, `api.yourdomain.com`
+- Local: `localhost:3000` (dashboard), `localhost:8080` (control plane)
 
 ## Docker Compose (quick start)
 
