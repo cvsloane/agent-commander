@@ -30,6 +30,8 @@ interface AgentConnection {
 class PubSub {
   private uiClients: Map<string, UIClient> = new Map();
   private agentConnections: Map<string, AgentConnection> = new Map();
+  // Track notified session+status to prevent duplicate notifications
+  private notifiedSessionStatus: Map<string, string> = new Map();
 
   // UI Client management
   addUIClient(clientId: string, ws: WebSocket): void {
@@ -302,8 +304,32 @@ class PubSub {
       payload: { sessions, deleted },
     });
 
-    // Send clawdbot notifications for status changes
+    // Clean up notification tracking for deleted sessions
+    if (deleted) {
+      for (const sessionId of deleted) {
+        this.notifiedSessionStatus.delete(sessionId);
+      }
+    }
+
+    // Send clawdbot notifications only on status transitions
     for (const session of sessions) {
+      const notifiableStatuses = ['ERROR', 'WAITING_FOR_INPUT', 'WAITING_FOR_APPROVAL'];
+      const lastNotifiedStatus = this.notifiedSessionStatus.get(session.id);
+
+      // Clear tracking if session moved to a non-notifiable status
+      if (!notifiableStatuses.includes(session.status)) {
+        this.notifiedSessionStatus.delete(session.id);
+        continue;
+      }
+
+      // Skip if already notified for this status
+      if (lastNotifiedStatus === session.status) {
+        continue;
+      }
+
+      // Update tracking and send notification
+      this.notifiedSessionStatus.set(session.id, session.status);
+
       if (session.status === 'ERROR') {
         clawdbotNotifier.notifySessionError(session).catch((err) => {
           console.error('[pubsub] Error sending clawdbot error notification:', err);
