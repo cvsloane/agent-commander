@@ -147,15 +147,17 @@ export default function SessionsPageClient() {
     });
   }, [dragEnabled]);
 
-  const handleSelectSession = (id: string, selected: boolean) => {
-    const newSelected = new Set(selectedIds);
-    if (selected) {
-      newSelected.add(id);
-    } else {
-      newSelected.delete(id);
-    }
-    setSelectedIds(newSelected);
-  };
+  const handleSelectSession = useCallback((id: string, selected: boolean) => {
+    setSelectedIds((prev) => {
+      const newSelected = new Set(prev);
+      if (selected) {
+        newSelected.add(id);
+      } else {
+        newSelected.delete(id);
+      }
+      return newSelected;
+    });
+  }, []);
 
   const handleSelectAll = useCallback(() => {
     setSelectedIds((prev) => {

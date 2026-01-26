@@ -446,7 +446,7 @@ export function SessionList({
           host={hostById.get(session.host_id)}
           selectionMode={selectionMode}
           isSelected={selectedIds.has(session.id)}
-          onSelect={onSelectSession}
+          onSelect={selectionMode ? onSelectSession : undefined}
           showSnapshotPreview={showSnapshotPreview}
         />
       ))}
