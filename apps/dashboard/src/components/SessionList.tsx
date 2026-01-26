@@ -276,6 +276,22 @@ export function SessionList({
         perfCounters.current.messages += 1;
         perfCounters.current.updated += updates.length;
         perfCounters.current.deleted += deleted?.length || 0;
+        let snapshotBytes = 0;
+        let snapshotCount = 0;
+        for (const session of updates) {
+          const captureText = (session as SessionWithSnapshot).latest_snapshot?.capture_text;
+          if (captureText) {
+            snapshotCount += 1;
+            snapshotBytes += captureText.length;
+          }
+        }
+        if (snapshotCount > 0) {
+          console.log('[perf] sessions.payload', {
+            updated: updates.length,
+            snapshotCount,
+            snapshotBytes,
+          });
+        }
       }
 
       queueSessionUpdates(updates, deleted);
