@@ -249,6 +249,19 @@ class PubSub {
       const payload = message.payload as { session_id: string };
       for (const sub of relevantSubs) {
         const filter = sub.filter || {};
+        if (Array.isArray(filter.session_ids)) {
+          if (filter.session_ids.includes(payload.session_id)) {
+            return message;
+          }
+          continue;
+        }
+        if (typeof filter.session_ids === 'string') {
+          const ids = filter.session_ids.split(',').map((id) => id.trim()).filter(Boolean);
+          if (ids.includes(payload.session_id)) {
+            return message;
+          }
+          continue;
+        }
         if (!filter.session_id || filter.session_id === payload.session_id) {
           return message;
         }

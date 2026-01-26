@@ -29,6 +29,9 @@ export interface SessionUsage {
   context_left_percent?: number;
   five_hour_left_percent?: number;
   five_hour_reset_text?: string;
+  daily_utilization_percent?: number;
+  daily_left_percent?: number;
+  daily_reset_hours?: number;
   raw_usage_line?: string;
   reported_at: string;
 }
@@ -54,9 +57,25 @@ interface UsageStore {
   // Session-level usage
   sessionUsage: Record<string, SessionUsage>;
   updateSessionUsage: (usage: SessionUsage) => void;
+  updateSessionUsageBatch: (usage: SessionUsage[]) => void;
   getSessionUsage: (sessionId: string) => SessionUsage | null;
   removeSessionUsage: (sessionId: string) => void;
 }
+
+const hasUsageChanged = (prev: SessionUsage | undefined, next: SessionUsage): boolean => {
+  if (!prev) return true;
+  const keys = Object.keys({ ...prev, ...next });
+  for (let i = 0; i < keys.length; i += 1) {
+    const key = keys[i];
+    if (key === 'reported_at') continue;
+    const prevValue = (prev as unknown as Record<string, unknown>)[key];
+    const nextValue = (next as unknown as Record<string, unknown>)[key];
+    if (!Object.is(prevValue, nextValue)) {
+      return true;
+    }
+  }
+  return false;
+};
 
 export const useUsageStore = create<UsageStore>()(
   persist(
@@ -80,12 +99,33 @@ export const useUsageStore = create<UsageStore>()(
       sessionUsage: {},
 
       updateSessionUsage: (usage) =>
-        set((state) => ({
-          sessionUsage: {
-            ...state.sessionUsage,
-            [usage.session_id]: usage,
-          },
-        })),
+        set((state) => {
+          const prev = state.sessionUsage[usage.session_id];
+          if (!hasUsageChanged(prev, usage)) {
+            return state;
+          }
+          return {
+            sessionUsage: {
+              ...state.sessionUsage,
+              [usage.session_id]: usage,
+            },
+          };
+        }),
+
+      updateSessionUsageBatch: (usageList) =>
+        set((state) => {
+          if (!usageList.length) return state;
+          let changed = false;
+          const next = { ...state.sessionUsage };
+          for (const usage of usageList) {
+            const prev = state.sessionUsage[usage.session_id];
+            if (!hasUsageChanged(prev, usage)) continue;
+            next[usage.session_id] = usage;
+            changed = true;
+          }
+          if (!changed) return state;
+          return { sessionUsage: next };
+        }),
 
       getSessionUsage: (sessionId) => {
         return get().sessionUsage[sessionId] || null;
