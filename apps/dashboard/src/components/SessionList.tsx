@@ -7,6 +7,7 @@ import { getGroups, getHosts, getSessions } from '@/lib/api';
 import { useSessionStore } from '@/stores/session';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useSessionUsageStream } from '@/hooks/useSessionUsageStream';
+import { markSessionListRender } from '@/lib/sessionsPerf';
 import { SessionCard } from './SessionCard';
 import { DraggableSessionCard } from './DraggableSessionCard';
 import { Button } from '@/components/ui/button';
@@ -84,6 +85,7 @@ export function SessionList({
   pageSize,
   onTotalChange,
 }: SessionListProps) {
+  markSessionListRender();
   const sessions = useSessionStore((state) => state.sessions);
   const setSessions = useSessionStore((state) => state.setSessions);
   const updateSessions = useSessionStore((state) => state.updateSessions);

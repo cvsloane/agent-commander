@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Session, SessionWithSnapshot } from '@agent-command/schema';
+import { recordSessionSet, recordSessionUpdate } from '@/lib/sessionsPerf';
 
 interface SessionStore {
   sessions: SessionWithSnapshot[];
@@ -79,6 +80,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
 
   setSessions: (sessions) =>
     set((state) => {
+      recordSessionSet(sessions.length);
       if (state.sessions.length === 0) {
         return { sessions: sessions.map((session) => trimSnapshot(session as SessionWithSnapshot)) };
       }
@@ -113,6 +115,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
 
   updateSessions: (updates, deleted) =>
     set((state) => {
+      recordSessionUpdate(updates.length, deleted?.length ?? 0);
       let changed = false;
       let newSessions: SessionWithSnapshot[] | null = null;
 

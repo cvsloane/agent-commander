@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { SessionUsageSummary } from '@agent-command/schema';
+import { recordUsageBatch, recordUsageUpdate } from '@/lib/sessionsPerf';
 
 export type PlanType = 'free' | 'pro' | 'max' | 'unlimited';
 
@@ -100,6 +101,7 @@ export const useUsageStore = create<UsageStore>()(
 
       updateSessionUsage: (usage) =>
         set((state) => {
+          recordUsageUpdate(1);
           const prev = state.sessionUsage[usage.session_id];
           if (!hasUsageChanged(prev, usage)) {
             return state;
@@ -114,6 +116,7 @@ export const useUsageStore = create<UsageStore>()(
 
       updateSessionUsageBatch: (usageList) =>
         set((state) => {
+          recordUsageBatch(usageList.length);
           if (!usageList.length) return state;
           let changed = false;
           const next = { ...state.sessionUsage };

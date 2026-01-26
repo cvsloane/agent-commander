@@ -13,6 +13,7 @@ import { ShortcutsHelp, useShortcutsHelp } from '@/components/shortcuts/Shortcut
 import { ImportOrphanPanesModal, useImportModal } from '@/components/import/ImportOrphanPanesModal';
 import { SessionGenerator } from '@/components/session-generator';
 import { getHosts, assignSessionGroup } from '@/lib/api';
+import { setSessionsPerfEnabled, startSessionsPerfLogging, stopSessionsPerfLogging } from '@/lib/sessionsPerf';
 import { useSessionStore } from '@/stores/session';
 
 // Status filter shortcuts - apply when search input is not focused
@@ -254,6 +255,16 @@ export default function SessionsPageClient() {
       return;
     }
     return () => observer.disconnect();
+  }, [perfEnabled]);
+
+  useEffect(() => {
+    setSessionsPerfEnabled(perfEnabled);
+    if (perfEnabled) {
+      startSessionsPerfLogging();
+      return () => stopSessionsPerfLogging();
+    }
+    stopSessionsPerfLogging();
+    return undefined;
   }, [perfEnabled]);
 
   useEffect(() => {

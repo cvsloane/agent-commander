@@ -10,6 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { StatusBadge } from '@/components/StatusBadge';
 import { cn, formatRelativeTime, getProviderConfig, getRepoNameFromSession, getSessionDisplayName } from '@/lib/utils';
 import { bulkOperateSessions, updateSession } from '@/lib/api';
+import { markSessionCardRender } from '@/lib/sessionsPerf';
 import { useSessionStore } from '@/stores/session';
 import { useNotifications } from '@/stores/notifications';
 import { useUsageStore, formatTokens, formatCost } from '@/stores/usage';
@@ -43,6 +44,7 @@ export const SessionCard = memo(function SessionCard({
   onSelect,
   showSnapshotPreview = true,
 }: SessionCardProps) {
+  markSessionCardRender();
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
   const [originalTitle, setOriginalTitle] = useState('');
