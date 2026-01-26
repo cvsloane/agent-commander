@@ -747,6 +747,10 @@ export interface SpawnSessionRequest {
   title?: string;
   flags?: string[];
   group_id?: string;
+  tmux?: {
+    target_session?: string;
+    window_name?: string;
+  };
 }
 
 export async function spawnSession(
