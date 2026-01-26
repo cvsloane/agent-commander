@@ -52,7 +52,7 @@ function recordCallsite(kind: UpdateKind) {
     line.includes('/apps/dashboard/') ||
     line.includes('/src/')
   ) || lines[1];
-  const key = `${kind} @ ${(candidate || 'unknown').replace(/^at\\s+/, '')}`;
+  const key = `${kind} @ ${(candidate || 'unknown').replace(/^at\s+/, '')}`;
   callsites.set(key, (callsites.get(key) || 0) + 1);
 }
 
