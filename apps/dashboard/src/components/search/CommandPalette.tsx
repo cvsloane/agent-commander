@@ -48,7 +48,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const searchMutation = useMutation({
+  const { mutate: searchMutate, isPending: isSearchPending } = useMutation({
     mutationFn: (q: string) => search(q, { limit: 20 }),
     onSuccess: (data) => {
       setResults(data.results);
@@ -68,17 +68,18 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
 
   // Debounced search
   useEffect(() => {
+    if (!isOpen) return;
     if (!query.trim()) {
-      setResults([]);
+      setResults((prev) => (prev.length ? [] : prev));
       return;
     }
 
     const timer = setTimeout(() => {
-      searchMutation.mutate(query);
+      searchMutate(query);
     }, 200);
 
     return () => clearTimeout(timer);
-  }, [query, searchMutation]);
+  }, [isOpen, query, searchMutate]);
 
   // Scroll selected item into view
   useEffect(() => {
@@ -161,7 +162,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       <div className="relative w-full max-w-xl bg-background border rounded-lg shadow-2xl overflow-hidden">
         {/* Search Input */}
         <div className="flex items-center gap-2 px-4 py-3 border-b">
-          {searchMutation.isPending ? (
+          {isSearchPending ? (
             <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />
           ) : (
             <Search className="h-4 w-4 text-muted-foreground" />
@@ -188,7 +189,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
           ref={listRef}
           className="max-h-[50vh] overflow-y-auto"
         >
-          {query && results.length === 0 && !searchMutation.isPending && (
+          {query && results.length === 0 && !isSearchPending && (
             <div className="px-4 py-8 text-center text-sm text-muted-foreground">
               No results found for "{query}"
             </div>
