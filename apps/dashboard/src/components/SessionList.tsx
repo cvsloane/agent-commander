@@ -108,6 +108,7 @@ export function SessionList({
   const pendingDeletesRef = useRef<Set<string>>(new Set());
   const flushTimerRef = useRef<number | null>(null);
   const flushDueAtRef = useRef<number | null>(null);
+  const lastMetadataUpdateAtRef = useRef<Map<string, number>>(new Map());
   const paginated = typeof pageSize === 'number';
   const sessionIds = useMemo(() => sessions.map((session) => session.id), [sessions]);
   const sessionIdsKey = useMemo(() => sessionIds.join(','), [sessionIds]);
@@ -207,6 +208,32 @@ export function SessionList({
     );
   }, []);
 
+  const isMetadataOnlyUpdate = useCallback((existing: SessionWithSnapshot | undefined, update: Session) => {
+    if (!existing) return false;
+    return (
+      existing.id === update.id &&
+      existing.host_id === update.host_id &&
+      existing.kind === update.kind &&
+      existing.provider === update.provider &&
+      existing.status === update.status &&
+      existing.title === update.title &&
+      existing.cwd === update.cwd &&
+      existing.repo_root === update.repo_root &&
+      existing.git_remote === update.git_remote &&
+      existing.git_branch === update.git_branch &&
+      existing.tmux_pane_id === update.tmux_pane_id &&
+      existing.tmux_target === update.tmux_target &&
+      existing.created_at === update.created_at &&
+      existing.idled_at === update.idled_at &&
+      existing.group_id === update.group_id &&
+      existing.forked_from === update.forked_from &&
+      existing.fork_depth === update.fork_depth &&
+      existing.archived_at === update.archived_at &&
+      // activity is allowed to change here
+      !isMetadataEquivalent(existing.metadata ?? null, update.metadata ?? null)
+    );
+  }, []);
+
   const flushPendingUpdates = useCallback(() => {
     flushTimerRef.current = null;
     flushDueAtRef.current = null;
@@ -233,6 +260,7 @@ export function SessionList({
   const queueSessionUpdates = useCallback((updates: Session[], deleted?: string[]) => {
     let activityOnly = true;
     const currentIds = paginated ? pageSessionIdsRef.current : null;
+    const now = Date.now();
 
     for (const update of updates) {
       if (currentIds && !currentIds.has(update.id)) continue;
@@ -248,6 +276,13 @@ export function SessionList({
       } else if (!isActivity) {
         activityOnly = false;
       }
+      if (existing && isMetadataOnlyUpdate(existing, update)) {
+        const lastMetadataUpdateAt = lastMetadataUpdateAtRef.current.get(update.id) ?? 0;
+        if (now - lastMetadataUpdateAt < 10000) {
+          continue;
+        }
+        lastMetadataUpdateAtRef.current.set(update.id, now);
+      }
       pendingUpdatesRef.current.set(update.id, update);
     }
 
@@ -257,12 +292,13 @@ export function SessionList({
         if (currentIds && !currentIds.has(id)) continue;
         pendingDeletesRef.current.add(id);
         pendingUpdatesRef.current.delete(id);
+        lastMetadataUpdateAtRef.current.delete(id);
       }
     }
 
     if (pendingUpdatesRef.current.size === 0 && pendingDeletesRef.current.size === 0) return;
     scheduleFlush(activityOnly ? 5000 : 200);
-  }, [isActivityOnlyUpdate, paginated, scheduleFlush]);
+  }, [isActivityOnlyUpdate, isMetadataOnlyUpdate, paginated, scheduleFlush]);
 
   useEffect(() => {
     return () => {
