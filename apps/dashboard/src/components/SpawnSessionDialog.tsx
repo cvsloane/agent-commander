@@ -114,6 +114,12 @@ export function SpawnSessionDialog({
       .split(/\s+/)
       .map((f) => f.trim())
       .filter(Boolean);
+    const trimmedWorkingDir = workingDirectory.trim().replace(/\/+$/, '');
+    const targetSession = trimmedWorkingDir
+      .split('/')
+      .filter(Boolean)
+      .pop();
+    const windowName = title.trim() || provider;
 
     spawnMutation.mutate({
       host_id: hostId,
@@ -122,6 +128,10 @@ export function SpawnSessionDialog({
       title: title.trim() || undefined,
       flags: flagsArray.length > 0 ? flagsArray : undefined,
       group_id: groupId || undefined,
+      tmux: {
+        target_session: targetSession || undefined,
+        window_name: windowName,
+      },
     });
   };
 

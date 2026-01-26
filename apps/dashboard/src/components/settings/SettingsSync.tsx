@@ -178,7 +178,22 @@ export function SettingsSync() {
 
       if (remote.settings) {
         const merged = mergeSettings(remote.settings);
-        const mergedHash = JSON.stringify(merged);
+        const local = useSettingsStore.getState();
+        const mergedWithLocal: NormalizedUserSettings = {
+          ...merged,
+          data: {
+            ...merged.data,
+            devFolders:
+              merged.data.devFolders.length > 0
+                ? merged.data.devFolders
+                : local.devFolders,
+            repoLastUsed:
+              Object.keys(merged.data.repoLastUsed).length > 0
+                ? merged.data.repoLastUsed
+                : local.repoLastUsed,
+          },
+        };
+        const mergedHash = JSON.stringify(mergedWithLocal);
         const currentHash = JSON.stringify(buildPayload());
 
         if (mergedHash !== currentHash) {
@@ -194,10 +209,10 @@ export function SettingsSync() {
             notificationsEnabled: merged.data.notificationsEnabled,
             audioEnabled: merged.data.audioEnabled,
             alertSettings: merged.data.alertSettings,
-            devFolders: merged.data.devFolders,
+            devFolders: mergedWithLocal.data.devFolders,
             repoSortBy: merged.data.repoSortBy,
             showHiddenFolders: merged.data.showHiddenFolders,
-            repoLastUsed: merged.data.repoLastUsed,
+            repoLastUsed: mergedWithLocal.data.repoLastUsed,
             defaultProvider: coerceProvider(merged.data.defaultProvider),
             sessionNamingPattern: merged.data.sessionNamingPattern,
             autoCreateGroup: merged.data.autoCreateGroup,
