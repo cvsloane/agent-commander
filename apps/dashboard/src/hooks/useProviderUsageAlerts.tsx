@@ -10,10 +10,86 @@ import { getPrimaryUtilization, shouldTriggerAlertChannel } from '@/lib/alertPol
 const isAlertProviderKey = (value: string): value is AlertProviderKey =>
   ALERT_PROVIDER_KEYS.includes(value as AlertProviderKey);
 
+const WARNED_STORAGE_KEY = 'ac-usage-threshold-warned-v1';
+const FALLBACK_WARNED_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+type WarnedStore = Record<string, Record<string, number>>;
+
+const loadWarnedStore = (): WarnedStore => {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(WARNED_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as WarnedStore;
+    if (!parsed || typeof parsed !== 'object') return {};
+    return parsed;
+  } catch {
+    return {};
+  }
+};
+
+const saveWarnedStore = (store: WarnedStore) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(WARNED_STORAGE_KEY, JSON.stringify(store));
+  } catch {
+    // Ignore storage errors.
+  }
+};
+
+const getWarningExpiry = (entry: {
+  weekly_reset_at?: string | null;
+  five_hour_reset_at?: string | null;
+  daily_reset_at?: string | null;
+  reset_at?: string | null;
+}, now: number): number => {
+  const resetAt =
+    entry.weekly_reset_at ||
+    entry.five_hour_reset_at ||
+    entry.daily_reset_at ||
+    entry.reset_at ||
+    null;
+  if (resetAt) {
+    const ts = Date.parse(resetAt);
+    if (!Number.isNaN(ts) && ts > now) {
+      return ts;
+    }
+  }
+  return now + FALLBACK_WARNED_TTL_MS;
+};
+
+const pruneWarnedStore = (store: WarnedStore, now: number): WarnedStore => {
+  let changed = false;
+  const next: WarnedStore = {};
+  for (const [provider, thresholds] of Object.entries(store)) {
+    const filtered: Record<string, number> = {};
+    for (const [threshold, expiry] of Object.entries(thresholds || {})) {
+      if (typeof expiry !== 'number') {
+        changed = true;
+        continue;
+      }
+      if (expiry > now) {
+        filtered[threshold] = expiry;
+      } else {
+        changed = true;
+      }
+    }
+    if (Object.keys(filtered).length > 0) {
+      next[provider] = filtered;
+    } else if (Object.keys(thresholds || {}).length > 0) {
+      changed = true;
+    }
+  }
+  if (changed) {
+    saveWarnedStore(next);
+  }
+  return next;
+};
+
 export function useProviderUsageAlerts() {
   const notifications = useNotifications();
   const alertSettings = useSettingsStore((s) => s.alertSettings);
-  const warnedRef = useRef<Record<string, Set<number>>>({});
+  const warnedRef = useRef<WarnedStore>(loadWarnedStore());
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
 
@@ -39,13 +115,16 @@ export function useProviderUsageAlerts() {
   }, []);
 
   useEffect(() => {
-    warnedRef.current = {};
+    const now = Date.now();
+    warnedRef.current = pruneWarnedStore(warnedRef.current, now);
   }, [alertSettings.usageThresholds]);
 
   useEffect(() => {
     if (!data?.usage?.length) return;
     const isFocused = typeof document !== 'undefined' ? document.hasFocus() : true;
     let shouldPlayAudio = false;
+
+    let warnedUpdated = false;
 
     for (const entry of data.usage) {
       const provider = entry.provider || 'unknown';
@@ -57,13 +136,18 @@ export function useProviderUsageAlerts() {
       if (thresholds.length === 0) continue;
 
       if (!warnedRef.current[provider]) {
-        warnedRef.current[provider] = new Set();
+        warnedRef.current[provider] = {};
       }
       const warned = warnedRef.current[provider];
 
       for (const threshold of thresholds) {
-        if (utilization < threshold || warned.has(threshold)) continue;
-        warned.add(threshold);
+        if (utilization < threshold) continue;
+        const key = String(threshold);
+        const now = Date.now();
+        const expiry = warned[key];
+        if (typeof expiry === 'number' && expiry > now) {
+          continue;
+        }
 
         const title = `${provider.toUpperCase()} Usage`;
         const message =
@@ -88,7 +172,14 @@ export function useProviderUsageAlerts() {
         if (shouldTriggerAlertChannel(alertSettings, 'audio', 'usage_thresholds', provider, isFocused)) {
           shouldPlayAudio = true;
         }
+
+        warned[key] = getWarningExpiry(entry, now);
+        warnedUpdated = true;
       }
+    }
+
+    if (warnedUpdated) {
+      saveWarnedStore(warnedRef.current);
     }
 
     if (shouldPlayAudio) {

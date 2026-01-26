@@ -140,6 +140,10 @@ export function SessionGenerator({
           .map((f) => f.trim())
           .filter(Boolean);
 
+        const windowName = session.title?.trim() || session.provider;
+        const targetSession = selectedRepo.name?.trim()
+          || selectedRepo.path.split('/').filter(Boolean).pop()
+          || undefined;
         const result = await spawnSession({
           host_id: selectedHostId,
           provider: session.provider,
@@ -147,6 +151,10 @@ export function SessionGenerator({
           title: session.title || undefined,
           flags: flagsArray.length > 0 ? flagsArray : undefined,
           group_id: groupId || undefined,
+          tmux: {
+            target_session: targetSession,
+            window_name: windowName,
+          },
         });
 
         sessionIds.push(result.session.id);

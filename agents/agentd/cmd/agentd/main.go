@@ -2408,6 +2408,10 @@ func (a *Agent) executeSpawnSessionInteractive(sessionID string, payload json.Ra
 		Title            string   `json:"title"`
 		Flags            []string `json:"flags"`
 		GroupID          string   `json:"group_id"`
+		Tmux             struct {
+			TargetSession string `json:"target_session"`
+			WindowName    string `json:"window_name"`
+		} `json:"tmux"`
 	}
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
@@ -2429,7 +2433,11 @@ func (a *Agent) executeSpawnSessionInteractive(sessionID string, payload json.Ra
 	gitInfo := tmux.ResolveGitInfo(resolvedWorkingDir)
 
 	// Ensure tmux session exists
-	tmuxSession := deriveSpawnTmuxSessionName(a.cfg.Spawn.TmuxSessionName, func() string {
+	tmuxSession := strings.TrimSpace(p.Tmux.TargetSession)
+	if tmuxSession == "" {
+		tmuxSession = a.cfg.Spawn.TmuxSessionName
+	}
+	tmuxSession = deriveSpawnTmuxSessionName(tmuxSession, func() string {
 		if gitInfo != nil {
 			return gitInfo.RepoRoot
 		}
@@ -2441,7 +2449,10 @@ func (a *Agent) executeSpawnSessionInteractive(sessionID string, payload json.Ra
 		}
 	}
 
-	windowName := p.Title
+	windowName := strings.TrimSpace(p.Tmux.WindowName)
+	if windowName == "" {
+		windowName = p.Title
+	}
 	if strings.TrimSpace(windowName) == "" {
 		windowName = p.Provider
 	}

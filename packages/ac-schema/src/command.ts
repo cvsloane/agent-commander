@@ -34,6 +34,12 @@ export const SpawnSessionInteractivePayloadSchema = z.object({
   title: z.string().optional(),
   flags: z.array(z.string()).optional(),
   group_id: z.string().uuid().optional(),
+  tmux: z
+    .object({
+      target_session: z.string().optional(),
+      window_name: z.string().optional(),
+    })
+    .optional(),
 });
 
 // Spawn session command payload (worktree + tmux window)

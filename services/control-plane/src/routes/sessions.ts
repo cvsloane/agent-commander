@@ -750,6 +750,12 @@ export function registerSessionRoutes(app: FastifyInstance): void {
     title: z.string().optional(),
     flags: z.array(z.string()).optional(),
     group_id: z.string().uuid().optional(),
+    tmux: z
+      .object({
+        target_session: z.string().optional(),
+        window_name: z.string().optional(),
+      })
+      .optional(),
   });
 
   app.post<{ Body: unknown }>('/v1/sessions/spawn', async (request, reply) => {
@@ -762,7 +768,7 @@ export function registerSessionRoutes(app: FastifyInstance): void {
       return reply.status(400).send({ error: 'Invalid request body', details: bodyResult.error });
     }
 
-    const { host_id, provider, working_directory, title, flags, group_id } = bodyResult.data;
+    const { host_id, provider, working_directory, title, flags, group_id, tmux } = bodyResult.data;
 
     // Verify host exists
     const host = await db.getHostById(host_id);
@@ -829,6 +835,7 @@ export function registerSessionRoutes(app: FastifyInstance): void {
             title,
             flags,
             group_id,
+            tmux,
           },
         },
       },
