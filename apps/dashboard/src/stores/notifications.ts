@@ -71,7 +71,11 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
 
 // Helper hook for adding notifications
 export function useNotifications() {
-  const { add, remove, removeByApprovalId, removeBySessionId, clear } = useNotificationStore();
+  const add = useNotificationStore((state) => state.add);
+  const remove = useNotificationStore((state) => state.remove);
+  const removeByApprovalId = useNotificationStore((state) => state.removeByApprovalId);
+  const removeBySessionId = useNotificationStore((state) => state.removeBySessionId);
+  const clear = useNotificationStore((state) => state.clear);
 
   return {
     success: (title: string, message?: string, options?: Partial<Notification>) =>
