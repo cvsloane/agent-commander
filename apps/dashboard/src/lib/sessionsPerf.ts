@@ -30,7 +30,7 @@ const counters: PerfCounters = {
 
 const callsites = new Map<string, number>();
 let logTimer: number | null = null;
-const CALLSITE_SAMPLE_RATE = 0.2;
+let callsiteSampleRate = 0.2;
 
 function isEnabled(): boolean {
   return typeof window !== 'undefined' && (window as unknown as { __sessionsPerf?: boolean }).__sessionsPerf === true;
@@ -41,9 +41,14 @@ export function setSessionsPerfEnabled(enabled: boolean): void {
   (window as unknown as { __sessionsPerf?: boolean }).__sessionsPerf = enabled;
 }
 
+export function setSessionsPerfSampleRate(rate: number): void {
+  if (!Number.isFinite(rate)) return;
+  callsiteSampleRate = Math.min(1, Math.max(0, rate));
+}
+
 function recordCallsite(kind: UpdateKind) {
   if (!isEnabled()) return;
-  if (Math.random() > CALLSITE_SAMPLE_RATE) return;
+  if (Math.random() > callsiteSampleRate) return;
   const stack = new Error().stack;
   if (!stack) return;
   const lines = stack.split('\n').map((line) => line.trim()).filter(Boolean);
@@ -106,6 +111,14 @@ export function startSessionsPerfLogging(intervalMs: number = 2000): void {
       batchCalls: counters.usageBatchCalls,
       batchItems: counters.usageBatchItems,
     });
+
+    const memory = (performance as unknown as { memory?: { usedJSHeapSize: number; totalJSHeapSize: number } }).memory;
+    if (memory?.usedJSHeapSize) {
+      console.log('[perf] sessions.heap', {
+        usedMB: Math.round(memory.usedJSHeapSize / 1024 / 1024),
+        totalMB: Math.round(memory.totalJSHeapSize / 1024 / 1024),
+      });
+    }
 
     if (callsites.size > 0) {
       const top = Array.from(callsites.entries())
