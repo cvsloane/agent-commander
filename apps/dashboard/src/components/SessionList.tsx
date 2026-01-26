@@ -6,6 +6,7 @@ import type { ServerToUIMessage, Session, SessionWithSnapshot, Host } from '@age
 import { getGroups, getHosts, getSessions } from '@/lib/api';
 import { useSessionStore } from '@/stores/session';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { useSessionUsageStream } from '@/hooks/useSessionUsageStream';
 import { SessionCard } from './SessionCard';
 import { DraggableSessionCard } from './DraggableSessionCard';
 import { Button } from '@/components/ui/button';
@@ -35,6 +36,40 @@ interface SessionListProps {
   onTotalChange?: (total: number) => void;
 }
 
+type SessionMetadata = NonNullable<SessionWithSnapshot['metadata']>;
+type GitStatus = SessionMetadata['git_status'];
+
+const isGitStatusEqual = (a?: GitStatus, b?: GitStatus) => {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return (
+    (a.ahead ?? 0) === (b.ahead ?? 0) &&
+    (a.behind ?? 0) === (b.behind ?? 0) &&
+    (a.staged ?? 0) === (b.staged ?? 0) &&
+    (a.unstaged ?? 0) === (b.unstaged ?? 0) &&
+    (a.untracked ?? 0) === (b.untracked ?? 0) &&
+    (a.unmerged ?? 0) === (b.unmerged ?? 0) &&
+    (a.upstream ?? '') === (b.upstream ?? '')
+  );
+};
+
+const isMetadataEquivalent = (
+  a?: SessionMetadata | null,
+  b?: SessionMetadata | null
+) => {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return (
+    (a.status_detail ?? '') === (b.status_detail ?? '') &&
+    (a.approval?.summary ?? '') === (b.approval?.summary ?? '') &&
+    (a.approval?.reason ?? '') === (b.approval?.reason ?? '') &&
+    (a.approval?.tool ?? '') === (b.approval?.tool ?? '') &&
+    (a.tmux?.session_name ?? '') === (b.tmux?.session_name ?? '') &&
+    (a.tmux?.window_name ?? '') === (b.tmux?.window_name ?? '') &&
+    isGitStatusEqual(a.git_status, b.git_status)
+  );
+};
+
 export function SessionList({
   filters,
   workflowView = false,
@@ -54,6 +89,11 @@ export function SessionList({
   const updateSessions = useSessionStore((state) => state.updateSessions);
   const perfCounters = useRef({ messages: 0, updated: 0, deleted: 0 });
   const pageSessionIdsRef = useRef<Set<string>>(new Set());
+  const sessionsByIdRef = useRef<Map<string, SessionWithSnapshot>>(new Map());
+  const pendingUpdatesRef = useRef<Map<string, Session>>(new Map());
+  const pendingDeletesRef = useRef<Set<string>>(new Set());
+  const flushTimerRef = useRef<number | null>(null);
+  const flushDueAtRef = useRef<number | null>(null);
   const paginated = typeof pageSize === 'number';
   const sessionIds = useMemo(() => sessions.map((session) => session.id), [sessions]);
   const sessionIdsKey = useMemo(() => sessionIds.join(','), [sessionIds]);
@@ -125,7 +165,91 @@ export function SessionList({
 
   useEffect(() => {
     pageSessionIdsRef.current = new Set(sessions.map((session) => session.id));
+    sessionsByIdRef.current = new Map(sessions.map((session) => [session.id, session]));
   }, [sessions]);
+
+  const isActivityOnlyUpdate = useCallback((existing: SessionWithSnapshot | undefined, update: Session) => {
+    if (!existing) return false;
+    return (
+      existing.id === update.id &&
+      existing.host_id === update.host_id &&
+      existing.kind === update.kind &&
+      existing.provider === update.provider &&
+      existing.status === update.status &&
+      existing.title === update.title &&
+      existing.cwd === update.cwd &&
+      existing.repo_root === update.repo_root &&
+      existing.git_remote === update.git_remote &&
+      existing.git_branch === update.git_branch &&
+      existing.tmux_pane_id === update.tmux_pane_id &&
+      existing.tmux_target === update.tmux_target &&
+      existing.created_at === update.created_at &&
+      existing.idled_at === update.idled_at &&
+      existing.group_id === update.group_id &&
+      existing.forked_from === update.forked_from &&
+      existing.fork_depth === update.fork_depth &&
+      existing.archived_at === update.archived_at &&
+      isMetadataEquivalent(existing.metadata ?? null, update.metadata ?? null)
+    );
+  }, []);
+
+  const flushPendingUpdates = useCallback(() => {
+    flushTimerRef.current = null;
+    flushDueAtRef.current = null;
+    if (pendingUpdatesRef.current.size === 0 && pendingDeletesRef.current.size === 0) return;
+    const updates = Array.from(pendingUpdatesRef.current.values());
+    const deleted = pendingDeletesRef.current.size > 0 ? Array.from(pendingDeletesRef.current) : undefined;
+    pendingUpdatesRef.current.clear();
+    pendingDeletesRef.current.clear();
+    updateSessions(updates, deleted);
+  }, [updateSessions]);
+
+  const scheduleFlush = useCallback((delayMs: number) => {
+    const dueAt = Date.now() + delayMs;
+    if (flushTimerRef.current && flushDueAtRef.current && flushDueAtRef.current <= dueAt) {
+      return;
+    }
+    if (flushTimerRef.current) {
+      window.clearTimeout(flushTimerRef.current);
+    }
+    flushDueAtRef.current = dueAt;
+    flushTimerRef.current = window.setTimeout(flushPendingUpdates, delayMs);
+  }, [flushPendingUpdates]);
+
+  const queueSessionUpdates = useCallback((updates: Session[], deleted?: string[]) => {
+    let activityOnly = true;
+    const currentIds = paginated ? pageSessionIdsRef.current : null;
+
+    for (const update of updates) {
+      if (currentIds && !currentIds.has(update.id)) continue;
+      const existing = sessionsByIdRef.current.get(update.id);
+      const isActivity = isActivityOnlyUpdate(existing, update);
+      if (!isActivity) {
+        activityOnly = false;
+      }
+      pendingUpdatesRef.current.set(update.id, update);
+    }
+
+    if (deleted && deleted.length > 0) {
+      activityOnly = false;
+      for (const id of deleted) {
+        if (currentIds && !currentIds.has(id)) continue;
+        pendingDeletesRef.current.add(id);
+        pendingUpdatesRef.current.delete(id);
+      }
+    }
+
+    if (pendingUpdatesRef.current.size === 0 && pendingDeletesRef.current.size === 0) return;
+    scheduleFlush(activityOnly ? 5000 : 200);
+  }, [isActivityOnlyUpdate, paginated, scheduleFlush]);
+
+  useEffect(() => {
+    return () => {
+      if (flushTimerRef.current) {
+        window.clearTimeout(flushTimerRef.current);
+      }
+    };
+  }, []);
 
   // Handle WebSocket messages
   const handleMessage = useCallback((message: ServerToUIMessage) => {
@@ -151,10 +275,10 @@ export function SessionList({
         perfCounters.current.updated += updates.length;
         perfCounters.current.deleted += deleted?.length || 0;
       }
-      updateSessions(updates, deleted);
 
+      queueSessionUpdates(updates, deleted);
     }
-  }, [paginated, perfEnabled, updateSessions]);
+  }, [paginated, perfEnabled, queueSessionUpdates]);
 
   // Subscribe to session updates
   const wsTopics = useMemo(() => {
@@ -239,6 +363,16 @@ export function SessionList({
       return true;
     });
   }, [sessions, filters]);
+
+  const visibleSessionIds = useMemo(
+    () => filteredSessions.map((session) => session.id),
+    [filteredSessions]
+  );
+
+  useSessionUsageStream({
+    sessionIds: visibleSessionIds,
+    enabled: !disableRealtime,
+  });
 
   // Track previous values to detect changes for perf logging
   const prevSessionsRef = useRef(sessions);

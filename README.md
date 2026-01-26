@@ -105,3 +105,7 @@ See [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
 ## License
 
 MIT
+
+## Development Status
+
+See [project_status.md](./project_status.md) for recent development activity and context.
