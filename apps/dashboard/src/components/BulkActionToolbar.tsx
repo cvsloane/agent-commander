@@ -52,8 +52,15 @@ export function BulkActionToolbar({
         console.error('Some operations failed:', result.errors);
       }
 
-      const failedIds = new Set(result.errors?.map((err) => err.session_id) ?? []);
-      const successIds = selectedIds.filter((id) => !failedIds.has(id));
+      const errorIds =
+        result.errors?.map((err) => err.session_id).filter(Boolean) ?? [];
+      const failedIds = new Set(errorIds);
+      const successIds =
+        result.error_count === 0
+          ? selectedIds
+          : errorIds.length > 0
+            ? selectedIds.filter((id) => !failedIds.has(id))
+            : [];
 
       if (operation === 'terminate' && successIds.length > 0) {
         const archivedAt = new Date().toISOString();
