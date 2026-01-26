@@ -12,6 +12,7 @@ interface SessionUsageStreamOptions {
   subscribeAll?: boolean;
   seed?: boolean;
   batchMs?: number;
+  cooldownMs?: number;
 }
 
 export function useSessionUsageStream({
@@ -20,11 +21,14 @@ export function useSessionUsageStream({
   subscribeAll = false,
   seed = true,
   batchMs = 750,
+  cooldownMs = 5000,
 }: SessionUsageStreamOptions) {
   const updateBatch = useUsageStore((state) => state.updateSessionUsageBatch);
   const pendingRef = useRef<Map<string, SessionUsageSummary>>(new Map());
   const flushTimerRef = useRef<number | null>(null);
   const flushDueAtRef = useRef<number | null>(null);
+  const lastAppliedRef = useRef<Map<string, number>>(new Map());
+  const scheduleFlushRef = useRef<(delayMs: number) => void>(() => {});
 
   const normalizedIds = useMemo(() => {
     if (!sessionIds || sessionIds.length === 0) return [];
@@ -37,10 +41,35 @@ export function useSessionUsageStream({
     flushTimerRef.current = null;
     flushDueAtRef.current = null;
     if (pendingRef.current.size === 0) return;
-    const batch = Array.from(pendingRef.current.values());
-    pendingRef.current.clear();
-    updateBatch(batch as unknown as SessionUsageSummary[]);
-  }, [updateBatch]);
+    const now = Date.now();
+    const batch: SessionUsageSummary[] = [];
+    let nextDelay: number | null = null;
+
+    const entries = Array.from(pendingRef.current.entries());
+    for (let i = 0; i < entries.length; i += 1) {
+      const [sessionId, usage] = entries[i];
+      const lastApplied = lastAppliedRef.current.get(sessionId) ?? 0;
+      const elapsed = now - lastApplied;
+      if (elapsed >= cooldownMs) {
+        batch.push(usage);
+      } else {
+        const remaining = cooldownMs - elapsed;
+        nextDelay = nextDelay == null ? remaining : Math.min(nextDelay, remaining);
+      }
+    }
+
+    if (batch.length > 0) {
+      for (const usage of batch) {
+        pendingRef.current.delete(usage.session_id);
+        lastAppliedRef.current.set(usage.session_id, now);
+      }
+      updateBatch(batch as unknown as SessionUsageSummary[]);
+    }
+
+    if (pendingRef.current.size > 0 && nextDelay != null) {
+      scheduleFlushRef.current(Math.max(batchMs, nextDelay));
+    }
+  }, [batchMs, cooldownMs, updateBatch]);
 
   const scheduleFlush = useCallback((delayMs: number) => {
     const dueAt = Date.now() + delayMs;
@@ -56,8 +85,15 @@ export function useSessionUsageStream({
 
   const queueUsage = useCallback((usage: SessionUsageSummary) => {
     pendingRef.current.set(usage.session_id, usage);
-    scheduleFlush(batchMs);
-  }, [batchMs, scheduleFlush]);
+    const lastApplied = lastAppliedRef.current.get(usage.session_id) ?? 0;
+    const elapsed = Date.now() - lastApplied;
+    const remaining = Math.max(0, cooldownMs - elapsed);
+    scheduleFlush(Math.max(batchMs, remaining));
+  }, [batchMs, cooldownMs, scheduleFlush]);
+
+  useEffect(() => {
+    scheduleFlushRef.current = scheduleFlush;
+  }, [scheduleFlush]);
 
   const topics = useMemo(() => {
     if (!enabled) return [];

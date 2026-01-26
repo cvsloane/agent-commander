@@ -68,6 +68,11 @@ class PubSub {
   private agentConnections: Map<string, AgentConnection> = new Map();
   // Track notified session+status to prevent duplicate notifications
   private notifiedSessionStatus: Map<string, string> = new Map();
+  // Track last published session state to throttle activity-only updates
+  private lastSessionFingerprint: Map<string, string> = new Map();
+  private lastActivityPublishedAt: Map<string, number> = new Map();
+  private lastActivityPublishedValue: Map<string, string | null> = new Map();
+  private readonly activityThrottleMs = 30000;
 
   // UI Client management
   addUIClient(clientId: string, ws: WebSocket): void {
@@ -346,23 +351,56 @@ class PubSub {
 
   // Publish sessions changed
   publishSessionsChanged(sessions: Session[], deleted?: string[]): void {
-    this.publishToUI({
-      v: 1,
-      type: 'sessions.changed',
-      ts: new Date().toISOString(),
-      payload: { sessions, deleted },
-    });
+    const now = Date.now();
+    const filteredSessions: Session[] = [];
+    for (const session of sessions) {
+      const fingerprint = this.buildSessionFingerprint(session);
+      const lastFingerprint = this.lastSessionFingerprint.get(session.id);
+
+      if (fingerprint !== lastFingerprint) {
+        filteredSessions.push(session);
+        this.lastSessionFingerprint.set(session.id, fingerprint);
+        this.lastActivityPublishedAt.set(session.id, now);
+        this.lastActivityPublishedValue.set(session.id, session.last_activity_at ?? null);
+        continue;
+      }
+
+      const currentActivity = session.last_activity_at ?? session.updated_at ?? null;
+      const lastActivity = this.lastActivityPublishedValue.get(session.id) ?? null;
+      if (!currentActivity || currentActivity === lastActivity) {
+        continue;
+      }
+
+      const lastPublishedAt = this.lastActivityPublishedAt.get(session.id) ?? 0;
+      if (now - lastPublishedAt >= this.activityThrottleMs) {
+        filteredSessions.push(session);
+        this.lastActivityPublishedAt.set(session.id, now);
+        this.lastActivityPublishedValue.set(session.id, currentActivity);
+      }
+    }
+
+    if (filteredSessions.length > 0 || (deleted && deleted.length > 0)) {
+      this.publishToUI({
+        v: 1,
+        type: 'sessions.changed',
+        ts: new Date().toISOString(),
+        payload: { sessions: filteredSessions, deleted },
+      });
+    }
 
     // Clean up notification tracking and clawdbot state for deleted sessions
     if (deleted) {
       for (const sessionId of deleted) {
         this.notifiedSessionStatus.delete(sessionId);
+        this.lastSessionFingerprint.delete(sessionId);
+        this.lastActivityPublishedAt.delete(sessionId);
+        this.lastActivityPublishedValue.delete(sessionId);
         clawdbotNotifier.clearSessionState(sessionId);
       }
     }
 
     // Send clawdbot notifications only on status transitions
-    for (const session of sessions) {
+    for (const session of filteredSessions) {
       const notifiableStatuses = ['ERROR', 'WAITING_FOR_INPUT', 'WAITING_FOR_APPROVAL'];
       const lastNotifiedStatus = this.notifiedSessionStatus.get(session.id);
 
@@ -397,6 +435,35 @@ class PubSub {
         });
       }
     }
+  }
+
+  private buildSessionFingerprint(session: Session): string {
+    const metadata = session.metadata ?? null;
+    const git = metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>).git_status : null;
+    const approval = metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>).approval : null;
+    const tmux = metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>).tmux : null;
+    const statusDetail =
+      metadata && typeof metadata === 'object'
+        ? (metadata as Record<string, unknown>).status_detail ?? null
+        : null;
+
+    return JSON.stringify([
+      session.status,
+      session.title ?? null,
+      session.cwd ?? null,
+      session.repo_root ?? null,
+      session.git_remote ?? null,
+      session.git_branch ?? null,
+      session.tmux_target ?? null,
+      session.tmux_pane_id ?? null,
+      session.group_id ?? null,
+      session.archived_at ?? null,
+      session.idled_at ?? null,
+      statusDetail,
+      approval ?? null,
+      tmux ?? null,
+      git ?? null,
+    ]);
   }
 
   // Publish approval created

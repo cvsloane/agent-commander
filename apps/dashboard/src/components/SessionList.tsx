@@ -372,6 +372,7 @@ export function SessionList({
   useSessionUsageStream({
     sessionIds: visibleSessionIds,
     enabled: !disableRealtime,
+    cooldownMs: 5000,
   });
 
   // Track previous values to detect changes for perf logging
