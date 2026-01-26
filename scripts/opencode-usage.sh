@@ -32,9 +32,10 @@ if [[ -z "$response" ]]; then
 fi
 
 limit_override="${OPENCODE_REQUEST_LIMIT:-}"
+count_mode="${OPENCODE_USAGE_COUNT_MODE:-remaining}"
 
 if command -v jq >/dev/null 2>&1; then
-  jq -c --arg limit_override "$limit_override" '
+  jq -c --arg limit_override "$limit_override" --arg count_mode "$count_mode" '
     def to_number:
       if type == "number" then .
       elif type == "string" then (gsub(","; "") | tonumber?)
@@ -50,13 +51,26 @@ if command -v jq >/dev/null 2>&1; then
       | .[0];
     def pick_number($keys): (pick($keys) | to_number);
     def pick_time($keys): (pick($keys) | normalize_time);
-    def compute_remaining_requests($root):
+    def compute_remaining_requests($root; $mode):
       ($root.model_remains // []) as $models
       | if ($models|type) == "array" then
           ($models
-            | map({total: (.current_interval_total_count | to_number), used: (.current_interval_usage_count | to_number)})
-            | map(select(.total != null and .used != null))
-            | map(.total - .used)
+            | map({
+                total: (.current_interval_total_count | to_number),
+                usage: (.current_interval_usage_count | to_number),
+                remaining: (
+                  .current_interval_remaining_count // .remaining_requests // .remaining_count
+                ) | to_number
+              })
+            | map(select(.total != null and (.usage != null or .remaining != null)))
+            | map(
+                if .remaining != null then .remaining
+                elif $mode == "used" then (.total - .usage)
+                elif $mode == "remaining" then .usage
+                else
+                  (if .usage != null and .usage > (.total / 2) then .usage else (.total - .usage) end)
+                end
+              )
             | if length > 0 then .[0] else null end)
         else null end;
     def compute_reset_at($root):
@@ -77,7 +91,7 @@ if command -v jq >/dev/null 2>&1; then
           "remaining_requests", "requests_remaining", "remaining_requests_count",
           "remaining_count", "remain_count", "remaining", "remain", "remaining_times", "remain_times",
           "quota_remaining", "quota_left", "requests_left", "left", "balance"
-        ])) // (compute_remaining_requests($root))),
+        ])) // (compute_remaining_requests($root; $count_mode))),
         reset_at: (($root | pick_time([
           "reset_at", "resets_at", "reset_time", "resetAt",
           "expires_at", "expire_at", "expire_time", "expiration", "quota_reset_at"
