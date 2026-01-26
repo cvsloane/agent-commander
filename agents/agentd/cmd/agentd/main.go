@@ -2300,6 +2300,7 @@ func (a *Agent) executeSpawnSessionWorktree(sessionID string, payload json.RawMe
 	if p.Tmux.TargetSession == "" {
 		p.Tmux.TargetSession = a.cfg.Spawn.TmuxSessionName
 	}
+	p.Tmux.TargetSession = deriveSpawnTmuxSessionName(p.Tmux.TargetSession, p.RepoRoot, p.WorktreeDir)
 	if p.Tmux.WindowName == "" {
 		p.Tmux.WindowName = p.BranchName
 	}
@@ -2383,6 +2384,23 @@ func (a *Agent) executeSpawnSessionWorktree(sessionID string, payload json.RawMe
 	return nil
 }
 
+func deriveSpawnTmuxSessionName(configured, repoRoot, cwd string) string {
+	tmuxSession := strings.TrimSpace(configured)
+	if tmuxSession == "" || tmuxSession == "agents" {
+		candidate := strings.TrimSpace(repoRoot)
+		if candidate == "" {
+			candidate = strings.TrimSpace(cwd)
+		}
+		if candidate != "" {
+			tmuxSession = filepath.Base(candidate)
+		}
+	}
+	if tmuxSession == "" {
+		tmuxSession = "agents"
+	}
+	return tmuxSession
+}
+
 func (a *Agent) executeSpawnSessionInteractive(sessionID string, payload json.RawMessage) error {
 	var p struct {
 		Provider         string   `json:"provider"`
@@ -2408,11 +2426,15 @@ func (a *Agent) executeSpawnSessionInteractive(sessionID string, payload json.Ra
 		sessionID = uuid.New().String()
 	}
 
+	gitInfo := tmux.ResolveGitInfo(resolvedWorkingDir)
+
 	// Ensure tmux session exists
-	tmuxSession := a.cfg.Spawn.TmuxSessionName
-	if tmuxSession == "" {
-		tmuxSession = "agents"
-	}
+	tmuxSession := deriveSpawnTmuxSessionName(a.cfg.Spawn.TmuxSessionName, func() string {
+		if gitInfo != nil {
+			return gitInfo.RepoRoot
+		}
+		return ""
+	}(), resolvedWorkingDir)
 	if !a.tmuxClient.HasSession(tmuxSession) {
 		if err := a.tmuxClient.NewSession(tmuxSession); err != nil {
 			return err
@@ -2453,7 +2475,7 @@ func (a *Agent) executeSpawnSessionInteractive(sessionID string, payload json.Ra
 	}
 
 	var repoRoot, gitBranch, gitRemote string
-	if gitInfo := tmux.ResolveGitInfo(resolvedWorkingDir); gitInfo != nil {
+	if gitInfo != nil {
 		repoRoot = gitInfo.RepoRoot
 		gitBranch = gitInfo.Branch
 		gitRemote = gitInfo.Remote
