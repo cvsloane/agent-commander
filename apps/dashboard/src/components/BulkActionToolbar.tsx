@@ -52,11 +52,22 @@ export function BulkActionToolbar({
         console.error('Some operations failed:', result.errors);
       }
 
-      if (operation === 'terminate') {
+      const failedIds = new Set(result.errors?.map((err) => err.session_id) ?? []);
+      const successIds = selectedIds.filter((id) => !failedIds.has(id));
+
+      if (operation === 'terminate' && successIds.length > 0) {
         const archivedAt = new Date().toISOString();
-        updateSessions(selectedIds.map((id) => ({ id, archived_at: archivedAt } as Session)));
+        updateSessions(successIds.map((id) => ({ id, archived_at: archivedAt } as Session)));
         notifications.success(
-          `Terminated ${selectedIds.length} session${selectedIds.length !== 1 ? 's' : ''}`
+          `Terminated ${successIds.length} session${successIds.length !== 1 ? 's' : ''}`
+        );
+      }
+
+      if (result.error_count > 0) {
+        const errorText = result.errors?.[0]?.error || 'Unknown error';
+        notifications.error(
+          `Failed to ${operation} ${result.error_count} session${result.error_count !== 1 ? 's' : ''}`,
+          errorText
         );
       }
 
