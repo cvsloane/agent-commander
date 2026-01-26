@@ -71,6 +71,18 @@ const isMetadataEquivalent = (
   );
 };
 
+const getActivityBucket = (session: Session): string => {
+  const activity = session.last_activity_at || session.updated_at;
+  if (!activity) return 'none';
+  const ts = new Date(activity).getTime();
+  if (Number.isNaN(ts)) return 'none';
+  const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (diffSec < 60) return 'now';
+  if (diffSec < 3600) return `m:${Math.floor(diffSec / 60)}`;
+  if (diffSec < 86400) return `h:${Math.floor(diffSec / 3600)}`;
+  return `d:${Math.floor(diffSec / 86400)}`;
+};
+
 export function SessionList({
   filters,
   workflowView = false,
@@ -226,7 +238,14 @@ export function SessionList({
       if (currentIds && !currentIds.has(update.id)) continue;
       const existing = sessionsByIdRef.current.get(update.id);
       const isActivity = isActivityOnlyUpdate(existing, update);
-      if (!isActivity) {
+      if (existing && isActivity) {
+        const existingBucket = getActivityBucket(existing);
+        const merged = { ...existing, ...update } as Session;
+        const updateBucket = getActivityBucket(merged);
+        if (existingBucket === updateBucket) {
+          continue;
+        }
+      } else if (!isActivity) {
         activityOnly = false;
       }
       pendingUpdatesRef.current.set(update.id, update);
