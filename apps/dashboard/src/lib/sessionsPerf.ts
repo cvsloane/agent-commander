@@ -126,6 +126,7 @@ export function startSessionsPerfLogging(intervalMs: number = 2000): void {
         .slice(0, 8)
         .map(([key, count]) => ({ count, key }));
       console.log('[perf] sessions.callers (sampled)', top);
+      console.log('[perf] sessions.callers.json', JSON.stringify(top));
     }
 
     resetCounters();
