@@ -51,6 +51,7 @@ export default function SessionsPageClient() {
   const disableRealtime = searchParams.get('nowebsocket') === '1';
   const showSnapshotPreview = searchParams.get('nosnapshot') !== '1';
   const [query, setQuery] = useState(q);
+  const normalizedQuery = query.trim();
   const [totalSessions, setTotalSessions] = useState<number | null>(null);
   const isWorkflowView =
     view === 'workflow' &&
@@ -74,7 +75,7 @@ export default function SessionsPageClient() {
       ungrouped: ungrouped || undefined,
       include_archived: includeArchived || undefined,
       archived_only: archivedOnly || undefined,
-      q: query || undefined,
+      q: normalizedQuery || undefined,
     }),
     [
       needsAttention,
@@ -85,7 +86,7 @@ export default function SessionsPageClient() {
       ungrouped,
       includeArchived,
       archivedOnly,
-      query,
+      normalizedQuery,
     ]
   );
 
@@ -119,6 +120,10 @@ export default function SessionsPageClient() {
     queryFn: getHosts,
   });
 
+  useEffect(() => {
+    setQuery(q);
+  }, [q]);
+
   const applyFilters = () => {
     const params = new URLSearchParams();
     if (view && view !== 'workflow') params.set('view', view);
@@ -130,7 +135,7 @@ export default function SessionsPageClient() {
     if (ungrouped) params.set('ungrouped', 'true');
     if (includeArchived) params.set('include_archived', 'true');
     if (archivedOnly) params.set('archived_only', 'true');
-    if (query) params.set('q', query);
+    if (normalizedQuery) params.set('q', normalizedQuery);
     params.set('page', '1');
     params.set('page_size', String(pageSize));
     const queryString = params.toString();

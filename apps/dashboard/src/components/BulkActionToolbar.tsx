@@ -29,6 +29,7 @@ export function BulkActionToolbar({
   const [isLoading, setIsLoading] = useState(false);
   const [showGroupMenu, setShowGroupMenu] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [showConfirmTerminate, setShowConfirmTerminate] = useState(false);
   const updateSessions = useSessionStore((state) => state.updateSessions);
   const notifications = useNotifications();
 
@@ -86,6 +87,7 @@ export function BulkActionToolbar({
     } finally {
       setIsLoading(false);
       setShowConfirmDelete(false);
+      setShowConfirmTerminate(false);
       setShowGroupMenu(false);
     }
   };
@@ -194,58 +196,78 @@ export function BulkActionToolbar({
               </div>
             )}
           </div>
+        </div>
 
         <div className="h-6 w-px bg-border" />
 
         <div className="relative">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              handleBulkOperation('terminate');
-            }}
-            disabled={isLoading}
-            className="gap-1.5 text-destructive hover:text-destructive"
-          >
-            <Power className="h-4 w-4" />
-            Terminate
-          </Button>
+          {showConfirmTerminate ? (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-destructive">Terminate?</span>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => handleBulkOperation('terminate')}
+                disabled={isLoading}
+              >
+                Confirm
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowConfirmTerminate(false)}
+                disabled={isLoading}
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowConfirmTerminate(true)}
+              disabled={isLoading}
+              className="gap-1.5 text-destructive hover:text-destructive"
+            >
+              <Power className="h-4 w-4" />
+              Terminate
+            </Button>
+          )}
         </div>
 
         <div className="relative">
           {showConfirmDelete ? (
             <div className="flex items-center gap-2">
               <span className="text-sm text-destructive">Delete?</span>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => handleBulkOperation('delete')}
-                  disabled={isLoading}
-                >
-                  Confirm
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowConfirmDelete(false)}
-                  disabled={isLoading}
-                >
-                  Cancel
-                </Button>
-              </div>
-            ) : (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => handleBulkOperation('delete')}
+                disabled={isLoading}
+              >
+                Confirm
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setShowConfirmDelete(true)}
+                onClick={() => setShowConfirmDelete(false)}
                 disabled={isLoading}
-                className="gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10"
               >
-                <Trash2 className="h-4 w-4" />
-                Delete
+                Cancel
               </Button>
-            )}
-          </div>
+            </div>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowConfirmDelete(true)}
+              disabled={isLoading}
+              className="gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </Button>
+          )}
         </div>
 
         <div className="h-6 w-px bg-border" />

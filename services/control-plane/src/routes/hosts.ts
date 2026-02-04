@@ -146,7 +146,7 @@ export function registerHostRoutes(app: FastifyInstance): void {
     const token = `ac_agent_${crypto.randomUUID().replace(/-/g, '')}`;
     await db.createAgentToken(hostId, token);
 
-    await db.createAuditLog('host.create', 'host', hostId, { name: host.name });
+    await db.createAuditLog('host.create', 'host', hostId, { name: host.name }, request.user.id);
 
     return { host, token };
   });
@@ -207,7 +207,7 @@ export function registerHostRoutes(app: FastifyInstance): void {
 
       await db.createAuditLog('host.capabilities.update', 'host', id, {
         capabilities: body.data.capabilities,
-      });
+      }, request.user.id);
 
       return { host: updatedHost };
     }
@@ -234,7 +234,7 @@ export function registerHostRoutes(app: FastifyInstance): void {
     await db.createAgentToken(id, token);
 
     // Log audit
-    await db.createAuditLog('host.token.create', 'host', id, {});
+    await db.createAuditLog('host.token.create', 'host', id, {}, request.user.id);
 
     return { token };
   });
@@ -253,19 +253,18 @@ export function registerHostRoutes(app: FastifyInstance): void {
     }
 
     const orphanPanes = await db.getOrphanPanes(id);
+    const snapshotRows = await db.getLatestSnapshots(orphanPanes.map((session) => session.id));
+    const snapshotBySession = new Map(snapshotRows.map((row) => [row.session_id, row]));
 
-    // Get latest snapshot for each pane
-    const panesWithSnapshots = await Promise.all(
-      orphanPanes.map(async (session) => {
-        const snapshot = await db.getLatestSnapshot(session.id);
-        return {
-          ...session,
-          latest_snapshot: snapshot
-            ? { created_at: snapshot.created_at, capture_text: snapshot.capture_text }
-            : null,
-        };
-      })
-    );
+    const panesWithSnapshots = orphanPanes.map((session) => {
+      const snapshot = snapshotBySession.get(session.id);
+      return {
+        ...session,
+        latest_snapshot: snapshot
+          ? { created_at: snapshot.created_at, capture_text: snapshot.capture_text }
+          : null,
+      };
+    });
 
     return { orphan_panes: panesWithSnapshots };
   });
@@ -316,7 +315,7 @@ export function registerHostRoutes(app: FastifyInstance): void {
         session_ids: bodyResult.data.session_ids,
         adopted: result.adopted,
         errors: result.errors,
-      });
+      }, request.user.id);
 
       // Broadcast updates for adopted sessions
       if (result.adopted.length > 0) {

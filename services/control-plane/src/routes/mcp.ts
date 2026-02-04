@@ -162,7 +162,7 @@ export function registerMCPRoutes(app: FastifyInstance): void {
         await db.createAuditLog('mcp.update_config', 'session', sessionId, {
           cmd_id: cmdId,
           enablement: bodyResult.data.enablement,
-        });
+        }, request.user.id);
 
         return response;
       } catch (error) {
@@ -182,8 +182,8 @@ export function registerMCPRoutes(app: FastifyInstance): void {
       }
 
       // Find a session with this repo_root to determine the host
-      const sessions = await db.getSessions({ q: repoRoot });
-      const session = sessions.find(s => s.repo_root === repoRoot);
+      const sessions = await db.getSessionsByRepoRoot(repoRoot);
+      const session = sessions[0];
 
       if (!session) {
         return reply.status(404).send({ error: 'No session found for this repo_root' });
@@ -227,8 +227,8 @@ export function registerMCPRoutes(app: FastifyInstance): void {
       }
 
       // Find a session with this repo_root to determine the host
-      const sessions = await db.getSessions({ q: repoRoot });
-      const session = sessions.find(s => s.repo_root === repoRoot);
+      const sessions = await db.getSessionsByRepoRoot(repoRoot);
+      const session = sessions[0];
 
       if (!session) {
         return reply.status(404).send({ error: 'No session found for this repo_root' });
@@ -254,7 +254,7 @@ export function registerMCPRoutes(app: FastifyInstance): void {
         await db.createAuditLog('mcp.update_project_config', 'project', repoRoot, {
           cmd_id: cmdId,
           enablement: bodyResult.data.enablement,
-        });
+        }, request.user.id);
 
         return response;
       } catch (error) {

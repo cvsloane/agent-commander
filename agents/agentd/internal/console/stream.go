@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 type StreamHandler func(subscriptionID, sessionID string, data []byte, offset int64)
@@ -100,30 +102,67 @@ func (s *Streamer) StopStream(subscriptionID string) (string, bool) {
 
 func (s *Streamer) tailFile(state *streamState) {
 	buf := make([]byte, 4096)
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return
+	}
+	defer watcher.Close()
+
+	dir := filepath.Dir(state.logPath)
+	if err := watcher.Add(dir); err != nil {
+		return
+	}
+
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-state.done:
 			return
-		default:
+		case event := <-watcher.Events:
+			if event.Name != state.logPath {
+				continue
+			}
+			if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+				if state.file != nil {
+					_ = state.file.Close()
+				}
+				file, err := os.OpenFile(state.logPath, os.O_RDONLY|os.O_CREATE, 0644)
+				if err == nil {
+					state.file = file
+					state.offset = 0
+				}
+			}
+			if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
+				if err := s.readNew(state, buf); err != nil {
+					return
+				}
+			}
+		case <-ticker.C:
+			if err := s.readNew(state, buf); err != nil {
+				return
+			}
+		case <-watcher.Errors:
 		}
+	}
+}
 
-		// Try to read from current position
+func (s *Streamer) readNew(state *streamState, buf []byte) error {
+	for {
 		n, err := state.file.ReadAt(buf, state.offset)
 		if n > 0 {
-			// Send data
 			if s.handler != nil {
 				s.handler(state.subscriptionID, state.sessionID, buf[:n], state.offset)
 			}
 			state.offset += int64(n)
 		}
-
-		if err != nil && err != io.EOF {
-			return
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
 		}
-
-		// Wait a bit before checking again
-		time.Sleep(100 * time.Millisecond)
 	}
 }
 

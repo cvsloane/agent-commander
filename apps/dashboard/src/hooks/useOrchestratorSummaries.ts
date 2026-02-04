@@ -67,7 +67,7 @@ export function useOrchestratorSummaries(
 ) {
   const { setSummary, setSummaryLoading, setSummaryFailed } = useOrchestratorStore();
 
-  const { data: summaryStatus } = useQuery({
+  const { data: summaryStatus, isLoading: summaryStatusLoading } = useQuery({
     queryKey: ['orchestrator', 'summary-status'],
     queryFn: getSummaryStatus,
     enabled,
@@ -132,5 +132,5 @@ export function useOrchestratorSummaries(
     }
   }, [enabled, summariesEnabled, items, setSummary, setSummaryLoading, setSummaryFailed]);
 
-  return { summariesEnabled };
+  return { summariesEnabled, summaryStatusLoading };
 }

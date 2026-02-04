@@ -5,7 +5,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Check, X, Plug, Send, ChevronLeft, Moon, Sun, Power } from 'lucide-react';
 import Link from 'next/link';
-import { assignSessionGroup, bulkOperateSessions, getGroups, getHosts, getSession, updateSession } from '@/lib/api';
+import { assignSessionGroup, getGroups, getHosts, getSession, updateSession } from '@/lib/api';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,8 +20,7 @@ import { SendToSessionDialog } from '@/components/SendToSessionDialog';
 import { LinkedSessionsPanel } from '@/components/LinkedSessionsPanel';
 import { ActivityTimeline } from '@/components/ActivityTimeline';
 import { useUIStore } from '@/stores/ui';
-import { useSessionStore } from '@/stores/session';
-import { useNotifications } from '@/stores/notifications';
+import { useTerminateSession } from '@/hooks/useTerminateSession';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useSessionIdle } from '@/hooks/useSessionIdle';
 import { cn } from '@/lib/utils';
@@ -56,9 +55,7 @@ export default function SessionDetailPage() {
   const isMobile = useIsMobile();
   const hydrated = useHydrated();
   const { setSessionIdle, isSessionIdlePending } = useSessionIdle();
-  const [isTerminating, setIsTerminating] = useState(false);
-  const updateSessions = useSessionStore((state) => state.updateSessions);
-  const notifications = useNotifications();
+  const { terminateSession, isTerminating } = useTerminateSession();
 
   const handleSendToFromLinks = (targetSessionId: string) => {
     setSendToTargetId(targetSessionId);
@@ -73,18 +70,14 @@ export default function SessionDetailPage() {
   const handleTerminate = async () => {
     if (!data?.session) return;
     if (isTerminating) return;
-    setIsTerminating(true);
+    const confirmTerminate = window.confirm(
+      `Terminate "${getSessionDisplayName(data.session)}"? This will archive the session.`
+    );
+    if (!confirmTerminate) return;
     try {
-      await bulkOperateSessions('terminate', [data.session.id]);
-      updateSessions([{ ...data.session, archived_at: new Date().toISOString() } as Session]);
-      queryClient.invalidateQueries({ queryKey: ['sessions'] });
-      queryClient.invalidateQueries({ queryKey: ['groups'] });
-      notifications.success('Session terminated', getSessionDisplayName(data.session));
+      await terminateSession(data.session);
     } catch (error) {
       console.error('Failed to terminate session:', error);
-      notifications.error('Failed to terminate session', (error as Error).message);
-    } finally {
-      setIsTerminating(false);
     }
   };
 

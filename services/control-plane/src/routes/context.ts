@@ -99,7 +99,7 @@ export function registerContextRoutes(app: FastifyInstance): void {
         session_id: sessionId,
         key,
         value_length: bodyResult.data.value.length,
-      });
+      }, request.user.id);
 
       return {
         key: context.key,
@@ -141,7 +141,7 @@ export function registerContextRoutes(app: FastifyInstance): void {
       await db.createAuditLog('session.context.delete', 'session_context', sessionId, {
         session_id: sessionId,
         key,
-      });
+      }, request.user.id);
 
       return { success: true };
     }

@@ -80,6 +80,39 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   }
 }
 
+function buildSessionsParams(
+  filters?: {
+    host_id?: string;
+    status?: string;
+    provider?: string;
+    needs_attention?: boolean;
+    q?: string;
+    group_id?: string | null;
+    ungrouped?: boolean;
+    include_archived?: boolean;
+    archived_only?: boolean;
+    limit?: number;
+    offset?: number;
+  },
+  options: { includePagination?: boolean } = {}
+): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filters?.host_id) params.set('host_id', filters.host_id);
+  if (filters?.status) params.set('status', filters.status);
+  if (filters?.provider) params.set('provider', filters.provider);
+  if (filters?.needs_attention) params.set('needs_attention', 'true');
+  if (filters?.q) params.set('q', filters.q);
+  if (filters?.group_id) params.set('group_id', filters.group_id);
+  if (filters?.ungrouped) params.set('ungrouped', 'true');
+  if (filters?.include_archived) params.set('include_archived', 'true');
+  if (filters?.archived_only) params.set('archived_only', 'true');
+  if (options.includePagination) {
+    if (typeof filters?.limit === 'number') params.set('limit', String(filters.limit));
+    if (typeof filters?.offset === 'number') params.set('offset', String(filters.offset));
+  }
+  return params;
+}
+
 // Sessions API
 export async function getSessions(filters?: {
   host_id?: string;
@@ -94,21 +127,25 @@ export async function getSessions(filters?: {
   limit?: number;
   offset?: number;
 }): Promise<{ sessions: SessionWithSnapshot[]; total?: number; limit?: number; offset?: number }> {
-  const params = new URLSearchParams();
-  if (filters?.host_id) params.set('host_id', filters.host_id);
-  if (filters?.status) params.set('status', filters.status);
-  if (filters?.provider) params.set('provider', filters.provider);
-  if (filters?.needs_attention) params.set('needs_attention', 'true');
-  if (filters?.q) params.set('q', filters.q);
-  if (filters?.group_id) params.set('group_id', filters.group_id);
-  if (filters?.ungrouped) params.set('ungrouped', 'true');
-  if (filters?.include_archived) params.set('include_archived', 'true');
-  if (filters?.archived_only) params.set('archived_only', 'true');
-  if (typeof filters?.limit === 'number') params.set('limit', String(filters.limit));
-  if (typeof filters?.offset === 'number') params.set('offset', String(filters.offset));
-
+  const params = buildSessionsParams(filters, { includePagination: true });
   const query = params.toString();
   return fetchAPI(`/v1/sessions${query ? `?${query}` : ''}`);
+}
+
+export async function getSessionsTotal(filters?: {
+  host_id?: string;
+  status?: string;
+  provider?: string;
+  needs_attention?: boolean;
+  q?: string;
+  group_id?: string | null;
+  ungrouped?: boolean;
+  include_archived?: boolean;
+  archived_only?: boolean;
+}): Promise<{ total: number }> {
+  const params = buildSessionsParams(filters, { includePagination: false });
+  const query = params.toString();
+  return fetchAPI(`/v1/sessions/total${query ? `?${query}` : ''}`);
 }
 
 export interface BulkOperationResult {
@@ -185,6 +222,10 @@ export async function updateSession(
     method: 'PATCH',
     body: JSON.stringify(updates),
   });
+}
+
+export async function getVoiceStatus(): Promise<{ available: boolean }> {
+  return fetchAPI('/v1/voice/status');
 }
 
 // Approvals API

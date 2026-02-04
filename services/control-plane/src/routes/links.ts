@@ -47,7 +47,7 @@ export function registerLinkRoutes(app: FastifyInstance): void {
           source_session_id: sourceSessionId,
           target_session_id,
           link_type,
-        });
+        }, request.user.id);
 
         return { link };
       } catch (err) {
@@ -117,7 +117,7 @@ export function registerLinkRoutes(app: FastifyInstance): void {
       await db.createAuditLog('session.link.delete', 'session_link', linkId, {
         source_session_id: link.source_session_id,
         target_session_id: link.target_session_id,
-      });
+      }, request.user.id);
 
       return { success: true };
     }

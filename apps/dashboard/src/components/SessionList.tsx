@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ServerToUIMessage, Session, SessionWithSnapshot, Host } from '@agent-command/schema';
-import { getGroups, getHosts, getSessions } from '@/lib/api';
+import { getGroups, getHosts, getSessions, getSessionsTotal } from '@/lib/api';
 import { useSessionStore } from '@/stores/session';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useSessionUsageStream } from '@/hooks/useSessionUsageStream';
@@ -109,6 +109,8 @@ export function SessionList({
   const flushTimerRef = useRef<number | null>(null);
   const flushDueAtRef = useRef<number | null>(null);
   const lastMetadataUpdateAtRef = useRef<Map<string, number>>(new Map());
+  const totalRef = useRef<number | null>(null);
+  const [hasNewSessions, setHasNewSessions] = useState(false);
   const paginated = typeof pageSize === 'number';
   const sessionIds = useMemo(() => sessions.map((session) => session.id), [sessions]);
   const sessionIdsKey = useMemo(() => sessionIds.join(','), [sessionIds]);
@@ -158,6 +160,7 @@ export function SessionList({
         session.updated_at || '',
         session.last_activity_at || '',
         session.archived_at || '',
+        session.latest_snapshot?.created_at || '',
       ].join(':'))
       .join('|')}`;
   }, [data?.sessions]);
@@ -172,16 +175,47 @@ export function SessionList({
       }
       if (typeof data.total === 'number') {
         onTotalChange?.(data.total);
+        totalRef.current = data.total;
       } else if (pageSize) {
         onTotalChange?.(data.sessions.length);
+        totalRef.current = data.sessions.length;
       }
+      setHasNewSessions(false);
     }
   }, [data, dataKey, onTotalChange, pageSize, setSessions]);
+
+  useEffect(() => {
+    if (!paginated) return;
+    setHasNewSessions(false);
+  }, [filters, page, pageSize, paginated]);
 
   useEffect(() => {
     pageSessionIdsRef.current = new Set(sessions.map((session) => session.id));
     sessionsByIdRef.current = new Map(sessions.map((session) => [session.id, session]));
   }, [sessions]);
+
+  useEffect(() => {
+    if (!paginated) return;
+    let cancelled = false;
+    const intervalId = window.setInterval(() => {
+      getSessionsTotal(filters)
+        .then((probe) => {
+          if (cancelled) return;
+          if (totalRef.current == null) {
+            totalRef.current = probe.total;
+            return;
+          }
+          if (probe.total > totalRef.current) {
+            setHasNewSessions(true);
+          }
+        })
+        .catch(() => {});
+    }, 30000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [paginated, filters]);
 
   const isActivityOnlyUpdate = useCallback((existing: SessionWithSnapshot | undefined, update: Session) => {
     if (!existing) return false;
@@ -546,6 +580,14 @@ export function SessionList({
 
     return (
       <div className="space-y-6">
+        {hasNewSessions && (
+          <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2 text-sm">
+            <span>New sessions available.</span>
+            <Button variant="outline" size="sm" onClick={() => refetch()}>
+              Refresh
+            </Button>
+          </div>
+        )}
         <div>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold">Active</h3>
@@ -585,5 +627,17 @@ export function SessionList({
     );
   }
 
-  return renderGrid(filteredSessions);
+  return (
+    <>
+      {hasNewSessions && (
+        <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2 text-sm mb-4">
+          <span>New sessions available.</span>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            Refresh
+          </Button>
+        </div>
+      )}
+      {renderGrid(filteredSessions)}
+    </>
+  );
 }

@@ -77,7 +77,7 @@ export default function OrchestratorPageClient() {
     },
   });
 
-  const { summariesEnabled } = useOrchestratorSummaries(activeItems, true);
+  const { summariesEnabled, summaryStatusLoading } = useOrchestratorSummaries(activeItems, true);
 
   // WebSocket subscriptions
   const handleWebSocketMessage = useCallback(
@@ -164,6 +164,12 @@ export default function OrchestratorPageClient() {
           Refresh
         </Button>
       </div>
+
+      {!summaryStatusLoading && !summariesEnabled && (
+        <div className="mb-4 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          Summaries are unavailable. Configure `OPENAI_API_KEY` on the control plane to enable them.
+        </div>
+      )}
 
       {/* Empty state */}
       {activeItems.length === 0 && idledItems.length === 0 && (

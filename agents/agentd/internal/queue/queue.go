@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 type Message struct {
@@ -16,10 +17,12 @@ type Message struct {
 }
 
 type Queue struct {
-	path     string
-	maxSize  int
-	messages []Message
-	mu       sync.Mutex
+	path        string
+	maxSize     int
+	messages    []Message
+	mu          sync.Mutex
+	append      *os.File
+	lastCompact time.Time
 }
 
 func NewQueue(stateDir string, maxSize int) (*Queue, error) {
@@ -40,6 +43,10 @@ func NewQueue(stateDir string, maxSize int) (*Queue, error) {
 		return nil, err
 	}
 
+	if err := q.openAppend(); err != nil {
+		return nil, err
+	}
+
 	return q, nil
 }
 
@@ -54,6 +61,8 @@ func (q *Queue) load() error {
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
 	for scanner.Scan() {
 		var msg Message
 		if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
@@ -65,23 +74,102 @@ func (q *Queue) load() error {
 	return scanner.Err()
 }
 
-func (q *Queue) save() error {
-	file, err := os.Create(q.path)
+func (q *Queue) openAppend() error {
+	if q.append != nil {
+		return nil
+	}
+	file, err := os.OpenFile(q.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open queue file for append: %w", err)
+	}
+	q.append = file
+	return nil
+}
+
+func (q *Queue) appendMessage(msg Message) error {
+	if err := q.openAppend(); err != nil {
+		return err
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	if _, err := q.append.Write(data); err != nil {
+		return err
+	}
+	if _, err := q.append.WriteString("\n"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (q *Queue) compact() error {
+	tmpPath := q.path + ".tmp"
+	file, err := os.Create(tmpPath)
 	if err != nil {
 		return fmt.Errorf("failed to create queue file: %w", err)
 	}
-	defer file.Close()
-
 	for _, msg := range q.messages {
 		data, err := json.Marshal(msg)
 		if err != nil {
 			continue
 		}
-		file.Write(data)
-		file.WriteString("\n")
+		if _, err := file.Write(data); err != nil {
+			file.Close()
+			return err
+		}
+		if _, err := file.WriteString("\n"); err != nil {
+			file.Close()
+			return err
+		}
 	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, q.path); err != nil {
+		return err
+	}
+	if q.append != nil {
+		_ = q.append.Close()
+		q.append = nil
+	}
+	q.lastCompact = time.Now()
+	return q.openAppend()
+}
 
-	return nil
+func (q *Queue) maybeCompact(removed int) error {
+	if removed == 0 {
+		return nil
+	}
+	// Avoid compacting too frequently
+	if time.Since(q.lastCompact) < 30*time.Second && removed < 100 {
+		return nil
+	}
+	info, err := os.Stat(q.path)
+	if err == nil {
+		// Skip compaction for small files unless we removed a lot
+		if info.Size() < 5*1024*1024 && removed < 100 {
+			return nil
+		}
+	}
+	return q.compact()
+}
+
+func (q *Queue) pruneLocked(seq int64) int {
+	if len(q.messages) == 0 {
+		return 0
+	}
+	removed := 0
+	newMessages := make([]Message, 0, len(q.messages))
+	for _, msg := range q.messages {
+		if msg.Seq > seq {
+			newMessages = append(newMessages, msg)
+		} else {
+			removed++
+		}
+	}
+	q.messages = newMessages
+	return removed
 }
 
 func (q *Queue) Push(msg Message) error {
@@ -89,29 +177,37 @@ func (q *Queue) Push(msg Message) error {
 	defer q.mu.Unlock()
 
 	// Check size limit
+	needsCompact := false
 	if len(q.messages) >= q.maxSize {
 		// Remove oldest message
 		q.messages = q.messages[1:]
+		needsCompact = true
 	}
 
 	q.messages = append(q.messages, msg)
-	return q.save()
+	if err := q.appendMessage(msg); err != nil {
+		return err
+	}
+	if needsCompact {
+		return q.compact()
+	}
+	return nil
 }
 
 func (q *Queue) AckUpto(seq int64) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	// Remove all messages with seq <= provided seq
-	newMessages := make([]Message, 0)
-	for _, msg := range q.messages {
-		if msg.Seq > seq {
-			newMessages = append(newMessages, msg)
-		}
-	}
+	removed := q.pruneLocked(seq)
+	return q.maybeCompact(removed)
+}
 
-	q.messages = newMessages
-	return q.save()
+// PruneAcked removes messages <= seq without forcing a full rewrite.
+func (q *Queue) PruneAcked(seq int64) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	removed := q.pruneLocked(seq)
+	return q.maybeCompact(removed)
 }
 
 func (q *Queue) GetUnacked() []Message {

@@ -380,6 +380,7 @@ func (a *Agent) Run() error {
 	if err == nil {
 		a.wsClient.SetQueue(outboundQueue, a.cfg.Storage.StateDir)
 		if lastAcked, err := queue.LoadAckedSeq(a.cfg.Storage.StateDir); err == nil {
+			_ = outboundQueue.PruneAcked(lastAcked)
 			a.wsClient.SetLastAckedSeq(lastAcked)
 		}
 	}

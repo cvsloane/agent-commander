@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Mic, MicOff, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
+import { getVoiceStatus } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 interface VoiceInputButtonProps {
@@ -44,6 +46,14 @@ export function VoiceInputButton({
     onFinalTranscript: handleFinalTranscript,
   });
 
+  const { data: voiceStatus } = useQuery({
+    queryKey: ['voice', 'status'],
+    queryFn: getVoiceStatus,
+    staleTime: 5 * 60 * 1000,
+  });
+  const isVoiceAvailable = voiceStatus?.available ?? true;
+  const isButtonDisabled = disabled || !isVoiceAvailable;
+
   // Show indicator when listening
   useEffect(() => {
     setShowIndicator(isListening || isConnecting);
@@ -56,7 +66,7 @@ export function VoiceInputButton({
         e.preventDefault();
         if (isListening) {
           stopListening();
-        } else if (!disabled) {
+        } else if (!isButtonDisabled) {
           startListening();
         }
       } else if (e.key === 'Escape' && isListening) {
@@ -67,7 +77,7 @@ export function VoiceInputButton({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isListening, disabled, startListening, stopListening, clearTranscript]);
+  }, [isListening, isButtonDisabled, startListening, stopListening, clearTranscript]);
 
   const handleClick = () => {
     if (isListening) {
@@ -90,7 +100,7 @@ export function VoiceInputButton({
             variant={isListening ? 'destructive' : 'outline'}
             size="icon"
             onClick={handleClick}
-            disabled={disabled || isConnecting}
+            disabled={isButtonDisabled || isConnecting}
             className={cn(
               'relative',
               isListening && 'animate-pulse'
@@ -109,7 +119,13 @@ export function VoiceInputButton({
           </Button>
         </TooltipTrigger>
         <TooltipContent>
-          <p>{isListening ? 'Stop listening (Ctrl+M or Esc)' : 'Start voice input (Ctrl+M)'}</p>
+          <p>
+            {!isVoiceAvailable
+              ? 'Voice input unavailable (set DEEPGRAM_API_KEY)'
+              : isListening
+                ? 'Stop listening (Ctrl+M or Esc)'
+                : 'Start voice input (Ctrl+M)'}
+          </p>
         </TooltipContent>
       </Tooltip>
 

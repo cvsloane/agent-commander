@@ -22,6 +22,10 @@ const activeSessions = new Map<
  * audio chunks from the UI and returning transcripts.
  */
 export function registerVoiceRoutes(app: FastifyInstance): void {
+  app.get('/v1/voice/status', async () => {
+    return { available: Boolean(DEEPGRAM_API_KEY) };
+  });
+
   // Voice feature is disabled if no API key is configured
   if (!DEEPGRAM_API_KEY) {
     app.log.info('Voice transcription disabled: DEEPGRAM_API_KEY not set');

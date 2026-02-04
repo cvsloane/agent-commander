@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { formatRelativeTime } from '@/lib/utils';
+import { formatRelativeTime, isHostOnline } from '@/lib/utils';
 import { useHydrated } from '@/hooks/useHydrated';
 
 interface DirectoryAccessEditorProps {
@@ -161,12 +161,9 @@ export default function HostsPage() {
 
   const hosts = data?.hosts || [];
 
-  // Determine online status (seen in last 30 seconds)
   const isOnline = (lastSeen: string | null) => {
     if (!hydrated) return false;
-    if (!lastSeen) return false;
-    const diff = Date.now() - new Date(lastSeen).getTime();
-    return diff < 30000;
+    return isHostOnline(lastSeen);
   };
 
   return (
