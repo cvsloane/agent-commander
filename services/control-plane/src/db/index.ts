@@ -482,19 +482,24 @@ export async function getLatestSnapshots(
 ): Promise<SessionSnapshot[]> {
   if (sessionIds.length === 0) return [];
   const result = await pool.query(
-    `SELECT DISTINCT ON (session_id)
-        id,
-        session_id,
-        created_at,
-        capture_hash,
+    `SELECT
+        ss.id,
+        ss.session_id,
+        ss.created_at,
+        ss.capture_hash,
         CASE
-          WHEN capture_text IS NULL THEN ''
-          WHEN length(capture_text) <= $2 THEN capture_text
-          ELSE right(capture_text, $2)
+          WHEN ss.capture_text IS NULL THEN ''
+          WHEN length(ss.capture_text) <= $2 THEN ss.capture_text
+          ELSE right(ss.capture_text, $2)
         END AS capture_text
-     FROM session_snapshots
-     WHERE session_id = ANY($1)
-     ORDER BY session_id, created_at DESC`,
+     FROM unnest($1::uuid[]) AS s(session_id)
+     JOIN LATERAL (
+       SELECT id, session_id, created_at, capture_hash, capture_text
+       FROM session_snapshots
+       WHERE session_id = s.session_id
+       ORDER BY created_at DESC
+       LIMIT 1
+     ) ss ON true`,
     [sessionIds, maxChars]
   );
   return result.rows;

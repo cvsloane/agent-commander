@@ -54,9 +54,8 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   const apiBase = resolveApiBase();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
-  let res: Response;
   try {
-    res = await fetch(`${apiBase}${path}`, {
+    const res = await fetch(`${apiBase}${path}`, {
       ...options,
       signal: controller.signal,
       headers: {
@@ -65,6 +64,12 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
         ...options?.headers,
       },
     });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(error.error || `HTTP ${res.status}`);
+    }
+
+    return res.json();
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw new Error('Request timed out');
@@ -73,13 +78,6 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   } finally {
     clearTimeout(timeout);
   }
-
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(error.error || `HTTP ${res.status}`);
-  }
-
-  return res.json();
 }
 
 // Sessions API

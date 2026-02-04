@@ -1,6 +1,7 @@
 import { forceSignIn } from '@/lib/forceSignIn';
 
 let cachedToken: { token: string; exp: number } | null = null;
+const TOKEN_FETCH_TIMEOUT_MS = 5000;
 
 export async function getControlPlaneToken(): Promise<string | null> {
   const now = Math.floor(Date.now() / 1000);
@@ -8,8 +9,11 @@ export async function getControlPlaneToken(): Promise<string | null> {
     return cachedToken.token;
   }
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TOKEN_FETCH_TIMEOUT_MS);
+
   try {
-    const res = await fetch('/api/control-plane-token');
+    const res = await fetch('/api/control-plane-token', { signal: controller.signal });
     if (res.status === 401) {
       forceSignIn('SessionExpired');
       return null;
@@ -20,6 +24,8 @@ export async function getControlPlaneToken(): Promise<string | null> {
     return data.token;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
