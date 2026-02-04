@@ -35,7 +35,7 @@ export function registerSearchRoutes(app: FastifyInstance): void {
     }
 
     try {
-      const results = await db.search(q, {
+      const { results, total } = await db.search(q, {
         types: type as Array<'sessions' | 'events' | 'snapshots'>,
         limit,
         offset,
@@ -44,7 +44,7 @@ export function registerSearchRoutes(app: FastifyInstance): void {
       return {
         query: q,
         results,
-        total: results.length,
+        total,
         limit,
         offset,
       };

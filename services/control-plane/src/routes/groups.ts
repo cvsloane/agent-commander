@@ -72,7 +72,7 @@ export function registerGroupRoutes(app: FastifyInstance): void {
       const group = await db.createGroup(bodyResult.data);
 
       // Audit log
-      await db.createAuditLog('group.create', 'session_group', group.id, { group });
+      await db.createAuditLog('group.create', 'session_group', group.id, { group }, request.user.id);
 
       return { group };
     } catch (error: unknown) {
@@ -105,7 +105,7 @@ export function registerGroupRoutes(app: FastifyInstance): void {
       const group = await db.createGroup(bodyResult.data);
 
       // Audit log
-      await db.createAuditLog('group.create', 'session_group', group.id, { group });
+      await db.createAuditLog('group.create', 'session_group', group.id, { group }, request.user.id);
 
       return { group, created: true };
     } catch (error: unknown) {
@@ -160,7 +160,7 @@ export function registerGroupRoutes(app: FastifyInstance): void {
       }
 
       // Audit log
-      await db.createAuditLog('group.update', 'session_group', id, { updates: bodyResult.data });
+      await db.createAuditLog('group.update', 'session_group', id, { updates: bodyResult.data }, request.user.id);
 
       return { group };
     } catch (error: unknown) {
@@ -196,7 +196,7 @@ export function registerGroupRoutes(app: FastifyInstance): void {
     await db.deleteGroup(id);
 
     // Audit log
-    await db.createAuditLog('group.delete', 'session_group', id, { group });
+    await db.createAuditLog('group.delete', 'session_group', id, { group }, request.user.id);
 
     return { success: true };
   });
@@ -239,7 +239,7 @@ export function registerGroupRoutes(app: FastifyInstance): void {
       // Audit log
       await db.createAuditLog('session.group_assign', 'session', sessionId, {
         group_id: bodyResult.data.group_id,
-      });
+      }, request.user.id);
 
       return { session };
     }

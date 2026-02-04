@@ -1,5 +1,6 @@
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
+import { createHash } from 'node:crypto';
 import { config } from '../config.js';
 import type {
   Host,
@@ -99,6 +100,23 @@ export async function getHostById(id: string): Promise<Host | null> {
   return result.rows[0] || null;
 }
 
+export async function upsertUser(user: {
+  id: string;
+  email?: string;
+  name?: string;
+  role?: string;
+}): Promise<void> {
+  await pool.query(
+    `INSERT INTO users (id, email, name, role)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (id) DO UPDATE SET
+       email = COALESCE(EXCLUDED.email, users.email),
+       name = COALESCE(EXCLUDED.name, users.name),
+       role = COALESCE(EXCLUDED.role, users.role)`,
+    [user.id, user.email || null, user.name || null, user.role || null]
+  );
+}
+
 export async function updateHostCapabilities(
   hostId: string,
   capabilities: Record<string, unknown>
@@ -112,12 +130,27 @@ export async function updateHostCapabilities(
 
 // Agent token queries
 export async function validateAgentToken(token: string): Promise<string | null> {
-  const result = await pool.query(
+  const tokenSha = createHash('sha256').update(token).digest('hex');
+
+  const fastResult = await pool.query(
     `SELECT host_id, token_hash FROM agent_tokens
-     WHERE revoked_at IS NULL`
+     WHERE revoked_at IS NULL AND token_sha256 = $1`,
+    [tokenSha]
   );
 
-  for (const row of result.rows) {
+  for (const row of fastResult.rows) {
+    const matches = await bcrypt.compare(token, row.token_hash);
+    if (matches) {
+      return row.host_id;
+    }
+  }
+
+  const fallbackResult = await pool.query(
+    `SELECT host_id, token_hash FROM agent_tokens
+     WHERE revoked_at IS NULL AND token_sha256 IS NULL`
+  );
+
+  for (const row of fallbackResult.rows) {
     const matches = await bcrypt.compare(token, row.token_hash);
     if (matches) {
       return row.host_id;
@@ -128,14 +161,17 @@ export async function validateAgentToken(token: string): Promise<string | null> 
 
 export async function createAgentToken(hostId: string, token: string): Promise<void> {
   const tokenHash = await bcrypt.hash(token, 10);
+  const tokenSha = createHash('sha256').update(token).digest('hex');
   await pool.query(
-    `INSERT INTO agent_tokens (host_id, token_hash) VALUES ($1, $2)`,
-    [hostId, tokenHash]
+    `INSERT INTO agent_tokens (host_id, token_hash, token_sha256) VALUES ($1, $2, $3)`,
+    [hostId, tokenHash, tokenSha]
   );
 }
 
 // Session queries
 export async function upsertSession(hostId: string, session: SessionUpsert): Promise<Session> {
+  const metadataProvided = session.metadata !== undefined;
+  const idledAtProvided = session.idled_at !== undefined;
   const result = await pool.query(
      `INSERT INTO sessions (
        id, host_id, kind, provider, status, title, cwd, repo_root,
@@ -152,12 +188,13 @@ export async function upsertSession(hostId: string, session: SessionUpsert): Pro
        git_branch = COALESCE(EXCLUDED.git_branch, sessions.git_branch),
        tmux_pane_id = EXCLUDED.tmux_pane_id,
        tmux_target = EXCLUDED.tmux_target,
-       metadata = sessions.metadata || EXCLUDED.metadata,
+       metadata = CASE WHEN $20 THEN EXCLUDED.metadata ELSE sessions.metadata END,
        last_activity_at = COALESCE(EXCLUDED.last_activity_at, sessions.last_activity_at),
        group_id = COALESCE(EXCLUDED.group_id, sessions.group_id),
        forked_from = COALESCE(EXCLUDED.forked_from, sessions.forked_from),
        fork_depth = COALESCE(EXCLUDED.fork_depth, sessions.fork_depth),
-       archived_at = COALESCE(EXCLUDED.archived_at, sessions.archived_at)
+       archived_at = COALESCE(EXCLUDED.archived_at, sessions.archived_at),
+       idled_at = CASE WHEN $21 THEN EXCLUDED.idled_at ELSE sessions.idled_at END
      RETURNING *`,
     [
       session.id,
@@ -172,13 +209,15 @@ export async function upsertSession(hostId: string, session: SessionUpsert): Pro
       session.git_branch || null,
       session.tmux_pane_id ?? null,
       session.tmux_target ?? null,
-      JSON.stringify(session.metadata || {}),
+      JSON.stringify(session.metadata ?? {}),
       session.last_activity_at || null,
       session.group_id ?? null,
       session.forked_from ?? null,
       session.fork_depth ?? null,
       session.archived_at ?? null,
-      null,
+      session.idled_at ?? null,
+      metadataProvided,
+      idledAtProvided,
     ]
   );
   return result.rows[0];
@@ -278,21 +317,35 @@ export async function getSessions(filters?: SessionFilters): Promise<Session[]> 
   return result.rows;
 }
 
+export async function getSessionsTotal(filters?: SessionFilters): Promise<number> {
+  const { where, params } = buildSessionsFilter(filters);
+  const result = await pool.query(`SELECT COUNT(*) ${where}`, params);
+  return Number(result.rows[0]?.count || 0);
+}
+
+export async function getSessionsByRepoRoot(repoRoot: string): Promise<Session[]> {
+  const result = await pool.query(
+    'SELECT * FROM sessions WHERE repo_root = $1 ORDER BY last_activity_at DESC NULLS LAST',
+    [repoRoot]
+  );
+  return result.rows;
+}
+
 export async function getSessionsPage(
   filters: SessionFilters & { limit: number; offset?: number }
 ): Promise<{ sessions: Session[]; total: number }> {
   const { where, params } = buildSessionsFilter(filters);
-  const countResult = await pool.query(`SELECT COUNT(*) ${where}`, params);
-  const total = Number(countResult.rows[0]?.count || 0);
-
   const pageParams = [...params, filters.limit];
-  let query = `SELECT * ${where} ORDER BY last_activity_at DESC NULLS LAST LIMIT $${pageParams.length}`;
+  let query = `SELECT *, COUNT(*) OVER() AS total ${where} ORDER BY last_activity_at DESC NULLS LAST LIMIT $${pageParams.length}`;
   if (typeof filters.offset === 'number') {
     pageParams.push(filters.offset);
     query += ` OFFSET $${pageParams.length}`;
   }
   const result = await pool.query(query, pageParams);
-  return { sessions: result.rows, total };
+  const rows = result.rows as Array<Session & { total?: number | string }>;
+  const total = rows.length > 0 ? Number(rows[0]?.total || 0) : 0;
+  const sessions = rows.map(({ total: _total, ...session }) => session as Session);
+  return { sessions, total };
 }
 
 export async function getSessionById(id: string): Promise<Session | null> {
@@ -492,14 +545,13 @@ export async function getLatestSnapshots(
           WHEN length(ss.capture_text) <= $2 THEN ss.capture_text
           ELSE right(ss.capture_text, $2)
         END AS capture_text
-     FROM unnest($1::uuid[]) AS s(session_id)
-     JOIN LATERAL (
-       SELECT id, session_id, created_at, capture_hash, capture_text
+     FROM (
+       SELECT DISTINCT ON (session_id)
+         id, session_id, created_at, capture_hash, capture_text
        FROM session_snapshots
-       WHERE session_id = s.session_id
-       ORDER BY created_at DESC
-       LIMIT 1
-     ) ss ON true`,
+       WHERE session_id = ANY($1::uuid[])
+       ORDER BY session_id, created_at DESC
+     ) ss`,
     [sessionIds, maxChars]
   );
   return result.rows;
@@ -536,7 +588,7 @@ export async function getEvents(
     params.push(cursor);
   }
 
-  query += ` ORDER BY ts DESC LIMIT $${paramIndex}`;
+  query += ` ORDER BY id DESC LIMIT $${paramIndex}`;
   params.push(limit);
 
   const result = await pool.query(query, params);
@@ -948,25 +1000,56 @@ export async function touchProject(data: {
 }
 
 // User settings (persisted UI preferences)
-export async function getUserSettings(userSubject: string): Promise<Record<string, unknown> | null> {
+export async function getUserSettings(
+  userId: string,
+  userSubject?: string
+): Promise<Record<string, unknown> | null> {
   const result = await pool.query(
-    `SELECT settings FROM user_settings WHERE user_subject = $1`,
-    [userSubject]
+    `SELECT settings, user_id, user_subject
+     FROM user_settings
+     WHERE user_id = $1 OR (user_subject = $2 AND $2 IS NOT NULL)
+     ORDER BY (user_id = $1) DESC
+     LIMIT 1`,
+    [userId, userSubject ?? null]
   );
-  return result.rows[0]?.settings ?? null;
+  const row = result.rows[0];
+  if (!row) return null;
+
+  if (!row.user_id && userSubject) {
+    try {
+      await pool.query(
+        `UPDATE user_settings SET user_id = $1 WHERE user_subject = $2 AND user_id IS NULL`,
+        [userId, userSubject]
+      );
+    } catch {
+      // best-effort backfill
+    }
+  }
+
+  return row.settings ?? null;
 }
 
 export async function upsertUserSettings(
+  userId: string,
   userSubject: string,
   settings: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
   const result = await pool.query(
-    `INSERT INTO user_settings (user_subject, settings)
-     VALUES ($1, $2)
+    `WITH upsert AS (
+       UPDATE user_settings
+       SET settings = $3,
+           user_subject = COALESCE($2, user_subject)
+       WHERE user_id = $1
+       RETURNING settings
+     )
+     INSERT INTO user_settings (user_id, user_subject, settings)
+     SELECT $1, $2, $3
+     WHERE NOT EXISTS (SELECT 1 FROM upsert)
      ON CONFLICT (user_subject) DO UPDATE
-       SET settings = EXCLUDED.settings
+       SET settings = EXCLUDED.settings,
+           user_id = COALESCE(user_settings.user_id, EXCLUDED.user_id)
      RETURNING settings`,
-    [userSubject, JSON.stringify(settings)]
+    [userId, userSubject, JSON.stringify(settings)]
   );
   return result.rows[0]?.settings ?? {};
 }
@@ -1004,86 +1087,104 @@ export async function search(
     limit?: number;
     offset?: number;
   }
-): Promise<SearchResult[]> {
+): Promise<{ results: SearchResult[]; total: number }> {
   const types = options?.types || ['sessions', 'events', 'snapshots'];
   const limit = Math.min(options?.limit || 50, 100);
   const offset = options?.offset || 0;
-  const results: SearchResult[] = [];
+
+  if (types.length === 0) {
+    return { results: [], total: 0 };
+  }
+
+  const tsQuery = `plainto_tsquery('english', $1)`;
+  const parts: string[] = [];
 
   if (types.includes('sessions')) {
-    const sessionResults = await pool.query(
-      `SELECT id, ts_rank_cd(search_vector, plainto_tsquery('english', $1)) AS score,
-              ts_headline('english', COALESCE(title, '') || ' ' || COALESCE(cwd, ''),
-                          plainto_tsquery('english', $1),
-                          'MaxWords=50, MinWords=10, StartSel=**, StopSel=**') AS highlight,
-              title, cwd
+    parts.push(
+      `SELECT
+         'session'::text AS type,
+         id::text AS id,
+         NULL::uuid AS session_id,
+         ts_rank_cd(search_vector, ${tsQuery}) AS score,
+         ts_headline(
+           'english',
+           COALESCE(title, '') || ' ' || COALESCE(cwd, ''),
+           ${tsQuery},
+           'MaxWords=50, MinWords=10, StartSel=**, StopSel=**'
+         ) AS highlight,
+         title,
+         cwd
        FROM sessions
-       WHERE search_vector @@ plainto_tsquery('english', $1)
-       ORDER BY score DESC
-       LIMIT $2 OFFSET $3`,
-      [query, limit, offset]
-    );
-    results.push(
-      ...sessionResults.rows.map((row) => ({
-        type: 'session' as const,
-        id: row.id,
-        score: parseFloat(row.score),
-        highlight: row.highlight,
-        title: row.title,
-        cwd: row.cwd,
-      }))
+       WHERE search_vector @@ ${tsQuery}`
     );
   }
 
   if (types.includes('events')) {
-    const eventResults = await pool.query(
-      `SELECT id, session_id, ts_rank_cd(search_vector, plainto_tsquery('english', $1)) AS score,
-              ts_headline('english', type || ' ' || COALESCE(payload::text, ''),
-                          plainto_tsquery('english', $1),
-                          'MaxWords=50, MinWords=10, StartSel=**, StopSel=**') AS highlight
+    parts.push(
+      `SELECT
+         'event'::text AS type,
+         id::text AS id,
+         session_id,
+         ts_rank_cd(search_vector, ${tsQuery}) AS score,
+         ts_headline(
+           'english',
+           type || ' ' || COALESCE(payload::text, ''),
+           ${tsQuery},
+           'MaxWords=50, MinWords=10, StartSel=**, StopSel=**'
+         ) AS highlight,
+         NULL::text AS title,
+         NULL::text AS cwd
        FROM events
-       WHERE search_vector @@ plainto_tsquery('english', $1)
-       ORDER BY score DESC
-       LIMIT $2 OFFSET $3`,
-      [query, limit, offset]
-    );
-    results.push(
-      ...eventResults.rows.map((row) => ({
-        type: 'event' as const,
-        id: row.id.toString(),
-        session_id: row.session_id,
-        score: parseFloat(row.score),
-        highlight: row.highlight,
-      }))
+       WHERE search_vector @@ ${tsQuery}`
     );
   }
 
   if (types.includes('snapshots')) {
-    const snapshotResults = await pool.query(
-      `SELECT ss.id, ss.session_id,
-              ts_rank_cd(ss.search_vector, plainto_tsquery('english', $1)) AS score,
-              ts_headline('english', ss.capture_text,
-                          plainto_tsquery('english', $1),
-                          'MaxWords=50, MinWords=10, StartSel=**, StopSel=**') AS highlight
+    parts.push(
+      `SELECT
+         'snapshot'::text AS type,
+         ss.id::text AS id,
+         ss.session_id,
+         ts_rank_cd(ss.search_vector, ${tsQuery}) AS score,
+         ts_headline(
+           'english',
+           ss.capture_text,
+           ${tsQuery},
+           'MaxWords=50, MinWords=10, StartSel=**, StopSel=**'
+         ) AS highlight,
+         NULL::text AS title,
+         NULL::text AS cwd
        FROM session_snapshots ss
-       WHERE ss.search_vector @@ plainto_tsquery('english', $1)
-       ORDER BY score DESC
-       LIMIT $2 OFFSET $3`,
-      [query, limit, offset]
-    );
-    results.push(
-      ...snapshotResults.rows.map((row) => ({
-        type: 'snapshot' as const,
-        id: row.id.toString(),
-        session_id: row.session_id,
-        score: parseFloat(row.score),
-        highlight: row.highlight,
-      }))
+       WHERE ss.search_vector @@ ${tsQuery}`
     );
   }
 
-  // Sort all results by score and apply overall limit
-  return results.sort((a, b) => b.score - a.score).slice(0, limit);
+  const sql = `
+    WITH results AS (
+      ${parts.join('\n      UNION ALL\n      ')}
+    ),
+    ranked AS (
+      SELECT *, COUNT(*) OVER() AS total
+      FROM results
+    )
+    SELECT * FROM ranked
+    ORDER BY score DESC
+    LIMIT $2 OFFSET $3`;
+
+  const result = await pool.query(sql, [query, limit, offset]);
+  const rows = result.rows ?? [];
+  const total = rows.length > 0 ? Number(rows[0]?.total ?? 0) : 0;
+  const results = rows.map((row) => ({
+    type: row.type as SearchResult['type'],
+    id: row.id,
+    session_id: row.session_id ?? undefined,
+    score: Number.parseFloat(row.score),
+    highlight: row.highlight,
+    title: row.title ?? undefined,
+    cwd: row.cwd ?? undefined,
+  }));
+
+  return { results, total };
 }
 
 // Fork session
@@ -1146,75 +1247,60 @@ export interface BulkOperationResult {
 }
 
 export async function bulkDeleteSessions(sessionIds: string[]): Promise<BulkOperationResult> {
-  const errors: BulkOperationError[] = [];
-  let successCount = 0;
-
-  for (const id of sessionIds) {
-    try {
-      const result = await pool.query('DELETE FROM sessions WHERE id = $1', [id]);
-      if (result.rowCount && result.rowCount > 0) {
-        successCount++;
-      } else {
-        errors.push({ session_id: id, error: 'Session not found' });
-      }
-    } catch (err) {
-      errors.push({ session_id: id, error: (err as Error).message });
-    }
+  if (sessionIds.length === 0) {
+    return { success_count: 0, error_count: 0, errors: [] };
   }
 
-  if (successCount > 0) {
+  const result = await pool.query(
+    'DELETE FROM sessions WHERE id = ANY($1::uuid[]) RETURNING id',
+    [sessionIds]
+  );
+  const deletedIds = new Set(result.rows.map((row) => row.id as string));
+  const errors = sessionIds
+    .filter((id) => !deletedIds.has(id))
+    .map((id) => ({ session_id: id, error: 'Session not found' }));
+
+  if (deletedIds.size > 0) {
     await pruneEmptyGroups();
   }
-  return { success_count: successCount, error_count: errors.length, errors };
+  return { success_count: deletedIds.size, error_count: errors.length, errors };
 }
 
 export async function bulkArchiveSessions(sessionIds: string[]): Promise<BulkOperationResult> {
-  const errors: BulkOperationError[] = [];
-  let successCount = 0;
-
-  for (const id of sessionIds) {
-    try {
-      const result = await pool.query(
-        'UPDATE sessions SET archived_at = NOW() WHERE id = $1 AND archived_at IS NULL',
-        [id]
-      );
-      if (result.rowCount && result.rowCount > 0) {
-        successCount++;
-      } else {
-        errors.push({ session_id: id, error: 'Session not found or already archived' });
-      }
-    } catch (err) {
-      errors.push({ session_id: id, error: (err as Error).message });
-    }
+  if (sessionIds.length === 0) {
+    return { success_count: 0, error_count: 0, errors: [] };
   }
 
-  if (successCount > 0) {
+  const result = await pool.query(
+    'UPDATE sessions SET archived_at = NOW() WHERE id = ANY($1::uuid[]) AND archived_at IS NULL RETURNING id',
+    [sessionIds]
+  );
+  const updatedIds = new Set(result.rows.map((row) => row.id as string));
+  const errors = sessionIds
+    .filter((id) => !updatedIds.has(id))
+    .map((id) => ({ session_id: id, error: 'Session not found or already archived' }));
+
+  if (updatedIds.size > 0) {
     await pruneEmptyGroups();
   }
-  return { success_count: successCount, error_count: errors.length, errors };
+  return { success_count: updatedIds.size, error_count: errors.length, errors };
 }
 
 export async function bulkUnarchiveSessions(sessionIds: string[]): Promise<BulkOperationResult> {
-  const errors: BulkOperationError[] = [];
-  let successCount = 0;
-
-  for (const id of sessionIds) {
-    try {
-      const result = await pool.query(
-        'UPDATE sessions SET archived_at = NULL WHERE id = $1 AND archived_at IS NOT NULL',
-        [id]
-      );
-      if (result.rowCount && result.rowCount > 0) {
-        successCount++;
-      } else {
-        errors.push({ session_id: id, error: 'Session not found or not archived' });
-      }
-    } catch (err) {
-      errors.push({ session_id: id, error: (err as Error).message });
-    }
+  if (sessionIds.length === 0) {
+    return { success_count: 0, error_count: 0, errors: [] };
   }
 
-  return { success_count: successCount, error_count: errors.length, errors };
+  const result = await pool.query(
+    'UPDATE sessions SET archived_at = NULL WHERE id = ANY($1::uuid[]) AND archived_at IS NOT NULL RETURNING id',
+    [sessionIds]
+  );
+  const updatedIds = new Set(result.rows.map((row) => row.id as string));
+  const errors = sessionIds
+    .filter((id) => !updatedIds.has(id))
+    .map((id) => ({ session_id: id, error: 'Session not found or not archived' }));
+
+  return { success_count: updatedIds.size, error_count: errors.length, errors };
 }
 
 export async function archiveSessions(sessionIds: string[]): Promise<void> {
@@ -1227,78 +1313,60 @@ export async function archiveSessions(sessionIds: string[]): Promise<void> {
 }
 
 export async function bulkIdleSessions(sessionIds: string[]): Promise<BulkOperationResult> {
-  const errors: BulkOperationError[] = [];
-  let successCount = 0;
-
-  for (const id of sessionIds) {
-    try {
-      const result = await pool.query(
-        'UPDATE sessions SET idled_at = NOW(), updated_at = NOW() WHERE id = $1 AND idled_at IS NULL',
-        [id]
-      );
-      if (result.rowCount && result.rowCount > 0) {
-        successCount++;
-      } else {
-        errors.push({ session_id: id, error: 'Session not found or already idled' });
-      }
-    } catch (err) {
-      errors.push({ session_id: id, error: (err as Error).message });
-    }
+  if (sessionIds.length === 0) {
+    return { success_count: 0, error_count: 0, errors: [] };
   }
 
-  return { success_count: successCount, error_count: errors.length, errors };
+  const result = await pool.query(
+    'UPDATE sessions SET idled_at = NOW(), updated_at = NOW() WHERE id = ANY($1::uuid[]) AND idled_at IS NULL RETURNING id',
+    [sessionIds]
+  );
+  const updatedIds = new Set(result.rows.map((row) => row.id as string));
+  const errors = sessionIds
+    .filter((id) => !updatedIds.has(id))
+    .map((id) => ({ session_id: id, error: 'Session not found or already idled' }));
+
+  return { success_count: updatedIds.size, error_count: errors.length, errors };
 }
 
 export async function bulkUnidleSessions(sessionIds: string[]): Promise<BulkOperationResult> {
-  const errors: BulkOperationError[] = [];
-  let successCount = 0;
-
-  for (const id of sessionIds) {
-    try {
-      const result = await pool.query(
-        'UPDATE sessions SET idled_at = NULL, updated_at = NOW() WHERE id = $1 AND idled_at IS NOT NULL',
-        [id]
-      );
-      if (result.rowCount && result.rowCount > 0) {
-        successCount++;
-      } else {
-        errors.push({ session_id: id, error: 'Session not found or not idled' });
-      }
-    } catch (err) {
-      errors.push({ session_id: id, error: (err as Error).message });
-    }
+  if (sessionIds.length === 0) {
+    return { success_count: 0, error_count: 0, errors: [] };
   }
 
-  return { success_count: successCount, error_count: errors.length, errors };
+  const result = await pool.query(
+    'UPDATE sessions SET idled_at = NULL, updated_at = NOW() WHERE id = ANY($1::uuid[]) AND idled_at IS NOT NULL RETURNING id',
+    [sessionIds]
+  );
+  const updatedIds = new Set(result.rows.map((row) => row.id as string));
+  const errors = sessionIds
+    .filter((id) => !updatedIds.has(id))
+    .map((id) => ({ session_id: id, error: 'Session not found or not idled' }));
+
+  return { success_count: updatedIds.size, error_count: errors.length, errors };
 }
 
 export async function bulkAssignGroup(
   sessionIds: string[],
   groupId: string | null
 ): Promise<BulkOperationResult> {
-  const errors: BulkOperationError[] = [];
-  let successCount = 0;
-
-  for (const id of sessionIds) {
-    try {
-      const result = await pool.query(
-        'UPDATE sessions SET group_id = $2 WHERE id = $1',
-        [id, groupId]
-      );
-      if (result.rowCount && result.rowCount > 0) {
-        successCount++;
-      } else {
-        errors.push({ session_id: id, error: 'Session not found' });
-      }
-    } catch (err) {
-      errors.push({ session_id: id, error: (err as Error).message });
-    }
+  if (sessionIds.length === 0) {
+    return { success_count: 0, error_count: 0, errors: [] };
   }
 
-  if (successCount > 0) {
+  const result = await pool.query(
+    'UPDATE sessions SET group_id = $2 WHERE id = ANY($1::uuid[]) RETURNING id',
+    [sessionIds, groupId]
+  );
+  const updatedIds = new Set(result.rows.map((row) => row.id as string));
+  const errors = sessionIds
+    .filter((id) => !updatedIds.has(id))
+    .map((id) => ({ session_id: id, error: 'Session not found' }));
+
+  if (updatedIds.size > 0) {
     await pruneEmptyGroups();
   }
-  return { success_count: successCount, error_count: errors.length, errors };
+  return { success_count: updatedIds.size, error_count: errors.length, errors };
 }
 
 // Analytics queries

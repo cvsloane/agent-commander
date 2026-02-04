@@ -279,7 +279,11 @@ class PubSub {
 
   private matchesSessionFilter(session: Session, filter: Record<string, unknown>): boolean {
     if (filter.session_ids) {
-      const ids = Array.isArray(filter.session_ids) ? filter.session_ids : [];
+      const ids = Array.isArray(filter.session_ids)
+        ? filter.session_ids.filter((id): id is string => typeof id === 'string')
+        : typeof filter.session_ids === 'string'
+          ? filter.session_ids.split(',').map((id) => id.trim()).filter(Boolean)
+          : [];
       if (ids.length > 0 && !ids.includes(session.id)) return false;
     }
     if (filter.session_id && filter.session_id !== session.id) return false;
@@ -332,6 +336,9 @@ class PubSub {
     }
     if (Array.isArray(filter.session_ids)) {
       return new Set(filter.session_ids.filter((id): id is string => typeof id === 'string'));
+    }
+    if (typeof filter.session_ids === 'string') {
+      return new Set(filter.session_ids.split(',').map((id) => id.trim()).filter(Boolean));
     }
     return null;
   }

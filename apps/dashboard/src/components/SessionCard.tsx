@@ -3,20 +3,19 @@
 import { useState, useRef, useEffect, useMemo, memo } from 'react';
 import { Pencil, Check, X, GitBranch, Folder, Clock, Coins, Moon, Sun, Power } from 'lucide-react';
 import type { Session, SessionWithSnapshot, Host } from '@agent-command/schema';
-import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { StatusBadge } from '@/components/StatusBadge';
 import { cn, formatRelativeTime, getProviderConfig, getRepoNameFromSession, getSessionDisplayName } from '@/lib/utils';
-import { bulkOperateSessions, updateSession } from '@/lib/api';
+import { updateSession } from '@/lib/api';
 import { markSessionCardRender } from '@/lib/sessionsPerf';
 import { useSessionStore } from '@/stores/session';
-import { useNotifications } from '@/stores/notifications';
 import { useUsageStore, formatTokens, formatCost } from '@/stores/usage';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useSessionIdle } from '@/hooks/useSessionIdle';
 import { useHydrated } from '@/hooks/useHydrated';
+import { useTerminateSession } from '@/hooks/useTerminateSession';
 
 interface SessionCardProps {
   session: SessionWithSnapshot;
@@ -51,12 +50,10 @@ export const SessionCard = memo(function SessionCard({
   const [isSaving, setIsSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const updateSessions = useSessionStore((state) => state.updateSessions);
-  const queryClient = useQueryClient();
-  const notifications = useNotifications();
+  const { terminateSession, isTerminating } = useTerminateSession();
   const sessionUsage = useUsageStore((state) => state.getSessionUsage(session.id));
   const isMobile = useIsMobile();
   const { setSessionIdle, isSessionIdlePending } = useSessionIdle();
-  const [isTerminating, setIsTerminating] = useState(false);
   const hydrated = useHydrated();
 
   const providerConfig = getProviderConfig(session.provider);
@@ -216,20 +213,12 @@ export const SessionCard = memo(function SessionCard({
     e.preventDefault();
     e.stopPropagation();
     if (isTerminating) return;
-    setIsTerminating(true);
+    const confirmTerminate = window.confirm(`Terminate "${displayTitle}"? This will archive the session.`);
+    if (!confirmTerminate) return;
     try {
-      await bulkOperateSessions('terminate', [session.id]);
-      updateSessions([
-        { ...session, archived_at: new Date().toISOString() } as Session,
-      ]);
-      queryClient.invalidateQueries({ queryKey: ['sessions'] });
-      queryClient.invalidateQueries({ queryKey: ['groups'] });
-      notifications.success('Session terminated', displayTitle);
+      await terminateSession(session);
     } catch (error) {
       console.error('Failed to terminate session:', error);
-      notifications.error('Failed to terminate session', (error as Error).message);
-    } finally {
-      setIsTerminating(false);
     }
   };
 

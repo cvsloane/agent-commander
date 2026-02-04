@@ -119,6 +119,7 @@ export const SessionUpsertSchema = z.object({
   forked_from: z.string().uuid().nullable().optional(),
   fork_depth: z.number().int().nonnegative().optional(),
   last_activity_at: z.string().datetime({ offset: true }).optional(),
+  idled_at: z.string().datetime({ offset: true }).nullable().optional(),
   archived_at: z.string().datetime({ offset: true }).nullable().optional(),
 });
 export type SessionUpsert = z.infer<typeof SessionUpsertSchema>;

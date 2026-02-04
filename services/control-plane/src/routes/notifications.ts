@@ -20,7 +20,7 @@ export function registerNotificationRoutes(app: FastifyInstance): void {
       return reply.status(403).send({ error: 'Forbidden' });
     }
 
-    const userId = request.user.sub;
+    const userId = request.user.id;
     const { channel } = request.body || {};
 
     // Only clawdbot test is supported for now
@@ -29,7 +29,7 @@ export function registerNotificationRoutes(app: FastifyInstance): void {
     }
 
     // Get user settings
-    const settings = await db.getUserSettings(userId);
+    const settings = await db.getUserSettings(userId, request.user.sub);
     if (!settings) {
       return reply.status(400).send({ error: 'No settings found' });
     }

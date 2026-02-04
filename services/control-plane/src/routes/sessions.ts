@@ -104,6 +104,27 @@ const SessionUsageQuerySchema = z.object({
   session_ids: z.string().optional(),
 });
 
+type SessionsQuery = z.infer<typeof SessionsQuerySchema>;
+
+function normalizeSessionFilters(query: SessionsQuery): Parameters<typeof db.getSessions>[0] {
+  const { status, limit: _limit, offset: _offset, ...rest } = query;
+  const statusList = status
+    ? status
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : undefined;
+
+  return {
+    ...rest,
+    status: statusList && statusList.length > 0 ? statusList : undefined,
+    group_id: query.ungrouped ? null : query.group_id,
+    include_ungrouped: query.ungrouped,
+    include_archived: query.include_archived,
+    archived_only: query.archived_only,
+  };
+}
+
 export function registerSessionRoutes(app: FastifyInstance): void {
   // GET /v1/sessions - List sessions with filters
   app.get('/v1/sessions', async (request, reply) => {
@@ -112,22 +133,7 @@ export function registerSessionRoutes(app: FastifyInstance): void {
       return reply.status(400).send({ error: 'Invalid query parameters' });
     }
 
-    const { status, ...rest } = query.data;
-    const statusList = status
-      ? status
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean)
-      : undefined;
-
-    const filters = {
-      ...rest,
-      status: statusList && statusList.length > 0 ? statusList : undefined,
-      group_id: query.data.ungrouped ? null : query.data.group_id,
-      include_ungrouped: query.data.ungrouped,
-      include_archived: query.data.include_archived,
-      archived_only: query.data.archived_only,
-    };
+    const filters = normalizeSessionFilters(query.data);
 
     const hasPagination = typeof query.data.limit === 'number' || typeof query.data.offset === 'number';
     const paginationLimit = query.data.limit ?? 20;
@@ -161,6 +167,18 @@ export function registerSessionRoutes(app: FastifyInstance): void {
       sessions: sessionsWithSnapshots,
       ...(hasPagination ? { total, limit: paginationLimit, offset: paginationOffset } : {}),
     };
+  });
+
+  // GET /v1/sessions/total - Count sessions with filters
+  app.get('/v1/sessions/total', async (request, reply) => {
+    const query = SessionsQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.status(400).send({ error: 'Invalid query parameters' });
+    }
+
+    const filters = normalizeSessionFilters(query.data);
+    const total = await db.getSessionsTotal(filters);
+    return { total };
   });
 
   // GET /v1/sessions/:id - Get session detail
@@ -332,8 +350,8 @@ export function registerSessionRoutes(app: FastifyInstance): void {
         'command.dispatch',
         'session',
         sessionId,
-        { cmd_id: cmdId, command: bodyResult.data }
-        // TODO: Add user ID from auth
+        { cmd_id: cmdId, command: bodyResult.data },
+        request.user.id
       );
 
       return { cmd_id: cmdId };
@@ -372,7 +390,7 @@ export function registerSessionRoutes(app: FastifyInstance): void {
       }
 
       // Log audit
-      await db.createAuditLog('session.update', 'session', id, { updates: bodyResult.data });
+      await db.createAuditLog('session.update', 'session', id, { updates: bodyResult.data }, request.user.id);
 
       // Broadcast the update via pubsub
       pubsub.publishSessionsChanged([session]);
@@ -400,7 +418,7 @@ export function registerSessionRoutes(app: FastifyInstance): void {
     await db.deleteSession(id);
 
     // Log audit
-    await db.createAuditLog('session.delete', 'session', id, { session });
+    await db.createAuditLog('session.delete', 'session', id, { session }, request.user.id);
 
     return { success: true };
   });
@@ -465,7 +483,8 @@ export function registerSessionRoutes(app: FastifyInstance): void {
         'session.fork',
         'session',
         sessionId,
-        { cmd_id: cmdId, fork_options: bodyResult.data }
+        { cmd_id: cmdId, fork_options: bodyResult.data },
+        request.user.id
       );
 
       return { cmd_id: cmdId };
@@ -606,7 +625,8 @@ export function registerSessionRoutes(app: FastifyInstance): void {
           target_session_id,
           mode: captureOpts.mode,
           same_host: sameHost,
-        }
+        },
+        request.user.id
       );
 
       return { cmd_id: cmdId, cross_host: !sameHost };
@@ -718,7 +738,7 @@ export function registerSessionRoutes(app: FastifyInstance): void {
       session_ids,
       group_id,
       result,
-    });
+    }, request.user.id);
 
     const failedIds = new Set(result.errors.map((error) => error.session_id));
     const successIds = session_ids.filter((id) => !failedIds.has(id));
@@ -801,7 +821,7 @@ export function registerSessionRoutes(app: FastifyInstance): void {
     // Track project usage for autocomplete
     try {
       await db.touchProject({
-        user_id: request.user.sub,
+        user_id: request.user.id,
         host_id,
         path: working_directory,
         display_name: title || null,
@@ -843,6 +863,27 @@ export function registerSessionRoutes(app: FastifyInstance): void {
 
     const sent = pubsub.sendToAgent(host_id, dispatchMessage);
     if (!sent) {
+      try {
+        const failedSession = await db.upsertSession(host_id, {
+          id: sessionId,
+          kind: 'tmux_pane',
+          provider,
+          status: 'ERROR',
+          title: title || `${provider} session`,
+          cwd: working_directory,
+          metadata: {
+            status_detail: 'Failed to send spawn command to agent',
+          },
+        });
+        pubsub.publishSessionsChanged([failedSession]);
+        await db.createAuditLog('session.spawn_failed', 'session', sessionId, {
+          host_id,
+          provider,
+          working_directory,
+        }, request.user.id);
+      } catch {
+        // Ignore failures while marking spawn errors
+      }
       return reply.status(503).send({ error: 'Failed to send command to agent' });
     }
 
@@ -855,7 +896,7 @@ export function registerSessionRoutes(app: FastifyInstance): void {
       host_id,
       provider,
       working_directory,
-    });
+    }, request.user.id);
 
     return { session, cmd_id: cmdId };
   });

@@ -17,6 +17,14 @@ export function formatRelativeTime(date: Date | string): string {
   return `${Math.floor(diffSec / 86400)}d ago`;
 }
 
+export const HOST_ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
+
+export function isHostOnline(lastSeen: string | null, now = Date.now()): boolean {
+  if (!lastSeen) return false;
+  const diff = now - new Date(lastSeen).getTime();
+  return diff < HOST_ONLINE_THRESHOLD_MS;
+}
+
 export function getStatusColor(status: string): string {
   switch (status) {
     case 'RUNNING':

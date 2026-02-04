@@ -21,7 +21,7 @@ export function registerProjectRoutes(app: FastifyInstance): void {
       return reply.status(400).send({ error: 'Invalid query parameters' });
     }
 
-    const projects = await db.getProjects(request.user.sub, {
+    const projects = await db.getProjects(request.user.id, {
       host_id: query.data.host_id,
       q: query.data.q,
       limit: query.data.limit,

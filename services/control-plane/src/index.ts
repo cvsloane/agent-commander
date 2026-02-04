@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import { config } from './config.js';
-import { testConnection } from './db/index.js';
+import * as db from './db/index.js';
 import { registerAgentWebSocket } from './ws/agent.js';
 import { registerUIWebSocket } from './ws/ui.js';
 import { registerSessionRoutes } from './routes/sessions.js';
@@ -36,9 +36,14 @@ const app = Fastify({
   },
 });
 
+const userCache = new Map<
+  string,
+  { email?: string; name?: string; role?: string }
+>();
+
 async function start(): Promise<void> {
   // Test database connection
-  const dbConnected = await testConnection();
+  const dbConnected = await db.testConnection();
   if (!dbConnected) {
     app.log.error('Failed to connect to database');
     process.exit(1);
@@ -64,6 +69,16 @@ async function start(): Promise<void> {
     const user = await verifyRequestToken(request);
     if (!user) {
       return reply.status(401).send({ error: 'Unauthorized' });
+    }
+    const cached = userCache.get(user.id);
+    const next = { email: user.email, name: user.name, role: user.role };
+    if (!cached || cached.email !== next.email || cached.name !== next.name || cached.role !== next.role) {
+      try {
+        await db.upsertUser({ id: user.id, ...next });
+        userCache.set(user.id, next);
+      } catch (error) {
+        app.log.warn({ error, userId: user.id }, 'Failed to upsert user');
+      }
     }
     request.user = user;
   });

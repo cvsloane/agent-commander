@@ -11,6 +11,7 @@ import { SessionCard } from '@/components/SessionCard';
 import { SessionGenerator } from '@/components/session-generator';
 import { AccountUsage } from '@/components/analytics';
 import { getSessions, getHosts } from '@/lib/api';
+import { isHostOnline } from '@/lib/utils';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useSessionStore } from '@/stores/session';
 import { useOrchestratorStore } from '@/stores/orchestrator';
@@ -110,10 +111,7 @@ export default function Dashboard() {
 
   const onlineHosts = useMemo(() => {
     if (!hostsData?.hosts) return 0;
-    const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
-    return hostsData.hosts.filter(h =>
-      h.last_seen_at && new Date(h.last_seen_at).getTime() > fiveMinutesAgo
-    ).length;
+    return hostsData.hosts.filter((h) => isHostOnline(h.last_seen_at || null)).length;
   }, [hostsData]);
 
   const handleRefresh = () => {

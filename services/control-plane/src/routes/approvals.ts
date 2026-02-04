@@ -79,14 +79,17 @@ export function registerApprovalRoutes(app: FastifyInstance): void {
       if (!session) {
         return reply.status(404).send({ error: 'Session not found' });
       }
+      if (!pubsub.isAgentConnected(session.host_id)) {
+        return reply.status(503).send({ error: 'Host agent not connected' });
+      }
 
       // Update approval in database
       const decidedPayload = { mode, ...payload };
       const updatedApproval = await db.decideApproval(
         id,
         decision,
-        decidedPayload
-        // TODO: Add user ID from auth
+        decidedPayload,
+        request.user.id
       );
 
       if (!updatedApproval) {
@@ -130,8 +133,8 @@ export function registerApprovalRoutes(app: FastifyInstance): void {
         'approval.decide',
         'approval',
         id,
-        { decision, mode, session_id: approval.session_id }
-        // TODO: Add user ID from auth
+        { decision, mode, session_id: approval.session_id },
+        request.user.id
       );
 
       return { approval: updatedApproval };
