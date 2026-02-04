@@ -37,6 +37,8 @@ function uuidv5(name: string, namespace: string): string {
   const toHash = new Uint8Array(nsBytes.length + nameBytes.length);
   toHash.set(nsBytes);
   toHash.set(nameBytes, nsBytes.length);
+  // uuidv5 requires SHA-1; this is for deterministic IDs, not security.
+  // lgtm[js/weak-cryptographic-algorithm]
   const hash = createHash('sha1').update(toHash).digest();
   const bytes = Uint8Array.from(hash.slice(0, 16));
   const b6 = bytes[6] ?? 0;
