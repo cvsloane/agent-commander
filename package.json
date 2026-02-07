@@ -8,7 +8,7 @@
     "build": "turbo build",
     "test": "turbo test",
     "lint": "turbo lint",
-    "db:migrate": "psql $DATABASE_URL -f migrations/001_init.sql && psql $DATABASE_URL -f migrations/002_events_indexes.sql && psql $DATABASE_URL -f migrations/003_host_seq.sql",
+    "db:migrate": "pnpm --filter @agent-command/control-plane db:migrate",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "typecheck": "turbo typecheck"
   },
