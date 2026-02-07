@@ -28,6 +28,8 @@ export const pool = new Pool({
   max: 20,
 });
 
+let warnedMissingTokenSha = false;
+
 // Host queries
 export async function upsertHost(host: {
   id: string;
@@ -132,23 +134,46 @@ export async function updateHostCapabilities(
 export async function validateAgentToken(token: string): Promise<string | null> {
   const tokenSha = createHash('sha256').update(token).digest('hex');
 
-  const fastResult = await pool.query(
-    `SELECT host_id, token_hash FROM agent_tokens
-     WHERE revoked_at IS NULL AND token_sha256 = $1`,
-    [tokenSha]
-  );
+  // Backward compatibility: older DBs may not have token_sha256 yet (migration 022).
+  // In that case we fall back to a slower scan of all unrevoked tokens.
+  let hasTokenShaColumn = true;
 
-  for (const row of fastResult.rows) {
-    const matches = await bcrypt.compare(token, row.token_hash);
-    if (matches) {
-      return row.host_id;
+  try {
+    const fastResult = await pool.query(
+      `SELECT host_id, token_hash FROM agent_tokens
+       WHERE revoked_at IS NULL AND token_sha256 = $1`,
+      [tokenSha]
+    );
+
+    for (const row of fastResult.rows) {
+      const matches = await bcrypt.compare(token, row.token_hash);
+      if (matches) {
+        return row.host_id;
+      }
+    }
+  } catch (error) {
+    const code = (error as { code?: unknown } | null)?.code;
+    if (code === '42703') {
+      hasTokenShaColumn = false;
+      if (!warnedMissingTokenSha) {
+        warnedMissingTokenSha = true;
+        // eslint-disable-next-line no-console
+        console.warn('[db] agent_tokens.token_sha256 missing; run migrations to enable fast token validation');
+      }
+    } else {
+      throw error;
     }
   }
 
-  const fallbackResult = await pool.query(
-    `SELECT host_id, token_hash FROM agent_tokens
-     WHERE revoked_at IS NULL AND token_sha256 IS NULL`
-  );
+  const fallbackResult = hasTokenShaColumn
+    ? await pool.query(
+        `SELECT host_id, token_hash FROM agent_tokens
+         WHERE revoked_at IS NULL AND token_sha256 IS NULL`
+      )
+    : await pool.query(
+        `SELECT host_id, token_hash FROM agent_tokens
+         WHERE revoked_at IS NULL`
+      );
 
   for (const row of fallbackResult.rows) {
     const matches = await bcrypt.compare(token, row.token_hash);
