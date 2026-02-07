@@ -24,7 +24,7 @@
     "@react-spring/three": "^10.0.3",
     "@react-three/drei": "^9.105.6",
     "@react-three/fiber": "^8.17.10",
-    "@tanstack/react-query": "^5.60.0",
+    "@tanstack/react-query": "^5.90.20",
     "ansi-to-html": "^0.7.2",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
