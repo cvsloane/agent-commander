@@ -553,6 +553,74 @@ export function ProviderUtilization({ usage }: ProviderUtilizationProps) {
     return Object.keys(merged).length ? merged : undefined;
   };
 
+  type CodexBucketLimit = {
+    bucket: string;
+    order: number;
+    fiveHourRemainingPercent: number | null;
+    weeklyRemainingPercent: number | null;
+  };
+
+  const getCodexActiveModel = (entries: Array<Record<string, unknown>>): string | null => {
+    for (const entry of entries) {
+      const label = typeof entry.label === 'string' ? entry.label.toLowerCase().trim() : '';
+      if (label !== 'active_model') continue;
+      const model = typeof (entry as any).model === 'string' ? (entry as any).model.trim() : '';
+      if (model) return model;
+    }
+    return null;
+  };
+
+  const getCodexBucketLimits = (entries: Array<Record<string, unknown>>): CodexBucketLimit[] => {
+    const buckets = new Map<string, CodexBucketLimit>();
+    const ensure = (bucket: string): CodexBucketLimit => {
+      const existing = buckets.get(bucket);
+      if (existing) return existing;
+      const created: CodexBucketLimit = {
+        bucket,
+        order: buckets.size,
+        fiveHourRemainingPercent: null,
+        weeklyRemainingPercent: null,
+      };
+      buckets.set(bucket, created);
+      return created;
+    };
+
+    for (const entry of entries) {
+      const label = typeof entry.label === 'string' ? entry.label.toLowerCase().trim() : '';
+      if (label !== '5h limit' && label !== 'weekly limit') continue;
+
+      const bucket =
+        typeof (entry as any).bucket === 'string' && (entry as any).bucket.trim()
+          ? (entry as any).bucket.trim()
+          : 'default';
+
+      const remaining = parseNumber((entry as any).remaining_percent);
+      if (remaining == null) continue;
+      const remainingPercent = Math.max(0, Math.min(100, remaining));
+
+      const target = ensure(bucket);
+      if (label === '5h limit' && target.fiveHourRemainingPercent == null) {
+        target.fiveHourRemainingPercent = remainingPercent;
+      }
+      if (label === 'weekly limit' && target.weeklyRemainingPercent == null) {
+        target.weeklyRemainingPercent = remainingPercent;
+      }
+    }
+
+    return Array.from(buckets.values()).sort((a, b) => a.order - b.order);
+  };
+
+  const getCodexPreferredBucket = (buckets: CodexBucketLimit[], activeModel: string | null): string | null => {
+    if (buckets.length === 0) return null;
+    const active = activeModel?.toLowerCase().trim();
+    if (active) {
+      const match = buckets.find((b) => b.bucket.toLowerCase() === active);
+      if (match) return match.bucket;
+    }
+    const nonSpark = buckets.find((b) => !b.bucket.toLowerCase().includes('spark'));
+    return (nonSpark ?? buckets[0]).bucket;
+  };
+
   const consolidateEntries = (entries: ProviderUsageData[]) => {
     const grouped = new Map<string, ProviderUsageData[]>();
     for (const entry of entries) {
@@ -607,8 +675,21 @@ export function ProviderUtilization({ usage }: ProviderUtilizationProps) {
         const openCodeStats = entry.provider === 'opencode' ? getOpenCodeStats(entry) : null;
         const geminiModels = entry.provider === 'gemini_cli' ? getGeminiModels(entry) : [];
         const parsedEntries = getParsedEntries(entry.raw_json);
-        const fiveHourRemaining = getRemainingPercentLabel(parsedEntries, (label) => label.includes('5h'));
-        const weeklyRemaining = getRemainingPercentLabel(parsedEntries, (label) => label.includes('weekly'));
+        const codexActiveModel = entry.provider === 'codex' ? getCodexActiveModel(parsedEntries) : null;
+        const codexBuckets = entry.provider === 'codex' ? getCodexBucketLimits(parsedEntries) : [];
+        const codexPreferredBucket = entry.provider === 'codex' ? getCodexPreferredBucket(codexBuckets, codexActiveModel) : null;
+        const codexPreferred = codexPreferredBucket
+          ? codexBuckets.find((b) => b.bucket.toLowerCase() === codexPreferredBucket.toLowerCase())
+          : null;
+
+        const fiveHourRemaining =
+          entry.provider === 'codex' && codexPreferred?.fiveHourRemainingPercent != null
+            ? `${codexPreferred.fiveHourRemainingPercent}% left`
+            : getRemainingPercentLabel(parsedEntries, (label) => label.includes('5h'));
+        const weeklyRemaining =
+          entry.provider === 'codex' && codexPreferred?.weeklyRemainingPercent != null
+            ? `${codexPreferred.weeklyRemainingPercent}% left`
+            : getRemainingPercentLabel(parsedEntries, (label) => label.includes('weekly'));
         const dailyRemaining = getRemainingPercentLabel(parsedEntries, (label) => label.includes('daily'));
         const credits = getCreditsFromRawJson(entry.raw_json) ?? getCreditsFromRawText(entry.raw_text);
         const extraUsage = mergeExtraUsage(
@@ -717,6 +798,74 @@ export function ProviderUtilization({ usage }: ProviderUtilizationProps) {
               <div className="text-xs text-foreground/80 flex items-center justify-between">
                 <span>Credits remaining</span>
                 <span>{credits.toLocaleString()} credits</span>
+              </div>
+            )}
+
+            {/* Codex per-model breakdown */}
+            {entry.provider === 'codex' && codexBuckets.length > 1 && (
+              <div className="mt-2">
+                {codexActiveModel && (
+                  <div className="text-xs text-muted-foreground">
+                    Active model: {codexActiveModel}
+                  </div>
+                )}
+                <button
+                  onClick={() => toggleModels(`codex-buckets-${index}`)}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {expandedModels[`codex-buckets-${index}`] ? (
+                    <ChevronDown className="h-3 w-3" />
+                  ) : (
+                    <ChevronRight className="h-3 w-3" />
+                  )}
+                  Per-model breakdown
+                </button>
+                {expandedModels[`codex-buckets-${index}`] && (
+                  <div className="mt-2 pl-4 space-y-3 border-l border-muted">
+                    {[...codexBuckets]
+                      .sort((a, b) => {
+                        const active = codexActiveModel?.toLowerCase().trim() ?? null;
+                        const aIsActive = active ? a.bucket.toLowerCase() === active : false;
+                        const bIsActive = active ? b.bucket.toLowerCase() === active : false;
+                        if (aIsActive !== bIsActive) return aIsActive ? -1 : 1;
+
+                        const aIsSpark = a.bucket.toLowerCase().includes('spark');
+                        const bIsSpark = b.bucket.toLowerCase().includes('spark');
+                        if (aIsSpark !== bIsSpark) return aIsSpark ? 1 : -1;
+
+                        return a.order - b.order;
+                      })
+                      .map((bucket) => {
+                        const active = codexActiveModel?.toLowerCase().trim() ?? null;
+                        const isActive = active ? bucket.bucket.toLowerCase() === active : false;
+                        const title = isActive ? `${bucket.bucket} (active)` : bucket.bucket;
+                        const fiveHourUtil = bucket.fiveHourRemainingPercent != null ? 100 - bucket.fiveHourRemainingPercent : null;
+                        const weeklyUtil = bucket.weeklyRemainingPercent != null ? 100 - bucket.weeklyRemainingPercent : null;
+
+                        return (
+                          <div key={bucket.bucket} className="space-y-2">
+                            <div className="text-xs font-medium text-muted-foreground">
+                              {title}
+                            </div>
+                            {fiveHourUtil != null && (
+                              <UtilizationBar
+                                label="5-hour limit"
+                                utilization={fiveHourUtil}
+                                icon={<Clock className="h-3 w-3" />}
+                              />
+                            )}
+                            {weeklyUtil != null && (
+                              <UtilizationBar
+                                label="Weekly limit"
+                                utilization={weeklyUtil}
+                                icon={<Calendar className="h-3 w-3" />}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
               </div>
             )}
 
