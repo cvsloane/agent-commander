@@ -873,6 +873,7 @@ func extractUsageFields(rawJSON map[string]any, rawText string) map[string]any {
 			fields["weekly_sonnet_reset_at"] = resetAt
 		}
 
+		applyCodexBucketedEntries(fields, rawJSON)
 		applyParsedUsageEntries(fields, rawJSON)
 	}
 
@@ -912,8 +913,8 @@ func parseClaudeUsageText(raw string) []map[string]any {
 		}
 	}
 
-	usedRe := regexp.MustCompile(`(?i)(\d{1,3})%\\s*used`)
-	extraUsageCostRe := regexp.MustCompile(`(?i)\\$([0-9][0-9,]*(?:\\.[0-9]{1,2})?)\\s*/\\s*\\$([0-9][0-9,]*(?:\\.[0-9]{1,2})?)\\s*spent`)
+	usedRe := regexp.MustCompile(`(?i)(\d{1,3})%\s*used`)
+	extraUsageCostRe := regexp.MustCompile(`(?i)\$([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*/\s*\$([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*spent`)
 
 	applyExtraUsage := func(target map[string]any, line, lower string, match []string) {
 		if spent, ok := parseUSDToCents(match[1]); ok {
@@ -1018,15 +1019,41 @@ func parseCodexStatusText(raw string) []map[string]any {
 	lines := strings.Split(raw, "\n")
 	var entries []map[string]any
 
-	contextRe := regexp.MustCompile(`(?i)context window:\\s*([0-9]{1,3})%\\s*left\\s*\\(([^\\)]+)\\)`)
-	limitRe := regexp.MustCompile(`(?i)^(5h limit|weekly limit):.*?([0-9]{1,3})%\\s*left\\s*\\(resets\\s*([^\\)]+)\\)`)
-	creditsRe := regexp.MustCompile(`(?i)credits:\\s*([0-9,]+)`)
-	sessionRe := regexp.MustCompile(`(?i)session:\\s*([A-Za-z0-9\\-]+)`)
-	usedTotalRe := regexp.MustCompile(`(?i)([0-9.]+\\s*[KMB]?)\\s*used\\s*/\\s*([0-9.]+\\s*[KMB]?)`)
+	modelRe := regexp.MustCompile(`(?i)^model:\s*(\S+)`)
+	bucketHeaderRe := regexp.MustCompile(`(?i)^(.+?)\s+limit:\s*$`)
+	contextRe := regexp.MustCompile(`(?i)context window:\s*([0-9]{1,3})%\s*left\s*\(([^)]+)\)`)
+	limitRe := regexp.MustCompile(`(?i)^(5h limit|weekly limit):.*?([0-9]{1,3})%\s*left\s*\(resets\s*([^)]+)\)`)
+	creditsRe := regexp.MustCompile(`(?i)credits:\s*([0-9,]+)`)
+	sessionRe := regexp.MustCompile(`(?i)session:\s*([A-Za-z0-9-]+)`)
+	usedTotalRe := regexp.MustCompile(`(?i)([0-9.]+\s*[KMB]?)\s*used\s*/\s*([0-9.]+\s*[KMB]?)`)
+
+	currentBucket := "default"
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(stripBoxChars(line))
 		if trimmed == "" {
+			continue
+		}
+
+		if match := modelRe.FindStringSubmatch(trimmed); len(match) > 1 {
+			model := strings.TrimSpace(match[1])
+			if model != "" {
+				entries = append(entries, map[string]any{
+					"label": "active_model",
+					"model": model,
+				})
+				if currentBucket == "default" {
+					currentBucket = model
+				}
+			}
+			continue
+		}
+
+		if match := bucketHeaderRe.FindStringSubmatch(trimmed); len(match) > 1 {
+			bucket := strings.TrimSpace(match[1])
+			if bucket != "" {
+				currentBucket = bucket
+			}
 			continue
 		}
 
@@ -1062,6 +1089,9 @@ func parseCodexStatusText(raw string) []map[string]any {
 		if match := limitRe.FindStringSubmatch(trimmed); len(match) > 3 {
 			label := strings.ToLower(strings.TrimSpace(match[1]))
 			entry := map[string]any{"label": label}
+			if currentBucket != "" {
+				entry["bucket"] = currentBucket
+			}
 			if percent, err := strconv.Atoi(match[2]); err == nil {
 				entry["remaining_percent"] = percent
 			}
@@ -1201,7 +1231,7 @@ func stripBoxChars(line string) string {
 
 func parseScaledNumber(value string) (int64, bool) {
 	trimmed := strings.TrimSpace(value)
-	re := regexp.MustCompile(`(?i)^([0-9]+(?:\\.[0-9]+)?)\\s*([KMB]?)$`)
+	re := regexp.MustCompile(`(?i)^([0-9]+(?:\.[0-9]+)?)\s*([KMB]?)$`)
 	match := re.FindStringSubmatch(trimmed)
 	if len(match) < 3 {
 		return 0, false
@@ -1339,7 +1369,7 @@ func parseTime(value any) string {
 func extractUsageFieldsFromText(raw string) map[string]any {
 	fields := map[string]any{}
 	cleaned := stripANSI(raw)
-	remainingTokensRe := regexp.MustCompile(`(?i)(weekly\\s+)?(remaining|left)[^0-9]{0,10}([0-9][0-9,]*)\\s*(tokens?)`)
+	remainingTokensRe := regexp.MustCompile(`(?i)(weekly\s+)?(remaining|left)[^0-9]{0,10}([0-9][0-9,]*)\s*(tokens?)`)
 	matches := remainingTokensRe.FindAllStringSubmatch(cleaned, -1)
 	for _, match := range matches {
 		value := match[3]
@@ -1353,7 +1383,7 @@ func extractUsageFieldsFromText(raw string) map[string]any {
 		}
 	}
 
-	resetRe := regexp.MustCompile(`(?i)reset[^0-9]*(\\d{4}-\\d{2}-\\d{2}[^\\s]*)`)
+	resetRe := regexp.MustCompile(`(?i)reset[^0-9]*(\d{4}-\d{2}-\d{2}[^\s]*)`)
 	if match := resetRe.FindStringSubmatch(cleaned); len(match) > 1 {
 		if ts, err := time.Parse(time.RFC3339, match[1]); err == nil {
 			fields["reset_at"] = ts.UTC().Format(time.RFC3339)
@@ -1365,7 +1395,9 @@ func extractUsageFieldsFromText(raw string) map[string]any {
 		applyParsedUsageEntries(fields, map[string]any{"entries": parsed})
 	}
 	if parsed := parseProviderUsageText("codex", cleaned); len(parsed) > 0 {
-		applyParsedUsageEntries(fields, map[string]any{"entries": parsed})
+		rawJSON := map[string]any{"entries": parsed}
+		applyCodexBucketedEntries(fields, rawJSON)
+		applyParsedUsageEntries(fields, rawJSON)
 	}
 
 	return fields
@@ -1428,7 +1460,11 @@ func normalizeUtilization(value float64) float64 {
 	return value
 }
 
-func applyParsedUsageEntries(fields map[string]any, rawJSON map[string]any) {
+func getParsedUsageEntries(rawJSON map[string]any) []map[string]any {
+	if rawJSON == nil {
+		return nil
+	}
+
 	entriesAny, ok := rawJSON["entries"]
 	if !ok {
 		if parsed, ok := rawJSON["_parsed"].(map[string]any); ok {
@@ -1448,6 +1484,128 @@ func applyParsedUsageEntries(fields map[string]any, rawJSON map[string]any) {
 	case []map[string]any:
 		entries = typed
 	default:
+		return nil
+	}
+
+	return entries
+}
+
+// Codex /status now includes multiple buckets (e.g. a Spark bucket) in one output.
+// Prefer the active model's bucket for top-level utilization fields.
+func applyCodexBucketedEntries(fields map[string]any, rawJSON map[string]any) {
+	entries := getParsedUsageEntries(rawJSON)
+	if len(entries) == 0 {
+		return
+	}
+
+	activeModel := ""
+	for _, entry := range entries {
+		label, _ := entry["label"].(string)
+		if strings.EqualFold(strings.TrimSpace(label), "active_model") {
+			if model, ok := entry["model"].(string); ok && strings.TrimSpace(model) != "" {
+				activeModel = strings.TrimSpace(model)
+			}
+		}
+	}
+
+	type bucketLimits struct {
+		bucket                 string
+		has5h                  bool
+		remaining5hPercent     float64
+		hasWeekly              bool
+		remainingWeeklyPercent float64
+	}
+
+	limitsByBucket := map[string]*bucketLimits{}
+	var bucketOrder []string
+	seenBucket := map[string]bool{}
+
+	getBucket := func(name string) *bucketLimits {
+		if existing, ok := limitsByBucket[name]; ok {
+			return existing
+		}
+		created := &bucketLimits{bucket: name}
+		limitsByBucket[name] = created
+		if !seenBucket[name] {
+			seenBucket[name] = true
+			bucketOrder = append(bucketOrder, name)
+		}
+		return created
+	}
+
+	for _, entry := range entries {
+		label, _ := entry["label"].(string)
+		label = strings.ToLower(strings.TrimSpace(label))
+		if label != "5h limit" && label != "weekly limit" {
+			continue
+		}
+
+		bucket, _ := entry["bucket"].(string)
+		bucket = strings.TrimSpace(bucket)
+		if bucket == "" {
+			bucket = "default"
+		}
+
+		remaining := parseFloat(entry["remaining_percent"])
+		if remaining == nil {
+			continue
+		}
+		remainingPercent := normalizeUtilization(*remaining)
+
+		limits := getBucket(bucket)
+		if label == "5h limit" && !limits.has5h {
+			limits.has5h = true
+			limits.remaining5hPercent = remainingPercent
+		}
+		if label == "weekly limit" && !limits.hasWeekly {
+			limits.hasWeekly = true
+			limits.remainingWeeklyPercent = remainingPercent
+		}
+	}
+
+	// Only apply bucket selection when multiple buckets exist (the Spark/dual-bucket case).
+	if len(bucketOrder) < 2 {
+		return
+	}
+
+	// Choose preferred bucket: active model first, then first non-spark, else first.
+	preferred := ""
+	if activeModel != "" {
+		for _, bucket := range bucketOrder {
+			if strings.EqualFold(bucket, activeModel) {
+				preferred = bucket
+				break
+			}
+		}
+	}
+	if preferred == "" {
+		for _, bucket := range bucketOrder {
+			if !strings.Contains(strings.ToLower(bucket), "spark") {
+				preferred = bucket
+				break
+			}
+		}
+	}
+	if preferred == "" && len(bucketOrder) > 0 {
+		preferred = bucketOrder[0]
+	}
+
+	chosen := limitsByBucket[preferred]
+	if chosen == nil {
+		return
+	}
+
+	if _, exists := fields["five_hour_utilization"]; !exists && chosen.has5h {
+		fields["five_hour_utilization"] = 100 - chosen.remaining5hPercent
+	}
+	if _, exists := fields["weekly_utilization"]; !exists && chosen.hasWeekly {
+		fields["weekly_utilization"] = 100 - chosen.remainingWeeklyPercent
+	}
+}
+
+func applyParsedUsageEntries(fields map[string]any, rawJSON map[string]any) {
+	entries := getParsedUsageEntries(rawJSON)
+	if len(entries) == 0 {
 		return
 	}
 

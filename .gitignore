@@ -60,3 +60,6 @@ scripts/claude-usage
 scripts/codex-usage
 scripts/config.yaml.new
 scripts/install-usage-commands.sh
+
+# Track shared usage scripts (safe to commit)
+!scripts/codex-usage
