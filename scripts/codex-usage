@@ -1,0 +1,97 @@
+#!/bin/bash
+# Fetch Codex CLI usage limits from local session files
+# Usage data is stored in ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl
+
+SESSIONS_DIR="$HOME/.codex/sessions"
+
+if [ ! -d "$SESSIONS_DIR" ]; then
+  echo '{"error": "no sessions directory"}'
+  exit 0
+fi
+
+# Find the most recent session file (search last 7 days)
+LATEST_FILE=""
+for i in $(seq 0 6); do
+  DATE_DIR=$(date -d "-$i days" +"%Y/%m/%d" 2>/dev/null)
+  if [ -d "$SESSIONS_DIR/$DATE_DIR" ]; then
+    FILE=$(ls -t "$SESSIONS_DIR/$DATE_DIR"/rollout-*.jsonl 2>/dev/null | head -1)
+    if [ -n "$FILE" ]; then
+      LATEST_FILE="$FILE"
+      break
+    fi
+  fi
+done
+
+if [ -z "$LATEST_FILE" ]; then
+  echo '{"error": "no session files found"}'
+  exit 0
+fi
+
+# Parse all JSONL entries and keep the latest rate_limits per limit_id.
+# Prefer the non-Spark Codex limit_id ("codex") as the primary bucket when present.
+jq -n '
+  def clamp01:
+    if . < 0 then 0
+    elif . > 100 then 100
+    else .
+    end;
+
+  def bucket_label($rl):
+    ($rl.limit_name // $rl.limit_id // "unknown");
+
+  (reduce inputs as $line ({}; (
+    if ($line.payload.rate_limits? != null) then
+      .[$line.payload.rate_limits.limit_id] = $line
+    else
+      .
+    end
+  ))) as $byId
+
+  | if ($byId | length) == 0 then
+      {error: "no rate limit data in session"}
+    else
+      ($byId.codex // ($byId | to_entries | sort_by(.key) | .[0].value)) as $preferredLine
+      | ($preferredLine.payload.rate_limits) as $pref
+
+      | {
+          five_hour: {
+            utilization: $pref.primary.used_percent,
+            resets_at: ($pref.primary.resets_at | todate)
+          },
+          weekly: {
+            utilization: $pref.secondary.used_percent,
+            resets_at: ($pref.secondary.resets_at | todate)
+          },
+          credits: $pref.credits,
+          token_usage: ($preferredLine.payload.info.total_token_usage // null),
+          timestamp: $preferredLine.timestamp,
+          entries: (
+            [{label: "active_model", model: bucket_label($pref)}]
+            + (
+              $byId
+              | to_entries
+              | sort_by(.key)
+              | map(
+                  .value.payload.rate_limits as $rl
+                  | (bucket_label($rl)) as $b
+                  | [
+                      {
+                        label: "5h limit",
+                        bucket: $b,
+                        remaining_percent: ((100 - ($rl.primary.used_percent // 0)) | clamp01),
+                        reset_at: ($rl.primary.resets_at | todate)
+                      },
+                      {
+                        label: "weekly limit",
+                        bucket: $b,
+                        remaining_percent: ((100 - ($rl.secondary.used_percent // 0)) | clamp01),
+                        reset_at: ($rl.secondary.resets_at | todate)
+                      }
+                    ]
+                )
+              | add
+            )
+          )
+        }
+    end
+' "$LATEST_FILE" 2>/dev/null || echo '{"error": "failed to parse rate limits"}'
