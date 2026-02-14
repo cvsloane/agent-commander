@@ -33,21 +33,29 @@ export function TerminalView({ sessionId, paneId, className }: TerminalViewProps
   const intentionalCloseRef = useRef(false);
   const suppressCloseErrorRef = useRef(false);
   const touchScrollRef = useRef<{
+    startY: number;
+    startX: number;
     lastY: number;
     lastX: number;
     remainder: number;
     active: boolean;
+    axis: 'vertical' | 'horizontal' | null;
     velocity: number;
     lastTime: number;
     momentumRaf: number | null;
+    lineHeight: number;
   }>({
+    startY: 0,
+    startX: 0,
     lastY: 0,
     lastX: 0,
     remainder: 0,
     active: false,
+    axis: null,
     velocity: 0,
     lastTime: 0,
     momentumRaf: null,
+    lineHeight: 16,
   });
 
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
@@ -472,8 +480,23 @@ export function TerminalView({ sessionId, paneId, className }: TerminalViewProps
     if (!container) return;
     const touchState = touchScrollRef.current;
 
+    const computeLineHeight = (terminal: XTerminal): number => {
+      const row = container.querySelector<HTMLElement>('.xterm-rows > div');
+      const rowHeight = row?.getBoundingClientRect().height;
+      if (rowHeight && rowHeight > 0) return rowHeight;
+
+      const style = window.getComputedStyle(container);
+      const paddingTop = Number.parseFloat(style.paddingTop || '0') || 0;
+      const paddingBottom = Number.parseFloat(style.paddingBottom || '0') || 0;
+      const height = container.clientHeight - paddingTop - paddingBottom;
+      const rows = terminal.rows || 0;
+      if (rows > 0 && height > 0) return height / rows;
+      return 16;
+    };
+
     const handleTouchStart = (event: TouchEvent) => {
-      if (!terminalRef.current) return;
+      const terminal = terminalRef.current;
+      if (!terminal) return;
       if (event.touches.length !== 1) return;
       const touch = event.touches[0];
       if (!touch) return;
@@ -483,34 +506,61 @@ export function TerminalView({ sessionId, paneId, className }: TerminalViewProps
         touchState.momentumRaf = null;
       }
       touchState.active = true;
+      touchState.axis = null;
+      touchState.startY = touch.clientY;
+      touchState.startX = touch.clientX;
       touchState.lastY = touch.clientY;
       touchState.lastX = touch.clientX;
       touchState.remainder = 0;
       touchState.velocity = 0;
       touchState.lastTime = performance.now();
+      touchState.lineHeight = computeLineHeight(terminal);
     };
 
     const handleTouchMove = (event: TouchEvent) => {
       if (!touchState.active) return;
-      if (hasSelection) return;
+      const terminal = terminalRef.current;
+      if (!terminal) return;
+      if (hasSelection || terminal.hasSelection()) return;
       if (event.touches.length !== 1) return;
       const touch = event.touches[0];
       if (!touch) return;
-      const deltaY = touch.clientY - touchState.lastY;
-      const deltaX = touch.clientX - touchState.lastX;
-      // Only handle vertical gestures
-      if (Math.abs(deltaY) < Math.abs(deltaX)) {
+      const totalDy = touch.clientY - touchState.startY;
+      const totalDx = touch.clientX - touchState.startX;
+
+      if (!touchState.axis) {
+        const absDy = Math.abs(totalDy);
+        const absDx = Math.abs(totalDx);
+        const MOVE_THRESHOLD = 4; // px
+        const AXIS_RATIO = 1.2;
+
+        if (absDy < MOVE_THRESHOLD && absDx < MOVE_THRESHOLD) {
+          return;
+        }
+
+        if (absDy > absDx * AXIS_RATIO) {
+          touchState.axis = 'vertical';
+        } else if (absDx > absDy * AXIS_RATIO) {
+          touchState.axis = 'horizontal';
+        } else {
+          return; // ambiguous; wait for clearer intent
+        }
+      }
+
+      if (touchState.axis === 'horizontal') {
         touchState.lastY = touch.clientY;
         touchState.lastX = touch.clientX;
+        touchState.lastTime = performance.now();
+        touchState.velocity = 0;
+        touchState.remainder = 0;
         return;
       }
-      // Always preventDefault on vertical gesture to stop browser competing
+
+      // Always preventDefault on vertical gesture to stop browser competing.
       event.preventDefault();
-      const terminal = terminalRef.current;
-      if (!terminal) return;
-      const rows = terminal.rows || 0;
-      const height = container.clientHeight || 0;
-      const lineHeight = rows > 0 && height > 0 ? height / rows : 16;
+
+      const deltaY = touch.clientY - touchState.lastY;
+      const lineHeight = touchState.lineHeight > 0 ? touchState.lineHeight : 16;
       const totalDelta = deltaY + touchState.remainder;
       const lines = Math.trunc(totalDelta / lineHeight);
       touchState.remainder = totalDelta - lines * lineHeight;
@@ -530,6 +580,15 @@ export function TerminalView({ sessionId, paneId, className }: TerminalViewProps
 
     const handleTouchEnd = () => {
       touchState.active = false;
+      const axis = touchState.axis;
+      touchState.axis = null;
+
+      if (axis !== 'vertical') {
+        touchState.remainder = 0;
+        touchState.velocity = 0;
+        return;
+      }
+
       const velocity = touchState.velocity;
       const VELOCITY_THRESHOLD = 0.5; // px/ms
       const FRICTION = 0.95;
@@ -544,6 +603,7 @@ export function TerminalView({ sessionId, paneId, className }: TerminalViewProps
       let currentVelocity = velocity;
       let accum = 0;
       let lastFrame = performance.now();
+      const lineHeight = touchState.lineHeight > 0 ? touchState.lineHeight : 16;
 
       const tick = () => {
         const terminal = terminalRef.current;
@@ -560,9 +620,6 @@ export function TerminalView({ sessionId, paneId, className }: TerminalViewProps
           return;
         }
         accum += currentVelocity * dt;
-        const rows = terminal.rows || 0;
-        const height = container.clientHeight || 0;
-        const lineHeight = rows > 0 && height > 0 ? height / rows : 16;
         const lines = Math.trunc(accum / lineHeight);
         if (lines !== 0) {
           terminal.scrollLines(-lines);

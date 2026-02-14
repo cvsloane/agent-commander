@@ -117,7 +117,9 @@ export function OrchestratorButton() {
       { type: 'snapshots' },
       { type: 'approvals', filter: { status: 'pending' } },
     ],
-    handleWebSocketMessage
+    handleWebSocketMessage,
+    // Modal has its own subscriptions; disable this to avoid duplicate ingestion while open.
+    !isOpen
   );
 
   // Shift+O keyboard shortcut
