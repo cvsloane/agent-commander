@@ -252,6 +252,33 @@ export default function SessionDetailPage() {
     return () => document.removeEventListener('keydown', handleEscape);
   }, [maximized]);
 
+  // Prevent background page scroll while the fullscreen terminal is active.
+  useEffect(() => {
+    if (!maximized) return;
+    if (typeof document === 'undefined') return;
+
+    const body = document.body;
+    const html = document.documentElement;
+    const prevBodyOverflow = body.style.overflow;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyPaddingRight = body.style.paddingRight;
+
+    // Avoid layout shift when hiding the scrollbar on desktop.
+    const scrollBarWidth = window.innerWidth - html.clientWidth;
+
+    body.style.overflow = 'hidden';
+    html.style.overflow = 'hidden';
+    if (scrollBarWidth > 0) {
+      body.style.paddingRight = `${scrollBarWidth}px`;
+    }
+
+    return () => {
+      body.style.overflow = prevBodyOverflow;
+      html.style.overflow = prevHtmlOverflow;
+      body.style.paddingRight = prevBodyPaddingRight;
+    };
+  }, [maximized]);
+
   useWebSocket(
     [
       { type: 'events', filter: { session_id: sessionId } },
