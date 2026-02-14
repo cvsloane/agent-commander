@@ -85,5 +85,5 @@ This file provides context for AI assistants (Claude Code, Cursor, etc.) about r
 
 ## Branch Info
 
-- **Current Branch**: `main`
+- **Generated From Branch**: `chore/project-status`
 - **Last Commit**: 2026-02-13T14:16:53-05:00
