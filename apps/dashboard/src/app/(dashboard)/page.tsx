@@ -20,11 +20,7 @@ export default function Dashboard() {
   const queryClient = useQueryClient();
   const [showSpawnDialog, setShowSpawnDialog] = useState(false);
   const { sessions, setSessions, updateSessions } = useSessionStore();
-  const {
-    ingestSessions: ingestOrchestratorSessions,
-    ingestSnapshot,
-    getWaitingItems,
-  } = useOrchestratorStore();
+  const { getWaitingItems } = useOrchestratorStore();
   const workflowStatuses = 'RUNNING,STARTING,WAITING_FOR_INPUT,WAITING_FOR_APPROVAL,ERROR,IDLE';
 
   // Fetch initial data
@@ -43,33 +39,20 @@ export default function Dashboard() {
   useEffect(() => {
     if (sessionData?.sessions) {
       setSessions(sessionData.sessions);
-      ingestOrchestratorSessions(sessionData.sessions as any, { fullSync: true });
     }
-  }, [sessionData, setSessions, ingestOrchestratorSessions]);
+  }, [sessionData, setSessions]);
 
   // WebSocket for real-time updates
   const handleWebSocketMessage = useCallback((message: ServerToUIMessage) => {
     if (message.type === 'sessions.changed') {
       const payload = message.payload as { sessions: Session[]; deleted?: string[] };
       updateSessions(payload.sessions, payload.deleted);
-      if (payload.sessions.length > 0) {
-        ingestOrchestratorSessions(payload.sessions as any);
-      }
     }
-    if (message.type === 'snapshots.updated') {
-      const payload = message.payload as {
-        session_id: string;
-        capture_text: string;
-        capture_hash?: string;
-      };
-      ingestSnapshot(payload.session_id, payload.capture_text, payload.capture_hash);
-    }
-  }, [updateSessions, ingestOrchestratorSessions, ingestSnapshot]);
+  }, [updateSessions]);
 
   useWebSocket(
     [
       { type: 'sessions', filter: { include_archived: false, status: workflowStatuses } },
-      { type: 'snapshots' },
     ],
     handleWebSocketMessage
   );

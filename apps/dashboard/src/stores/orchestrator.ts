@@ -318,6 +318,13 @@ function isActionableItem(item: OrchestratorItem): boolean {
     return isActionableApproval(item);
   }
 
+  // For non-approval items, the session status is authoritative.
+  // This prevents snapshot-based items from de-counting sessions that are
+  // already WAITING_FOR_INPUT/WAITING_FOR_APPROVAL.
+  if (ATTENTION_STATUSES.has(item.sessionStatus)) {
+    return true;
+  }
+
   if (!item.action) return false;
   if (item.action.type === 'text_input') return false;
   if (item.action.type === 'needs_attention') return false;
@@ -409,6 +416,7 @@ export const useOrchestratorStore = create<OrchestratorState>()(
           const now = Date.now();
 
           for (const session of sessions) {
+            const isArchived = Boolean(session.archived_at);
             const previousStatus = state.sessionsById[session.id]?.status;
             const wasAttention = previousStatus ? ATTENTION_STATUSES.has(previousStatus) : false;
             const isAttention = ATTENTION_STATUSES.has(session.status);
@@ -423,6 +431,17 @@ export const useOrchestratorStore = create<OrchestratorState>()(
               idledSessionsById[session.id] = parsedIdledAt as number;
             } else {
               delete idledSessionsById[session.id];
+            }
+
+            if (isArchived) {
+              items = items.filter(
+                (item) =>
+                  item.sessionId !== session.id ||
+                  item.source === 'approval'
+              );
+              delete lastHashBySession[session.id];
+              delete lastDetectedAt[session.id];
+              continue;
             }
 
             const snapshotContext = analyzeSnapshots && session.latest_snapshot?.capture_text
@@ -655,9 +674,51 @@ export const useOrchestratorStore = create<OrchestratorState>()(
             ];
           } else {
             // No action detected - remove existing snapshot items for this session only
-            newState.items = state.items.filter(
+            let items = state.items.filter(
               (item) => !(item.sessionId === sessionId && item.source === 'snapshot')
             );
+            const session = state.sessionsById[sessionId];
+            const sessionStatus = session?.status;
+            const needsAttention =
+              typeof sessionStatus === 'string' && ATTENTION_STATUSES.has(sessionStatus);
+            if (needsAttention) {
+              const hasActiveApproval = items.some(
+                (item) =>
+                  item.sessionId === sessionId &&
+                  item.source === 'approval' &&
+                  !item.dismissedAt
+              );
+              const hasActiveStatus = items.some(
+                (item) =>
+                  item.sessionId === sessionId &&
+                  item.source === 'status' &&
+                  !item.dismissedAt
+              );
+              if (!hasActiveApproval && !hasActiveStatus) {
+                const now = Date.now();
+                items = items.filter(
+                  (item) => !(item.sessionId === sessionId && item.source === 'status')
+                );
+                items.push({
+                  id: `status-${sessionId}-${now}`,
+                  sessionId,
+                  sessionTitle: session?.title ?? null,
+                  sessionCwd: session?.cwd ?? null,
+                  sessionProvider: session?.provider ?? null,
+                  sessionStatus: sessionStatus as string,
+                  source: 'status',
+                  action: {
+                    type: 'needs_attention',
+                    question: `Session is ${String(sessionStatus).toLowerCase().replace(/_/g, ' ')}`,
+                    context: '',
+                    confidence: 0.5,
+                  },
+                  createdAt: now,
+                  idledAt: isIdledSession ? storedIdledAt : undefined,
+                });
+              }
+            }
+            newState.items = items;
           }
 
           const snapshotContext = buildSnapshotContext(captureText);

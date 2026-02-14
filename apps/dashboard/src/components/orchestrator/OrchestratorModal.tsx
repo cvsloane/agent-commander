@@ -18,11 +18,16 @@ interface OrchestratorModalProps {
 }
 
 export function OrchestratorModal({ className }: OrchestratorModalProps) {
-  const attentionStatusFilter = 'WAITING_FOR_INPUT,WAITING_FOR_APPROVAL,ERROR';
+  const isOpen = useOrchestratorStore((s) => s.isOpen);
+  if (!isOpen) return null;
+  return <OrchestratorModalContent className={className} />;
+}
+
+function OrchestratorModalContent({ className }: OrchestratorModalProps) {
+  const workflowStatusFilter = 'RUNNING,STARTING,WAITING_FOR_INPUT,WAITING_FOR_APPROVAL,ERROR,IDLE';
   const modalRef = useRef<HTMLDivElement>(null);
   const [idleExpanded, setIdleExpanded] = useState(false);
   const {
-    isOpen,
     close,
     ingestSessions,
     ingestSnapshot,
@@ -31,6 +36,7 @@ export function OrchestratorModal({ className }: OrchestratorModalProps) {
     pruneApprovals,
     dismissItem,
     getActiveItems,
+    getWaitingItems,
     getIdledItems,
   } = useOrchestratorStore();
   const { setSessionIdle } = useSessionIdle();
@@ -58,6 +64,7 @@ export function OrchestratorModal({ className }: OrchestratorModalProps) {
   );
 
   const activeItems = getActiveItems();
+  const waitingItems = getWaitingItems();
   const idledItems = getIdledItems();
   const idledCount = idledItems.length;
 
@@ -65,12 +72,11 @@ export function OrchestratorModal({ className }: OrchestratorModalProps) {
   const { refetch: refetchSessions } = useQuery({
     queryKey: ['orchestrator', 'sessions'],
     queryFn: async () => {
-      const data = await getSessions({ include_archived: false, status: attentionStatusFilter });
+      const data = await getSessions({ include_archived: false, status: workflowStatusFilter });
       ingestSessions(data.sessions as any, { fullSync: true });
       return data;
     },
-    enabled: isOpen,
-    refetchInterval: isOpen ? 10000 : false, // Refetch every 10s when open
+    refetchInterval: 10000, // Refetch every 10s when open
   });
 
   // Fetch pending approvals when modal opens
@@ -84,16 +90,13 @@ export function OrchestratorModal({ className }: OrchestratorModalProps) {
       pruneApprovals(data.approvals.map((approval) => approval.id));
       return data;
     },
-    enabled: isOpen,
   });
 
-  const { summariesEnabled } = useOrchestratorSummaries(activeItems, isOpen);
+  const { summariesEnabled } = useOrchestratorSummaries(activeItems, true);
 
   // WebSocket subscriptions when modal is open
   const handleWebSocketMessage = useCallback(
     (message: ServerToUIMessage) => {
-      if (!isOpen) return;
-
       switch (message.type) {
         case 'sessions.changed': {
           const payload = message.payload as { sessions: Session[] };
@@ -140,24 +143,20 @@ export function OrchestratorModal({ className }: OrchestratorModalProps) {
         }
       }
     },
-    [isOpen, ingestSessions, ingestSnapshot, ingestApproval, removeApprovalItem]
+    [ingestSessions, ingestSnapshot, ingestApproval, removeApprovalItem]
   );
 
   useWebSocket(
-    isOpen
-      ? [
-          { type: 'sessions', filter: { status: attentionStatusFilter } },
-          { type: 'snapshots' },
-          { type: 'approvals', filter: { status: 'pending' } },
-        ]
-      : [],
+    [
+      { type: 'sessions', filter: { status: workflowStatusFilter } },
+      { type: 'snapshots' },
+      { type: 'approvals', filter: { status: 'pending' } },
+    ],
     handleWebSocketMessage
   );
 
   // Handle escape key and focus trap
   useEffect(() => {
-    if (!isOpen) return;
-
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -167,11 +166,11 @@ export function OrchestratorModal({ className }: OrchestratorModalProps) {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, close]);
+  }, [close]);
 
   // Focus trap
   useEffect(() => {
-    if (!isOpen || !modalRef.current) return;
+    if (!modalRef.current) return;
 
     const focusableElements = modalRef.current.querySelectorAll<HTMLElement>(
       'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -197,14 +196,12 @@ export function OrchestratorModal({ className }: OrchestratorModalProps) {
     setTimeout(() => firstElement?.focus(), 0);
 
     return () => document.removeEventListener('keydown', handleTabKey);
-  }, [isOpen]);
+  }, []);
 
   const handleRefresh = useCallback(() => {
     refetchSessions();
     refetchApprovals();
   }, [refetchSessions, refetchApprovals]);
-
-  if (!isOpen) return null;
 
   return (
     <>
@@ -265,7 +262,7 @@ export function OrchestratorModal({ className }: OrchestratorModalProps) {
 
         {/* Content */}
         <div className="max-h-[60vh] overflow-y-auto p-3 space-y-2">
-          {activeItems.length === 0 && idledItems.length === 0 ? (
+          {activeItems.length === 0 && waitingItems.length === 0 && idledItems.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <Bell className="h-12 w-12 mx-auto mb-3 opacity-30" />
               <p className="text-sm">No sessions need your attention</p>
@@ -275,7 +272,7 @@ export function OrchestratorModal({ className }: OrchestratorModalProps) {
             </div>
           ) : (
             <>
-              {activeItems.length === 0 && idledItems.length > 0 && (
+              {activeItems.length === 0 && waitingItems.length === 0 && idledItems.length > 0 && (
                 <div className="text-center py-4 text-muted-foreground">
                   <p className="text-sm">All items are idled</p>
                 </div>
@@ -291,6 +288,27 @@ export function OrchestratorModal({ className }: OrchestratorModalProps) {
                   summariesEnabled={summariesEnabled}
                 />
               ))}
+
+              {/* Waiting items */}
+              {waitingItems.length > 0 && (
+                <div className="border-t mt-3 pt-3">
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Waiting ({waitingItems.length})
+                  </p>
+                  {waitingItems.map((item) => (
+                    <OrchestratorItem
+                      key={item.id}
+                      item={item}
+                      onDismiss={dismissItem}
+                      onIdle={handleIdle}
+                      onUnidle={handleUnidle}
+                      onResponseSent={handleRefresh}
+                      mode="waiting"
+                      showSummary={false}
+                    />
+                  ))}
+                </div>
+              )}
 
               {/* Idle section */}
               {idledItems.length > 0 && (

@@ -91,7 +91,6 @@
 .xterm .xterm-viewport {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-  touch-action: pan-y;
 }
 
 /* Mobile text selection support */
@@ -110,9 +109,9 @@
     -webkit-touch-callout: default !important;
   }
 
-  /* Ensure xterm viewport still allows vertical scrolling */
+  /* JS handles touch scrolling for xterm — disable browser gestures */
   .xterm .xterm-viewport {
-    touch-action: pan-y;
+    touch-action: none;
   }
 
   /* Selection styling for better visibility */

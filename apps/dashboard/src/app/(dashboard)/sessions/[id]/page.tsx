@@ -3,7 +3,7 @@
 import { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Check, X, Plug, Send, ChevronLeft, Moon, Sun, Power } from 'lucide-react';
+import { Pencil, Check, X, Plug, Send, ChevronLeft, Moon, Sun, Power, Maximize2, Minimize2 } from 'lucide-react';
 import Link from 'next/link';
 import { assignSessionGroup, getGroups, getHosts, getSession, updateSession } from '@/lib/api';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -50,6 +50,7 @@ export default function SessionDetailPage() {
 
   // Console/Terminal view toggle - initialized from URL param
   const [viewMode, setViewMode] = useState<'console' | 'terminal'>(initialView);
+  const [maximized, setMaximized] = useState(false);
   const { addRecentSession } = useUIStore();
   const recentKeyRef = useRef<string | null>(null);
   const isMobile = useIsMobile();
@@ -228,6 +229,28 @@ export default function SessionDetailPage() {
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [data?.session, sessionId, mcpManager]);
+
+  // Escape key exits maximized terminal
+  useEffect(() => {
+    if (!maximized) return;
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      // Don't steal Escape from text inputs / dialogs.
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      setMaximized(false);
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [maximized]);
 
   useWebSocket(
     [
@@ -476,7 +499,9 @@ export default function SessionDetailPage() {
         {/* Console/Terminal - full width */}
         <Card className={cn(
           'flex flex-col',
-          isMobile ? 'h-[66vh] min-h-[360px]' : 'h-[66vh]'
+          maximized
+            ? 'fixed inset-0 z-[60] rounded-none border-0 h-screen'
+            : isMobile ? 'h-[66vh] min-h-[360px]' : 'h-[66vh]'
         )}>
           <CardHeader className="py-3">
             <div className="flex items-center justify-between">
@@ -501,6 +526,15 @@ export default function SessionDetailPage() {
                   title={!session.tmux_pane_id ? 'No tmux pane available' : 'Interactive terminal'}
                 >
                   Terminal
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setMaximized(!maximized)}
+                  className="h-7 px-2"
+                  title={maximized ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+                >
+                  {maximized ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
                 </Button>
               </div>
             </div>
