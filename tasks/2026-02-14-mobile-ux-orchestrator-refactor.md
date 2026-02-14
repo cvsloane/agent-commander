@@ -25,3 +25,11 @@
 **Files modified:**
 - `apps/dashboard/src/components/TerminalView.tsx` — Replaced `touch-pan-y` with conditional `touch-none` on mobile, always `preventDefault` on vertical touchmove, added momentum scrolling with deceleration
 - `apps/dashboard/src/app/globals.css` — Removed `touch-action: pan-y` from `.xterm .xterm-viewport`, set `touch-action: none` in mobile media query
+
+---
+
+## Follow-Up Improvements
+
+- `apps/dashboard/src/app/(dashboard)/sessions/[id]/page.tsx` — Lock body/html scroll while terminal is fullscreen to prevent background scroll/bounce.
+- `apps/dashboard/src/components/orchestrator/OrchestratorButton.tsx` — Disable header WebSocket subscription while the orchestrator modal is open to avoid duplicate ingestion.
+- `apps/dashboard/src/components/TerminalView.tsx` — Axis-lock touch gestures and use measured xterm row height for smoother mobile scrolling (no initial jump when axis is decided).
