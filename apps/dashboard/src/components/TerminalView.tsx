@@ -535,14 +535,31 @@ export function TerminalView({ sessionId, paneId, className }: TerminalViewProps
         const AXIS_RATIO = 1.2;
 
         if (absDy < MOVE_THRESHOLD && absDx < MOVE_THRESHOLD) {
+          touchState.lastY = touch.clientY;
+          touchState.lastX = touch.clientX;
           return;
         }
 
         if (absDy > absDx * AXIS_RATIO) {
           touchState.axis = 'vertical';
+          touchState.lastY = touch.clientY;
+          touchState.lastX = touch.clientX;
+          touchState.lastTime = performance.now();
+          touchState.velocity = 0;
+          touchState.remainder = 0;
+          return;
         } else if (absDx > absDy * AXIS_RATIO) {
           touchState.axis = 'horizontal';
+          touchState.lastY = touch.clientY;
+          touchState.lastX = touch.clientX;
+          touchState.lastTime = performance.now();
+          touchState.velocity = 0;
+          touchState.remainder = 0;
+          return;
         } else {
+          touchState.lastY = touch.clientY;
+          touchState.lastX = touch.clientX;
+          touchState.lastTime = performance.now();
           return; // ambiguous; wait for clearer intent
         }
       }
