@@ -15,18 +15,14 @@ import { useOrchestratorStore } from '@/stores/orchestrator';
  */
 export function OrchestratorButton() {
   const attentionStatusFilter = 'WAITING_FOR_INPUT,WAITING_FOR_APPROVAL,ERROR';
-  const {
-    toggle,
-    isOpen,
-    getItemCount,
-    ingestSessions,
-    ingestApproval,
-    removeApprovalItem,
-    pruneApprovals,
-  } =
-    useOrchestratorStore();
-
-  const itemCount = getItemCount();
+  const toggle = useOrchestratorStore((s) => s.toggle);
+  const isOpen = useOrchestratorStore((s) => s.isOpen);
+  const itemCount = useOrchestratorStore((s) => s.getItemCount());
+  const ingestSessions = useOrchestratorStore((s) => s.ingestSessions);
+  const ingestSnapshot = useOrchestratorStore((s) => s.ingestSnapshot);
+  const ingestApproval = useOrchestratorStore((s) => s.ingestApproval);
+  const removeApprovalItem = useOrchestratorStore((s) => s.removeApprovalItem);
+  const pruneApprovals = useOrchestratorStore((s) => s.pruneApprovals);
 
   // Seed initial counts (sessions + approvals)
   useEffect(() => {
@@ -72,6 +68,16 @@ export function OrchestratorButton() {
           break;
         }
 
+        case 'snapshots.updated': {
+          const payload = message.payload as {
+            session_id: string;
+            capture_text: string;
+            capture_hash?: string;
+          };
+          ingestSnapshot(payload.session_id, payload.capture_text, payload.capture_hash);
+          break;
+        }
+
         case 'approvals.created': {
           const payload = message.payload as {
             approval_id: string;
@@ -99,13 +105,16 @@ export function OrchestratorButton() {
         }
       }
     },
-    [ingestSessions, ingestApproval, removeApprovalItem]
+    [ingestSessions, ingestSnapshot, ingestApproval, removeApprovalItem]
   );
 
-  // Always subscribe to sessions and approvals for badge count
+  // Always subscribe to sessions, snapshots, and approvals for badge count
   useWebSocket(
     [
-      { type: 'sessions', filter: { status: attentionStatusFilter } },
+      // Subscribe broadly so we can clear items when sessions leave attention statuses
+      // (server-side filtering only emits sessions that currently match the filter).
+      { type: 'sessions', filter: { include_archived: true } },
+      { type: 'snapshots' },
       { type: 'approvals', filter: { status: 'pending' } },
     ],
     handleWebSocketMessage

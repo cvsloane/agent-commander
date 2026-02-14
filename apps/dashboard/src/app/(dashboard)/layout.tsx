@@ -4,6 +4,7 @@ import { LayoutShell } from '@/components/layout';
 import { MobileHeader } from '@/components/layout/MobileHeader';
 import { SettingsButton } from '@/components/settings';
 import { AuthControls } from '@/components/auth/AuthControls';
+import { OrchestratorButton, OrchestratorModal } from '@/components/orchestrator';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -25,6 +26,7 @@ export default function DashboardLayout({
             </a>
           </div>
           <div className="flex items-center gap-2">
+            <OrchestratorButton />
             <ThemeToggle />
             <SettingsButton />
             <AuthControls />
@@ -34,6 +36,9 @@ export default function DashboardLayout({
 
       {/* Main content with sidebar */}
       <LayoutShell>{children}</LayoutShell>
+
+      {/* Global overlay */}
+      <OrchestratorModal />
     </div>
   );
 }

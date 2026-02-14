@@ -32,11 +32,22 @@ export function TerminalView({ sessionId, paneId, className }: TerminalViewProps
   const readOnlyRef = useRef(false);
   const intentionalCloseRef = useRef(false);
   const suppressCloseErrorRef = useRef(false);
-  const touchScrollRef = useRef<{ lastY: number; lastX: number; remainder: number; active: boolean }>({
+  const touchScrollRef = useRef<{
+    lastY: number;
+    lastX: number;
+    remainder: number;
+    active: boolean;
+    velocity: number;
+    lastTime: number;
+    momentumRaf: number | null;
+  }>({
     lastY: 0,
     lastX: 0,
     remainder: 0,
     active: false,
+    velocity: 0,
+    lastTime: 0,
+    momentumRaf: null,
   });
 
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
@@ -459,48 +470,107 @@ export function TerminalView({ sessionId, paneId, className }: TerminalViewProps
     if (!isMobile) return;
     const container = termRef.current;
     if (!container) return;
+    const touchState = touchScrollRef.current;
 
     const handleTouchStart = (event: TouchEvent) => {
       if (!terminalRef.current) return;
+      if (event.touches.length !== 1) return;
       const touch = event.touches[0];
       if (!touch) return;
-      touchScrollRef.current.active = true;
-      touchScrollRef.current.lastY = touch.clientY;
-      touchScrollRef.current.lastX = touch.clientX;
-      touchScrollRef.current.remainder = 0;
+      // Cancel any running momentum
+      if (touchState.momentumRaf !== null) {
+        cancelAnimationFrame(touchState.momentumRaf);
+        touchState.momentumRaf = null;
+      }
+      touchState.active = true;
+      touchState.lastY = touch.clientY;
+      touchState.lastX = touch.clientX;
+      touchState.remainder = 0;
+      touchState.velocity = 0;
+      touchState.lastTime = performance.now();
     };
 
     const handleTouchMove = (event: TouchEvent) => {
-      if (!touchScrollRef.current.active) return;
+      if (!touchState.active) return;
       if (hasSelection) return;
+      if (event.touches.length !== 1) return;
       const touch = event.touches[0];
       if (!touch) return;
-      const deltaY = touch.clientY - touchScrollRef.current.lastY;
-      const deltaX = touch.clientX - touchScrollRef.current.lastX;
+      const deltaY = touch.clientY - touchState.lastY;
+      const deltaX = touch.clientX - touchState.lastX;
+      // Only handle vertical gestures
       if (Math.abs(deltaY) < Math.abs(deltaX)) {
-        touchScrollRef.current.lastY = touch.clientY;
-        touchScrollRef.current.lastX = touch.clientX;
+        touchState.lastY = touch.clientY;
+        touchState.lastX = touch.clientX;
         return;
       }
+      // Always preventDefault on vertical gesture to stop browser competing
+      event.preventDefault();
       const terminal = terminalRef.current;
       if (!terminal) return;
       const rows = terminal.rows || 0;
       const height = container.clientHeight || 0;
       const lineHeight = rows > 0 && height > 0 ? height / rows : 16;
-      const totalDelta = deltaY + touchScrollRef.current.remainder;
+      const totalDelta = deltaY + touchState.remainder;
       const lines = Math.trunc(totalDelta / lineHeight);
-      touchScrollRef.current.remainder = totalDelta - lines * lineHeight;
+      touchState.remainder = totalDelta - lines * lineHeight;
       if (lines !== 0) {
         terminal.scrollLines(-lines);
-        event.preventDefault();
       }
-      touchScrollRef.current.lastY = touch.clientY;
-      touchScrollRef.current.lastX = touch.clientX;
+      // Track velocity for momentum (px/ms)
+      const now = performance.now();
+      const dt = now - touchState.lastTime;
+      if (dt > 0) {
+        touchState.velocity = deltaY / dt;
+      }
+      touchState.lastTime = now;
+      touchState.lastY = touch.clientY;
+      touchState.lastX = touch.clientX;
     };
 
     const handleTouchEnd = () => {
-      touchScrollRef.current.active = false;
-      touchScrollRef.current.remainder = 0;
+      touchState.active = false;
+      const velocity = touchState.velocity;
+      const VELOCITY_THRESHOLD = 0.5; // px/ms
+      const FRICTION = 0.95;
+      const MIN_VELOCITY = 0.1; // px/ms
+
+      if (Math.abs(velocity) < VELOCITY_THRESHOLD) {
+        touchState.remainder = 0;
+        return;
+      }
+
+      // Start momentum scrolling
+      let currentVelocity = velocity;
+      let accum = 0;
+      let lastFrame = performance.now();
+
+      const tick = () => {
+        const terminal = terminalRef.current;
+        if (!terminal) {
+          touchState.momentumRaf = null;
+          return;
+        }
+        const now = performance.now();
+        const dt = now - lastFrame;
+        lastFrame = now;
+        currentVelocity *= FRICTION;
+        if (Math.abs(currentVelocity) < MIN_VELOCITY) {
+          touchState.momentumRaf = null;
+          return;
+        }
+        accum += currentVelocity * dt;
+        const rows = terminal.rows || 0;
+        const height = container.clientHeight || 0;
+        const lineHeight = rows > 0 && height > 0 ? height / rows : 16;
+        const lines = Math.trunc(accum / lineHeight);
+        if (lines !== 0) {
+          terminal.scrollLines(-lines);
+          accum -= lines * lineHeight;
+        }
+        touchState.momentumRaf = requestAnimationFrame(tick);
+      };
+      touchState.momentumRaf = requestAnimationFrame(tick);
     };
 
     container.addEventListener('touchstart', handleTouchStart, { passive: true });
@@ -513,6 +583,10 @@ export function TerminalView({ sessionId, paneId, className }: TerminalViewProps
       container.removeEventListener('touchmove', handleTouchMove);
       container.removeEventListener('touchend', handleTouchEnd);
       container.removeEventListener('touchcancel', handleTouchEnd);
+      if (touchState.momentumRaf !== null) {
+        cancelAnimationFrame(touchState.momentumRaf);
+        touchState.momentumRaf = null;
+      }
     };
   }, [isMobile, hasSelection]);
 
@@ -527,6 +601,7 @@ export function TerminalView({ sessionId, paneId, className }: TerminalViewProps
 
   // Cleanup on unmount
   useEffect(() => {
+    const touchState = touchScrollRef.current;
     if (typeof window !== 'undefined') {
       if (window.visualViewport) {
         window.visualViewport.addEventListener('resize', handleViewportResize);
@@ -541,6 +616,10 @@ export function TerminalView({ sessionId, paneId, className }: TerminalViewProps
       }
       if (resizeObserverRef.current) {
         resizeObserverRef.current.disconnect();
+      }
+      if (touchState.momentumRaf !== null) {
+        cancelAnimationFrame(touchState.momentumRaf);
+        touchState.momentumRaf = null;
       }
       // Clean up viewport listeners
       if (typeof window !== 'undefined') {
@@ -658,7 +737,8 @@ export function TerminalView({ sessionId, paneId, className }: TerminalViewProps
           window.setTimeout(() => terminalRef.current?.focus(), 0);
         }}
         className={cn(
-          'flex-1 min-h-0 bg-[#0a0a0a] p-1 overflow-hidden focus:outline-none cursor-text relative touch-pan-y',
+          'flex-1 min-h-0 bg-[#0a0a0a] p-1 overflow-hidden focus:outline-none cursor-text relative',
+          isMobile && 'touch-none',
           status === 'connected' && 'border-l-2 border-emerald-500 shadow-[inset_2px_0_0_rgba(16,185,129,0.35)]'
         )}
         aria-label="Interactive terminal"

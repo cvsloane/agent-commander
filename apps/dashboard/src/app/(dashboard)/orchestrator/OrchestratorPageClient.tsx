@@ -13,7 +13,7 @@ import { OrchestratorItem } from '@/components/orchestrator/OrchestratorItem';
 import { useOrchestratorSummaries } from '@/hooks/useOrchestratorSummaries';
 
 export default function OrchestratorPageClient() {
-  const attentionStatusFilter = 'WAITING_FOR_INPUT,WAITING_FOR_APPROVAL,ERROR';
+  const workflowStatusFilter = 'RUNNING,STARTING,WAITING_FOR_INPUT,WAITING_FOR_APPROVAL,ERROR,IDLE';
   const [idleExpanded, setIdleExpanded] = useState(false);
   const {
     ingestSessions,
@@ -23,6 +23,7 @@ export default function OrchestratorPageClient() {
     pruneApprovals,
     dismissItem,
     getActiveItems,
+    getWaitingItems,
     getIdledItems,
   } = useOrchestratorStore();
   const { setSessionIdle } = useSessionIdle();
@@ -50,13 +51,14 @@ export default function OrchestratorPageClient() {
   );
 
   const activeItems = getActiveItems();
+  const waitingItems = getWaitingItems();
   const idledItems = getIdledItems();
 
   // Fetch initial sessions
   const { refetch: refetchSessions } = useQuery({
     queryKey: ['orchestrator', 'sessions'],
     queryFn: async () => {
-      const data = await getSessions({ include_archived: false, status: attentionStatusFilter });
+      const data = await getSessions({ include_archived: false, status: workflowStatusFilter });
       // Filter to sessions that might need attention
       ingestSessions(data.sessions as any, { fullSync: true });
       return data;
@@ -134,7 +136,7 @@ export default function OrchestratorPageClient() {
 
   useWebSocket(
     [
-      { type: 'sessions', filter: { status: attentionStatusFilter } },
+      { type: 'sessions', filter: { status: workflowStatusFilter } },
       { type: 'snapshots' },
       { type: 'approvals', filter: { status: 'pending' } },
     ],
@@ -172,7 +174,7 @@ export default function OrchestratorPageClient() {
       )}
 
       {/* Empty state */}
-      {activeItems.length === 0 && idledItems.length === 0 && (
+      {activeItems.length === 0 && waitingItems.length === 0 && idledItems.length === 0 && (
         <div className="text-center py-16 text-muted-foreground">
           <Bell className="h-16 w-16 mx-auto mb-4 opacity-30" />
           <p className="text-lg">No sessions need your attention</p>
@@ -204,8 +206,31 @@ export default function OrchestratorPageClient() {
         </section>
       )}
 
+      {/* Waiting items */}
+      {waitingItems.length > 0 && (
+        <section className="mb-8">
+          <h2 className="text-lg font-semibold mb-4 text-muted-foreground">
+            Waiting ({waitingItems.length})
+          </h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {waitingItems.map((item) => (
+              <OrchestratorItem
+                key={item.id}
+                item={item}
+                onDismiss={dismissItem}
+                onIdle={handleIdle}
+                onUnidle={handleUnidle}
+                onResponseSent={handleRefresh}
+                summariesEnabled={summariesEnabled}
+                mode="waiting"
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* All items idled message */}
-      {activeItems.length === 0 && idledItems.length > 0 && (
+      {activeItems.length === 0 && waitingItems.length === 0 && idledItems.length > 0 && (
         <div className="text-center py-8 text-muted-foreground mb-4">
           <p className="text-sm">All items are idled</p>
         </div>
