@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -47,8 +46,6 @@ var (
 func initOnce() {
 	once.Do(func() {
 		prometheus.MustRegister(
-			collectors.NewGoCollector(),
-			collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 			wsConnected,
 			wsReconnecting,
 			wsReconnectAttemptsTotal,
