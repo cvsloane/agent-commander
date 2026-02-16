@@ -20,6 +20,7 @@ import { registerProjectRoutes } from './routes/projects.js';
 import { registerSummaryRoutes } from './routes/summaries.js';
 import { registerSettingsRoutes } from './routes/settings.js';
 import { registerNotificationRoutes } from './routes/notifications.js';
+import { registerMetricsRoutes } from './routes/metrics.js';
 import { pubsub } from './services/pubsub.js';
 import { verifyRequestToken } from './auth/verify.js';
 
@@ -62,7 +63,7 @@ async function start(): Promise<void> {
   // Auth for REST (skip health + WS routes that handle their own auth)
   app.addHook('onRequest', async (request, reply) => {
     const url = request.url;
-    if (url.startsWith('/health') || url.startsWith('/v1/agent/connect') || url.startsWith('/v1/ui/stream') || url.startsWith('/v1/ui/terminal') || url.startsWith('/v1/voice/transcribe')) {
+    if (url.startsWith('/health') || url.startsWith('/metrics') || url.startsWith('/v1/agent/connect') || url.startsWith('/v1/ui/stream') || url.startsWith('/v1/ui/terminal') || url.startsWith('/v1/voice/transcribe')) {
       return;
     }
 
@@ -103,6 +104,7 @@ async function start(): Promise<void> {
   registerSummaryRoutes(app);
   registerSettingsRoutes(app);
   registerNotificationRoutes(app);
+  registerMetricsRoutes(app);
 
   // Health check endpoint
   app.get('/health', async () => {

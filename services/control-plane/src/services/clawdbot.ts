@@ -1,6 +1,7 @@
 import type { Session, Approval } from '@agent-command/schema';
 import * as db from '../db/index.js';
 import { pool } from '../db/index.js';
+import { recordClawdbotNotificationDecision, type ClawdbotReason } from '../metrics.js';
 
 interface ClawdbotThrottleSettings {
   maxPerHour: number;
@@ -31,6 +32,12 @@ interface RateLimitEntry {
   count: number;
   windowStart: number;
 }
+
+type NotifyBlockReason = Exclude<ClawdbotReason, 'allowed'>;
+
+type NotifyDecision =
+  | { allowed: true }
+  | { allowed: false; reason: { code: NotifyBlockReason; detail: string } };
 
 // Default events: only critical ones enabled
 const DEFAULT_CLAWDBOT_EVENTS: Record<string, boolean> = {
@@ -127,7 +134,7 @@ class ClawdbotNotifier {
       approvalId?: string;
       status?: string;
     } = {}
-  ): { allowed: boolean; reason?: string } {
+  ): NotifyDecision {
     const { isActionable, sessionId, approvalId, status } = options;
     const throttle = config.throttle ?? DEFAULT_THROTTLE;
     const actionable = isActionable !== false;
@@ -135,23 +142,35 @@ class ClawdbotNotifier {
 
     // 1. Check actionableOnly filter
     if (actionableOnly && !actionable) {
-      return { allowed: false, reason: 'actionableOnly filter (not actionable)' };
+      return {
+        allowed: false,
+        reason: { code: 'actionable_only', detail: 'actionableOnly filter (not actionable)' },
+      };
     }
 
     // 2. Check event type filter
     const eventEnabled = config.events[eventType] ?? DEFAULT_CLAWDBOT_EVENTS[eventType] ?? true;
     if (!eventEnabled) {
-      return { allowed: false, reason: `event type '${eventType}' disabled` };
+      return {
+        allowed: false,
+        reason: { code: 'event_disabled', detail: `event type '${eventType}' disabled` },
+      };
     }
 
     // 3. Check rate limit (non-mutating)
     if (!this.canSend(userId, throttle.maxPerHour)) {
-      return { allowed: false, reason: 'rate limit exceeded' };
+      return {
+        allowed: false,
+        reason: { code: 'rate_limit', detail: 'rate limit exceeded' },
+      };
     }
 
     // 4. Approval-specific deduplication
     if (approvalId && this.approvalNotified.has(this.approvalKey(userId, approvalId))) {
-      return { allowed: false, reason: `approval ${approvalId} already notified` };
+      return {
+        allowed: false,
+        reason: { code: 'approval_dedup', detail: `approval ${approvalId} already notified` },
+      };
     }
 
     // 5. Strong deduplication by dedupeKey
@@ -160,7 +179,10 @@ class ClawdbotNotifier {
     if (lastNotified) {
       const dedupeWindowMs = 5 * 60 * 1000; // 5 minutes
       if (Date.now() - lastNotified < dedupeWindowMs) {
-        return { allowed: false, reason: `duplicate notification (key: ${dedupeKey})` };
+        return {
+          allowed: false,
+          reason: { code: 'dedupe_key', detail: `duplicate notification (key: ${dedupeKey})` },
+        };
       }
     }
 
@@ -168,7 +190,10 @@ class ClawdbotNotifier {
     if (sessionId && !actionable) {
       const sessionLastTime = this.sessionLastNotified.get(this.sessionKey(userId, sessionId));
       if (sessionLastTime && Date.now() - sessionLastTime < throttle.sessionCooldownMs) {
-        return { allowed: false, reason: `session ${sessionId} cooldown active` };
+        return {
+          allowed: false,
+          reason: { code: 'session_cooldown', detail: `session ${sessionId} cooldown active` },
+        };
       }
     }
 
@@ -217,15 +242,36 @@ class ClawdbotNotifier {
     // Check provider filter
     if (provider) {
       const providerEnabled = config.providers[provider] ?? true;
-      if (!providerEnabled) return;
+      if (!providerEnabled) {
+        recordClawdbotNotificationDecision({
+          decision: 'blocked',
+          reason: 'provider_disabled',
+          eventType,
+          provider,
+        });
+        return;
+      }
     }
 
     // Run shouldNotify checks
-    const { allowed, reason } = this.shouldNotify(userId, eventType, config, options);
-    if (!allowed) {
-      console.log(`[clawdbot] Notification blocked for user ${userId}: ${reason}`);
+    const decision = this.shouldNotify(userId, eventType, config, options);
+    if (!decision.allowed) {
+      recordClawdbotNotificationDecision({
+        decision: 'blocked',
+        reason: decision.reason.code,
+        eventType,
+        provider,
+      });
+      console.log(`[clawdbot] Notification blocked for user ${userId}: ${decision.reason.detail}`);
       return;
     }
+
+    recordClawdbotNotificationDecision({
+      decision: 'allowed',
+      reason: 'allowed',
+      eventType,
+      provider,
+    });
 
     const throttle = config.throttle ?? DEFAULT_THROTTLE;
 

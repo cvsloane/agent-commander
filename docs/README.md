@@ -35,5 +35,6 @@ Reference:
 
 Operations:
 - [Operations](operations.md)
+- [Reliability Primitives](reliability-primitives.md)
 - [Troubleshooting](troubleshooting.md)
 - [Implementation Notes](implementation.md)

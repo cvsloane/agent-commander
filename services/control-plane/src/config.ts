@@ -6,6 +6,7 @@ const ConfigSchema = z.object({
   HOST: z.string().default('0.0.0.0'),
   PORT: z.coerce.number().default(8080),
   JWT_SECRET: z.string().min(16),
+  METRICS_TOKEN: z.string().min(1).optional(),
   TAILNET_DOMAIN: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default('gpt-4o-mini'),

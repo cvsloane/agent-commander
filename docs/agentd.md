@@ -54,6 +54,13 @@ Disable these if you want read only mode on a host.
 agentd can handle provider specific hooks and usage parsing.
 See [Provider Hooks](hooks.md) for setup details.
 
+### Metrics
+
+agentd exposes Prometheus metrics at `GET /metrics` on the same HTTP listener as provider hooks (`providers.claude.hooks_http_listen`).
+
+- Default: `http://127.0.0.1:7777/metrics`
+- If you bind hooks to a non-loopback address, treat `/metrics` as sensitive (firewall or reverse proxy auth).
+
 ### Provider usage polling
 
 agentd can run periodic commands to pull usage data from provider CLIs or APIs
