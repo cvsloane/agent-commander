@@ -10,6 +10,7 @@ This guide covers operational best practices for running Agent Commander.
 ## Monitoring
 
 - Watch `/health` for control plane status.
+- Scrape `/metrics` for operational counters (reconnect/backoff, Clawdbot rate-limit decisions). If `METRICS_TOKEN` is set on the control plane, Prometheus must send `Authorization: Bearer <token>` (or `x-metrics-token`).
 - Monitor database connections and disk usage.
 - Track agentd logs for reconnect loops or tmux errors.
 

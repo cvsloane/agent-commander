@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/agent-command/agentd/internal/config"
+	"github.com/agent-command/agentd/internal/metrics"
 	"github.com/google/uuid"
 )
 
@@ -63,6 +64,7 @@ func (p *ClaudeProvider) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/hooks/claude", p.handleHook)
 	mux.HandleFunc("/v1/hooks/codex", p.handleCodexHook)
+	mux.Handle("/metrics", metrics.Handler())
 
 	p.server = &http.Server{
 		Addr:    p.cfg.HooksHTTPListen,

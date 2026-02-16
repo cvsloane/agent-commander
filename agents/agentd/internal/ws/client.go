@@ -10,27 +10,28 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/agent-command/agentd/internal/metrics"
 	"github.com/agent-command/agentd/internal/queue"
+	"github.com/gorilla/websocket"
 )
 
 type MessageHandler func(msgType string, payload json.RawMessage)
 
 type Client struct {
-	url           string
-	token         string
-	hostID        string
-	backoff       []int
-	conn          *websocket.Conn
-	mu            sync.Mutex
-	seq           atomic.Int64
-	lastAckedSeq  int64
-	onMessage     MessageHandler
-	done          chan struct{}
-	reconnecting  bool
-	queue         *queue.Queue
-	stateDir      string
-	onConnect     func()
+	url          string
+	token        string
+	hostID       string
+	backoff      []int
+	conn         *websocket.Conn
+	mu           sync.Mutex
+	seq          atomic.Int64
+	lastAckedSeq int64
+	onMessage    MessageHandler
+	done         chan struct{}
+	reconnecting bool
+	queue        *queue.Queue
+	stateDir     string
+	onConnect    func()
 }
 
 func NewClient(url, token, hostID string, backoff []int) *Client {
@@ -76,6 +77,8 @@ func (c *Client) Connect() error {
 
 	c.conn = conn
 	c.reconnecting = false
+	metrics.SetWSConnected(true)
+	metrics.SetWSReconnecting(false)
 
 	// Start reader goroutine
 	go c.reader()
@@ -94,6 +97,8 @@ func (c *Client) reader() {
 			c.conn.Close()
 		}
 		c.mu.Unlock()
+
+		metrics.SetWSConnected(false)
 
 		// Attempt reconnection
 		c.reconnect()
@@ -174,6 +179,9 @@ func (c *Client) reconnect() {
 	c.reconnecting = true
 	c.mu.Unlock()
 
+	metrics.SetWSReconnecting(true)
+	defer metrics.SetWSReconnecting(false)
+
 	for i, delay := range c.backoff {
 		select {
 		case <-c.done:
@@ -181,12 +189,15 @@ func (c *Client) reconnect() {
 		case <-time.After(time.Duration(delay) * time.Millisecond):
 		}
 
+		metrics.RecordWSReconnectAttempt(delay)
 		log.Printf("Reconnection attempt %d/%d", i+1, len(c.backoff))
 
 		if err := c.Connect(); err == nil {
+			metrics.RecordWSReconnectSuccess()
 			log.Printf("Reconnected successfully")
 			return
 		}
+		metrics.RecordWSReconnectFailure()
 	}
 
 	// Keep trying with max backoff
@@ -198,10 +209,13 @@ func (c *Client) reconnect() {
 		case <-time.After(time.Duration(maxDelay) * time.Millisecond):
 		}
 
+		metrics.RecordWSReconnectAttempt(maxDelay)
 		if err := c.Connect(); err == nil {
+			metrics.RecordWSReconnectSuccess()
 			log.Printf("Reconnected successfully")
 			return
 		}
+		metrics.RecordWSReconnectFailure()
 	}
 }
 
