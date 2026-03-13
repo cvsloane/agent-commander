@@ -4421,7 +4421,7 @@ func (a *Agent) syncPanes(panes []tmux.Pane, procSnap *proc.Snapshot) {
 	seenPanes := make(map[string]bool)
 
 	var updatedSessions []map[string]any
-	var activeSessionIDs []string
+	activeSessionIDs := []string{}
 
 	for _, pane := range panes {
 		seenPanes[pane.PaneID] = true
