@@ -38,6 +38,31 @@ export function registerAgentWebSocket(app: FastifyInstance): void {
         authenticated: false,
       };
 
+      // Buffer messages that arrive before authentication completes.
+      // The WebSocket is already open when this handler runs, so the
+      // client may send data before we finish the async token lookup.
+      const pendingMessages: Buffer[] = [];
+      let authenticated = false;
+
+      socket.on('message', async (data: Buffer) => {
+        if (!authenticated) {
+          pendingMessages.push(Buffer.from(data));
+          return;
+        }
+        await handleSocketMessage(app, socket, state, data);
+      });
+
+      socket.on('close', () => {
+        if (state.hostId) {
+          pubsub.removeAgentConnection(state.hostId);
+          app.log.info({ hostId: state.hostId }, 'Agent disconnected');
+        }
+      });
+
+      socket.on('error', (error: unknown) => {
+        app.log.error({ error, hostId: state.hostId }, 'Agent WebSocket error');
+      });
+
       // Extract token from Authorization header
       const authHeader = request.headers.authorization;
       const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
@@ -56,43 +81,44 @@ export function registerAgentWebSocket(app: FastifyInstance): void {
 
       state.hostId = hostId;
       state.authenticated = true;
+      authenticated = true;
       app.log.info({ hostId }, 'Agent connection authenticated');
 
       // Track connected agent immediately; hello may arrive slightly later
       pubsub.addAgentConnection(hostId, socket, 0);
 
-      socket.on('message', async (data: Buffer) => {
-        try {
-          const raw = JSON.parse(data.toString());
-          const parseResult = AgentMessageSchema.safeParse(raw);
-
-          if (!parseResult.success) {
-            app.log.warn({ error: parseResult.error }, 'Invalid agent message');
-            sendAck(socket, 0, 'error', 'Invalid message format');
-            return;
-          }
-
-          const message = parseResult.data;
-
-          // Process message based on type
-          await processAgentMessage(app, socket, state, message);
-        } catch (error) {
-          app.log.error({ error }, 'Error processing agent message');
-        }
-      });
-
-      socket.on('close', () => {
-        if (state.hostId) {
-          pubsub.removeAgentConnection(state.hostId);
-          app.log.info({ hostId: state.hostId }, 'Agent disconnected');
-        }
-      });
-
-      socket.on('error', (error: unknown) => {
-        app.log.error({ error, hostId: state.hostId }, 'Agent WebSocket error');
-      });
+      // Drain any messages that arrived during authentication
+      for (const buffered of pendingMessages) {
+        await handleSocketMessage(app, socket, state, buffered);
+      }
+      pendingMessages.length = 0;
     }
   );
+}
+
+async function handleSocketMessage(
+  app: FastifyInstance,
+  socket: WebSocket,
+  state: AgentState,
+  data: Buffer
+): Promise<void> {
+  try {
+    const raw = JSON.parse(data.toString());
+    const parseResult = AgentMessageSchema.safeParse(raw);
+
+    if (!parseResult.success) {
+      app.log.warn({ error: parseResult.error }, 'Invalid agent message');
+      sendAck(socket, 0, 'error', 'Invalid message format');
+      return;
+    }
+
+    const message = parseResult.data;
+
+    // Process message based on type
+    await processAgentMessage(app, socket, state, message);
+  } catch (error) {
+    app.log.error({ error }, 'Error processing agent message');
+  }
 }
 
 async function processAgentMessage(
