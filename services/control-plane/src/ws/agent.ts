@@ -42,10 +42,14 @@ export function registerAgentWebSocket(app: FastifyInstance): void {
       // The WebSocket is already open when this handler runs, so the
       // client may send data before we finish the async token lookup.
       const pendingMessages: Buffer[] = [];
-      let authenticated = false;
+      const MAX_PENDING_MESSAGES = 100;
 
       socket.on('message', async (data: Buffer) => {
-        if (!authenticated) {
+        if (!state.authenticated) {
+          if (pendingMessages.length >= MAX_PENDING_MESSAGES) {
+            app.log.warn({ count: pendingMessages.length }, 'Dropping message: pre-auth buffer full');
+            return;
+          }
           pendingMessages.push(Buffer.from(data));
           return;
         }
@@ -81,15 +85,19 @@ export function registerAgentWebSocket(app: FastifyInstance): void {
 
       state.hostId = hostId;
       state.authenticated = true;
-      authenticated = true;
       app.log.info({ hostId }, 'Agent connection authenticated');
 
-      // Track connected agent immediately; hello may arrive slightly later
+      // Track connected agent immediately with seq=0; handleAgentHello will
+      // re-register with the correct lastAckedSeq from the database.
       pubsub.addAgentConnection(hostId, socket, 0);
 
       // Drain any messages that arrived during authentication
       for (const buffered of pendingMessages) {
-        await handleSocketMessage(app, socket, state, buffered);
+        try {
+          await handleSocketMessage(app, socket, state, buffered);
+        } catch (error) {
+          app.log.error({ error, hostId }, 'Error draining buffered message');
+        }
       }
       pendingMessages.length = 0;
     }
