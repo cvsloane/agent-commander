@@ -27,6 +27,13 @@ interface AgentState {
   authenticated: boolean;
 }
 
+/**
+ * Registers the `/v1/agent/connect` WebSocket endpoint for agentd connections.
+ *
+ * Event listeners are attached synchronously before async token validation so
+ * that early messages (e.g. `agent.hello`) are buffered rather than silently
+ * dropped. Once authentication succeeds the buffer is drained in order.
+ */
 export function registerAgentWebSocket(app: FastifyInstance): void {
   app.get(
     '/v1/agent/connect',
@@ -104,6 +111,7 @@ export function registerAgentWebSocket(app: FastifyInstance): void {
   );
 }
 
+/** Parses a raw WebSocket frame, validates it against the agent message schema, and dispatches it. */
 async function handleSocketMessage(
   app: FastifyInstance,
   socket: WebSocket,
