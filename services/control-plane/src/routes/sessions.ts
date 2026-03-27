@@ -1,11 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ulid } from 'ulid';
-import { randomUUID } from 'node:crypto';
 import { CommandRequestSchema, CommandPayloadSchema, CommandsDispatchMessageSchema, UpdateSessionRequestSchema, BulkOperationRequestSchema, CopyToSessionPayloadSchema } from '@agent-command/schema';
 import * as db from '../db/index.js';
 import { pubsub } from '../services/pubsub.js';
 import { consoleSubscriptions } from '../services/consoleSubscriptions.js';
+import { spawnSessionOnHost } from '../services/sessionSpawn.js';
+import { bootstrapSessionMemory } from '../services/sessionMemory.js';
 import { hasRole } from '../auth/rbac.js';
 
 // Pending command result tracking for cross-host operations
@@ -790,114 +791,34 @@ export function registerSessionRoutes(app: FastifyInstance): void {
 
     const { host_id, provider, working_directory, title, flags, group_id, tmux } = bodyResult.data;
 
-    // Verify host exists
-    const host = await db.getHostById(host_id);
-    if (!host) {
-      return reply.status(404).send({ error: 'Host not found' });
-    }
-
-    // Check if host allows spawning (could add a flag to host capabilities)
-    const capabilities = host.capabilities as Record<string, unknown> | null;
-    if (capabilities?.spawn === false) {
-      return reply.status(403).send({ error: 'Host does not allow remote session spawning' });
-    }
-
-    // Check if agent is connected
-    if (!pubsub.isAgentConnected(host_id)) {
-      return reply.status(503).send({ error: 'Host is offline' });
-    }
-
-    // Create session record with STARTING status
-    const sessionId = randomUUID();
-    let session = await db.upsertSession(host_id, {
-      id: sessionId,
-      kind: 'tmux_pane',
-      provider,
-      status: 'STARTING',
-      title: title || `${provider} session`,
-      cwd: working_directory,
-    });
-
-    // Track project usage for autocomplete
     try {
-      await db.touchProject({
-        user_id: request.user.id,
+      const result = await spawnSessionOnHost({
+        actorUserId: request.user.id,
         host_id,
-        path: working_directory,
-        display_name: title || null,
+        provider,
+        working_directory,
+        title,
+        flags,
+        group_id,
+        tmux,
       });
-    } catch {
-      // Ignore project tracking errors
+      void bootstrapSessionMemory({
+        host_id,
+        session_id: result.session.id,
+        source: 'automatic',
+      }).catch((error) => {
+        request.log.warn({ error, sessionId: result.session.id }, 'Failed to bootstrap session memory');
+      });
+      return result;
+    } catch (error) {
+      const message = (error as Error).message;
+      const status =
+        message === 'Host not found' ? 404
+        : message === 'Host does not allow remote session spawning' ? 403
+        : message.startsWith('Host does not advertise provider support') ? 400
+        : message === 'Host is offline' || message === 'Failed to send command to agent' ? 503
+        : 500;
+      return reply.status(status).send({ error: message });
     }
-
-    // Assign to group if specified
-    if (group_id) {
-      const updated = await db.assignSessionGroup(sessionId, group_id);
-      if (updated) {
-        session = updated;
-      }
-    }
-
-    // Dispatch spawn command to agent
-    const cmdId = ulid();
-    const dispatchMessage = CommandsDispatchMessageSchema.parse({
-      v: 1,
-      type: 'commands.dispatch',
-      ts: new Date().toISOString(),
-      payload: {
-        cmd_id: cmdId,
-        session_id: sessionId,
-        command: {
-          type: 'spawn_session',
-          payload: {
-            provider,
-            working_directory,
-            title,
-            flags,
-            group_id,
-            tmux,
-          },
-        },
-      },
-    });
-
-    const sent = pubsub.sendToAgent(host_id, dispatchMessage);
-    if (!sent) {
-      try {
-        const failedSession = await db.upsertSession(host_id, {
-          id: sessionId,
-          kind: 'tmux_pane',
-          provider,
-          status: 'ERROR',
-          title: title || `${provider} session`,
-          cwd: working_directory,
-          metadata: {
-            status_detail: 'Failed to send spawn command to agent',
-          },
-        });
-        pubsub.publishSessionsChanged([failedSession]);
-        await db.createAuditLog('session.spawn_failed', 'session', sessionId, {
-          host_id,
-          provider,
-          working_directory,
-        }, request.user.id);
-      } catch {
-        // Ignore failures while marking spawn errors
-      }
-      return reply.status(503).send({ error: 'Failed to send command to agent' });
-    }
-
-    // Publish session created
-    pubsub.publishSessionsChanged([session]);
-
-    // Log audit
-    await db.createAuditLog('session.spawn', 'session', sessionId, {
-      cmd_id: cmdId,
-      host_id,
-      provider,
-      working_directory,
-    }, request.user.id);
-
-    return { session, cmd_id: cmdId };
   });
 }

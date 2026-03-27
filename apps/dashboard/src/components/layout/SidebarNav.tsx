@@ -7,6 +7,8 @@ import {
   Layers,
   Server,
   Boxes,
+  Workflow,
+  Brain,
   Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -41,6 +43,16 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
       href: '/orchestrator',
       label: 'Orchestrator',
       icon: <Bell className="h-4 w-4" />,
+    },
+    {
+      href: '/automation',
+      label: 'Automation',
+      icon: <Workflow className="h-4 w-4" />,
+    },
+    {
+      href: '/memory',
+      label: 'Memory',
+      icon: <Brain className="h-4 w-4" />,
     },
     {
       href: '/sessions',

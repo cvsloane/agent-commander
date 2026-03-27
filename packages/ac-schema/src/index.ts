@@ -16,6 +16,9 @@ export * from './settings.js';
 // Project schemas
 export * from './project.js';
 
+// Repo schemas
+export * from './repo.js';
+
 // Event schemas
 export * from './event.js';
 
@@ -39,3 +42,9 @@ export * from './context.js';
 
 // Tool Event schemas
 export * from './toolEvent.js';
+
+// Memory schemas
+export * from './memory.js';
+
+// Automation schemas
+export * from './automation.js';

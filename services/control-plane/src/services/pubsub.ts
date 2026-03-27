@@ -1,5 +1,16 @@
 import type { WebSocket } from '@fastify/websocket';
-import type { ServerToUIMessage, Session, Approval, ToolEvent } from '@agent-command/schema';
+import type {
+  ServerToUIMessage,
+  Session,
+  Approval,
+  ToolEvent,
+  AutomationRun,
+  AutomationRunEvent,
+  AutomationRuntimeState,
+  AutomationWakeup,
+  GovernanceApproval,
+  WorkItem,
+} from '@agent-command/schema';
 import { clawdbotNotifier } from './clawdbot.js';
 
 // Tools that don't block workflow - user can respond async
@@ -45,7 +56,12 @@ type TopicType =
   | 'console'
   | 'snapshots'
   | 'tool_events'
-  | 'session_usage';
+  | 'session_usage'
+  | 'automation_runs'
+  | 'automation_run_events'
+  | 'automation_wakeups'
+  | 'governance_approvals'
+  | 'work_items';
 
 interface Subscription {
   type: TopicType;
@@ -138,6 +154,12 @@ class PubSub {
       'tool_event.started': 'tool_events',
       'tool_event.completed': 'tool_events',
       'session_usage.updated': 'session_usage',
+      'automation.run.updated': 'automation_runs',
+      'automation.run.event': 'automation_run_events',
+      'automation.runtime_state.updated': 'automation_runs',
+      'automation.wakeup.updated': 'automation_wakeups',
+      'governance_approval.updated': 'governance_approvals',
+      'work_item.updated': 'work_items',
     };
 
     const topic = topicMap[message.type];
@@ -270,6 +292,81 @@ class PubSub {
         if (!filter.session_id || filter.session_id === payload.session_id) {
           return message;
         }
+      }
+      return null;
+    }
+
+    if (message.type === 'automation.run.updated') {
+      const payload = message.payload as AutomationRun;
+      for (const sub of relevantSubs) {
+        const filter = sub.filter || {};
+        if (filter.automation_agent_id && filter.automation_agent_id !== payload.automation_agent_id) {
+          continue;
+        }
+        if (filter.status && filter.status !== payload.status) {
+          continue;
+        }
+        return message;
+      }
+      return null;
+    }
+
+    if (message.type === 'automation.run.event') {
+      const payload = message.payload as AutomationRunEvent;
+      for (const sub of relevantSubs) {
+        const filter = sub.filter || {};
+        if (filter.automation_run_id && filter.automation_run_id !== payload.automation_run_id) {
+          continue;
+        }
+        return message;
+      }
+      return null;
+    }
+
+    if (message.type === 'automation.wakeup.updated') {
+      const payload = message.payload as AutomationWakeup;
+      for (const sub of relevantSubs) {
+        const filter = sub.filter || {};
+        if (filter.automation_agent_id && filter.automation_agent_id !== payload.automation_agent_id) {
+          continue;
+        }
+        if (filter.status && filter.status !== payload.status) {
+          continue;
+        }
+        return message;
+      }
+      return null;
+    }
+
+    if (message.type === 'governance_approval.updated') {
+      const payload = message.payload as GovernanceApproval;
+      for (const sub of relevantSubs) {
+        const filter = sub.filter || {};
+        if (filter.status && filter.status !== payload.status) {
+          continue;
+        }
+        return message;
+      }
+      return null;
+    }
+
+    if (message.type === 'work_item.updated') {
+      const payload = message.payload as WorkItem;
+      for (const sub of relevantSubs) {
+        const filter = sub.filter || {};
+        if (filter.status && filter.status !== payload.status) {
+          continue;
+        }
+        if (filter.repo_id && filter.repo_id !== payload.repo_id) {
+          continue;
+        }
+        if (
+          filter.assigned_automation_agent_id &&
+          filter.assigned_automation_agent_id !== payload.assigned_automation_agent_id
+        ) {
+          continue;
+        }
+        return message;
       }
       return null;
     }
@@ -593,6 +690,60 @@ class PubSub {
         session_id: sessionId,
         event,
       },
+    });
+  }
+
+  publishAutomationRunUpdated(run: AutomationRun): void {
+    this.publishToUI({
+      v: 1,
+      type: 'automation.run.updated',
+      ts: new Date().toISOString(),
+      payload: run,
+    });
+  }
+
+  publishAutomationRunEvent(event: AutomationRunEvent): void {
+    this.publishToUI({
+      v: 1,
+      type: 'automation.run.event',
+      ts: new Date().toISOString(),
+      payload: event,
+    });
+  }
+
+  publishAutomationRuntimeStateUpdated(runtimeState: AutomationRuntimeState): void {
+    this.publishToUI({
+      v: 1,
+      type: 'automation.runtime_state.updated',
+      ts: new Date().toISOString(),
+      payload: runtimeState,
+    });
+  }
+
+  publishAutomationWakeupUpdated(wakeup: AutomationWakeup): void {
+    this.publishToUI({
+      v: 1,
+      type: 'automation.wakeup.updated',
+      ts: new Date().toISOString(),
+      payload: wakeup,
+    });
+  }
+
+  publishGovernanceApprovalUpdated(approval: GovernanceApproval): void {
+    this.publishToUI({
+      v: 1,
+      type: 'governance_approval.updated',
+      ts: new Date().toISOString(),
+      payload: approval,
+    });
+  }
+
+  publishWorkItemUpdated(workItem: WorkItem): void {
+    this.publishToUI({
+      v: 1,
+      type: 'work_item.updated',
+      ts: new Date().toISOString(),
+      payload: workItem,
     });
   }
 

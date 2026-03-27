@@ -1,6 +1,7 @@
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import { createHash } from 'node:crypto';
+import path from 'node:path';
 import { config } from '../config.js';
 import type {
   Host,
@@ -19,6 +20,7 @@ import type {
   ToolStat,
   SessionUsageSummary,
   Project,
+  Repo,
 } from '@agent-command/schema';
 
 const { Pool } = pg;
@@ -29,6 +31,152 @@ export const pool = new Pool({
 });
 
 let warnedMissingTokenSha = false;
+
+export function normalizeGitRemote(remote: string): string {
+  const trimmed = remote.trim();
+  if (!trimmed) return trimmed;
+
+  let normalized = trimmed.replace(/\\/g, '/');
+  if (/^[^@]+@[^:]+:.+$/.test(normalized)) {
+    const [userHost, repoPath] = normalized.split(':', 2);
+    normalized = `ssh://${userHost}/${repoPath}`;
+  }
+
+  normalized = normalized
+    .replace(/\.git$/i, '')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+
+  return normalized;
+}
+
+export function normalizeRepoRoot(repoRoot: string): string {
+  return repoRoot.trim().replace(/\\/g, '/').replace(/\/+$/, '');
+}
+
+function deriveRepoDisplayName(
+  displayName?: string | null,
+  repoRoot?: string | null,
+  gitRemote?: string | null
+): string | null {
+  if (displayName?.trim()) return displayName.trim();
+  if (repoRoot?.trim()) {
+    const base = path.posix.basename(normalizeRepoRoot(repoRoot));
+    return base || null;
+  }
+  if (gitRemote?.trim()) {
+    const normalized = normalizeGitRemote(gitRemote);
+    const match = normalized.match(/\/([^/]+)$/);
+    return match?.[1] ?? null;
+  }
+  return null;
+}
+
+export async function resolveRepo(data: {
+  git_remote?: string | null;
+  repo_root?: string | null;
+  host_id?: string | null;
+  display_name?: string | null;
+}): Promise<Repo | null> {
+  const normalizedRemote = data.git_remote ? normalizeGitRemote(data.git_remote) : null;
+  const normalizedRoot = data.repo_root ? normalizeRepoRoot(data.repo_root) : null;
+
+  if (!normalizedRemote && !normalizedRoot) {
+    return null;
+  }
+
+  const repoRootHash = normalizedRoot
+    ? createHash('sha256').update(normalizedRoot).digest('hex')
+    : null;
+  const canonicalKey = normalizedRemote
+    ? `remote:${normalizedRemote}`
+    : `root:${repoRootHash}`;
+
+  const result = await pool.query(
+    `INSERT INTO repos (
+       canonical_key,
+       git_remote_normalized,
+       repo_root_hash,
+       display_name,
+       last_host_id,
+       last_repo_root
+     )
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (canonical_key) DO UPDATE SET
+       git_remote_normalized = COALESCE(EXCLUDED.git_remote_normalized, repos.git_remote_normalized),
+       repo_root_hash = COALESCE(EXCLUDED.repo_root_hash, repos.repo_root_hash),
+       display_name = COALESCE(EXCLUDED.display_name, repos.display_name),
+       last_host_id = COALESCE(EXCLUDED.last_host_id, repos.last_host_id),
+       last_repo_root = COALESCE(EXCLUDED.last_repo_root, repos.last_repo_root),
+       updated_at = NOW()
+     RETURNING *`,
+    [
+      canonicalKey,
+      normalizedRemote,
+      repoRootHash,
+      deriveRepoDisplayName(data.display_name, normalizedRoot, normalizedRemote),
+      data.host_id || null,
+      normalizedRoot,
+    ]
+  );
+
+  return result.rows[0] || null;
+}
+
+export async function getRepoById(id: string): Promise<Repo | null> {
+  const result = await pool.query('SELECT * FROM repos WHERE id = $1', [id]);
+  return result.rows[0] || null;
+}
+
+export async function listRepos(userId: string, filters?: {
+  q?: string;
+  limit?: number;
+}): Promise<Repo[]> {
+  let query = `
+    SELECT DISTINCT r.*
+    FROM repos r
+    WHERE (
+      EXISTS (
+        SELECT 1
+        FROM sessions s
+        WHERE s.repo_id = r.id
+          AND s.user_id = $1
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM memory_entries me
+        WHERE me.repo_id = r.id
+          AND me.user_id = $1
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM work_items wi
+        WHERE wi.repo_id = r.id
+          AND wi.user_id = $1
+      )
+    )`;
+  const params: unknown[] = [userId];
+  let paramIndex = 2;
+
+  if (filters?.q) {
+    query += ` AND (
+      r.display_name ILIKE $${paramIndex}
+      OR r.canonical_key ILIKE $${paramIndex}
+      OR COALESCE(r.last_repo_root, '') ILIKE $${paramIndex}
+    )`;
+    params.push(`%${filters.q}%`);
+    paramIndex += 1;
+  }
+
+  query += ' ORDER BY r.updated_at DESC, r.created_at DESC';
+  if (filters?.limit) {
+    query += ` LIMIT $${paramIndex++}`;
+    params.push(filters.limit);
+  }
+
+  const result = await pool.query(query, params);
+  return result.rows;
+}
 
 // Host queries
 export async function upsertHost(host: {
@@ -197,14 +345,25 @@ export async function createAgentToken(hostId: string, token: string): Promise<v
 export async function upsertSession(hostId: string, session: SessionUpsert): Promise<Session> {
   const metadataProvided = session.metadata !== undefined;
   const idledAtProvided = session.idled_at !== undefined;
+  const resolvedRepoId = session.repo_id
+    ?? (session.git_remote || session.repo_root
+      ? (await resolveRepo({
+          git_remote: session.git_remote || null,
+          repo_root: session.repo_root || null,
+          host_id: hostId,
+          display_name: session.title || null,
+        }))?.id ?? null
+      : null);
   const result = await pool.query(
      `INSERT INTO sessions (
-       id, host_id, kind, provider, status, title, cwd, repo_root,
+       id, host_id, user_id, repo_id, kind, provider, status, title, cwd, repo_root,
        git_remote, git_branch, tmux_pane_id, tmux_target, metadata, last_activity_at,
        group_id, forked_from, fork_depth, archived_at, idled_at
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
      ON CONFLICT (id) DO UPDATE SET
+       user_id = COALESCE(EXCLUDED.user_id, sessions.user_id),
+       repo_id = COALESCE(EXCLUDED.repo_id, sessions.repo_id),
        status = EXCLUDED.status,
        title = COALESCE(EXCLUDED.title, sessions.title),
        cwd = COALESCE(EXCLUDED.cwd, sessions.cwd),
@@ -213,17 +372,19 @@ export async function upsertSession(hostId: string, session: SessionUpsert): Pro
        git_branch = COALESCE(EXCLUDED.git_branch, sessions.git_branch),
        tmux_pane_id = EXCLUDED.tmux_pane_id,
        tmux_target = EXCLUDED.tmux_target,
-       metadata = CASE WHEN $20 THEN EXCLUDED.metadata ELSE sessions.metadata END,
+       metadata = CASE WHEN $22 THEN EXCLUDED.metadata ELSE sessions.metadata END,
        last_activity_at = COALESCE(EXCLUDED.last_activity_at, sessions.last_activity_at),
        group_id = COALESCE(EXCLUDED.group_id, sessions.group_id),
        forked_from = COALESCE(EXCLUDED.forked_from, sessions.forked_from),
        fork_depth = COALESCE(EXCLUDED.fork_depth, sessions.fork_depth),
        archived_at = COALESCE(EXCLUDED.archived_at, sessions.archived_at),
-       idled_at = CASE WHEN $21 THEN EXCLUDED.idled_at ELSE sessions.idled_at END
+       idled_at = CASE WHEN $23 THEN EXCLUDED.idled_at ELSE sessions.idled_at END
      RETURNING *`,
     [
       session.id,
       hostId,
+      session.user_id ?? null,
+      resolvedRepoId,
       session.kind,
       session.provider,
       session.status,
@@ -375,6 +536,21 @@ export async function getSessionsPage(
 
 export async function getSessionById(id: string): Promise<Session | null> {
   const result = await pool.query('SELECT * FROM sessions WHERE id = $1', [id]);
+  return result.rows[0] || null;
+}
+
+export async function patchSessionMetadata(
+  id: string,
+  patch: Record<string, unknown>
+): Promise<Session | null> {
+  const result = await pool.query(
+    `UPDATE sessions
+     SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb,
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [id, JSON.stringify(patch)]
+  );
   return result.rows[0] || null;
 }
 
@@ -1228,11 +1404,11 @@ export async function forkSession(
 
   const result = await pool.query(
     `INSERT INTO sessions (
-       id, host_id, kind, provider, status, title, cwd, repo_root,
+       id, host_id, user_id, repo_id, kind, provider, status, title, cwd, repo_root,
        git_remote, git_branch, tmux_pane_id, tmux_target, metadata,
        forked_from, fork_depth, group_id
      )
-     SELECT $1, $2, kind, provider, 'STARTING',
+     SELECT $1, $2, user_id, repo_id, kind, provider, 'STARTING',
             COALESCE($5, title) || ' (fork)',
             COALESCE($3, cwd), repo_root, git_remote, git_branch,
             NULL, NULL, metadata, id, fork_depth + 1, $4

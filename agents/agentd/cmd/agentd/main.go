@@ -1649,12 +1649,23 @@ func applyParsedUsageEntries(fields map[string]any, rawJSON map[string]any) {
 }
 
 func (a *Agent) sendHello() error {
+	providers := map[string]bool{
+		"claude_code": commandAvailable("claude"),
+		"codex":       commandAvailable("codex"),
+		"gemini_cli":  commandAvailable("gemini"),
+		"opencode":    commandAvailable("opencode"),
+		"cursor":      commandAvailable("cursor"),
+		"aider":       commandAvailable("aider"),
+		"continue":    commandAvailable("continue"),
+		"shell":       true,
+	}
+
 	payload := map[string]any{
 		"host": map[string]any{
 			"id":            a.cfg.Host.ID,
 			"name":          a.cfg.Host.Name,
 			"agent_version": "0.1.0",
-			"capabilities": map[string]bool{
+			"capabilities": map[string]any{
 				"tmux":            true,
 				"spawn":           a.cfg.Security.AllowSpawn,
 				"kill":            a.cfg.Security.AllowKill,
@@ -1662,6 +1673,7 @@ func (a *Agent) sendHello() error {
 				"terminal":        true,
 				"claude_hooks":    true,
 				"codex_exec_json": true,
+				"providers":       providers,
 			},
 		},
 		"resume": map[string]any{
@@ -1670,6 +1682,14 @@ func (a *Agent) sendHello() error {
 	}
 
 	return a.wsClient.Send("agent.hello", payload)
+}
+
+func commandAvailable(name string) bool {
+	if strings.TrimSpace(name) == "" {
+		return false
+	}
+	_, err := exec.LookPath(name)
+	return err == nil
 }
 
 func (a *Agent) handleMessage(msgType string, payload json.RawMessage) {

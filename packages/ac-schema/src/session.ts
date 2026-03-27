@@ -68,6 +68,13 @@ export const SessionMetadataSchema = z.object({
     tool: z.string().optional(),
     summary: z.string().optional(),
   }).nullable().optional(),
+  memory_bootstrap: z.object({
+    sent_at: z.string().datetime({ offset: true }),
+    source: z.enum(['automatic', 'automation']).default('automatic'),
+    repo_entry_ids: z.array(z.string().uuid()).default([]),
+    global_entry_ids: z.array(z.string().uuid()).default([]),
+    total_entries: z.number().int().nonnegative().default(0),
+  }).optional(),
 });
 export type SessionMetadata = z.infer<typeof SessionMetadataSchema>;
 
@@ -75,6 +82,8 @@ export type SessionMetadata = z.infer<typeof SessionMetadataSchema>;
 export const SessionSchema = z.object({
   id: z.string().uuid(),
   host_id: z.string().uuid(),
+  user_id: z.string().uuid().nullable().optional(),
+  repo_id: z.string().uuid().nullable().optional(),
   kind: SessionKindSchema,
   provider: SessionProviderSchema,
   status: SessionStatusSchema,
@@ -104,6 +113,8 @@ export type Session = z.infer<typeof SessionSchema>;
 export const SessionUpsertSchema = z.object({
   id: z.string().uuid(),
   host_id: z.string().uuid().optional(),
+  user_id: z.string().uuid().nullable().optional(),
+  repo_id: z.string().uuid().nullable().optional(),
   kind: SessionKindSchema,
   provider: SessionProviderSchema,
   status: SessionStatusSchema,

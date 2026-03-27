@@ -5,6 +5,14 @@ import { EventAppendPayloadSchema } from './event.js';
 import { CommandDispatchSchema, CommandResultSchema } from './command.js';
 import { ApprovalDecisionPayloadSchema } from './approval.js';
 import {
+  AutomationRunSchema,
+  AutomationRunEventSchema,
+  AutomationRuntimeStateSchema,
+  AutomationWakeupSchema,
+  GovernanceApprovalSchema,
+  WorkItemSchema,
+} from './automation.js';
+import {
   MCPServersResponseMessageSchema,
   MCPConfigResponseMessageSchema,
   MCPProjectConfigResponseMessageSchema,
@@ -283,6 +291,11 @@ export const UISubscribeMessageSchema = MessageEnvelopeBaseSchema.extend({
           'snapshots',
           'tool_events',
           'session_usage',
+          'automation_runs',
+          'automation_run_events',
+          'automation_wakeups',
+          'governance_approvals',
+          'work_items',
         ]),
         filter: z.record(z.unknown()).optional(),
       })
@@ -390,6 +403,42 @@ export const UISessionUsageUpdatedMessageSchema = ServerMessageEnvelopeSchema.ex
 });
 export type UISessionUsageUpdatedMessage = z.infer<typeof UISessionUsageUpdatedMessageSchema>;
 
+export const UIAutomationRunUpdatedMessageSchema = ServerMessageEnvelopeSchema.extend({
+  type: z.literal('automation.run.updated'),
+  payload: AutomationRunSchema,
+});
+export type UIAutomationRunUpdatedMessage = z.infer<typeof UIAutomationRunUpdatedMessageSchema>;
+
+export const UIAutomationRunEventMessageSchema = ServerMessageEnvelopeSchema.extend({
+  type: z.literal('automation.run.event'),
+  payload: AutomationRunEventSchema,
+});
+export type UIAutomationRunEventMessage = z.infer<typeof UIAutomationRunEventMessageSchema>;
+
+export const UIAutomationWakeupUpdatedMessageSchema = ServerMessageEnvelopeSchema.extend({
+  type: z.literal('automation.wakeup.updated'),
+  payload: AutomationWakeupSchema,
+});
+export type UIAutomationWakeupUpdatedMessage = z.infer<typeof UIAutomationWakeupUpdatedMessageSchema>;
+
+export const UIGovernanceApprovalUpdatedMessageSchema = ServerMessageEnvelopeSchema.extend({
+  type: z.literal('governance_approval.updated'),
+  payload: GovernanceApprovalSchema,
+});
+export type UIGovernanceApprovalUpdatedMessage = z.infer<typeof UIGovernanceApprovalUpdatedMessageSchema>;
+
+export const UIWorkItemUpdatedMessageSchema = ServerMessageEnvelopeSchema.extend({
+  type: z.literal('work_item.updated'),
+  payload: WorkItemSchema,
+});
+export type UIWorkItemUpdatedMessage = z.infer<typeof UIWorkItemUpdatedMessageSchema>;
+
+export const UIAutomationRuntimeStateUpdatedMessageSchema = ServerMessageEnvelopeSchema.extend({
+  type: z.literal('automation.runtime_state.updated'),
+  payload: AutomationRuntimeStateSchema,
+});
+export type UIAutomationRuntimeStateUpdatedMessage = z.infer<typeof UIAutomationRuntimeStateUpdatedMessageSchema>;
+
 // Union of all UI messages from server
 export const ServerToUIMessageSchema = z.discriminatedUnion('type', [
   SessionsChangedMessageSchema,
@@ -401,5 +450,11 @@ export const ServerToUIMessageSchema = z.discriminatedUnion('type', [
   UIToolEventStartedMessageSchema,
   UIToolEventCompletedMessageSchema,
   UISessionUsageUpdatedMessageSchema,
+  UIAutomationRunUpdatedMessageSchema,
+  UIAutomationRunEventMessageSchema,
+  UIAutomationWakeupUpdatedMessageSchema,
+  UIGovernanceApprovalUpdatedMessageSchema,
+  UIWorkItemUpdatedMessageSchema,
+  UIAutomationRuntimeStateUpdatedMessageSchema,
 ]);
 export type ServerToUIMessage = z.infer<typeof ServerToUIMessageSchema>;

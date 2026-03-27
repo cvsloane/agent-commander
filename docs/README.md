@@ -13,6 +13,7 @@ Core guides:
 - [Sessions](sessions.md)
 - [Console Streaming](console.md)
 - [Orchestrator](orchestrator.md)
+- [Automation and Memory](automation-memory.md)
 - [Approvals](approvals.md)
 - [Visualizer](visualizer.md)
 - [Alerts and Notifications](alerts.md)

@@ -13,7 +13,7 @@ short lived JWT from the dashboard in the `Authorization: Bearer` header.
 - `POST /v1/sessions/:id/commands` - dispatch a command to agentd.
 - `POST /v1/sessions/:id/fork` - fork a session into a new tmux window.
 - `POST /v1/sessions/:id/copy-to` - copy pane content into another session.
-- `POST /v1/sessions/spawn` - spawn a new session from templates.
+- `POST /v1/sessions/spawn` - spawn a new session and automatically bootstrap repo/global memory when available.
 - `POST /v1/sessions/bulk` - bulk archive/unarchive/idle/terminate.
 - `GET /v1/sessions/:id/events` - event timeline.
 - `GET /v1/sessions/:id/tool-events` - tool event timeline.
@@ -47,6 +47,26 @@ short lived JWT from the dashboard in the `Authorization: Bearer` header.
 ## Search and projects
 - `GET /v1/search` - full text search across sessions, events, snapshots.
 - `GET /v1/projects` - list projects for a user.
+- `GET /v1/repos` - list canonical repos the user has touched.
+
+## Memory
+- `GET /v1/memory/search` - search repo, global, or working memory, with semantic reranking when pgvector is available.
+- `POST /v1/memory` - create a memory entry.
+
+## Automation
+- `GET /v1/automation-agents` - list automation agents.
+- `POST /v1/automation-agents` - create an automation agent.
+- `PATCH /v1/automation-agents/:id` - update status or policy fields.
+- `GET /v1/automation-agents/:id/preflight` - inspect execution preflight for a specific agent, optionally scoped by `repo_id`.
+- `POST /v1/automation-agents/:id/wake` - queue a manual wakeup.
+- `GET /v1/automation-runs` - list recent automation runs.
+- `GET /v1/automation-runs/:id/events` - ordered run timeline events.
+- `GET /v1/automation-wakeups` - list queued and historical wakeups.
+- `GET /v1/governance-approvals` - list governance approvals.
+- `POST /v1/governance-approvals/:id/decide` - approve or deny a governance approval.
+- `GET /v1/work-items` - list worker queue items.
+- `POST /v1/work-items` - create a work item.
+- `PATCH /v1/work-items/:id` - update status, priority, or assignment.
 
 ## Context and settings
 - `GET /v1/sessions/:id/context` - list context keys.

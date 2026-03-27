@@ -10,6 +10,7 @@ const ConfigSchema = z.object({
   TAILNET_DOMAIN: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default('gpt-4o-mini'),
+  OPENAI_EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
 });
 
 const parseConfig = () => {
