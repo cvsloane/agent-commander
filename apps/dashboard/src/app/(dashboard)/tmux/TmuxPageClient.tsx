@@ -439,10 +439,6 @@ export default function TmuxPageClient() {
     updateTmuxParams({ session_id: sessionId });
   };
 
-  const handleToggleCluster = (clusterKey: string) => {
-    setExpandedClusterKey((current) => (current === clusterKey ? null : clusterKey));
-  };
-
   const handleAssignGroup = async (groupId: string | null) => {
     if (!selectedSessionId) return;
     try {
@@ -626,20 +622,24 @@ export default function TmuxPageClient() {
                       const expanded = expandedClusterKey === cluster.key;
                       const active = cluster.key === selectedClusterKey;
                       return (
-                        <div
+                        <details
                           key={cluster.key}
+                          open={expanded}
+                          onToggle={(event) => {
+                            const nextExpanded = event.currentTarget.open;
+                            setExpandedClusterKey(nextExpanded ? cluster.key : null);
+                          }}
                           className={cn(
                             'rounded-xl border bg-background transition-colors',
                             active && 'border-primary bg-primary/5'
                           )}
                         >
-                          <button
-                            type="button"
-                            onClick={() => handleToggleCluster(cluster.key)}
+                          <summary
                             className={cn(
-                              'flex w-full items-center justify-between gap-3 rounded-xl px-3 py-3 text-left transition-colors',
+                              'flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-3 py-3 text-left transition-colors marker:hidden [&::-webkit-details-marker]:hidden',
                               expanded ? 'bg-accent/40' : 'hover:bg-accent/30'
                             )}
+                            aria-expanded={expanded}
                           >
                             <div className="min-w-0 flex-1 space-y-1">
                               <div className="flex items-center gap-2">
@@ -672,13 +672,16 @@ export default function TmuxPageClient() {
                               <span className="text-[11px] text-muted-foreground" suppressHydrationWarning>
                                 {hydrated ? formatRelativeTime(cluster.lastActivityAt) : '—'}
                               </span>
+                              <span className="text-[11px] font-medium text-muted-foreground">
+                                {expanded ? 'Collapse' : 'Expand'}
+                              </span>
                               {expanded ? (
                                 <ChevronDown className="h-4 w-4 text-muted-foreground" />
                               ) : (
                                 <ChevronRight className="h-4 w-4 text-muted-foreground" />
                               )}
                             </div>
-                          </button>
+                          </summary>
 
                           {expanded && (
                             <div className="space-y-3 border-t px-3 pb-3 pt-3">
@@ -795,7 +798,7 @@ export default function TmuxPageClient() {
                               </div>
                             </div>
                           )}
-                        </div>
+                        </details>
                       );
                     })}
                   </div>
