@@ -28,11 +28,20 @@ export const RenameSessionPayloadSchema = z.object({
 export type RenameSessionPayload = z.infer<typeof RenameSessionPayloadSchema>;
 
 // Spawn session command payload (interactive tmux session)
+export const SpawnSessionMemoryFileSchema = z.object({
+  base_dir: z.enum(['working_directory', 'home']),
+  relative_path: z.string().min(1),
+  content: z.string(),
+  scope: z.enum(['repo', 'global', 'local']).default('repo'),
+});
+export type SpawnSessionMemoryFile = z.infer<typeof SpawnSessionMemoryFileSchema>;
+
 export const SpawnSessionInteractivePayloadSchema = z.object({
   provider: SessionProviderSchema,
   working_directory: z.string(),
   title: z.string().optional(),
   flags: z.array(z.string()).optional(),
+  memory_files: z.array(SpawnSessionMemoryFileSchema).optional(),
   group_id: z.string().uuid().optional(),
   tmux: z
     .object({
@@ -50,6 +59,7 @@ export const SpawnSessionWorktreePayloadSchema = z.object({
   branch_name: z.string(),
   worktree_dir: z.string(),
   title: z.string(),
+  memory_files: z.array(SpawnSessionMemoryFileSchema).optional(),
   tmux: z.object({
     target_session: z.string().default('agents'),
     window_name: z.string(),

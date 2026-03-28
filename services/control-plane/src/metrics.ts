@@ -37,3 +37,46 @@ export function recordClawdbotNotificationDecision(params: {
   });
 }
 
+export const automationWakeupsTotal = new client.Counter({
+  name: 'agent_command_automation_wakeups_total',
+  help: 'Count of automation wakeup state transitions.',
+  labelNames: ['status', 'source'] as const,
+  registers: [registry],
+});
+
+export function recordAutomationWakeup(status: string, source: string): void {
+  automationWakeupsTotal.inc({ status, source });
+}
+
+export const automationRunsTotal = new client.Counter({
+  name: 'agent_command_automation_runs_total',
+  help: 'Count of automation run lifecycle transitions.',
+  labelNames: ['status', 'provider'] as const,
+  registers: [registry],
+});
+
+export function recordAutomationRun(status: string, provider: string): void {
+  automationRunsTotal.inc({ status, provider });
+}
+
+export const governanceApprovalsTotal = new client.Counter({
+  name: 'agent_command_governance_approvals_total',
+  help: 'Count of governance approval creations and decisions.',
+  labelNames: ['status', 'type'] as const,
+  registers: [registry],
+});
+
+export function recordGovernanceApproval(status: string, type: string): void {
+  governanceApprovalsTotal.inc({ status, type });
+}
+
+export const memorySearchesTotal = new client.Counter({
+  name: 'agent_command_memory_searches_total',
+  help: 'Count of memory search queries and result shapes.',
+  labelNames: ['scope', 'hit'] as const,
+  registers: [registry],
+});
+
+export function recordMemorySearch(scope: string, hit: boolean): void {
+  memorySearchesTotal.inc({ scope, hit: hit ? 'true' : 'false' });
+}

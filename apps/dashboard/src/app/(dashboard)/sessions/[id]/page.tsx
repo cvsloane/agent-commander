@@ -1,30 +1,22 @@
 'use client';
 
-import { useMemo, useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Check, X, Plug, Send, ChevronLeft, Moon, Sun, Power, Maximize2, Minimize2 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Pencil, Check, X, Plug, Send, ChevronLeft, Moon, Sun, Power } from 'lucide-react';
 import Link from 'next/link';
-import { assignSessionGroup, getGroups, getHosts, getSession, updateSession } from '@/lib/api';
+import { assignSessionGroup, updateSession } from '@/lib/api';
+import { SessionWorkbench } from '@/components/session/SessionWorkbench';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ConsoleView } from '@/components/ConsoleView';
-import { TerminalView } from '@/components/TerminalView';
-import { formatRelativeTime, getProviderIcon, getSessionDisplayName } from '@/lib/utils';
-import { useWebSocket } from '@/hooks/useWebSocket';
-import { useHydrated } from '@/hooks/useHydrated';
+import { getProviderIcon, getSessionDisplayName } from '@/lib/utils';
 import { MCPManagerModal, useMCPManager } from '@/components/mcp/MCPManagerModal';
-import { SessionAnalytics } from '@/components/analytics/SessionAnalytics';
 import { SendToSessionDialog } from '@/components/SendToSessionDialog';
-import { LinkedSessionsPanel } from '@/components/LinkedSessionsPanel';
-import { ActivityTimeline } from '@/components/ActivityTimeline';
-import { useUIStore } from '@/stores/ui';
+import { useSessionDetail } from '@/hooks/useSessionDetail';
 import { useTerminateSession } from '@/hooks/useTerminateSession';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useSessionIdle } from '@/hooks/useSessionIdle';
 import { cn } from '@/lib/utils';
-import type { Host, ServerToUIMessage, Session, SessionGroup } from '@agent-command/schema';
 
 export default function SessionDetailPage() {
   const params = useParams();
@@ -50,11 +42,7 @@ export default function SessionDetailPage() {
 
   // Console/Terminal view toggle - initialized from URL param
   const [viewMode, setViewMode] = useState<'console' | 'terminal'>(initialView);
-  const [maximized, setMaximized] = useState(false);
-  const { addRecentSession } = useUIStore();
-  const recentKeyRef = useRef<string | null>(null);
   const isMobile = useIsMobile();
-  const hydrated = useHydrated();
   const { setSessionIdle, isSessionIdlePending } = useSessionIdle();
   const { terminateSession, isTerminating } = useTerminateSession();
 
@@ -83,41 +71,7 @@ export default function SessionDetailPage() {
   };
 
   const queryClient = useQueryClient();
-  const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['session', sessionId],
-    queryFn: () => getSession(sessionId),
-    refetchInterval: false,
-  });
-  const refetchTimerRef = useRef<number | null>(null);
-
-  const scheduleRefetch = useCallback(() => {
-    if (refetchTimerRef.current) return;
-    refetchTimerRef.current = window.setTimeout(() => {
-      refetch();
-      refetchTimerRef.current = null;
-    }, 1000);
-  }, [refetch]);
-
-  const { data: groupsData } = useQuery({
-    queryKey: ['groups'],
-    queryFn: getGroups,
-  });
-  const flatGroups = useMemo<SessionGroup[]>(
-    () => groupsData?.flat ?? [],
-    [groupsData]
-  );
-
-  const { data: hostsData } = useQuery({
-    queryKey: ['hosts'],
-    queryFn: getHosts,
-  });
-  const hostById = useMemo(() => {
-    const map = new Map<string, Host>();
-    for (const host of hostsData?.hosts || []) {
-      map.set(host.id, host);
-    }
-    return map;
-  }, [hostsData]);
+  const { data, host, isLoading, error, refetch } = useSessionDetail(sessionId);
 
   // Sync view mode when URL parameter changes
   useEffect(() => {
@@ -131,21 +85,6 @@ export default function SessionDetailPage() {
       inputRef.current.select();
     }
   }, [isEditing]);
-
-  useEffect(() => {
-    if (!data?.session) return;
-    const session = data.session;
-    const key = `${session.id}|${session.title ?? ''}|${session.cwd ?? ''}|${session.provider ?? ''}`;
-    if (recentKeyRef.current === key) return;
-    recentKeyRef.current = key;
-    addRecentSession({
-      id: session.id,
-      title: session.title ?? null,
-      cwd: session.cwd ?? null,
-      status: session.status,
-      provider: session.provider,
-    });
-  }, [data?.session, addRecentSession]);
 
   const startEditing = () => {
     const session = data?.session;
@@ -230,86 +169,6 @@ export default function SessionDetailPage() {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [data?.session, sessionId, mcpManager]);
 
-  // Escape key exits maximized terminal
-  useEffect(() => {
-    if (!maximized) return;
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      // Don't steal Escape from text inputs / dialogs.
-      const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.tagName === 'SELECT' ||
-          target.isContentEditable)
-      ) {
-        return;
-      }
-      setMaximized(false);
-    };
-    document.addEventListener('keydown', handleEscape);
-    return () => document.removeEventListener('keydown', handleEscape);
-  }, [maximized]);
-
-  // Prevent background page scroll while the fullscreen terminal is active.
-  useEffect(() => {
-    if (!maximized) return;
-    if (typeof document === 'undefined') return;
-
-    const body = document.body;
-    const html = document.documentElement;
-    const prevBodyOverflow = body.style.overflow;
-    const prevHtmlOverflow = html.style.overflow;
-    const prevBodyPaddingRight = body.style.paddingRight;
-
-    // Avoid layout shift when hiding the scrollbar on desktop.
-    const scrollBarWidth = window.innerWidth - html.clientWidth;
-
-    body.style.overflow = 'hidden';
-    html.style.overflow = 'hidden';
-    if (scrollBarWidth > 0) {
-      body.style.paddingRight = `${scrollBarWidth}px`;
-    }
-
-    return () => {
-      body.style.overflow = prevBodyOverflow;
-      html.style.overflow = prevHtmlOverflow;
-      body.style.paddingRight = prevBodyPaddingRight;
-    };
-  }, [maximized]);
-
-  useWebSocket(
-    [
-      { type: 'events', filter: { session_id: sessionId } },
-      { type: 'sessions', filter: { session_id: sessionId } },
-    ],
-    (message: ServerToUIMessage) => {
-      if (message.type === 'sessions.changed') {
-        const payload = message.payload as { sessions: Session[] };
-        const updated = payload.sessions.find((s) => s.id === sessionId);
-        if (updated) {
-          queryClient.setQueryData(['session', sessionId], (current: any) => {
-            if (!current) return current;
-            return { ...current, session: { ...current.session, ...updated } };
-          });
-        }
-      }
-      if (message.type === 'events.appended') {
-        scheduleRefetch();
-      }
-    }
-  );
-
-  useEffect(() => {
-    return () => {
-      if (refetchTimerRef.current) {
-        window.clearTimeout(refetchTimerRef.current);
-        refetchTimerRef.current = null;
-      }
-    };
-  }, []);
-
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -331,15 +190,6 @@ export default function SessionDetailPage() {
   const tmuxMeta = session.metadata?.tmux as { session_name?: string; window_name?: string } | undefined;
   const windowName = tmuxMeta?.window_name?.trim();
   const tmuxLabel = session.tmux_target || (tmuxMeta?.session_name && windowName ? `${tmuxMeta.session_name}:${windowName}` : '');
-  const statusDetail = session.metadata?.status_detail
-    || session.metadata?.approval?.summary
-    || session.metadata?.approval?.reason
-    || (session.status === 'WAITING_FOR_APPROVAL'
-      ? 'Approval requested'
-      : session.status === 'WAITING_FOR_INPUT'
-        ? 'Input required'
-        : '');
-  const host = hostById.get(session.host_id);
   const isManualIdle = !!session.idled_at;
   const idlePending = isSessionIdlePending(sessionId);
 
@@ -522,186 +372,15 @@ export default function SessionDetailPage() {
         </div>
       </div>
 
-      <div className={cn('space-y-6', isMobile && 'space-y-4')}>
-        {/* Console/Terminal - full width */}
-        <Card className={cn(
-          'flex flex-col',
-          maximized
-            ? 'fixed inset-0 z-[60] rounded-none border-0 h-screen'
-            : isMobile ? 'h-[66vh] min-h-[360px]' : 'h-[66vh]'
-        )}>
-          <CardHeader className="py-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">
-                {viewMode === 'console' ? 'Console' : 'Terminal'}
-              </CardTitle>
-              <div className="flex gap-1">
-                <Button
-                  size="sm"
-                  variant={viewMode === 'console' ? 'default' : 'ghost'}
-                  onClick={() => setViewMode('console')}
-                  className="h-7 px-2"
-                >
-                  Stream
-                </Button>
-                <Button
-                  size="sm"
-                  variant={viewMode === 'terminal' ? 'default' : 'ghost'}
-                  onClick={() => setViewMode('terminal')}
-                  disabled={!session.tmux_pane_id}
-                  className="h-7 px-2"
-                  title={!session.tmux_pane_id ? 'No tmux pane available' : 'Interactive terminal'}
-                >
-                  Terminal
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setMaximized(!maximized)}
-                  className="h-7 px-2"
-                  title={maximized ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
-                >
-                  {maximized ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0 flex-1 min-h-0">
-            {viewMode === 'console' ? (
-              <ConsoleView
-                sessionId={session.id}
-                snapshot={snapshot?.capture_text || null}
-                paneId={session.tmux_pane_id || undefined}
-                status={session.status}
-                provider={session.provider}
-              />
-            ) : (
-              <TerminalView
-                sessionId={session.id}
-                paneId={session.tmux_pane_id || undefined}
-              />
-            )}
-          </CardContent>
-        </Card>
-
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <div className="space-y-6">
-            {/* Session Info */}
-            <Card>
-              <CardHeader className="py-3">
-                <CardTitle className="text-base">Details</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Provider</span>
-                  <span className="capitalize">{session.provider.replace(/_/g, ' ')}</span>
-                </div>
-                <div className="flex justify-between items-center gap-2">
-                  <span className="text-muted-foreground">Group</span>
-                  <select
-                    value={session.group_id || ''}
-                    onChange={(e) => handleAssignGroup(e.target.value || null)}
-                    className="px-2 py-1 text-xs bg-background border rounded-md max-w-[180px]"
-                  >
-                    <option value="">Ungrouped</option>
-                    {flatGroups.map((group) => (
-                      <option key={group.id} value={group.id}>
-                        {group.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {windowName && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Window</span>
-                    <span className="truncate max-w-[180px]">{windowName}</span>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Kind</span>
-                  <span>{session.kind}</span>
-                </div>
-                {session.tmux_target && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">tmux</span>
-                    <span className="font-mono text-xs">{session.tmux_target}</span>
-                  </div>
-                )}
-                {session.git_remote && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Remote</span>
-                    <span className="truncate max-w-[180px] text-xs">
-                      {session.git_remote.replace(/.*[:/]([^/]+\/[^/]+?)(?:\.git)?$/, '$1')}
-                    </span>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Last Activity</span>
-                  <span suppressHydrationWarning>
-                    {hydrated
-                      ? formatRelativeTime(session.last_activity_at || session.updated_at)
-                      : '—'}
-                  </span>
-                </div>
-                {statusDetail && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Waiting</span>
-                    <span className="truncate max-w-[180px]">{statusDetail}</span>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Linked Sessions */}
-            <LinkedSessionsPanel
-              sessionId={session.id}
-              sourceGroupId={session.group_id || null}
-              onSendTo={handleSendToFromLinks}
-            />
-          </div>
-
-          <div className="space-y-6">
-            {/* Analytics */}
-            <Card>
-              <CardContent className="py-4">
-                <SessionAnalytics sessionId={session.id} />
-              </CardContent>
-            </Card>
-
-            {/* Activity Timeline - Real-time tool events */}
-            <ActivityTimeline sessionId={session.id} maxItems={15} />
-
-            {/* Recent Events */}
-            <Card>
-              <CardHeader className="py-3">
-                <CardTitle className="text-base">Recent Events</CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="max-h-[300px] overflow-auto">
-                  {events.length === 0 ? (
-                    <p className="p-4 text-sm text-muted-foreground">No events yet</p>
-                  ) : (
-                    <ul className="divide-y">
-                      {events.slice(0, 10).map((event) => (
-                        <li key={event.id} className="px-4 py-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">{event.type}</span>
-                            <span className="text-xs text-muted-foreground">
-                              <span suppressHydrationWarning>
-                                {hydrated ? formatRelativeTime(event.ts) : '—'}
-                              </span>
-                            </span>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </div>
+      <SessionWorkbench
+        session={session}
+        snapshot={snapshot}
+        events={events}
+        onAssignGroup={handleAssignGroup}
+        onSendToLinkedSession={handleSendToFromLinks}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+      />
 
       {/* MCP Manager Modal */}
       {mcpManager.sessionId && (

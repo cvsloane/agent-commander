@@ -12,6 +12,7 @@ export const HostCapabilitiesSchema = z.object({
   list_directory: z.boolean().default(false),
   list_directory_roots: z.array(z.string()).default([]),
   list_directory_show_hidden: z.boolean().default(false),
+  providers: z.record(z.boolean()).default({}),
 });
 export type HostCapabilities = z.infer<typeof HostCapabilitiesSchema>;
 

@@ -17,11 +17,18 @@ import { registerContextRoutes } from './routes/context.js';
 import { registerTerminalRoutes } from './routes/terminal.js';
 import { registerVoiceRoutes } from './routes/voice.js';
 import { registerProjectRoutes } from './routes/projects.js';
+import { registerRepoRoutes } from './routes/repos.js';
 import { registerSummaryRoutes } from './routes/summaries.js';
 import { registerSettingsRoutes } from './routes/settings.js';
 import { registerNotificationRoutes } from './routes/notifications.js';
 import { registerMetricsRoutes } from './routes/metrics.js';
+import { registerMemoryRoutes } from './routes/memory.js';
+import { registerAutomationRoutes } from './routes/automation.js';
+import { registerIntegrationRoutes } from './routes/integrations.js';
+import { registerGovernanceApprovalRoutes } from './routes/governanceApprovals.js';
+import { registerWorkItemRoutes } from './routes/workItems.js';
 import { pubsub } from './services/pubsub.js';
+import { startAutomationService } from './services/automation.js';
 import { verifyRequestToken } from './auth/verify.js';
 
 const app = Fastify({
@@ -63,7 +70,7 @@ async function start(): Promise<void> {
   // Auth for REST (skip health + WS routes that handle their own auth)
   app.addHook('onRequest', async (request, reply) => {
     const url = request.url;
-    if (url.startsWith('/health') || url.startsWith('/metrics') || url.startsWith('/v1/agent/connect') || url.startsWith('/v1/ui/stream') || url.startsWith('/v1/ui/terminal') || url.startsWith('/v1/voice/transcribe')) {
+    if (url.startsWith('/health') || url.startsWith('/metrics') || url.startsWith('/v1/agent/connect') || url.startsWith('/v1/ui/stream') || url.startsWith('/v1/ui/terminal') || url.startsWith('/v1/voice/transcribe') || url.startsWith('/v1/integrations/webhooks/')) {
       return;
     }
 
@@ -101,10 +108,16 @@ async function start(): Promise<void> {
   registerTerminalRoutes(app);
   registerVoiceRoutes(app);
   registerProjectRoutes(app);
+  registerRepoRoutes(app);
   registerSummaryRoutes(app);
   registerSettingsRoutes(app);
   registerNotificationRoutes(app);
   registerMetricsRoutes(app);
+  registerMemoryRoutes(app);
+  registerAutomationRoutes(app);
+  registerIntegrationRoutes(app);
+  registerGovernanceApprovalRoutes(app);
+  registerWorkItemRoutes(app);
 
   // Health check endpoint
   app.get('/health', async () => {
@@ -120,15 +133,19 @@ async function start(): Promise<void> {
   try {
     await app.listen({ host: config.HOST, port: config.PORT });
     app.log.info(`Control plane listening on ${config.HOST}:${config.PORT}`);
+    automationService = startAutomationService(app.log);
   } catch (error) {
     app.log.error(error);
     process.exit(1);
   }
 }
 
+let automationService: { stop: () => void } | null = null;
+
 // Graceful shutdown
 const shutdown = async (): Promise<void> => {
   app.log.info('Shutting down...');
+  automationService?.stop();
   await app.close();
   process.exit(0);
 };

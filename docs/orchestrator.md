@@ -35,3 +35,10 @@ The orchestrator is available as:
 - A quick modal overlay from the header
 
 Both surfaces use the same data and filters.
+
+## Related surfaces
+
+The orchestrator remains focused on live session attention. Autonomous governance and scoped memory now live on separate pages:
+
+- `/automation` for automation agents, wakeups, runs, governance approvals, and work items
+- `/memory` for repo and global memory search plus manual durable memory authoring

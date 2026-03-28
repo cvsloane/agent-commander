@@ -56,6 +56,8 @@ pnpm db:migrate
 - **tmux-native sessions** — discover and manage real tmux panes across hosts
 - **Interactive console** — live streaming with full terminal control and read-only viewers
 - **Orchestrator + approvals** — attention queue for input, approvals, and errors
+- **Autonomous agents** — scheduled or manual orchestrators and workers with runtime reuse, preflight, and governance
+- **Scoped memory** — repo and global memory for every session, with procedural knowledge and trajectory-backed learning
 - **Session generator** — spawn multi-session templates with groups and links
 - **Visualizer** — immersive full-screen activity view
 - **Search + analytics** — global search and usage tracking
@@ -72,6 +74,7 @@ pnpm db:migrate
 | [Sessions](docs/sessions.md) | Session lifecycle and actions |
 | [Console Streaming](docs/console.md) | Interactive tmux in the browser |
 | [Orchestrator](docs/orchestrator.md) | Attention queue and summaries |
+| [Automation and Memory](docs/automation-memory.md) | Autonomous runs, work queue, and scoped memory |
 | [Approvals](docs/approvals.md) | Permission requests and decisions |
 | [Coolify Deployment](docs/deployment-coolify.md) | Production setup on Coolify + Cloudflare |
 | [API Reference](docs/api.md) | REST + WS endpoints |
@@ -91,6 +94,12 @@ Public site:
 - `GET /v1/sessions`, `POST /v1/sessions/:id/commands`
 - `GET /v1/approvals`, `POST /v1/approvals/:id/decide`
 - `GET /v1/hosts`, `POST /v1/hosts`
+- `GET /v1/repos`, `GET /v1/memory/search`, `POST /v1/memory`
+- `GET /v1/automation-agents`, `POST /v1/automation-agents/:id/wake`
+- `GET /v1/automation-agents/:id/preflight`
+- `GET /v1/automation-runs`, `GET /v1/automation-runs/:id/events`, `GET /v1/automation-wakeups`
+- `GET /v1/governance-approvals`, `POST /v1/governance-approvals/:id/decide`
+- `GET /v1/work-items`, `POST /v1/work-items`
 - `POST /v1/notifications/test`
 
 ## Security

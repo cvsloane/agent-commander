@@ -69,6 +69,13 @@ type toolEventPending struct {
 	StartedAt time.Time
 }
 
+type memoryFileSpec struct {
+	BaseDir      string `json:"base_dir"`
+	RelativePath string `json:"relative_path"`
+	Content      string `json:"content"`
+	Scope        string `json:"scope"`
+}
+
 type SessionState struct {
 	ID           string
 	PaneID       string
@@ -1649,12 +1656,14 @@ func applyParsedUsageEntries(fields map[string]any, rawJSON map[string]any) {
 }
 
 func (a *Agent) sendHello() error {
+	providers := a.providerAvailabilityMap()
+
 	payload := map[string]any{
 		"host": map[string]any{
 			"id":            a.cfg.Host.ID,
 			"name":          a.cfg.Host.Name,
 			"agent_version": "0.1.0",
-			"capabilities": map[string]bool{
+			"capabilities": map[string]any{
 				"tmux":            true,
 				"spawn":           a.cfg.Security.AllowSpawn,
 				"kill":            a.cfg.Security.AllowKill,
@@ -1662,6 +1671,7 @@ func (a *Agent) sendHello() error {
 				"terminal":        true,
 				"claude_hooks":    true,
 				"codex_exec_json": true,
+				"providers":       providers,
 			},
 		},
 		"resume": map[string]any{
@@ -1670,6 +1680,126 @@ func (a *Agent) sendHello() error {
 	}
 
 	return a.wsClient.Send("agent.hello", payload)
+}
+
+func (a *Agent) providerAvailabilityMap() map[string]bool {
+	return map[string]bool{
+		"claude_code": providerCommandAvailable(a.cfg, "claude_code"),
+		"codex":       providerCommandAvailable(a.cfg, "codex"),
+		"gemini_cli":  providerCommandAvailable(a.cfg, "gemini_cli"),
+		"opencode":    providerCommandAvailable(a.cfg, "opencode"),
+		"cursor":      providerCommandAvailable(a.cfg, "cursor"),
+		"aider":       providerCommandAvailable(a.cfg, "aider"),
+		"continue":    providerCommandAvailable(a.cfg, "continue"),
+		"shell":       true,
+	}
+}
+
+func providerCommandAvailable(cfg *config.Config, provider string) bool {
+	switch provider {
+	case "claude_code":
+		return commandAvailable("claude")
+	case "codex":
+		return commandAvailable(cfg.Providers.Codex.ExecPath, "codex")
+	case "gemini_cli":
+		return commandAvailable("gemini")
+	case "opencode":
+		return commandAvailable("opencode")
+	case "cursor":
+		return commandAvailable("cursor")
+	case "aider":
+		return commandAvailable("aider")
+	case "continue":
+		return commandAvailable("continue")
+	case "shell":
+		return true
+	default:
+		return false
+	}
+}
+
+func commandAvailable(candidates ...string) bool {
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate) == "" {
+			continue
+		}
+		if filepath.IsAbs(candidate) {
+			if _, err := os.Stat(candidate); err == nil {
+				return true
+			}
+			continue
+		}
+		if _, err := exec.LookPath(candidate); err == nil {
+			return true
+		}
+		for _, prefix := range []string{"/usr/local/bin", "/usr/bin", "/bin", filepath.Join(os.Getenv("HOME"), ".local", "bin")} {
+			if strings.TrimSpace(prefix) == "" {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(prefix, candidate)); err == nil {
+				return true
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return false
+	}
+	return false
+}
+
+func writeMemoryFiles(workingDirectory string, files []memoryFileSpec) error {
+	if len(files) == 0 {
+		return nil
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	for _, file := range files {
+		var root string
+		switch file.BaseDir {
+		case "home":
+			root = homeDir
+		case "working_directory", "local", "":
+			root = workingDirectory
+		default:
+			return fmt.Errorf("unsupported memory file base_dir: %s", file.BaseDir)
+		}
+		if strings.TrimSpace(root) == "" {
+			return fmt.Errorf("memory file root is empty")
+		}
+		if strings.TrimSpace(file.RelativePath) == "" {
+			return fmt.Errorf("memory file relative_path is required")
+		}
+		if filepath.IsAbs(file.RelativePath) {
+			return fmt.Errorf("memory file path must be relative: %s", file.RelativePath)
+		}
+
+		target := filepath.Clean(filepath.Join(root, file.RelativePath))
+		rel, err := filepath.Rel(root, target)
+		if err != nil {
+			return err
+		}
+		if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("memory file escapes root: %s", file.RelativePath)
+		}
+
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return err
+		}
+
+		existing, err := os.ReadFile(target)
+		if err == nil && string(existing) == file.Content {
+			continue
+		}
+		if err := os.WriteFile(target, []byte(file.Content), 0644); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (a *Agent) handleMessage(msgType string, payload json.RawMessage) {
@@ -2437,6 +2567,7 @@ func (a *Agent) executeSpawnSessionWorktree(sessionID string, payload json.RawMe
 		BranchName  string `json:"branch_name"`
 		WorktreeDir string `json:"worktree_dir"`
 		Title       string `json:"title"`
+		MemoryFiles []memoryFileSpec `json:"memory_files"`
 		Tmux        struct {
 			TargetSession string `json:"target_session"`
 			WindowName    string `json:"window_name"`
@@ -2476,6 +2607,9 @@ func (a *Agent) executeSpawnSessionWorktree(sessionID string, payload json.RawMe
 		return err
 	}
 	if err := tmux.RunGitCommand(p.RepoRoot, "worktree", "add", p.WorktreeDir, "-b", p.BranchName, p.BaseBranch); err != nil {
+		return err
+	}
+	if err := writeMemoryFiles(p.WorktreeDir, p.MemoryFiles); err != nil {
 		return err
 	}
 
@@ -2566,6 +2700,7 @@ func (a *Agent) executeSpawnSessionInteractive(sessionID string, payload json.Ra
 		WorkingDirectory string   `json:"working_directory"`
 		Title            string   `json:"title"`
 		Flags            []string `json:"flags"`
+		MemoryFiles      []memoryFileSpec `json:"memory_files"`
 		GroupID          string   `json:"group_id"`
 		Tmux             struct {
 			TargetSession string `json:"target_session"`
@@ -2580,6 +2715,9 @@ func (a *Agent) executeSpawnSessionInteractive(sessionID string, payload json.Ra
 	}
 	_, resolvedWorkingDir, err := normalizeListDirectoryPath(p.WorkingDirectory)
 	if err != nil {
+		return err
+	}
+	if err := writeMemoryFiles(resolvedWorkingDir, p.MemoryFiles); err != nil {
 		return err
 	}
 	if p.Provider == "" {

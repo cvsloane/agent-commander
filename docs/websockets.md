@@ -27,6 +27,12 @@ Server to UI messages include:
 - `tool_event.started`
 - `tool_event.completed`
 - `session_usage.updated`
+- `automation.run.updated`
+- `automation.run.event`
+- `automation.runtime_state.updated`
+- `automation.wakeup.updated`
+- `governance_approval.updated`
+- `work_item.updated`
 
 ## Terminal stream
 

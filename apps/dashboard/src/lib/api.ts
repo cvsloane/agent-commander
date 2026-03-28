@@ -12,7 +12,21 @@ import type {
   SessionUsageSummary,
   BulkOperationType,
   Project,
+  Repo,
   UserSettings,
+  AutomationAgent,
+  AutomationRun,
+  AutomationRunEvent,
+  AutomationWakeup,
+  UpsertAutomationAgent,
+  WakeAutomationAgentRequest,
+  GovernanceApproval,
+  GovernanceApprovalDecisionRequest,
+  WorkItem,
+  CreateWorkItem,
+  MemoryEntry,
+  MemorySearchQuery,
+  UpsertMemoryEntry,
 } from '@agent-command/schema';
 import { getControlPlaneToken } from '@/lib/wsToken';
 import { getRuntimeConfig } from '@/lib/runtimeConfig';
@@ -307,8 +321,166 @@ export async function getHost(id: string): Promise<{ host: Host }> {
   return fetchAPI(`/v1/hosts/${id}`);
 }
 
+export async function getRepos(filters?: {
+  q?: string;
+  limit?: number;
+}): Promise<{ repos: Repo[] }> {
+  const params = new URLSearchParams();
+  if (filters?.q) params.set('q', filters.q);
+  if (filters?.limit) params.set('limit', filters.limit.toString());
+  const query = params.toString();
+  return fetchAPI(`/v1/repos${query ? `?${query}` : ''}`);
+}
+
 export async function generateHostToken(id: string): Promise<{ token: string }> {
   return fetchAPI(`/v1/hosts/${id}/token`, { method: 'POST' });
+}
+
+// Automation API
+export async function getAutomationAgents(): Promise<{ agents: AutomationAgent[] }> {
+  return fetchAPI('/v1/automation-agents');
+}
+
+export async function createAutomationAgent(
+  input: UpsertAutomationAgent
+): Promise<{ agent: AutomationAgent }> {
+  return fetchAPI('/v1/automation-agents', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateAutomationAgent(
+  id: string,
+  input: Partial<UpsertAutomationAgent>
+): Promise<{ agent: AutomationAgent }> {
+  return fetchAPI(`/v1/automation-agents/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function wakeAutomationAgent(
+  id: string,
+  input: WakeAutomationAgentRequest
+): Promise<{ wakeup: AutomationWakeup }> {
+  return fetchAPI(`/v1/automation-agents/${id}/wake`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getAutomationRuns(filters?: {
+  automation_agent_id?: string;
+  status?: string;
+  limit?: number;
+}): Promise<{ runs: AutomationRun[] }> {
+  const params = new URLSearchParams();
+  if (filters?.automation_agent_id) params.set('automation_agent_id', filters.automation_agent_id);
+  if (filters?.status) params.set('status', filters.status);
+  if (filters?.limit) params.set('limit', String(filters.limit));
+  const query = params.toString();
+  return fetchAPI(`/v1/automation-runs${query ? `?${query}` : ''}`);
+}
+
+export async function getAutomationRunEvents(
+  runId: string
+): Promise<{ events: AutomationRunEvent[] }> {
+  return fetchAPI(`/v1/automation-runs/${runId}/events`);
+}
+
+export async function getAutomationWakeups(filters?: {
+  automation_agent_id?: string;
+  status?: string;
+  limit?: number;
+}): Promise<{ wakeups: AutomationWakeup[] }> {
+  const params = new URLSearchParams();
+  if (filters?.automation_agent_id) params.set('automation_agent_id', filters.automation_agent_id);
+  if (filters?.status) params.set('status', filters.status);
+  if (filters?.limit) params.set('limit', String(filters.limit));
+  const query = params.toString();
+  return fetchAPI(`/v1/automation-wakeups${query ? `?${query}` : ''}`);
+}
+
+export async function getGovernanceApprovals(filters?: {
+  status?: string;
+}): Promise<{ approvals: GovernanceApproval[] }> {
+  const params = new URLSearchParams();
+  if (filters?.status) params.set('status', filters.status);
+  const query = params.toString();
+  return fetchAPI(`/v1/governance-approvals${query ? `?${query}` : ''}`);
+}
+
+export async function decideGovernanceApproval(
+  id: string,
+  input: GovernanceApprovalDecisionRequest
+): Promise<{ approval: GovernanceApproval }> {
+  return fetchAPI(`/v1/governance-approvals/${id}/decide`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getWorkItems(filters?: {
+  repo_id?: string;
+  status?: string;
+  assigned_automation_agent_id?: string;
+  limit?: number;
+}): Promise<{ work_items: WorkItem[] }> {
+  const params = new URLSearchParams();
+  if (filters?.repo_id) params.set('repo_id', filters.repo_id);
+  if (filters?.status) params.set('status', filters.status);
+  if (filters?.assigned_automation_agent_id) {
+    params.set('assigned_automation_agent_id', filters.assigned_automation_agent_id);
+  }
+  if (filters?.limit) params.set('limit', String(filters.limit));
+  const query = params.toString();
+  return fetchAPI(`/v1/work-items${query ? `?${query}` : ''}`);
+}
+
+export async function createWorkItem(
+  input: CreateWorkItem
+): Promise<{ work_item: WorkItem }> {
+  return fetchAPI('/v1/work-items', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateWorkItem(
+  id: string,
+  input: {
+    status?: WorkItem['status'];
+    priority?: number;
+    assigned_automation_agent_id?: string | null;
+  }
+): Promise<{ work_item: WorkItem }> {
+  return fetchAPI(`/v1/work-items/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+// Memory API
+export async function searchMemory(
+  queryInput: MemorySearchQuery
+): Promise<{ results: MemoryEntry[] }> {
+  const params = new URLSearchParams();
+  params.set('q', queryInput.q);
+  if (queryInput.scope_type) params.set('scope_type', queryInput.scope_type);
+  if (queryInput.repo_id) params.set('repo_id', queryInput.repo_id);
+  if (queryInput.tier) params.set('tier', queryInput.tier);
+  if (queryInput.limit) params.set('limit', String(queryInput.limit));
+  return fetchAPI(`/v1/memory/search?${params.toString()}`);
+}
+
+export async function createMemoryEntry(
+  input: UpsertMemoryEntry
+): Promise<{ entry: MemoryEntry }> {
+  return fetchAPI('/v1/memory', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 }
 
 // Orphan panes (session import)
