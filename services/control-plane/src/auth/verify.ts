@@ -1,5 +1,5 @@
 import { jwtVerify } from 'jose';
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
 import { config } from '../config.js';
 import type { AuthUser } from './types.js';
@@ -60,6 +60,75 @@ function getTokenFromRequest(request: FastifyRequest): string | null {
   return authHeader.slice(7);
 }
 
+type ServiceTokenConfig = {
+  token: string;
+  user_id?: string;
+  role?: AuthUser['role'];
+  name?: string;
+  email?: string;
+};
+
+let parsedServiceTokens: Record<string, ServiceTokenConfig> | null | undefined;
+
+function parseServiceTokens(): Record<string, ServiceTokenConfig> {
+  if (parsedServiceTokens !== undefined) {
+    return parsedServiceTokens ?? {};
+  }
+
+  if (!config.INTEGRATION_SERVICE_TOKENS_JSON?.trim()) {
+    parsedServiceTokens = {};
+    return parsedServiceTokens;
+  }
+
+  try {
+    const parsed = JSON.parse(config.INTEGRATION_SERVICE_TOKENS_JSON) as Record<string, ServiceTokenConfig>;
+    parsedServiceTokens = parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    parsedServiceTokens = {};
+  }
+  return parsedServiceTokens ?? {};
+}
+
+function getServiceHeaders(request: FastifyRequest): { serviceName: string; serviceKey: string } | null {
+  const serviceName = String(request.headers['x-agent-command-service'] || '').trim();
+  const serviceKey = String(request.headers['x-agent-command-service-key'] || '').trim();
+  if (!serviceName || !serviceKey) {
+    return null;
+  }
+  return { serviceName, serviceKey };
+}
+
+function secureStringMatch(left: string, right: string): boolean {
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  if (a.length !== b.length) {
+    return false;
+  }
+  return timingSafeEqual(a, b);
+}
+
+async function verifyServiceRequest(request: FastifyRequest): Promise<AuthUser | null> {
+  const headers = getServiceHeaders(request);
+  if (!headers) {
+    return null;
+  }
+
+  const service = parseServiceTokens()[headers.serviceName];
+  if (!service?.token || !secureStringMatch(service.token, headers.serviceKey)) {
+    return null;
+  }
+
+  return {
+    id: service.user_id || buildUserId(`service:${headers.serviceName}`, 'agent-command'),
+    sub: `service:${headers.serviceName}`,
+    email: service.email,
+    name: service.name || headers.serviceName,
+    role: service.role || 'operator',
+    auth_type: 'service',
+    service_name: headers.serviceName,
+  };
+}
+
 export async function verifyTokenString(token: string): Promise<AuthUser | null> {
   try {
     const secret = new TextEncoder().encode(config.JWT_SECRET);
@@ -75,6 +144,7 @@ export async function verifyTokenString(token: string): Promise<AuthUser | null>
       email: typeof payload.email === 'string' ? payload.email : undefined,
       name: typeof payload.name === 'string' ? payload.name : undefined,
       role,
+      auth_type: 'jwt',
     };
   } catch {
     return null;
@@ -82,6 +152,10 @@ export async function verifyTokenString(token: string): Promise<AuthUser | null>
 }
 
 export async function verifyRequestToken(request: FastifyRequest): Promise<AuthUser | null> {
+  const serviceUser = await verifyServiceRequest(request);
+  if (serviceUser) {
+    return serviceUser;
+  }
   const token = getTokenFromRequest(request);
   if (!token) return null;
   return verifyTokenString(token);

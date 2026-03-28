@@ -128,6 +128,52 @@ export async function getRepoById(id: string): Promise<Repo | null> {
   return result.rows[0] || null;
 }
 
+export async function findRepoByWorkingDirectory(input: {
+  user_id: string;
+  host_id: string;
+  working_directory: string;
+}): Promise<Repo | null> {
+  const normalized = normalizeRepoRoot(input.working_directory);
+  if (!normalized) {
+    return null;
+  }
+
+  const result = await pool.query(
+    `SELECT DISTINCT r.*
+     FROM repos r
+     WHERE r.last_host_id = $1
+       AND r.last_repo_root IS NOT NULL
+       AND (
+         $2 = r.last_repo_root
+         OR $2 LIKE r.last_repo_root || '/%'
+       )
+       AND (
+         EXISTS (
+           SELECT 1
+           FROM sessions s
+           WHERE s.repo_id = r.id
+             AND s.user_id = $3
+         )
+         OR EXISTS (
+           SELECT 1
+           FROM memory_entries me
+           WHERE me.repo_id = r.id
+             AND me.user_id = $3
+         )
+         OR EXISTS (
+           SELECT 1
+           FROM work_items wi
+           WHERE wi.repo_id = r.id
+             AND wi.user_id = $3
+         )
+       )
+     ORDER BY length(r.last_repo_root) DESC, r.updated_at DESC
+     LIMIT 1`,
+    [input.host_id, normalized, input.user_id]
+  );
+  return result.rows[0] || null;
+}
+
 export async function listRepos(userId: string, filters?: {
   q?: string;
   limit?: number;

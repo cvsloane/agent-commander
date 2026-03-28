@@ -7,7 +7,7 @@ export type AutomationAgentRole = z.infer<typeof AutomationAgentRoleSchema>;
 export const AutomationAgentStatusSchema = z.enum(['active', 'paused']);
 export type AutomationAgentStatus = z.infer<typeof AutomationAgentStatusSchema>;
 
-export const AutomationWakeSourceSchema = z.enum(['schedule', 'manual', 'followup', 'approval_resume']);
+export const AutomationWakeSourceSchema = z.enum(['schedule', 'manual', 'followup', 'approval_resume', 'external']);
 export type AutomationWakeSource = z.infer<typeof AutomationWakeSourceSchema>;
 
 export const AutomationWakeStatusSchema = z.enum(['queued', 'running', 'completed', 'skipped', 'blocked', 'coalesced', 'failed']);
@@ -18,6 +18,12 @@ export type AutomationRunStatus = z.infer<typeof AutomationRunStatusSchema>;
 
 export const AutomationConcurrencyPolicySchema = z.enum(['coalesce_if_active', 'always_enqueue', 'skip_if_active']);
 export type AutomationConcurrencyPolicy = z.infer<typeof AutomationConcurrencyPolicySchema>;
+
+export const AutomationSchedulerModeSchema = z.enum(['native', 'external', 'hybrid']);
+export type AutomationSchedulerMode = z.infer<typeof AutomationSchedulerModeSchema>;
+
+export const AutomationCatchUpPolicySchema = z.enum(['skip_missed', 'enqueue_missed_with_cap']);
+export type AutomationCatchUpPolicy = z.infer<typeof AutomationCatchUpPolicySchema>;
 
 export const AutomationRuntimeStatusSchema = z.enum(['idle', 'attached', 'stale', 'error']);
 export type AutomationRuntimeStatus = z.infer<typeof AutomationRuntimeStatusSchema>;
@@ -64,6 +70,27 @@ export const AutomationRuntimeStateSchema = z.object({
 });
 export type AutomationRuntimeState = z.infer<typeof AutomationRuntimeStateSchema>;
 
+export const AutomationWorkerReportSchema = z.object({
+  outcome: z.string(),
+  summary: z.string(),
+  evidence_refs: z.array(z.record(z.unknown())).default([]),
+  suggested_followups: z.array(z.record(z.unknown())).default([]),
+  candidate_memory_promotions: z.array(z.record(z.unknown())).default([]),
+});
+export type AutomationWorkerReport = z.infer<typeof AutomationWorkerReportSchema>;
+
+export const AutomationLogRefSchema = z.object({
+  session_id: z.string().uuid().nullable().optional(),
+  session_path: z.string().optional(),
+  session_url: z.string().optional(),
+  run_events_path: z.string().optional(),
+  run_events_url: z.string().optional(),
+  snapshot_path: z.string().optional(),
+  snapshot_url: z.string().optional(),
+  artifact_refs: z.array(z.record(z.unknown())).default([]),
+});
+export type AutomationLogRef = z.infer<typeof AutomationLogRefSchema>;
+
 export const AutomationRunEventSchema = z.object({
   id: z.number().int(),
   automation_run_id: z.string().uuid(),
@@ -81,6 +108,7 @@ export const AutomationAgentSchema = z.object({
   user_id: z.string().uuid(),
   role: AutomationAgentRoleSchema,
   name: z.string(),
+  slug: z.string().min(1),
   status: AutomationAgentStatusSchema,
   reports_to_automation_agent_id: z.string().uuid().nullable().optional(),
   provider: SessionProviderSchema,
@@ -125,6 +153,8 @@ export const AutomationRunSchema = z.object({
   pending_followups_json: z.array(z.record(z.unknown())).default([]),
   result_summary: z.string().nullable().optional(),
   usage_json: z.record(z.unknown()).default({}),
+  worker_report_json: z.record(z.unknown()).default({}),
+  log_ref_json: z.record(z.unknown()).default({}),
   started_at: z.string().datetime({ offset: true }).optional(),
   ended_at: z.string().datetime({ offset: true }).nullable().optional(),
 });
@@ -165,6 +195,7 @@ export type WorkItem = z.infer<typeof WorkItemSchema>;
 export const UpsertAutomationAgentSchema = z.object({
   role: AutomationAgentRoleSchema,
   name: z.string().min(1),
+  slug: z.string().min(1).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(),
   status: AutomationAgentStatusSchema.optional(),
   reports_to_automation_agent_id: z.string().uuid().optional(),
   provider: SessionProviderSchema,

@@ -6,7 +6,7 @@ import * as db from '../db/index.js';
 import { pubsub } from '../services/pubsub.js';
 import { consoleSubscriptions } from '../services/consoleSubscriptions.js';
 import { spawnSessionOnHost } from '../services/sessionSpawn.js';
-import { bootstrapSessionMemory } from '../services/sessionMemory.js';
+import { bootstrapSessionMemory, prepareSessionMemoryForSpawn } from '../services/sessionMemory.js';
 import { hasRole } from '../auth/rbac.js';
 
 // Pending command result tracking for cross-host operations
@@ -792,11 +792,20 @@ export function registerSessionRoutes(app: FastifyInstance): void {
     const { host_id, provider, working_directory, title, flags, group_id, tmux } = bodyResult.data;
 
     try {
+      const memoryPlan = await prepareSessionMemoryForSpawn({
+        user_id: request.user.id,
+        provider,
+        host_id,
+        working_directory,
+        source: 'automatic',
+      });
       const result = await spawnSessionOnHost({
         actorUserId: request.user.id,
         host_id,
         provider,
         working_directory,
+        repo_id: memoryPlan.repoId,
+        memory_files: memoryPlan.memoryFiles,
         title,
         flags,
         group_id,

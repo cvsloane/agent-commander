@@ -2,9 +2,11 @@ import type { FastifyBaseLogger } from 'fastify';
 import type {
   AutomationAgent,
   AutomationConcurrencyPolicy,
+  AutomationCatchUpPolicy,
   AutomationPreflight,
   AutomationPreflightIssue,
   AutomationRun,
+  AutomationSchedulerMode,
   AutomationRuntimeState,
   Host,
   Repo,
@@ -16,12 +18,13 @@ import * as db from '../db/index.js';
 import * as automationDb from '../db/automationMemory.js';
 import { pubsub } from './pubsub.js';
 import { spawnSessionOnHost } from './sessionSpawn.js';
-import { bootstrapSessionMemory } from './sessionMemory.js';
+import { bootstrapSessionMemory, prepareSessionMemoryForSpawn } from './sessionMemory.js';
 import {
   recordAutomationRun,
   recordAutomationWakeup,
   recordGovernanceApproval,
 } from '../metrics.js';
+import { config } from '../config.js';
 
 const SCHEDULER_LOCK_KEY = 427001;
 const DEFAULT_TICK_MS = 5000;
@@ -81,6 +84,28 @@ function getConcurrencyPolicy(value: unknown): AutomationConcurrencyPolicy {
     : 'coalesce_if_active';
 }
 
+function getSchedulerMode(value: unknown): AutomationSchedulerMode {
+  const raw = asObject(value).scheduler_mode;
+  return raw === 'external' || raw === 'hybrid' || raw === 'native'
+    ? raw
+    : 'native';
+}
+
+function getCatchUpPolicy(value: unknown): AutomationCatchUpPolicy {
+  const raw = asObject(value).catch_up_policy;
+  return raw === 'enqueue_missed_with_cap' || raw === 'skip_missed'
+    ? raw
+    : 'skip_missed';
+}
+
+function getMissedRunCap(value: unknown): number {
+  return Math.max(1, Math.min(24, asPositiveInt(asObject(value).missed_run_cap) ?? 1));
+}
+
+function getMaxQueueDepth(value: unknown): number {
+  return Math.max(1, Math.min(100, asPositiveInt(asObject(value).max_queue_depth) ?? 10));
+}
+
 function getPreferredRepoScope(agent: Pick<AutomationAgent, 'wake_policy_json'>): string | null {
   const wakePolicy = asObject(agent.wake_policy_json);
   if (typeof wakePolicy.repo_id === 'string' && wakePolicy.repo_id.trim()) {
@@ -137,6 +162,55 @@ function mergeContexts(contexts: JsonObject[]): JsonObject {
   }
   merged.coalesced_count = contexts.length;
   return merged;
+}
+
+function buildAppUrl(path: string): string {
+  if (!config.APP_BASE_URL) {
+    return path;
+  }
+  return `${config.APP_BASE_URL.replace(/\/+$/, '')}${path}`;
+}
+
+function buildRunLogRefs(input: {
+  runId: string;
+  sessionId?: string | null;
+}): JsonObject {
+  const sessionPath = input.sessionId ? `/sessions/${input.sessionId}` : undefined;
+  return {
+    session_id: input.sessionId || null,
+    session_path: sessionPath,
+    session_url: sessionPath ? buildAppUrl(sessionPath) : undefined,
+    run_events_path: `/v1/automation-runs/${input.runId}/events`,
+    run_events_url: buildAppUrl(`/automation?run=${input.runId}`),
+    artifact_refs: [
+      input.sessionId ? { type: 'session', id: input.sessionId } : null,
+      { type: 'automation_run_events', run_id: input.runId },
+    ].filter(Boolean),
+  };
+}
+
+function buildRunWorkerReport(input: {
+  outcome: string;
+  summary: string;
+  sessionId?: string | null;
+  wakeupId?: string | null;
+  followups?: Array<Record<string, unknown>>;
+  memoryEntryIds?: string[];
+  workItemId?: string | null;
+}): JsonObject {
+  return {
+    outcome: input.outcome,
+    summary: input.summary,
+    evidence_refs: [
+      input.sessionId ? { type: 'session', id: input.sessionId } : null,
+      input.wakeupId ? { type: 'wakeup', id: input.wakeupId } : null,
+      input.workItemId ? { type: 'work_item', id: input.workItemId } : null,
+    ].filter(Boolean),
+    suggested_followups: input.followups ?? [],
+    candidate_memory_promotions: (input.memoryEntryIds ?? []).map((memoryId) => ({
+      memory_id: memoryId,
+    })),
+  };
 }
 
 async function publishAutomationRun(run: AutomationRun, provider: string): Promise<void> {
@@ -580,25 +654,25 @@ async function enqueueDueScheduledWakeups(logger: FastifyBaseLogger): Promise<vo
 
   try {
     const agents = await db.pool.query(
-      `SELECT
-         a.*,
-         MAX(w.requested_at) AS last_requested_at
+      `SELECT a.*
        FROM automation_agents a
-       LEFT JOIN automation_wakeups w ON w.automation_agent_id = a.id
        WHERE a.status = 'active'
-       GROUP BY a.id`
+       ORDER BY a.created_at ASC`
     );
 
     for (const row of agents.rows) {
       const wakePolicy = asObject(row.wake_policy_json);
-      const intervalMinutes = asPositiveInt(wakePolicy.interval_minutes);
-      if (!intervalMinutes) continue;
-
-      const lastRequestedAt = row.last_requested_at ? new Date(row.last_requested_at as string).getTime() : 0;
-      const now = Date.now();
-      if (lastRequestedAt && now - lastRequestedAt < intervalMinutes * 60_000) {
+      const schedulerMode = getSchedulerMode(wakePolicy);
+      if (schedulerMode === 'external') {
         continue;
       }
+      const intervalMinutes = asPositiveInt(wakePolicy.interval_minutes);
+      if (!intervalMinutes) continue;
+      const intervalMs = intervalMinutes * 60_000;
+      const catchUpPolicy = getCatchUpPolicy(wakePolicy);
+      const missedRunCap = getMissedRunCap(wakePolicy);
+      const maxQueueDepth = getMaxQueueDepth(wakePolicy);
+      const now = Date.now();
 
       const repoIds = Array.isArray(wakePolicy.repo_ids)
         ? wakePolicy.repo_ids.filter((value): value is string => typeof value === 'string')
@@ -607,19 +681,55 @@ async function enqueueDueScheduledWakeups(logger: FastifyBaseLogger): Promise<vo
           : [undefined];
 
       for (const repoId of repoIds) {
-        const bucket = Math.floor(now / (intervalMinutes * 60_000));
-        const wakeup = await automationDb.createAutomationWakeup(row.user_id as string, row.id as string, {
-          source: 'schedule',
-          repo_id: repoId,
-          idempotency_key: `schedule:${row.id}:${repoId ?? 'global'}:${bucket}`,
-          context_json: {
-            objective:
-              typeof wakePolicy.objective === 'string'
-                ? wakePolicy.objective
-                : undefined,
-          },
+        const lastRequestedAt = await automationDb.getLatestScheduledWakeupAt({
+          automation_agent_id: row.id as string,
+          repo_id: repoId || null,
         });
-        publishAutomationWakeup(wakeup);
+        const lastRequestedMs = lastRequestedAt ? new Date(lastRequestedAt).getTime() : 0;
+        const elapsedBuckets = lastRequestedMs > 0
+          ? Math.floor((now - lastRequestedMs) / intervalMs)
+          : 1;
+        if (elapsedBuckets < 1) {
+          continue;
+        }
+
+        const queueDepth = await automationDb.countOpenAutomationWakeups({
+          automation_agent_id: row.id as string,
+          repo_id: repoId || null,
+        });
+        if (queueDepth >= maxQueueDepth) {
+          logger.warn({
+            automationAgentId: row.id,
+            repoId: repoId || null,
+            queueDepth,
+            maxQueueDepth,
+          }, 'Skipping scheduled wake enqueue because queue depth cap is reached');
+          continue;
+        }
+
+        const dueCount = catchUpPolicy === 'enqueue_missed_with_cap'
+          ? Math.min(elapsedBuckets, missedRunCap, maxQueueDepth - queueDepth)
+          : 1;
+        const currentBucket = Math.floor(now / intervalMs);
+
+        for (let offset = dueCount - 1; offset >= 0; offset -= 1) {
+          const bucket = currentBucket - offset;
+          const wakeup = await automationDb.createAutomationWakeup(row.user_id as string, row.id as string, {
+            source: 'schedule',
+            repo_id: repoId,
+            idempotency_key: `schedule:${row.id}:${repoId ?? 'global'}:${bucket}`,
+            context_json: {
+              objective:
+                typeof wakePolicy.objective === 'string'
+                  ? wakePolicy.objective
+                  : undefined,
+              scheduler_mode: schedulerMode,
+              catch_up_policy: catchUpPolicy,
+              schedule_bucket: bucket,
+            },
+          });
+          publishAutomationWakeup(wakeup);
+        }
       }
     }
   } catch (error) {
@@ -648,6 +758,13 @@ async function cancelRunForWake(options: {
   const cancelled = await automationDb.updateAutomationRun(options.run.id, {
     status: options.wakeStatus === 'failed' ? 'failed' : options.wakeStatus === 'blocked' ? 'blocked' : 'cancelled',
     result_summary: options.summary,
+    worker_report_json: buildRunWorkerReport({
+      outcome: options.wakeStatus,
+      summary: options.summary,
+      wakeupId: options.wakeup.id,
+      followups: Array.isArray(options.run.pending_followups_json) ? options.run.pending_followups_json : [],
+    }),
+    log_ref_json: buildRunLogRefs({ runId: options.run.id, sessionId: options.run.session_id || null }),
     ended_at: new Date().toISOString(),
   });
   if (cancelled) {
@@ -755,6 +872,9 @@ async function processWakeup(
     repo_id: wakeup.repo_id || null,
     status: 'starting',
     objective,
+  });
+  await automationDb.updateAutomationRun(initialRun.id, {
+    log_ref_json: buildRunLogRefs({ runId: initialRun.id }),
   });
   await publishAutomationRun(initialRun, wakeup.agent_provider);
   await appendRunEvent({
@@ -908,6 +1028,7 @@ async function processWakeup(
           global: bootstrapped.globalEntryIds,
           reused_session_id: runtime.reusableSession.id,
         },
+        log_ref_json: buildRunLogRefs({ runId: initialRun.id, sessionId: runtime.reusableSession.id }),
       });
       if (updatedRun) {
         await publishAutomationRun(updatedRun, wakeup.agent_provider);
@@ -948,11 +1069,25 @@ async function processWakeup(
       payload: { host_id: preflight.host?.id || null, cwd: preflight.cwd },
     });
 
+    const memoryPlan = await prepareSessionMemoryForSpawn({
+      user_id: wakeup.agent_user_id,
+      provider: wakeup.agent_provider as SessionProvider,
+      host_id: preflight.host!.id,
+      working_directory: preflight.cwd!,
+      repo_id: wakeup.repo_id || null,
+      source: 'automation',
+      objective,
+      workItemText: currentWorkItemText,
+      agentName: wakeup.agent_name,
+    });
+
     const spawned = await spawnSessionOnHost({
       actorUserId: wakeup.agent_user_id,
       host_id: preflight.host!.id,
       provider: wakeup.agent_provider as SessionProvider,
       working_directory: preflight.cwd!,
+      repo_id: memoryPlan.repoId,
+      memory_files: memoryPlan.memoryFiles,
       title: `[auto] ${wakeup.agent_name}`,
       auditAction: 'automation.run.spawn',
       failureAuditAction: 'automation.run.spawn_failed',
@@ -961,6 +1096,7 @@ async function processWakeup(
     const runningRun = await automationDb.updateAutomationRun(initialRun.id, {
       session_id: spawned.session.id,
       status: 'running',
+      log_ref_json: buildRunLogRefs({ runId: initialRun.id, sessionId: spawned.session.id }),
     });
     if (runningRun) {
       await publishAutomationRun(runningRun, wakeup.agent_provider);
@@ -992,6 +1128,7 @@ async function processWakeup(
         repo: bootstrapped.repoEntryIds,
         global: bootstrapped.globalEntryIds,
       },
+      log_ref_json: buildRunLogRefs({ runId: initialRun.id, sessionId: spawned.session.id }),
     });
     if (memoryUpdatedRun) {
       await publishAutomationRun(memoryUpdatedRun, wakeup.agent_provider);

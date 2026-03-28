@@ -248,6 +248,11 @@ export default function MemoryPage() {
                               <span className="text-sm text-muted-foreground">
                                 confidence {confidenceLabel(entry.confidence)}
                               </span>
+                              {typeof entry.metadata?.review_status === 'string' && (
+                                <span className="text-sm text-muted-foreground">
+                                  review {entry.metadata.review_status}
+                                </span>
+                              )}
                             </div>
                             <span className="text-sm text-muted-foreground">
                               {entry.updated_at ? formatRelativeTime(entry.updated_at) : 'just now'}

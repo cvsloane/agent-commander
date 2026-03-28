@@ -182,6 +182,21 @@ function describeRunSummary(run: AutomationRun): string {
   return run.result_summary?.trim() || run.objective;
 }
 
+function runWorkerReportSummary(run: AutomationRun): string | null {
+  const summary = run.worker_report_json?.summary;
+  return typeof summary === 'string' && summary.trim() ? summary.trim() : null;
+}
+
+function runSessionArtifactPath(run: AutomationRun): string | null {
+  const path = run.log_ref_json?.session_path;
+  return typeof path === 'string' && path.trim() ? path : null;
+}
+
+function runMemoryCandidateCount(run: AutomationRun): number {
+  const value = run.worker_report_json?.candidate_memory_promotions;
+  return Array.isArray(value) ? value.length : 0;
+}
+
 function describeConcurrency(policy: Record<string, unknown> | null | undefined): string {
   const value = typeof policy?.concurrency_policy === 'string'
     ? policy.concurrency_policy
@@ -194,6 +209,35 @@ function describeConcurrency(policy: Record<string, unknown> | null | undefined)
     default:
       return 'Coalesce into active run';
   }
+}
+
+function describeScheduler(policy: Record<string, unknown> | null | undefined): string {
+  const mode = typeof policy?.scheduler_mode === 'string' ? policy.scheduler_mode : 'native';
+  switch (mode) {
+    case 'external':
+      return 'Hermes/external';
+    case 'hybrid':
+      return 'Hybrid';
+    default:
+      return 'Native';
+  }
+}
+
+function describeCatchUp(policy: Record<string, unknown> | null | undefined): string {
+  const mode = typeof policy?.catch_up_policy === 'string' ? policy.catch_up_policy : 'skip_missed';
+  const cap = typeof policy?.missed_run_cap === 'number'
+    ? policy.missed_run_cap
+    : typeof policy?.missed_run_cap === 'string'
+      ? Number(policy.missed_run_cap)
+      : 1;
+  const queueDepth = typeof policy?.max_queue_depth === 'number'
+    ? policy.max_queue_depth
+    : typeof policy?.max_queue_depth === 'string'
+      ? Number(policy.max_queue_depth)
+      : 10;
+  return mode === 'enqueue_missed_with_cap'
+    ? `Catch up, cap ${cap} · queue ${queueDepth}`
+    : `Skip missed · queue ${queueDepth}`;
 }
 
 function describeRuntime(agent: AutomationAgent): string {
@@ -217,13 +261,18 @@ export default function AutomationPage() {
   const queryClient = useQueryClient();
   const [agentForm, setAgentForm] = useState({
     name: '',
+    slug: '',
     role: 'orchestrator',
     provider: 'codex',
     defaultCwd: '',
     fixedHostId: '',
     intervalMinutes: '',
     scheduledObjective: '',
+    schedulerMode: 'native',
     concurrencyPolicy: 'coalesce_if_active',
+    catchUpPolicy: 'skip_missed',
+    missedRunCap: '1',
+    maxQueueDepth: '10',
     maxParallelRuns: '1',
     dailyBudgetUsd: '',
     monthlyBudgetUsd: '',
@@ -357,7 +406,11 @@ export default function AutomationPage() {
       if (agentForm.scheduledObjective.trim()) {
         wakePolicyJson.objective = agentForm.scheduledObjective.trim();
       }
+      wakePolicyJson.scheduler_mode = agentForm.schedulerMode;
       wakePolicyJson.concurrency_policy = agentForm.concurrencyPolicy;
+      wakePolicyJson.catch_up_policy = agentForm.catchUpPolicy;
+      wakePolicyJson.missed_run_cap = parsePositiveInt(agentForm.missedRunCap, 1);
+      wakePolicyJson.max_queue_depth = parsePositiveInt(agentForm.maxQueueDepth, 10);
 
       const budgetPolicyJson: Record<string, unknown> = {};
       const dailyBudget = centsFromDollars(agentForm.dailyBudgetUsd);
@@ -372,6 +425,7 @@ export default function AutomationPage() {
 
       return createAutomationAgent({
         name: agentForm.name.trim(),
+        slug: agentForm.slug.trim() || undefined,
         role: agentForm.role as 'orchestrator' | 'worker',
         provider: agentForm.provider as AutomationAgent['provider'],
         default_cwd: agentForm.defaultCwd.trim() || undefined,
@@ -384,13 +438,18 @@ export default function AutomationPage() {
     onSuccess: () => {
       setAgentForm({
         name: '',
+        slug: '',
         role: 'orchestrator',
         provider: 'codex',
         defaultCwd: '',
         fixedHostId: '',
         intervalMinutes: '',
         scheduledObjective: '',
+        schedulerMode: 'native',
         concurrencyPolicy: 'coalesce_if_active',
+        catchUpPolicy: 'skip_missed',
+        missedRunCap: '1',
+        maxQueueDepth: '10',
         maxParallelRuns: '1',
         dailyBudgetUsd: '',
         monthlyBudgetUsd: '',
@@ -551,6 +610,15 @@ export default function AutomationPage() {
                 />
               </div>
               <div className="space-y-1">
+                <Label htmlFor="agent-slug">Slug</Label>
+                <Input
+                  id="agent-slug"
+                  value={agentForm.slug}
+                  onChange={(event) => setAgentForm((current) => ({ ...current, slug: event.target.value }))}
+                  placeholder="repo-orchestrator"
+                />
+              </div>
+              <div className="space-y-1">
                 <Label htmlFor="agent-role">Role</Label>
                 <select
                   id="agent-role"
@@ -614,6 +682,19 @@ export default function AutomationPage() {
                 />
               </div>
               <div className="space-y-1">
+                <Label htmlFor="agent-scheduler-mode">Scheduler Mode</Label>
+                <select
+                  id="agent-scheduler-mode"
+                  className={selectClassName}
+                  value={agentForm.schedulerMode}
+                  onChange={(event) => setAgentForm((current) => ({ ...current, schedulerMode: event.target.value }))}
+                >
+                  <option value="native">Native</option>
+                  <option value="external">External / Hermes</option>
+                  <option value="hybrid">Hybrid</option>
+                </select>
+              </div>
+              <div className="space-y-1">
                 <Label htmlFor="agent-parallelism">Max Parallel Runs</Label>
                 <Input
                   id="agent-parallelism"
@@ -635,6 +716,38 @@ export default function AutomationPage() {
                   <option value="always_enqueue">Always enqueue</option>
                   <option value="skip_if_active">Skip if active</option>
                 </select>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="agent-catch-up-policy">Catch-Up Policy</Label>
+                <select
+                  id="agent-catch-up-policy"
+                  className={selectClassName}
+                  value={agentForm.catchUpPolicy}
+                  onChange={(event) => setAgentForm((current) => ({ ...current, catchUpPolicy: event.target.value }))}
+                >
+                  <option value="skip_missed">Skip missed intervals</option>
+                  <option value="enqueue_missed_with_cap">Catch up with cap</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="agent-missed-run-cap">Missed Run Cap</Label>
+                <Input
+                  id="agent-missed-run-cap"
+                  type="number"
+                  min="1"
+                  value={agentForm.missedRunCap}
+                  onChange={(event) => setAgentForm((current) => ({ ...current, missedRunCap: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="agent-max-queue-depth">Max Queue Depth</Label>
+                <Input
+                  id="agent-max-queue-depth"
+                  type="number"
+                  min="1"
+                  value={agentForm.maxQueueDepth}
+                  onChange={(event) => setAgentForm((current) => ({ ...current, maxQueueDepth: event.target.value }))}
+                />
               </div>
               <div className="space-y-1">
                 <Label htmlFor="agent-daily-budget">Daily Limit ($)</Label>
@@ -902,7 +1015,7 @@ export default function AutomationPage() {
                             <CardTitle className="text-lg">{agent.name}</CardTitle>
                           </div>
                           <CardDescription>
-                            {agent.role} · {getProviderDisplayName(agent.provider)}
+                            {agent.role} · {getProviderDisplayName(agent.provider)} · {agent.slug}
                           </CardDescription>
                         </div>
                         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -924,6 +1037,14 @@ export default function AutomationPage() {
                         <div>
                           <p className="text-muted-foreground">Concurrency</p>
                           <p>{describeConcurrency(agent.wake_policy_json as Record<string, unknown>)}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Scheduler</p>
+                          <p>{describeScheduler(agent.wake_policy_json as Record<string, unknown>)}</p>
+                        </div>
+                        <div>
+                          <p className="text-muted-foreground">Catch-Up</p>
+                          <p>{describeCatchUp(agent.wake_policy_json as Record<string, unknown>)}</p>
                         </div>
                         <div>
                           <p className="text-muted-foreground">Budget</p>
@@ -1054,6 +1175,9 @@ export default function AutomationPage() {
               {runs.map((run) => {
                 const repo = run.repo_id ? repoMap.get(run.repo_id) : null;
                 const agent = agentMap.get(run.automation_agent_id);
+                const reportSummary = runWorkerReportSummary(run);
+                const sessionArtifactPath = runSessionArtifactPath(run);
+                const memoryCandidateCount = runMemoryCandidateCount(run);
                 return (
                   <Card key={run.id}>
                     <CardContent className="p-4 space-y-2">
@@ -1081,6 +1205,24 @@ export default function AutomationPage() {
                         )}
                       </div>
                       <p className="text-sm">{describeRunSummary(run)}</p>
+                      {reportSummary && reportSummary !== run.result_summary && (
+                        <p className="text-xs text-muted-foreground">
+                          Report: {reportSummary}
+                        </p>
+                      )}
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                        {sessionArtifactPath && (
+                          <Link href={sessionArtifactPath} className="text-primary hover:underline">
+                            Session Artifact
+                          </Link>
+                        )}
+                        {typeof run.log_ref_json?.run_events_url === 'string' && (
+                          <span>Event log linked</span>
+                        )}
+                        {memoryCandidateCount > 0 && (
+                          <span>{memoryCandidateCount} memory candidate{memoryCandidateCount === 1 ? '' : 's'}</span>
+                        )}
+                      </div>
                       <div className="flex flex-wrap gap-2">
                         <Button
                           size="sm"

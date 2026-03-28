@@ -74,6 +74,11 @@ export const SessionMetadataSchema = z.object({
     repo_entry_ids: z.array(z.string().uuid()).default([]),
     global_entry_ids: z.array(z.string().uuid()).default([]),
     total_entries: z.number().int().nonnegative().default(0),
+    file_exports: z.array(z.object({
+      scope: z.enum(['repo', 'global', 'local']),
+      path: z.string(),
+      base_dir: z.enum(['working_directory', 'home']),
+    })).default([]),
   }).optional(),
 });
 export type SessionMetadata = z.infer<typeof SessionMetadataSchema>;

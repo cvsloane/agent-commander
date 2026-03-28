@@ -8,9 +8,12 @@ const ConfigSchema = z.object({
   JWT_SECRET: z.string().min(16),
   METRICS_TOKEN: z.string().min(1).optional(),
   TAILNET_DOMAIN: z.string().optional(),
+  APP_BASE_URL: z.string().url().optional(),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default('gpt-4o-mini'),
   OPENAI_EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
+  INTEGRATION_SERVICE_TOKENS_JSON: z.string().optional(),
+  INTEGRATION_WEBHOOK_SECRET: z.string().min(16).optional(),
 });
 
 const parseConfig = () => {

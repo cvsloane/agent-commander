@@ -20,6 +20,7 @@ import type {
 } from '@agent-command/schema';
 import {
   pool,
+  findRepoByWorkingDirectory,
   getEvents,
   getLatestSnapshot,
   getRepoById,
@@ -69,6 +70,54 @@ function asJson(value: unknown): JsonObject {
 function clip(value: string, max = 1200): string {
   if (value.length <= max) return value;
   return `${value.slice(0, max - 3)}...`;
+}
+
+function normalizeSlug(value: string): string {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || 'automation-agent';
+}
+
+async function ensureUniqueAutomationAgentSlug(base: string, excludeId?: string): Promise<string> {
+  const normalized = normalizeSlug(base);
+  let next = normalized;
+  let suffix = 2;
+
+  while (true) {
+    const result = await pool.query(
+      `SELECT id
+       FROM automation_agents
+       WHERE slug = $1
+         AND ($2::uuid IS NULL OR id <> $2)
+       LIMIT 1`,
+      [next, excludeId || null]
+    );
+    if (!result.rows[0]) {
+      return next;
+    }
+    next = `${normalized}-${suffix}`;
+    suffix += 1;
+  }
+}
+
+function proceduralSignatureForTrajectory(row: {
+  objective?: string | null;
+  summary?: string | null;
+}): string {
+  const source = `${row.objective || ''}\n${row.summary || ''}`.toLowerCase();
+  return source
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\b(session|objective|outcome|repository|repo|agent|automation|run|current|state)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isProceduralTrajectoryGroup(summary: string, objective?: string | null): boolean {
+  const source = `${objective || ''}\n${summary}`.toLowerCase();
+  return /(build|test|deploy|debug|fix|install|release|migrate|restore|restart|verify|setup|triage|check|review)/.test(source);
 }
 
 async function hasVectorColumn(): Promise<boolean> {
@@ -513,7 +562,8 @@ export async function distillTrajectories(limit = 10): Promise<number> {
        SELECT
          user_id,
          repo_id,
-         md5(lower(summary)) AS summary_signature,
+         md5(lower(COALESCE(objective, '') || '|' || summary)) AS summary_signature,
+         min(objective) AS objective,
          min(summary) AS summary,
          count(*)::int AS match_count,
          array_agg(id ORDER BY created_at DESC) AS trajectory_ids
@@ -534,18 +584,53 @@ export async function distillTrajectories(limit = 10): Promise<number> {
     const trajectoryIds = (row.trajectory_ids as string[]) ?? [];
     const evidenceCount = trajectoryIds.length;
     const scopeType = row.repo_id ? 'repo' : 'global';
+    const tier = isProceduralTrajectoryGroup(row.summary as string, row.objective as string | null)
+      ? 'procedural'
+      : 'semantic';
+    const existing = await pool.query(
+      `SELECT id
+       FROM memory_entries
+       WHERE user_id = $1
+         AND scope_type = $2
+         AND COALESCE(repo_id, '00000000-0000-0000-0000-000000000000'::uuid)
+             = COALESCE($3::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+         AND tier = $4
+         AND metadata->>'summary_signature' = $5
+       LIMIT 1`,
+      [row.user_id, scopeType, row.repo_id || null, tier, row.summary_signature]
+    );
+    if (existing.rows[0]) {
+      await pool.query(
+        `UPDATE memory_trajectories
+         SET distilled_at = NOW()
+         WHERE id = ANY($1::uuid[])`,
+        [trajectoryIds]
+      );
+      continue;
+    }
+
     await createMemoryEntry(row.user_id, {
       scope_type: scopeType,
       repo_id: row.repo_id || undefined,
-      tier: 'semantic',
+      tier,
       summary: row.summary,
-      content: `${row.summary}\n\nPromoted from ${evidenceCount} successful trajectories.`,
+      content: tier === 'procedural'
+        ? [
+            row.objective ? `Repeated objective:\n${row.objective}` : null,
+            `Procedure candidate:\n${row.summary}`,
+            `Promoted conservatively from ${evidenceCount} successful trajectories. Review linked evidence before relying on it.`,
+          ]
+            .filter(Boolean)
+            .join('\n\n')
+        : `${row.summary}\n\nPromoted from ${evidenceCount} successful trajectories.`,
       metadata: {
         promoted_from_trajectory_ids: trajectoryIds,
         evidence_count: evidenceCount,
         summary_signature: row.summary_signature,
+        review_status: tier === 'procedural' ? 'pending' : 'auto',
+        promoted_objective: row.objective || null,
       },
-      confidence: 0.85,
+      confidence: tier === 'procedural' ? 0.8 : 0.85,
     });
     await pool.query(
       `UPDATE memory_trajectories
@@ -581,15 +666,28 @@ export async function getAutomationAgentById(
   return result.rows[0] || null;
 }
 
+export async function getAutomationAgentBySlug(
+  slug: string
+): Promise<AutomationAgent | null> {
+  const result = await pool.query(
+    `SELECT * FROM automation_agents
+     WHERE slug = $1`,
+    [normalizeSlug(slug)]
+  );
+  return result.rows[0] || null;
+}
+
 export async function createAutomationAgent(
   userId: string,
   input: UpsertAutomationAgent
 ): Promise<AutomationAgent> {
+  const slug = await ensureUniqueAutomationAgentSlug(input.slug || input.name);
   const result = await pool.query(
     `INSERT INTO automation_agents (
        user_id,
        role,
        name,
+       slug,
        status,
        reports_to_automation_agent_id,
        provider,
@@ -601,12 +699,13 @@ export async function createAutomationAgent(
        worker_pool_json,
        max_parallel_runs
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      RETURNING *`,
     [
       userId,
       input.role,
       input.name,
+      slug,
       input.status || 'active',
       input.reports_to_automation_agent_id || null,
       input.provider,
@@ -638,6 +737,7 @@ export async function updateAutomationAgent(
 
   if (input.role !== undefined) addField('role', input.role);
   if (input.name !== undefined) addField('name', input.name);
+  if (input.slug !== undefined) addField('slug', await ensureUniqueAutomationAgentSlug(input.slug, id));
   if (input.status !== undefined) addField('status', input.status);
   if (input.reports_to_automation_agent_id !== undefined) {
     addField('reports_to_automation_agent_id', input.reports_to_automation_agent_id || null);
@@ -650,6 +750,10 @@ export async function updateAutomationAgent(
   if (input.budget_policy_json !== undefined) addField('budget_policy_json', JSON.stringify(input.budget_policy_json));
   if (input.worker_pool_json !== undefined) addField('worker_pool_json', JSON.stringify(input.worker_pool_json));
   if (input.max_parallel_runs !== undefined) addField('max_parallel_runs', input.max_parallel_runs);
+
+  if (input.name !== undefined && input.slug === undefined) {
+    addField('slug', await ensureUniqueAutomationAgentSlug(input.name, id));
+  }
 
   if (fields.length === 0) {
     return getAutomationAgentById(userId, id);
@@ -859,6 +963,8 @@ export async function createAutomationRun(input: {
   objective: string;
   memory_snapshot_json?: JsonObject;
   session_id?: string | null;
+  worker_report_json?: JsonObject;
+  log_ref_json?: JsonObject;
 }): Promise<AutomationRun> {
   const result = await pool.query(
     `INSERT INTO automation_runs (
@@ -868,9 +974,11 @@ export async function createAutomationRun(input: {
        session_id,
        status,
        objective,
-       memory_snapshot_json
+       memory_snapshot_json,
+       worker_report_json,
+       log_ref_json
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING *`,
     [
       input.automation_agent_id,
@@ -880,6 +988,8 @@ export async function createAutomationRun(input: {
       input.status,
       input.objective,
       JSON.stringify(input.memory_snapshot_json ?? {}),
+      JSON.stringify(input.worker_report_json ?? {}),
+      JSON.stringify(input.log_ref_json ?? {}),
     ]
   );
   return result.rows[0];
@@ -894,6 +1004,8 @@ export async function updateAutomationRun(
     memory_snapshot_json?: JsonObject;
     pending_followups_json?: Array<JsonObject>;
     usage_json?: JsonObject;
+    worker_report_json?: JsonObject;
+    log_ref_json?: JsonObject;
     ended_at?: string | null;
   }
 ): Promise<AutomationRun | null> {
@@ -915,6 +1027,12 @@ export async function updateAutomationRun(
     addField('pending_followups_json', JSON.stringify(updates.pending_followups_json));
   }
   if (updates.usage_json !== undefined) addField('usage_json', JSON.stringify(updates.usage_json));
+  if (updates.worker_report_json !== undefined) {
+    addField('worker_report_json', JSON.stringify(updates.worker_report_json));
+  }
+  if (updates.log_ref_json !== undefined) {
+    addField('log_ref_json', JSON.stringify(updates.log_ref_json));
+  }
   if (updates.ended_at !== undefined) addField('ended_at', updates.ended_at);
 
   if (fields.length === 0) {
@@ -1104,6 +1222,40 @@ export async function listAutomationWakeups(userId: string, filters?: {
 
   const result = await pool.query(query, params);
   return result.rows;
+}
+
+export async function countOpenAutomationWakeups(input: {
+  automation_agent_id: string;
+  repo_id?: string | null;
+}): Promise<number> {
+  const result = await pool.query(
+    `SELECT COUNT(*)::int AS count
+     FROM automation_wakeups
+     WHERE automation_agent_id = $1
+       AND status IN ('queued', 'running', 'blocked')
+       AND COALESCE(repo_id, '00000000-0000-0000-0000-000000000000'::uuid)
+           = COALESCE($2::uuid, '00000000-0000-0000-0000-000000000000'::uuid)`,
+    [input.automation_agent_id, input.repo_id || null]
+  );
+  return result.rows[0]?.count ?? 0;
+}
+
+export async function getLatestScheduledWakeupAt(input: {
+  automation_agent_id: string;
+  repo_id?: string | null;
+}): Promise<string | null> {
+  const result = await pool.query(
+    `SELECT requested_at
+     FROM automation_wakeups
+     WHERE automation_agent_id = $1
+       AND source = 'schedule'
+       AND COALESCE(repo_id, '00000000-0000-0000-0000-000000000000'::uuid)
+           = COALESCE($2::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+     ORDER BY requested_at DESC
+     LIMIT 1`,
+    [input.automation_agent_id, input.repo_id || null]
+  );
+  return typeof result.rows[0]?.requested_at === 'string' ? result.rows[0].requested_at : null;
 }
 
 export async function listActiveAutomationRuns(): Promise<AutomationRun[]> {
@@ -1668,6 +1820,68 @@ export async function syncAutomationRunUsageFromSession(
   });
 }
 
+function buildWorkerReport(input: {
+  run: AutomationRun;
+  session: Awaited<ReturnType<typeof getSessionById>>;
+  memory: MemoryEntry | null;
+  trajectory: MemoryTrajectory | null;
+  workItem: WorkItem | null;
+}): JsonObject {
+  const evidenceRefs = [
+    input.session ? {
+      type: 'session',
+      id: input.session.id,
+      path: `/sessions/${input.session.id}`,
+    } : null,
+    input.memory ? {
+      type: 'memory',
+      id: input.memory.id,
+    } : null,
+    input.trajectory ? {
+      type: 'trajectory',
+      id: input.trajectory.id,
+    } : null,
+    input.workItem ? {
+      type: 'work_item',
+      id: input.workItem.id,
+    } : null,
+  ].filter(Boolean);
+
+  const suggestedFollowups = Array.isArray(input.run.pending_followups_json)
+    ? input.run.pending_followups_json
+    : [];
+
+  return {
+    outcome: input.run.status,
+    summary: input.run.result_summary || input.run.objective,
+    evidence_refs: evidenceRefs,
+    suggested_followups: suggestedFollowups,
+    candidate_memory_promotions: input.memory ? [{
+      memory_id: input.memory.id,
+      tier: input.memory.tier,
+      confidence: input.memory.confidence,
+    }] : [],
+  };
+}
+
+function buildLogRefs(input: {
+  run: AutomationRun;
+  session: Awaited<ReturnType<typeof getSessionById>>;
+  snapshot: Awaited<ReturnType<typeof getLatestSnapshot>>;
+}): JsonObject {
+  return {
+    session_id: input.session?.id || null,
+    session_path: input.session ? `/sessions/${input.session.id}` : undefined,
+    run_events_path: `/automation?run=${input.run.id}`,
+    snapshot_path: input.snapshot && input.session ? `/sessions/${input.session.id}` : undefined,
+    artifact_refs: [
+      input.session ? { type: 'session', id: input.session.id } : null,
+      input.snapshot ? { type: 'snapshot', id: input.snapshot.id, session_id: input.snapshot.session_id } : null,
+      { type: 'automation_run_events', run_id: input.run.id, path: `/v1/automation-runs/${input.run.id}/events` },
+    ].filter(Boolean),
+  };
+}
+
 export async function finalizeAutomationRunFromSession(
   automationRun: AutomationRun
 ): Promise<{
@@ -1684,6 +1898,18 @@ export async function finalizeAutomationRunFromSession(
     const run = await updateAutomationRun(automationRun.id, {
       status: 'failed',
       result_summary: 'Session missing during automation finalization',
+      worker_report_json: {
+        outcome: 'failed',
+        summary: 'Session missing during automation finalization',
+        evidence_refs: [],
+        suggested_followups: [],
+        candidate_memory_promotions: [],
+      },
+      log_ref_json: {
+        session_id: automationRun.session_id,
+        run_events_path: `/v1/automation-runs/${automationRun.id}/events`,
+        artifact_refs: [],
+      },
       ended_at: new Date().toISOString(),
     });
     if (!run) throw new Error('Failed to update automation run');
@@ -1730,6 +1956,24 @@ export async function finalizeAutomationRunFromSession(
     );
   }
 
+  const snapshot = await getLatestSnapshot(automationRun.session_id);
+  const workerReport = buildWorkerReport({
+    run: finalRun,
+    session,
+    memory: ingested.memory,
+    trajectory: ingested.trajectory,
+    workItem: completedWorkItem,
+  });
+  const logRefs = buildLogRefs({
+    run: finalRun,
+    session,
+    snapshot,
+  });
+  const finalizedWithArtifacts = await updateAutomationRun(finalRun.id, {
+    worker_report_json: workerReport,
+    log_ref_json: logRefs,
+  });
+
   await markAutomationWakeupStatus(
     automationRun.wakeup_id,
     finalStatus === 'failed' ? 'failed' : 'completed',
@@ -1739,7 +1983,7 @@ export async function finalizeAutomationRunFromSession(
     }
   );
 
-  return { run: finalRun, ingested, work_item: completedWorkItem };
+  return { run: finalizedWithArtifacts ?? finalRun, ingested, work_item: completedWorkItem };
 }
 
 export async function describeRepo(repoId?: string | null): Promise<Repo | null> {

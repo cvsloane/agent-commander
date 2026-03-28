@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { ulid } from 'ulid';
 import {
   CommandsDispatchMessageSchema,
+  type SpawnSessionMemoryFile,
   type Session,
   type SessionProvider,
 } from '@agent-command/schema';
@@ -13,6 +14,8 @@ type SpawnSessionOptions = {
   host_id: string;
   provider: SessionProvider;
   working_directory: string;
+  repo_id?: string | null;
+  memory_files?: SpawnSessionMemoryFile[];
   title?: string;
   flags?: string[];
   group_id?: string;
@@ -61,6 +64,7 @@ export async function spawnSessionOnHost(
   let session = await db.upsertSession(options.host_id, {
     id: sessionId,
     user_id: options.actorUserId,
+    repo_id: options.repo_id ?? null,
     kind: 'tmux_pane',
     provider: options.provider,
     status: 'STARTING',
@@ -101,6 +105,7 @@ export async function spawnSessionOnHost(
           working_directory: options.working_directory,
           title: options.title,
           flags: options.flags,
+          memory_files: options.memory_files,
           group_id: options.group_id,
           tmux: options.tmux,
         },
@@ -113,6 +118,7 @@ export async function spawnSessionOnHost(
     const failedSession = await db.upsertSession(options.host_id, {
       id: sessionId,
       user_id: options.actorUserId,
+      repo_id: options.repo_id ?? null,
       kind: 'tmux_pane',
       provider: options.provider,
       status: 'ERROR',
