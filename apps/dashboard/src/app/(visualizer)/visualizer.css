@@ -1,6 +1,7 @@
 /* Visualizer Main CSS */
 /* Imports all theme files and shared styles */
 
+@import url('https://fonts.googleapis.com/css2?family=Antonio:wght@400;500;600&display=swap');
 @import './themes/base.css';
 @import './themes/botspace-ui.css';
 @import './themes/botspace.css';
