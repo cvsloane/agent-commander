@@ -19,3 +19,7 @@
 - Date: 2026-03-28
   Correction: User clarified that "live and in production" also means the GitHub default branch should match the deployed production state, not just a build branch or manual server sync.
   Rule: Before claiming agent-command is fully live/in production, verify three things explicitly: deployed runtime is updated, changes are pushed, and `origin/main` includes the production commit when the user expects full production alignment.
+
+- Date: 2026-03-28
+  Correction: User clarified that `Clawdbot` is now named `OpenClaw`.
+  Rule: Use `OpenClaw` in all user-facing copy, docs, release notes, and UI labels for agent-command unless referring to a legacy internal config key or code symbol.

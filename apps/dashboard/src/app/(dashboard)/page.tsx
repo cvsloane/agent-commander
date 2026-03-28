@@ -126,6 +126,57 @@ export default function Dashboard() {
         </div>
       </div>
 
+      <div className="mb-6 grid gap-4 lg:grid-cols-[1.5fr,1fr,1fr,1fr]">
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary mb-2">New in v0.2.0</p>
+            <h2 className="text-xl font-semibold mb-2">Tmux-first work, scoped memory, and safer autonomy</h2>
+            <p className="text-sm text-muted-foreground mb-4 max-w-2xl">
+              Agent Commander now has a dedicated tmux manager, repo and global memory for every session,
+              and autonomous orchestrators with governance, budgets, and runtime reuse.
+            </p>
+            <div className="flex flex-wrap gap-3 text-sm">
+              <Link href="/tmux" className="font-medium text-primary hover:underline">Open tmux</Link>
+              <Link href="/automation" className="font-medium text-primary hover:underline">View automation</Link>
+              <Link href="/memory" className="font-medium text-primary hover:underline">Search memory</Link>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Link href="/tmux" className="block">
+          <Card className="h-full hover:border-primary/50 transition-colors">
+            <CardContent className="p-5">
+              <p className="text-sm font-medium mb-1">tmux</p>
+              <p className="text-sm text-muted-foreground">
+                Windows-first pane manager with the inline workbench.
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
+
+        <Link href="/automation" className="block">
+          <Card className="h-full hover:border-primary/50 transition-colors">
+            <CardContent className="p-5">
+              <p className="text-sm font-medium mb-1">Automation</p>
+              <p className="text-sm text-muted-foreground">
+                Orchestrators, workers, wakeups, governance, and run timelines.
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
+
+        <Link href="/memory" className="block">
+          <Card className="h-full hover:border-primary/50 transition-colors">
+            <CardContent className="p-5">
+              <p className="text-sm font-medium mb-1">Memory</p>
+              <p className="text-sm text-muted-foreground">
+                Repo and global memory with procedural and trajectory-backed knowledge.
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
+      </div>
+
       {/* Quick Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <Link href="/sessions?status=RUNNING,STARTING" className="block">

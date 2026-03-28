@@ -9,7 +9,7 @@ Settings are stored per user and synced to the control plane. The settings panel
 
 ## Notifications and alerts
 - Enable browser notifications, audio alerts, and in app toasts.
-- Configure Clawdbot push notifications.
+- Configure OpenClaw push notifications.
 - Set per event and per provider filters.
 - Customize usage threshold alerts.
 

@@ -93,6 +93,38 @@ a {
   z-index: 1;
 }
 
+.release-banner {
+  margin-top: 28px;
+  position: relative;
+  z-index: 2;
+  display: grid;
+  gap: 8px;
+  max-width: 780px;
+  padding: 18px 20px;
+  border: 1px solid rgba(15, 118, 110, 0.18);
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(10px);
+  border-radius: 18px;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08);
+}
+
+.release-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.76rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--primary-strong);
+}
+
+.release-banner p {
+  color: var(--text-muted);
+}
+
+.release-banner a {
+  color: var(--primary-strong);
+  font-weight: 600;
+}
+
 .hero-copy h1 {
   font-family: "Space Grotesk", sans-serif;
   font-size: clamp(2.4rem, 4vw, 3.6rem);
@@ -145,6 +177,10 @@ a {
   padding: 90px 8vw;
 }
 
+.section-release {
+  padding-top: 42px;
+}
+
 .section-head {
   max-width: 720px;
   margin-bottom: 40px;
@@ -163,6 +199,12 @@ a {
 .feature-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 24px;
+}
+
+.release-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 24px;
 }
 
@@ -259,18 +301,43 @@ a {
   gap: 24px;
 }
 
-.faq-grid h3 {
-  font-family: "Space Grotesk", sans-serif;
-  margin-bottom: 6px;
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 11px 16px;
+  border-radius: 999px;
+  font-weight: 600;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+}
+
+.btn.primary {
+  background: var(--primary);
+  color: white;
+  box-shadow: 0 10px 22px rgba(14, 165, 164, 0.24);
+}
+
+.btn.secondary {
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--text);
+}
+
+.btn.ghost {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.6);
 }
 
 .footer {
-  padding: 40px 8vw 60px;
-  border-top: 1px solid var(--border);
+  padding: 36px 8vw 50px;
   display: flex;
-  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 18px;
+  gap: 24px;
+  flex-wrap: wrap;
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
 }
 
 .footer p {
@@ -279,50 +346,27 @@ a {
 
 .footer-links {
   display: flex;
-  gap: 16px;
-  font-weight: 500;
-}
-
-.btn {
-  display: inline-flex;
+  gap: 18px;
   align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  padding: 10px 18px;
-  font-weight: 600;
-  font-size: 0.95rem;
-  border: 1px solid transparent;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  flex-wrap: wrap;
 }
 
-.btn.primary {
-  background: var(--primary);
-  color: #ffffff;
-  box-shadow: 0 12px 24px rgba(14, 165, 164, 0.25);
-}
-
-.btn.secondary {
-  border-color: rgba(14, 165, 164, 0.4);
-  color: var(--primary-strong);
-  background: rgba(14, 165, 164, 0.08);
-}
-
-.btn.ghost {
-  border-color: var(--border);
-  color: var(--text);
-  background: #fff;
-}
-
-.btn:hover {
-  transform: translateY(-1px);
-}
-
-@media (max-width: 900px) {
+@media (max-width: 720px) {
   .nav {
     flex-direction: column;
     align-items: flex-start;
   }
+
   .nav-links {
     flex-wrap: wrap;
   }
+
+  .hero {
+    padding-top: 26px;
+  }
+}
+
+.faq-grid h3 {
+  font-family: "Space Grotesk", sans-serif;
+  margin-bottom: 6px;
 }

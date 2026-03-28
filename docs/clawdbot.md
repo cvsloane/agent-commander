@@ -1,6 +1,8 @@
-# Clawdbot Integration
+# OpenClaw Integration
 
-Clawdbot delivers notifications to external channels like Telegram, Discord, Slack, WhatsApp, Signal, and iMessage.
+OpenClaw delivers notifications to external channels like Telegram, Discord, Slack, WhatsApp, Signal, and iMessage.
+
+Note: the underlying config keys and some internal code paths still use the legacy `clawdbot` name for backwards compatibility.
 
 ## Configuration
 

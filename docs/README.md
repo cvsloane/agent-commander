@@ -2,6 +2,7 @@
 
 Start here:
 - [Overview](overview.md)
+- [Releases](releases.md)
 - [Getting Started](getting-started.md)
 - [Configuration](configuration.md)
 - [Deployment](deployment.md)
@@ -10,6 +11,7 @@ Start here:
 - Public feature site: `deploy/Dockerfile.site`
 
 Core guides:
+- [Tmux Manager](tmux-manager.md)
 - [Sessions](sessions.md)
 - [Console Streaming](console.md)
 - [Orchestrator](orchestrator.md)
@@ -25,7 +27,7 @@ Agents and integrations:
 - [Provider Hooks](hooks.md)
 - [MCP Integration](mcp.md)
 - [Voice Transcription](voice.md)
-- [Clawdbot](clawdbot.md)
+- [OpenClaw](clawdbot.md)
 
 Reference:
 - [API Reference](api.md)
