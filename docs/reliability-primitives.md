@@ -22,7 +22,7 @@ This doc inventories how **retry/backoff**, **rate limiting**, and **ops metrics
 ### Rate Limiting
 
 **control-plane (TypeScript)**
-- In-memory per-user throttle for Clawdbot notifications: `services/control-plane/src/services/clawdbot.ts`
+- In-memory per-user throttle for OpenClaw notifications: `services/control-plane/src/services/clawdbot.ts`
   - Default: `maxPerHour = 30` with additional dedupe + session cooldown rules.
   - Not distributed-safe (assumes a single control-plane instance for correct enforcement).
 
@@ -49,12 +49,11 @@ This doc inventories how **retry/backoff**, **rate limiting**, and **ops metrics
 ## Migration Plan (Incremental)
 
 1. **(Done) Add operational metrics endpoints and key counters**
-   - control-plane `/metrics` + Clawdbot allow/deny reasons
+   - control-plane `/metrics` + OpenClaw allow/deny reasons
    - agentd `/metrics` + reconnect/backoff counters
 2. **Centralize retry/backoff**
    - Introduce a small `retry` helper in each language (repo-local), then migrate high-value call sites first.
 3. **Rate limiting hardening (only if/when needed)**
-   - If control-plane becomes multi-instance: add Redis and migrate Clawdbot throttle to distributed-safe limits.
+   - If control-plane becomes multi-instance: add Redis and migrate OpenClaw throttle to distributed-safe limits.
 4. **Dashboards/alerts**
-   - Alert on reconnect storms, reconnect failure rates, and sustained Clawdbot rate-limit blocks.
-
+   - Alert on reconnect storms, reconnect failure rates, and sustained OpenClaw rate-limit blocks.

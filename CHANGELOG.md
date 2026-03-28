@@ -13,4 +13,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Control plane API + WebSocket streaming
 - Dashboard for sessions, approvals, and analytics
 - agentd daemon for tmux session management
-- Alerts and notifications (browser, audio, toasts, Clawdbot)
+- Alerts and notifications (browser, audio, toasts, OpenClaw)

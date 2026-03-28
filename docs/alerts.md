@@ -7,7 +7,7 @@ Agent Commander supports multiple alert channels with per event and per provider
 - Browser notifications
 - Audio alerts
 - In app toasts
-- Clawdbot push notifications (Telegram, Slack, Discord, WhatsApp, etc.)
+- OpenClaw push notifications (Telegram, Slack, Discord, WhatsApp, etc.)
 
 Each channel can be enabled independently and configured to trigger only when the app is unfocused.
 
@@ -39,9 +39,9 @@ You can filter alerts per provider:
 
 Thresholds are per provider and default to 50, 75, 90, 100 percent. Use the settings panel to customize.
 
-## Clawdbot
+## OpenClaw
 
-Clawdbot is a lightweight relay that sends notifications to chat tools. Configure in Settings:
+OpenClaw is the notification relay that sends events to chat tools. The legacy internal config key is still `clawdbot`, but the product-facing name is OpenClaw. Configure it in Settings:
 - Base URL
 - Token
 - Channel

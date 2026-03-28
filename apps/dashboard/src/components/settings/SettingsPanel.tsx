@@ -262,7 +262,7 @@ export function SettingsPanel({ className }: SettingsPanelProps) {
   const handleTestClawdbot = async () => {
     const clawdbot = alertSettings.clawdbot;
     if (!clawdbot?.enabled || !clawdbot?.baseUrl || !clawdbot?.token) {
-      notifications.error('Clawdbot Not Configured', 'Enable Clawdbot and provide a URL and token.');
+      notifications.error('OpenClaw Not Configured', 'Enable OpenClaw and provide a URL and token.');
       return;
     }
     setClawdbotTesting(true);
@@ -545,7 +545,7 @@ export function SettingsPanel({ className }: SettingsPanelProps) {
               <div>
                 <div className="text-sm font-medium flex items-center gap-2">
                   <Bot className="h-4 w-4" />
-                  Clawdbot (Push Notifications)
+                  OpenClaw (Push Notifications)
                 </div>
                 <div className="text-xs text-muted-foreground">
                   Receive alerts via Telegram, WhatsApp, Discord, etc.
@@ -558,7 +558,7 @@ export function SettingsPanel({ className }: SettingsPanelProps) {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Clawdbot URL</Label>
+              <Label className="text-xs text-muted-foreground">OpenClaw URL</Label>
               <input
                 type="text"
                 value={alertSettings.clawdbot?.baseUrl ?? DEFAULT_CLAWDBOT_SETTINGS.baseUrl}
@@ -574,7 +574,7 @@ export function SettingsPanel({ className }: SettingsPanelProps) {
                 type="password"
                 value={alertSettings.clawdbot?.token ?? ''}
                 onChange={(e) => setClawdbotToken(e.target.value)}
-                placeholder="Your clawdbot token"
+                placeholder="Your OpenClaw token"
                 className="w-full px-3 py-2 border rounded-md bg-background text-sm"
               />
             </div>

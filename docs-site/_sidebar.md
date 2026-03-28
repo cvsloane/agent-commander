@@ -1,14 +1,17 @@
 - Start here
   - [Overview](/docs/overview.md)
+  - [Releases](/docs/releases.md)
   - [Getting Started](/docs/getting-started.md)
   - [Configuration](/docs/configuration.md)
   - [Deployment](/docs/deployment.md)
   - [Coolify Deployment](/docs/deployment-coolify.md)
 
 - Core guides
+  - [Tmux Manager](/docs/tmux-manager.md)
   - [Sessions](/docs/sessions.md)
   - [Console Streaming](/docs/console.md)
   - [Orchestrator](/docs/orchestrator.md)
+  - [Automation and Memory](/docs/automation-memory.md)
   - [Approvals](/docs/approvals.md)
   - [Visualizer](/docs/visualizer.md)
   - [Alerts](/docs/alerts.md)
@@ -19,7 +22,7 @@
   - [Provider Hooks](/docs/hooks.md)
   - [MCP Integration](/docs/mcp.md)
   - [Voice Transcription](/docs/voice.md)
-  - [Clawdbot](/docs/clawdbot.md)
+  - [OpenClaw](/docs/clawdbot.md)
 
 - Reference
   - [API Reference](/docs/api.md)

@@ -1,8 +1,14 @@
 # Sessions
 
-Sessions are the core unit in Agent Commander. A session usually maps to a tmux pane, but can also represent jobs or services.
+Sessions are the core execution unit in Agent Commander. A session usually maps to a tmux pane, but can also represent jobs or services. Even autonomous runs stay session-native, so live streaming, snapshots, approvals, and intervention all work the same way.
 
 ![Sessions](images/sessions-view.png)
+
+## Where to work
+
+- `/tmux` is the primary day-to-day surface for live tmux panes and windows.
+- `/sessions` remains the broader operator view across tmux panes, jobs, and services.
+- `/sessions/[id]` is the detailed per-session control surface.
 
 ## Session types
 
@@ -36,9 +42,11 @@ Common statuses:
 
 The orchestrator uses WAITING_FOR_INPUT, WAITING_FOR_APPROVAL, and ERROR to build the attention queue.
 
-## Discovery and adoption
+## Discovery and tmux management
 
-agentd polls tmux and registers panes. If a pane is found without a session ID, it is considered orphaned and can be adopted from the dashboard.
+`agentd` polls tmux and registers panes automatically. The tmux manager groups live panes by host, tmux session name, and window so you can open work directly without treating tmux discovery as a separate import workflow.
+
+Older orphan/adopt flows still exist on advanced surfaces for edge cases, but the primary `/tmux` workflow shows unmanaged panes automatically when they are already in the session registry.
 
 ## Grouping
 
@@ -72,3 +80,4 @@ From the dashboard or API you can:
 - Copy pane output into another session.
 - Archive or unarchive sessions.
 - Mark a session as idle or wake it.
+- Open the inline tmux workbench from `/tmux` for terminal control without leaving the roster view.

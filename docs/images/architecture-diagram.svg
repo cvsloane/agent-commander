@@ -31,7 +31,7 @@
   <!-- External services -->
   <rect x="800" y="560" width="320" height="150" rx="18" fill="#111827" stroke="#334155" />
   <text x="960" y="620" fill="#e2e8f0" font-size="18" font-family="Arial" text-anchor="middle">External Services</text>
-  <text x="960" y="650" fill="#94a3b8" font-size="13" font-family="Arial" text-anchor="middle">Clawdbot, Deepgram, OpenAI</text>
+  <text x="960" y="650" fill="#94a3b8" font-size="13" font-family="Arial" text-anchor="middle">OpenClaw, Deepgram, OpenAI</text>
 
   <!-- Lines -->
   <line x1="400" y1="205" x2="440" y2="205" stroke="#94a3b8" stroke-width="3" />

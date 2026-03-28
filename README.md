@@ -9,6 +9,13 @@
 
 Agent Commander is a mission-control dashboard for managing AI agent sessions across multiple hosts. It combines a Next.js dashboard, a Fastify control plane, and a Go-based agent daemon (`agentd`).
 
+## New in v0.2.0
+
+- **tmux-first manager** — `/tmux` is now the primary day-to-day surface for live windows and panes across hosts
+- **Paperclip-inspired autonomy** — autonomous orchestrators and workers with wake queues, governance approvals, budgets, concurrency policy, and runtime reuse
+- **Ruflo-inspired memory** — repo and global memory for every session, plus trajectory capture and procedural knowledge
+- **Hermes integration** — external wake triggers, summaries, and watchdog/digest hooks for the broader Heaviside automation stack
+
 ## Screenshots
 
 <p align="center">
@@ -53,15 +60,17 @@ pnpm db:migrate
 
 ## Features
 
+- **tmux-first manager** — work directly from `/tmux` with windows-first navigation and inline terminal control
 - **tmux-native sessions** — discover and manage real tmux panes across hosts
 - **Interactive console** — live streaming with full terminal control and read-only viewers
 - **Orchestrator + approvals** — attention queue for input, approvals, and errors
 - **Autonomous agents** — scheduled or manual orchestrators and workers with runtime reuse, preflight, and governance
 - **Scoped memory** — repo and global memory for every session, with procedural knowledge and trajectory-backed learning
+- **Hermes-ready integration** — service-auth wake triggers, webhook wakes, governance summaries, and external scheduler support
 - **Session generator** — spawn multi-session templates with groups and links
 - **Visualizer** — immersive full-screen activity view
 - **Search + analytics** — global search and usage tracking
-- **Alerts** — browser, audio, in-app toasts, Clawdbot
+- **Alerts** — browser, audio, in-app toasts, and OpenClaw notifications
 - **Multi-host** — one dashboard for many machines
 
 ## Documentation
@@ -70,7 +79,9 @@ pnpm db:migrate
 | --- | --- |
 | [Docs Index](docs/README.md) | Full documentation map |
 | [Overview](docs/overview.md) | Concepts and workflows |
+| [Releases](docs/releases.md) | Public release notes and milestones |
 | [Getting Started](docs/getting-started.md) | Install and run locally |
+| [Tmux Manager](docs/tmux-manager.md) | The tmux-first working surface |
 | [Sessions](docs/sessions.md) | Session lifecycle and actions |
 | [Console Streaming](docs/console.md) | Interactive tmux in the browser |
 | [Orchestrator](docs/orchestrator.md) | Attention queue and summaries |

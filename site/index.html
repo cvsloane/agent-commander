@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Agent Commander — Mission Control for AI Sessions</title>
-  <meta name="description" content="Agent Commander is a mission control system for AI agent sessions: tmux-native, live streaming, approvals, orchestration, analytics, and multi-host control." />
+  <title>Agent Commander — Tmux-First Control for AI Sessions</title>
+  <meta name="description" content="Agent Commander is a tmux-first control plane for live AI sessions, scoped memory, autonomous orchestration, and multi-host operations." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -15,28 +15,37 @@
     <nav class="nav">
       <div class="brand">Agent Commander</div>
       <div class="nav-links">
+        <a href="#release">v0.2.0</a>
         <a href="#features">Features</a>
         <a href="#how">How it works</a>
         <a href="#ops">Operations</a>
         <a class="btn secondary" href="https://docs.agentcommander.co/#/docs/overview.md">Docs</a>
       </div>
     </nav>
+    <div class="release-banner" id="release">
+      <span class="release-label">New in v0.2.0</span>
+      <p>tmux-first manager, Paperclip-inspired orchestration, Ruflo-inspired memory, and Hermes integration are now part of the product.</p>
+      <a href="https://github.com/cvsloane/agent-commander/releases">Release notes</a>
+    </div>
     <div class="hero-grid">
       <div class="hero-copy">
-        <div class="eyebrow">Open source mission control</div>
-        <h1>Coordinate AI agents across every machine you own.</h1>
+        <div class="eyebrow">Open source tmux-first control plane</div>
+        <h1>Work from real tmux panes, then layer memory and autonomy on top.</h1>
         <p>
           Agent Commander discovers real tmux sessions, streams them live into the browser,
-          and gives you one place to orchestrate approvals, errors, and multi-host activity.
+          adds repo and global memory to every run, and gives you orchestrators, workers,
+          budgets, governance, and Hermes-connected automation without replacing the session runtime.
         </p>
         <div class="hero-actions">
           <a class="btn primary" href="https://docs.agentcommander.co/#/docs/getting-started.md">Read the docs</a>
+          <a class="btn secondary" href="https://docs.agentcommander.co/#/docs/releases.md">What changed</a>
           <a class="btn ghost" href="https://github.com/cvsloane/agent-commander">GitHub</a>
         </div>
         <div class="hero-badges">
-          <span>tmux-native</span>
-          <span>Live streaming</span>
-          <span>Approvals + orchestration</span>
+          <span>tmux-first manager</span>
+          <span>Scoped memory</span>
+          <span>Autonomous orchestration</span>
+          <span>Hermes-ready</span>
           <span>Multi-host</span>
         </div>
       </div>
@@ -47,6 +56,35 @@
   </header>
 
   <main>
+    <section class="section section-release">
+      <div class="section-head">
+        <h2>What shipped in v0.2.0</h2>
+        <p>Agent Commander is no longer just a tmux dashboard. The product now has a clearer tmux workflow, real memory, and safer autonomous operations.</p>
+      </div>
+      <div class="release-grid">
+        <article class="feature-card">
+          <h3>Tmux-first manager</h3>
+          <p>`/tmux` is now the primary working surface, grouped by host, tmux session, window, and pane.</p>
+          <a href="https://docs.agentcommander.co/#/docs/tmux-manager.md">Tmux manager docs →</a>
+        </article>
+        <article class="feature-card">
+          <h3>Autonomy with governance</h3>
+          <p>Orchestrators and workers now run with wake queues, budgets, concurrency policy, runtime reuse, and human governance approvals.</p>
+          <a href="https://docs.agentcommander.co/#/docs/automation-memory.md">Automation docs →</a>
+        </article>
+        <article class="feature-card">
+          <h3>Repo and global memory</h3>
+          <p>Every session can now receive repo-scoped and global memory, with procedural knowledge promoted from successful trajectories.</p>
+          <a href="https://docs.agentcommander.co/#/docs/automation-memory.md">Memory docs →</a>
+        </article>
+        <article class="feature-card">
+          <h3>Hermes integration</h3>
+          <p>Hermes can wake orchestrators externally, watch summaries, and route alerts without taking over the Agent Commander operator workflow.</p>
+          <a href="https://docs.agentcommander.co/#/docs/automation-memory.md">Integration docs →</a>
+        </article>
+      </div>
+    </section>
+
     <section id="features" class="section">
       <div class="section-head">
         <h2>Feature deep dive</h2>
@@ -54,14 +92,14 @@
       </div>
       <div class="feature-grid">
         <article class="feature-card">
-          <h3>Session control</h3>
-          <p>Discover tmux panes, spawn new sessions, fork, rename, archive, and bulk-manage workstreams.</p>
+          <h3>Tmux manager</h3>
+          <p>Discover live panes, group them into windows, and open the inline workbench without bouncing across operator screens.</p>
           <ul>
-            <li>Session templates for multi-agent workflows</li>
-            <li>Groups, links, and session relationships</li>
-            <li>Snapshots and event timelines</li>
+            <li>Host-first window roster</li>
+            <li>Inline terminal and control surface</li>
+            <li>Unmanaged panes shown automatically</li>
           </ul>
-          <a href="https://docs.agentcommander.co/#/docs/sessions.md">Read session docs →</a>
+          <a href="https://docs.agentcommander.co/#/docs/tmux-manager.md">Tmux manager →</a>
         </article>
         <article class="feature-card">
           <h3>Interactive console</h3>
@@ -74,42 +112,42 @@
           <a href="https://docs.agentcommander.co/#/docs/console.md">Console streaming →</a>
         </article>
         <article class="feature-card">
-          <h3>Orchestrator + approvals</h3>
-          <p>Centralize sessions that need attention: approvals, input, or error recovery.</p>
+          <h3>Automation + governance</h3>
+          <p>Run orchestrators and workers with budgets, wake policies, concurrency controls, runtime reuse, and explicit governance.</p>
           <ul>
-            <li>Approval queue with hook + keystroke decisions</li>
-            <li>Session idle/wake controls</li>
-            <li>Summaries for fast context</li>
+            <li>Wake queue, work items, and run timelines</li>
+            <li>Budget and host preflight gates</li>
+            <li>Human approvals for blocked runs</li>
           </ul>
-          <a href="https://docs.agentcommander.co/#/docs/orchestrator.md">Orchestrator →</a>
+          <a href="https://docs.agentcommander.co/#/docs/automation-memory.md">Automation →</a>
         </article>
         <article class="feature-card">
-          <h3>Visualizer</h3>
-          <p>Immersive full-screen activity view for monitoring live agent work.</p>
+          <h3>Scoped memory</h3>
+          <p>Give every session repo and global memory, then turn repeated successful trajectories into reusable procedures.</p>
           <ul>
-            <li>Multiple themes</li>
-            <li>Live activity feed</li>
-            <li>Quick command bar</li>
+            <li>Repo, global, and working scopes</li>
+            <li>Procedural, semantic, and episodic tiers</li>
+            <li>Trajectory-backed distillation</li>
           </ul>
-          <a href="https://docs.agentcommander.co/#/docs/visualizer.md">Visualizer →</a>
+          <a href="https://docs.agentcommander.co/#/docs/automation-memory.md">Memory →</a>
         </article>
         <article class="feature-card">
-          <h3>Alerts + notifications</h3>
-          <p>Browser, audio, toast, and Clawdbot alerts with per-provider filters.</p>
+          <h3>Hermes + external wakes</h3>
+          <p>Plug Agent Commander into the broader Heaviside operating system through service-auth wakes, webhooks, and deterministic summaries.</p>
           <ul>
-            <li>Usage thresholds</li>
-            <li>Approval and error alerts</li>
-            <li>Clawdbot routing (Telegram, Slack, Discord)</li>
+            <li>Hermes watchdog and digest jobs</li>
+            <li>Signed webhook wakes</li>
+            <li>Deep links back to the operator UI</li>
           </ul>
-          <a href="https://docs.agentcommander.co/#/docs/alerts.md">Alerts →</a>
+          <a href="https://docs.agentcommander.co/#/docs/automation-memory.md">Integrations →</a>
         </article>
         <article class="feature-card">
           <h3>Analytics + search</h3>
-          <p>Track usage, approval outcomes, and search across sessions and snapshots.</p>
+          <p>Track usage, approval outcomes, runs, memory hits, and search across sessions and stored knowledge.</p>
           <ul>
             <li>Weekly and per-session metrics</li>
             <li>Full-text search</li>
-            <li>Project history</li>
+            <li>Memory search and repo history</li>
           </ul>
           <a href="https://docs.agentcommander.co/#/docs/search-and-projects.md">Search + projects →</a>
         </article>
@@ -139,7 +177,7 @@
     <section id="how" class="section section-dark">
       <div class="section-head">
         <h2>How it works</h2>
-        <p>Agent Commander is a four-part system: dashboard, control plane, agentd, and Postgres.</p>
+        <p>Agent Commander keeps `agentd` and sessions as the execution substrate, then layers memory and orchestration on top.</p>
       </div>
       <div class="diagram">
         <img src="https://docs.agentcommander.co/docs/images/architecture-diagram.svg" alt="Agent Commander architecture" />
@@ -150,16 +188,16 @@
           <p>agentd runs on each host, polls tmux panes, captures snapshots, and streams output.</p>
         </div>
         <div>
-          <h3>2. Control plane brokers events</h3>
-          <p>REST + WebSocket APIs persist session state, approvals, and analytics in Postgres.</p>
+          <h3>2. Control plane adds memory + orchestration</h3>
+          <p>REST + WebSocket APIs persist sessions, approvals, automation runs, work queues, and scoped memory in Postgres.</p>
         </div>
         <div>
-          <h3>3. Dashboard orchestrates</h3>
-          <p>The UI subscribes to live updates, provides terminal control, and manages approvals.</p>
+          <h3>3. Dashboard stays session-native</h3>
+          <p>The UI gives you tmux, sessions, automation, memory, and approvals without inventing a second runtime.</p>
         </div>
         <div>
-          <h3>4. Optional services</h3>
-          <p>OpenAI summaries, Deepgram transcription, and Clawdbot notifications plug in as needed.</p>
+          <h3>4. Optional outer systems integrate cleanly</h3>
+          <p>Hermes, OpenAI summaries, Deepgram transcription, and OpenClaw notifications plug in as needed.</p>
         </div>
       </div>
       <div class="cta-row">
@@ -213,6 +251,10 @@
         <div>
           <h3>Is there a public demo?</h3>
           <p>No. The public site is docs only. The live app runs on private infrastructure.</p>
+        </div>
+        <div>
+          <h3>What inspired the new architecture?</h3>
+          <p>Paperclip informed the orchestration model and Ruflo informed the memory model, but Agent Commander still runs on its own tmux-and-session-native stack.</p>
         </div>
         <div>
           <h3>What does it require?</h3>
