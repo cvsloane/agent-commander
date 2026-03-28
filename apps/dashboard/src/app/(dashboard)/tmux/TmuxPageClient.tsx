@@ -564,256 +564,13 @@ export default function TmuxPageClient() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <div className="space-y-4">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Live tmux Sessions</CardTitle>
-              <CardDescription>
-                {selectedHost
-                  ? `${selectedHost.name}${selectedHost.tailscale_name ? ` · ${selectedHost.tailscale_name}` : ''}`
-                  : 'Select a host'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={query}
-                  onChange={(event) => updateTmuxParams({ q: event.target.value || null })}
-                  placeholder="Filter by tmux session, cwd, branch, repo, provider..."
-                  className="pl-9"
-                />
-              </div>
-
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>
-                  {clusters.length} sessions · {filteredSessions.length} panes
-                </span>
-                {selectedHost && (
-                  <span suppressHydrationWarning>
-                    {hydrated && selectedHost.last_seen_at
-                      ? `Last seen ${formatRelativeTime(selectedHost.last_seen_at)}`
-                      : 'Waiting for host heartbeat'}
-                  </span>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="min-h-[480px]">
-            <CardContent className="p-0">
-              {sessionsLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                </div>
-              ) : sessionsError ? (
-                <div className="p-6 text-sm text-destructive">
-                  Failed to load tmux sessions for this host.
-                </div>
-              ) : clusters.length === 0 ? (
-                <div className="p-6 text-sm text-muted-foreground">
-                  No tmux panes matched this host and filter.
-                </div>
-              ) : (
-                <div className="space-y-4 p-3">
-                  <div className="space-y-2">
-                    {clusters.map((cluster) => {
-                      const expanded = expandedClusterKey === cluster.key;
-                      const active = cluster.key === selectedClusterKey;
-                      return (
-                        <details
-                          key={cluster.key}
-                          open={expanded}
-                          onToggle={(event) => {
-                            const nextExpanded = event.currentTarget.open;
-                            setExpandedClusterKey(nextExpanded ? cluster.key : null);
-                          }}
-                          className={cn(
-                            'rounded-xl border bg-background transition-colors',
-                            active && 'border-primary bg-primary/5'
-                          )}
-                        >
-                          <summary
-                            className={cn(
-                              'flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-3 py-3 text-left transition-colors marker:hidden [&::-webkit-details-marker]:hidden',
-                              expanded ? 'bg-accent/40' : 'hover:bg-accent/30'
-                            )}
-                            aria-expanded={expanded}
-                          >
-                            <div className="min-w-0 flex-1 space-y-1">
-                              <div className="flex items-center gap-2">
-                                <Monitor className="h-4 w-4 text-primary" />
-                                <span className="truncate font-medium">{cluster.tmuxSessionName}</span>
-                                {cluster.hasUnmanaged && (
-                                  <Badge variant="outline" className="text-[10px]">
-                                    Untracked
-                                  </Badge>
-                                )}
-                              </div>
-                              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                                <span>{cluster.windowCount} windows</span>
-                                <span>•</span>
-                                <span>{cluster.paneCount} panes</span>
-                                <span>•</span>
-                                <span>{cluster.providerSummary || 'Unknown provider'}</span>
-                                {cluster.branch && (
-                                  <>
-                                    <span>•</span>
-                                    <span>{cluster.branch}</span>
-                                  </>
-                                )}
-                              </div>
-                              <div className="truncate text-xs text-muted-foreground">
-                                {cluster.repoOrCwd}
-                              </div>
-                            </div>
-                            <div className="flex shrink-0 items-center gap-2">
-                              <span className="text-[11px] text-muted-foreground" suppressHydrationWarning>
-                                {hydrated ? formatRelativeTime(cluster.lastActivityAt) : '—'}
-                              </span>
-                              <span className="text-[11px] font-medium text-muted-foreground">
-                                {expanded ? 'Collapse' : 'Expand'}
-                              </span>
-                              {expanded ? (
-                                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                              ) : (
-                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                              )}
-                            </div>
-                          </summary>
-
-                          {expanded && (
-                            <div className="space-y-3 border-t px-3 pb-3 pt-3">
-                              <div className="text-xs text-muted-foreground">
-                                Click a window or pane below to open it in the workbench.
-                              </div>
-                              <div className="space-y-3">
-                                {cluster.windows.map((window) => {
-                                  const windowSelected = window.key === selectedWindowKey;
-                                  const paneCount = window.panes.length;
-                                  const windowLabel = `${window.windowIndex}${window.windowName !== `window ${window.windowIndex}` ? ` · ${window.windowName}` : ''}`;
-                                  return (
-                                    <div key={window.key} className="rounded-lg border bg-background">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleSelectWindow(window.selectedPane.session.id)}
-                                        className={cn(
-                                          'w-full rounded-lg p-3 text-left transition-colors',
-                                          windowSelected ? 'bg-accent/70' : 'hover:bg-accent/40'
-                                        )}
-                                      >
-                                        <div className="flex items-start justify-between gap-3">
-                                          <div className="min-w-0 space-y-1">
-                                            <div className="flex flex-wrap items-center gap-2">
-                                              <span className="font-medium">{windowLabel}</span>
-                                              <Badge variant="outline">{paneCount} pane{paneCount === 1 ? '' : 's'}</Badge>
-                                              {window.hasUnmanaged && (
-                                                <Badge variant="outline" className="text-xs">
-                                                  Untracked pane
-                                                </Badge>
-                                              )}
-                                            </div>
-                                            <div className="truncate text-xs text-muted-foreground">
-                                              {window.repoOrCwd}
-                                            </div>
-                                            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                                              <span>{window.providerSummary || 'Unknown provider'}</span>
-                                              {window.branch && (
-                                                <>
-                                                  <span>•</span>
-                                                  <span>{window.branch}</span>
-                                                </>
-                                              )}
-                                              <span>•</span>
-                                              <span suppressHydrationWarning>
-                                                {hydrated ? formatRelativeTime(window.lastActivityAt) : '—'}
-                                              </span>
-                                            </div>
-                                          </div>
-                                          <span className={cn('text-xs font-mono', getStatusIndicator(window.selectedPane.session.status).textColor)}>
-                                            {getStatusIndicator(window.selectedPane.session.status).symbol}
-                                          </span>
-                                        </div>
-                                      </button>
-
-                                      <div className="space-y-1 px-2 pb-2">
-                                        {window.panes.map((pane) => {
-                                          const paneActive = pane.session.id === selectedSessionId;
-                                          const status = getStatusIndicator(pane.session.status);
-                                          return (
-                                            <button
-                                              key={pane.session.id}
-                                              type="button"
-                                              onClick={() => handleSelectPane(pane.session.id)}
-                                              className={cn(
-                                                'flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left transition-colors',
-                                                paneActive ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'
-                                              )}
-                                            >
-                                              <div className="min-w-0 space-y-1">
-                                                <div className="flex items-center gap-2">
-                                                  <span
-                                                    className={cn(
-                                                      'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-mono',
-                                                      paneActive ? 'bg-primary-foreground/15 text-primary-foreground' : 'bg-muted'
-                                                    )}
-                                                  >
-                                                    {getProviderIcon(pane.session.provider)}
-                                                  </span>
-                                                  <span className="truncate text-sm font-medium">
-                                                    {getSessionDisplayName(pane.session)}
-                                                  </span>
-                                                  {pane.isUnmanaged && (
-                                                    <Badge variant="outline" className="text-[10px]">
-                                                      Untracked
-                                                    </Badge>
-                                                  )}
-                                                </div>
-                                                <div
-                                                  className={cn(
-                                                    'truncate text-xs',
-                                                    paneActive ? 'text-primary-foreground/80' : 'text-muted-foreground'
-                                                  )}
-                                                >
-                                                  pane {pane.paneIndex}
-                                                  {pane.session.cwd ? ` · ${pane.session.cwd}` : ''}
-                                                </div>
-                                              </div>
-                                              <div className="shrink-0 text-right">
-                                                <div className={cn('text-xs font-mono', paneActive ? 'text-primary-foreground' : status.textColor)}>
-                                                  {status.symbol} {status.label}
-                                                </div>
-                                                <div className={cn('text-[11px]', paneActive ? 'text-primary-foreground/80' : 'text-muted-foreground')} suppressHydrationWarning>
-                                                  {hydrated ? formatRelativeTime(pane.lastActivityAt) : '—'}
-                                                </div>
-                                              </div>
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                        </details>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
+      <div className="space-y-6">
         <div className="space-y-4">
           {!selectedSessionId ? (
             <Card>
               <CardHeader>
-                <CardTitle>Select a Pane</CardTitle>
-                <CardDescription>Choose a tmux pane from the roster to open its inline workbench.</CardDescription>
+                <CardTitle>tmux Workbench</CardTitle>
+                <CardDescription>Choose a tmux pane below to open it here. The active terminal stays primary, and the roster sits underneath.</CardDescription>
               </CardHeader>
             </Card>
           ) : selectedSessionLoading || !selectedSession || !sessionDetailData ? (
@@ -919,6 +676,241 @@ export default function TmuxPageClient() {
             </>
           )}
         </div>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Live tmux Sessions</CardTitle>
+            <CardDescription>
+              {selectedHost
+                ? `${selectedHost.name}${selectedHost.tailscale_name ? ` · ${selectedHost.tailscale_name}` : ''}`
+                : 'Select a host'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(event) => updateTmuxParams({ q: event.target.value || null })}
+                placeholder="Filter by tmux session, cwd, branch, repo, provider..."
+                className="pl-9"
+              />
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>
+                {clusters.length} sessions · {filteredSessions.length} panes
+              </span>
+              {selectedHost && (
+                <span suppressHydrationWarning>
+                  {hydrated && selectedHost.last_seen_at
+                    ? `Last seen ${formatRelativeTime(selectedHost.last_seen_at)}`
+                    : 'Waiting for host heartbeat'}
+                </span>
+              )}
+            </div>
+
+            {sessionsLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              </div>
+            ) : sessionsError ? (
+              <div className="text-sm text-destructive">
+                Failed to load tmux sessions for this host.
+              </div>
+            ) : clusters.length === 0 ? (
+              <div className="text-sm text-muted-foreground">
+                No tmux panes matched this host and filter.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {clusters.map((cluster) => {
+                  const expanded = expandedClusterKey === cluster.key;
+                  const active = cluster.key === selectedClusterKey;
+                  return (
+                    <details
+                      key={cluster.key}
+                      open={expanded}
+                      onToggle={(event) => {
+                        const nextExpanded = event.currentTarget.open;
+                        setExpandedClusterKey(nextExpanded ? cluster.key : null);
+                      }}
+                      className={cn(
+                        'rounded-xl border bg-background transition-colors',
+                        active && 'border-primary bg-primary/5'
+                      )}
+                    >
+                      <summary
+                        className={cn(
+                          'flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-3 py-3 text-left transition-colors marker:hidden [&::-webkit-details-marker]:hidden',
+                          expanded ? 'bg-accent/40' : 'hover:bg-accent/30'
+                        )}
+                        aria-expanded={expanded}
+                      >
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-center gap-2">
+                            <Monitor className="h-4 w-4 text-primary" />
+                            <span className="truncate font-medium">{cluster.tmuxSessionName}</span>
+                            {cluster.hasUnmanaged && (
+                              <Badge variant="outline" className="text-[10px]">
+                                Untracked
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            <span>{cluster.windowCount} windows</span>
+                            <span>•</span>
+                            <span>{cluster.paneCount} panes</span>
+                            <span>•</span>
+                            <span>{cluster.providerSummary || 'Unknown provider'}</span>
+                            {cluster.branch && (
+                              <>
+                                <span>•</span>
+                                <span>{cluster.branch}</span>
+                              </>
+                            )}
+                          </div>
+                          <div className="truncate text-xs text-muted-foreground">
+                            {cluster.repoOrCwd}
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className="text-[11px] text-muted-foreground" suppressHydrationWarning>
+                            {hydrated ? formatRelativeTime(cluster.lastActivityAt) : '—'}
+                          </span>
+                          <span className="text-[11px] font-medium text-muted-foreground">
+                            {expanded ? 'Collapse' : 'Expand'}
+                          </span>
+                          {expanded ? (
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </div>
+                      </summary>
+
+                      {expanded && (
+                        <div className="space-y-3 border-t px-3 pb-3 pt-3">
+                          <div className="text-xs text-muted-foreground">
+                            Click a window or pane below to open it in the workbench.
+                          </div>
+                          <div className="space-y-3">
+                            {cluster.windows.map((window) => {
+                              const windowSelected = window.key === selectedWindowKey;
+                              const paneCount = window.panes.length;
+                              const windowLabel = `${window.windowIndex}${window.windowName !== `window ${window.windowIndex}` ? ` · ${window.windowName}` : ''}`;
+                              return (
+                                <div key={window.key} className="rounded-lg border bg-background">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSelectWindow(window.selectedPane.session.id)}
+                                    className={cn(
+                                      'w-full rounded-lg p-3 text-left transition-colors',
+                                      windowSelected ? 'bg-accent/70' : 'hover:bg-accent/40'
+                                    )}
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0 space-y-1">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <span className="font-medium">{windowLabel}</span>
+                                          <Badge variant="outline">{paneCount} pane{paneCount === 1 ? '' : 's'}</Badge>
+                                          {window.hasUnmanaged && (
+                                            <Badge variant="outline" className="text-xs">
+                                              Untracked pane
+                                            </Badge>
+                                          )}
+                                        </div>
+                                        <div className="truncate text-xs text-muted-foreground">
+                                          {window.repoOrCwd}
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                          <span>{window.providerSummary || 'Unknown provider'}</span>
+                                          {window.branch && (
+                                            <>
+                                              <span>•</span>
+                                              <span>{window.branch}</span>
+                                            </>
+                                          )}
+                                          <span>•</span>
+                                          <span suppressHydrationWarning>
+                                            {hydrated ? formatRelativeTime(window.lastActivityAt) : '—'}
+                                          </span>
+                                        </div>
+                                      </div>
+                                      <span className={cn('text-xs font-mono', getStatusIndicator(window.selectedPane.session.status).textColor)}>
+                                        {getStatusIndicator(window.selectedPane.session.status).symbol}
+                                      </span>
+                                    </div>
+                                  </button>
+
+                                  <div className="space-y-1 px-2 pb-2">
+                                    {window.panes.map((pane) => {
+                                      const paneActive = pane.session.id === selectedSessionId;
+                                      const status = getStatusIndicator(pane.session.status);
+                                      return (
+                                        <button
+                                          key={pane.session.id}
+                                          type="button"
+                                          onClick={() => handleSelectPane(pane.session.id)}
+                                          className={cn(
+                                            'flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left transition-colors',
+                                            paneActive ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'
+                                          )}
+                                        >
+                                          <div className="min-w-0 space-y-1">
+                                            <div className="flex items-center gap-2">
+                                              <span
+                                                className={cn(
+                                                  'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-mono',
+                                                  paneActive ? 'bg-primary-foreground/15 text-primary-foreground' : 'bg-muted'
+                                                )}
+                                              >
+                                                {getProviderIcon(pane.session.provider)}
+                                              </span>
+                                              <span className="truncate text-sm font-medium">
+                                                {getSessionDisplayName(pane.session)}
+                                              </span>
+                                              {pane.isUnmanaged && (
+                                                <Badge variant="outline" className="text-[10px]">
+                                                  Untracked
+                                                </Badge>
+                                              )}
+                                            </div>
+                                            <div
+                                              className={cn(
+                                                'truncate text-xs',
+                                                paneActive ? 'text-primary-foreground/80' : 'text-muted-foreground'
+                                              )}
+                                            >
+                                              pane {pane.paneIndex}
+                                              {pane.session.cwd ? ` · ${pane.session.cwd}` : ''}
+                                            </div>
+                                          </div>
+                                          <div className="shrink-0 text-right">
+                                            <div className={cn('text-xs font-mono', paneActive ? 'text-primary-foreground' : status.textColor)}>
+                                              {status.symbol} {status.label}
+                                            </div>
+                                            <div className={cn('text-[11px]', paneActive ? 'text-primary-foreground/80' : 'text-muted-foreground')} suppressHydrationWarning>
+                                              {hydrated ? formatRelativeTime(pane.lastActivityAt) : '—'}
+                                            </div>
+                                          </div>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </details>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {mcpManager.sessionId && (

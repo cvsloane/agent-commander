@@ -7,6 +7,10 @@ export interface RecentSession {
   cwd: string | null;
   status: string;
   provider: string;
+  kind?: string | null;
+  hostId?: string | null;
+  tmuxTarget?: string | null;
+  tmuxSessionName?: string | null;
   visitedAt: string;
 }
 
@@ -24,6 +28,10 @@ interface UIStore {
     cwd: string | null;
     status: string;
     provider: string;
+    kind?: string | null;
+    hostId?: string | null;
+    tmuxTarget?: string | null;
+    tmuxSessionName?: string | null;
   }) => void;
   updateRecentSessionStatus: (sessionId: string, status: string) => void;
   clearRecentSessions: () => void;
