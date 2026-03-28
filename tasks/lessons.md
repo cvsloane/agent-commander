@@ -23,3 +23,7 @@
 - Date: 2026-03-28
   Correction: User clarified that `Clawdbot` is now named `OpenClaw`.
   Rule: Use `OpenClaw` in all user-facing copy, docs, release notes, and UI labels for agent-command unless referring to a legacy internal config key or code symbol.
+
+- Date: 2026-03-28
+  Correction: User clarified the tmux manager should behave like a condensed accordion list of tmux sessions, not a broad card wall that leaves windows/panes visually expanded by default.
+  Rule: On the `/tmux` page, default the roster to one compact row per tmux session with explicit expand/collapse behavior that reveals windows and panes only for the open session.
