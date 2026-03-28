@@ -132,7 +132,7 @@ export function registerAutomationRoutes(app: FastifyInstance): void {
 
   app.get<{ Params: { id: string } }>(
     '/v1/automation-runs/:id/events',
-    async (request, reply) => {
+    async (request) => {
       const events = await getAutomationRunEvents(request.user!.id, request.params.id);
       return { events };
     }

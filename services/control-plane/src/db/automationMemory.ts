@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type {
   AutomationAgent,
   AutomationRun,
@@ -20,7 +19,6 @@ import type {
 } from '@agent-command/schema';
 import {
   pool,
-  findRepoByWorkingDirectory,
   getEvents,
   getLatestSnapshot,
   getRepoById,
@@ -85,34 +83,24 @@ async function ensureUniqueAutomationAgentSlug(base: string, excludeId?: string)
   const normalized = normalizeSlug(base);
   let next = normalized;
   let suffix = 2;
+  let existingId: string | undefined;
 
-  while (true) {
+  do {
     const result = await pool.query(
       `SELECT id
        FROM automation_agents
        WHERE slug = $1
          AND ($2::uuid IS NULL OR id <> $2)
-       LIMIT 1`,
+      LIMIT 1`,
       [next, excludeId || null]
     );
-    if (!result.rows[0]) {
-      return next;
-    }
+    existingId = result.rows[0]?.id;
+    if (!existingId) return next;
     next = `${normalized}-${suffix}`;
     suffix += 1;
-  }
-}
+  } while (existingId);
 
-function proceduralSignatureForTrajectory(row: {
-  objective?: string | null;
-  summary?: string | null;
-}): string {
-  const source = `${row.objective || ''}\n${row.summary || ''}`.toLowerCase();
-  return source
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\b(session|objective|outcome|repository|repo|agent|automation|run|current|state)\b/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return next;
 }
 
 function isProceduralTrajectoryGroup(summary: string, objective?: string | null): boolean {

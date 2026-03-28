@@ -806,7 +806,7 @@ async function processWakeup(
     runtime.busySession ? 1 : 0
   );
 
-  const { objective, workItem: previewWorkItem, repo } = await automationDb.buildObjectiveFromWake(wakeup);
+  const { objective, workItem: previewWorkItem } = await automationDb.buildObjectiveFromWake(wakeup);
 
   if (activeRunForScope) {
     if (policy === 'coalesce_if_active') {
