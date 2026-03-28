@@ -16,7 +16,7 @@ import {
   Send,
   Sun,
 } from 'lucide-react';
-import { assignSessionGroup, getHosts, getSessions } from '@/lib/api';
+import { assignSessionGroup, getAllSessions, getHosts } from '@/lib/api';
 import { useSessionDetail } from '@/hooks/useSessionDetail';
 import { useSessionIdle } from '@/hooks/useSessionIdle';
 import { useTerminateSession } from '@/hooks/useTerminateSession';
@@ -40,8 +40,6 @@ import {
 } from '@/lib/utils';
 import { useHydrated } from '@/hooks/useHydrated';
 import type { Host, ServerToUIMessage, SessionWithSnapshot } from '@agent-command/schema';
-
-const TMUX_LIMIT = 1000;
 
 interface TmuxPaneView {
   session: SessionWithSnapshot;
@@ -266,7 +264,7 @@ export default function TmuxPageClient() {
     isFetching: sessionsFetching,
   } = useQuery({
     queryKey: ['sessions', 'tmux', selectedHostId],
-    queryFn: () => getSessions({ host_id: selectedHostId, limit: TMUX_LIMIT }),
+    queryFn: () => getAllSessions({ host_id: selectedHostId }),
     enabled: Boolean(selectedHostId),
   });
 
