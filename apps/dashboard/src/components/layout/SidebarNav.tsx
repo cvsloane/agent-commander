@@ -9,6 +9,7 @@ import {
   Boxes,
   Workflow,
   Brain,
+  Rows3,
   Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -53,6 +54,11 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
       href: '/memory',
       label: 'Memory',
       icon: <Brain className="h-4 w-4" />,
+    },
+    {
+      href: '/tmux',
+      label: 'tmux',
+      icon: <Rows3 className="h-4 w-4" />,
     },
     {
       href: '/sessions',
