@@ -27,6 +27,13 @@ interface AgentState {
   authenticated: boolean;
 }
 
+/**
+ * Registers the `/v1/agent/connect` WebSocket endpoint for agentd connections.
+ *
+ * Event listeners are attached synchronously before async token validation so
+ * that early messages (for example `agent.hello`) are buffered rather than
+ * silently dropped. Once authentication succeeds the buffer is drained in order.
+ */
 export function registerAgentWebSocket(app: FastifyInstance): void {
   app.get(
     '/v1/agent/connect',
@@ -37,6 +44,33 @@ export function registerAgentWebSocket(app: FastifyInstance): void {
         lastProcessedSeq: 0,
         authenticated: false,
       };
+
+      const pendingMessages: Buffer[] = [];
+      const MAX_PENDING_MESSAGES = 100;
+
+      socket.on('message', async (data: Buffer) => {
+        if (!state.authenticated) {
+          if (pendingMessages.length >= MAX_PENDING_MESSAGES) {
+            app.log.warn({ count: pendingMessages.length }, 'Dropping message: pre-auth buffer full');
+            return;
+          }
+          pendingMessages.push(Buffer.from(data));
+          return;
+        }
+
+        await handleSocketMessage(app, socket, state, data);
+      });
+
+      socket.on('close', () => {
+        if (state.hostId) {
+          pubsub.removeAgentConnection(state.hostId);
+          app.log.info({ hostId: state.hostId }, 'Agent disconnected');
+        }
+      });
+
+      socket.on('error', (error: unknown) => {
+        app.log.error({ error, hostId: state.hostId }, 'Agent WebSocket error');
+      });
 
       // Extract token from Authorization header
       const authHeader = request.headers.authorization;
@@ -58,41 +92,43 @@ export function registerAgentWebSocket(app: FastifyInstance): void {
       state.authenticated = true;
       app.log.info({ hostId }, 'Agent connection authenticated');
 
-      // Track connected agent immediately; hello may arrive slightly later
+      // Track connected agent immediately with seq=0; handleAgentHello will
+      // re-register with the correct lastAckedSeq from the database.
       pubsub.addAgentConnection(hostId, socket, 0);
 
-      socket.on('message', async (data: Buffer) => {
+      for (const buffered of pendingMessages) {
         try {
-          const raw = JSON.parse(data.toString());
-          const parseResult = AgentMessageSchema.safeParse(raw);
-
-          if (!parseResult.success) {
-            app.log.warn({ error: parseResult.error }, 'Invalid agent message');
-            sendAck(socket, 0, 'error', 'Invalid message format');
-            return;
-          }
-
-          const message = parseResult.data;
-
-          // Process message based on type
-          await processAgentMessage(app, socket, state, message);
+          await handleSocketMessage(app, socket, state, buffered);
         } catch (error) {
-          app.log.error({ error }, 'Error processing agent message');
+          app.log.error({ error, hostId }, 'Error draining buffered message');
         }
-      });
-
-      socket.on('close', () => {
-        if (state.hostId) {
-          pubsub.removeAgentConnection(state.hostId);
-          app.log.info({ hostId: state.hostId }, 'Agent disconnected');
-        }
-      });
-
-      socket.on('error', (error: unknown) => {
-        app.log.error({ error, hostId: state.hostId }, 'Agent WebSocket error');
-      });
+      }
+      pendingMessages.length = 0;
     }
   );
+}
+
+async function handleSocketMessage(
+  app: FastifyInstance,
+  socket: WebSocket,
+  state: AgentState,
+  data: Buffer
+): Promise<void> {
+  try {
+    const raw = JSON.parse(data.toString());
+    const parseResult = AgentMessageSchema.safeParse(raw);
+
+    if (!parseResult.success) {
+      app.log.warn({ error: parseResult.error }, 'Invalid agent message');
+      sendAck(socket, 0, 'error', 'Invalid message format');
+      return;
+    }
+
+    const message = parseResult.data;
+    await processAgentMessage(app, socket, state, message);
+  } catch (error) {
+    app.log.error({ error }, 'Error processing agent message');
+  }
 }
 
 async function processAgentMessage(
