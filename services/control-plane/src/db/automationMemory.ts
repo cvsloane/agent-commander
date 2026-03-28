@@ -558,7 +558,7 @@ export async function distillTrajectories(limit = 10): Promise<number> {
        FROM memory_trajectories
        WHERE distilled_at IS NULL
          AND outcome = 'succeeded'
-       GROUP BY user_id, repo_id, md5(lower(summary))
+       GROUP BY user_id, repo_id, md5(lower(COALESCE(objective, '') || '|' || summary))
        HAVING count(*) >= 3
        ORDER BY max(created_at) DESC
        LIMIT $1
