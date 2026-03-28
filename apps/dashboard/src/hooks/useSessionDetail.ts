@@ -94,7 +94,20 @@ export function useSessionDetail(sessionId?: string | null) {
   useEffect(() => {
     if (!data?.session) return;
     const session = data.session;
-    const key = `${session.id}|${session.title ?? ''}|${session.cwd ?? ''}|${session.provider ?? ''}`;
+    const tmuxMeta = session.metadata?.tmux as { session_name?: string } | undefined;
+    const tmuxSessionName = tmuxMeta?.session_name?.trim()
+      || session.tmux_target?.split(':')[0]
+      || null;
+    const key = [
+      session.id,
+      session.title ?? '',
+      session.cwd ?? '',
+      session.provider ?? '',
+      session.kind ?? '',
+      session.host_id ?? '',
+      session.tmux_target ?? '',
+      tmuxSessionName ?? '',
+    ].join('|');
     if (recentKeyRef.current === key) return;
     recentKeyRef.current = key;
     addRecentSession({
@@ -103,6 +116,10 @@ export function useSessionDetail(sessionId?: string | null) {
       cwd: session.cwd ?? null,
       status: session.status,
       provider: session.provider,
+      kind: session.kind ?? null,
+      hostId: session.host_id ?? null,
+      tmuxTarget: session.tmux_target ?? null,
+      tmuxSessionName,
     });
   }, [addRecentSession, data?.session]);
 
