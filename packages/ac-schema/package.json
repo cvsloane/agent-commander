@@ -16,7 +16,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src/"
+    "lint": "ESLINT_USE_FLAT_CONFIG=false eslint src/"
   },
   "dependencies": {
     "zod": "^3.23.0"

@@ -2,8 +2,6 @@
 /* Orange/purple/blue on black with distinctive shapes */
 /* Based on TheLCARS.com design patterns */
 
-@import url('https://fonts.googleapis.com/css2?family=Antonio:wght@400;500;600&display=swap');
-
 [data-visualizer-theme="bridge-control"] .visualizer-root {
   background: var(--viz-bg-primary);
   color: var(--viz-text-primary);
