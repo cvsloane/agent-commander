@@ -146,6 +146,42 @@ export async function getSessions(filters?: {
   return fetchAPI(`/v1/sessions${query ? `?${query}` : ''}`);
 }
 
+const MAX_SESSIONS_PAGE_SIZE = 200;
+
+export async function getAllSessions(filters?: {
+  host_id?: string;
+  status?: string;
+  provider?: string;
+  needs_attention?: boolean;
+  q?: string;
+  group_id?: string | null;
+  ungrouped?: boolean;
+  include_archived?: boolean;
+  archived_only?: boolean;
+}): Promise<{ sessions: SessionWithSnapshot[]; total: number }> {
+  const sessions: SessionWithSnapshot[] = [];
+  let offset = 0;
+  let total = 0;
+
+  do {
+    const page = await getSessions({
+      ...filters,
+      limit: MAX_SESSIONS_PAGE_SIZE,
+      offset,
+    });
+
+    sessions.push(...page.sessions);
+    total = page.total ?? sessions.length;
+    offset += page.sessions.length;
+
+    if (page.sessions.length < MAX_SESSIONS_PAGE_SIZE) {
+      break;
+    }
+  } while (offset < total);
+
+  return { sessions, total };
+}
+
 export async function getSessionsTotal(filters?: {
   host_id?: string;
   status?: string;
