@@ -15,6 +15,12 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const (
+	writeWait  = 10 * time.Second
+	pongWait   = 75 * time.Second
+	pingPeriod = 30 * time.Second
+)
+
 type MessageHandler func(msgType string, payload json.RawMessage)
 
 type Client struct {
@@ -75,13 +81,19 @@ func (c *Client) Connect() error {
 		return fmt.Errorf("failed to connect: %w", err)
 	}
 
+	_ = conn.SetReadDeadline(time.Now().Add(pongWait))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(pongWait))
+	})
+
 	c.conn = conn
 	c.reconnecting = false
 	metrics.SetWSConnected(true)
 	metrics.SetWSReconnecting(false)
 
 	// Start reader goroutine
-	go c.reader()
+	go c.reader(conn)
+	go c.pinger(conn)
 
 	if c.onConnect != nil {
 		go c.onConnect()
@@ -90,11 +102,12 @@ func (c *Client) Connect() error {
 	return nil
 }
 
-func (c *Client) reader() {
+func (c *Client) reader(conn *websocket.Conn) {
 	defer func() {
 		c.mu.Lock()
-		if c.conn != nil {
+		if c.conn == conn {
 			c.conn.Close()
+			c.conn = nil
 		}
 		c.mu.Unlock()
 
@@ -109,14 +122,6 @@ func (c *Client) reader() {
 		case <-c.done:
 			return
 		default:
-		}
-
-		c.mu.Lock()
-		conn := c.conn
-		c.mu.Unlock()
-
-		if conn == nil {
-			return
 		}
 
 		_, message, err := conn.ReadMessage()
@@ -166,6 +171,36 @@ func (c *Client) reader() {
 		// Call message handler
 		if c.onMessage != nil {
 			c.onMessage(envelope.Type, envelope.Payload)
+		}
+	}
+}
+
+func (c *Client) pinger(conn *websocket.Conn) {
+	ticker := time.NewTicker(pingPeriod)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-c.done:
+			return
+		case <-ticker.C:
+		}
+
+		c.mu.Lock()
+		current := c.conn
+		c.mu.Unlock()
+		if current != conn || conn == nil {
+			return
+		}
+
+		if err := conn.WriteControl(
+			websocket.PingMessage,
+			[]byte("keepalive"),
+			time.Now().Add(writeWait),
+		); err != nil {
+			log.Printf("WebSocket ping error: %v", err)
+			_ = conn.Close()
+			return
 		}
 	}
 }
@@ -255,6 +290,7 @@ func (c *Client) Send(msgType string, payload any) error {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
+	_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 	return c.conn.WriteMessage(websocket.TextMessage, data)
 }
 
@@ -300,6 +336,7 @@ func (c *Client) ResendQueued() {
 			c.mu.Unlock()
 			return
 		}
+		_ = conn.SetWriteDeadline(time.Now().Add(writeWait))
 		err = conn.WriteMessage(websocket.TextMessage, data)
 		c.mu.Unlock()
 		if err != nil {

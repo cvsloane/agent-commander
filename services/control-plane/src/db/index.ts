@@ -30,7 +30,21 @@ export const pool = new Pool({
   max: 20,
 });
 
+let poolErrorReporter: ((error: Error) => void) | null = null;
+
+pool.on('error', (error) => {
+  if (poolErrorReporter) {
+    poolErrorReporter(error);
+    return;
+  }
+  console.error('[db] Unexpected idle Postgres client error:', error);
+});
+
 let warnedMissingTokenSha = false;
+
+export function setPoolErrorReporter(reporter: (error: Error) => void): void {
+  poolErrorReporter = reporter;
+}
 
 export function normalizeGitRemote(remote: string): string {
   const trimmed = remote.trim();

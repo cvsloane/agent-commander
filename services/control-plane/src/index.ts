@@ -50,6 +50,10 @@ const userCache = new Map<
 >();
 
 async function start(): Promise<void> {
+  db.setPoolErrorReporter((error) => {
+    app.log.error({ error }, 'Unexpected idle Postgres client error');
+  });
+
   // Test database connection
   const dbConnected = await db.testConnection();
   if (!dbConnected) {
