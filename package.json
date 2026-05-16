@@ -7,6 +7,8 @@
     "dev": "turbo dev",
     "build": "turbo build",
     "test": "turbo test",
+    "test:ci": "turbo test",
+    "test:smoke:dashboard": "playwright test -c playwright.dashboard.config.ts",
     "lint": "turbo lint",
     "db:migrate": "pnpm --filter @agent-command/control-plane db:migrate",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
@@ -21,7 +23,8 @@
     "eslint-config-next": "16.2.1",
     "prettier": "^3.8.1",
     "turbo": "^2.3.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^4.1.6"
   },
   "packageManager": "pnpm@9.15.0",
   "engines": {

@@ -42,6 +42,15 @@ jobs:
           NEXT_PUBLIC_CONTROL_PLANE_URL: http://localhost:8080
           NEXT_PUBLIC_CONTROL_PLANE_WS_URL: ws://localhost:8080/v1/ui/stream
 
+      - name: Test
+        run: pnpm test:ci
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Dashboard smoke
+        run: pnpm test:smoke:dashboard
+
   go:
     name: Go tests
     runs-on: ubuntu-latest
