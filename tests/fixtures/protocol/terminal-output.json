@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "type": "terminal.output",
+  "ts": "2026-05-19T18:00:04.000Z",
+  "seq": 3,
+  "payload": {
+    "channel_id": "33333333-3333-4333-8333-333333333333",
+    "data": "bHMK",
+    "encoding": "base64"
+  }
+}

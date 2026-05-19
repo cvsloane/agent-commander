@@ -17,12 +17,13 @@
     "dev": "tsc --watch",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "lint": "ESLINT_USE_FLAT_CONFIG=false eslint src/"
+    "lint": "cd ../.. && ESLINT_USE_FLAT_CONFIG=false pnpm exec eslint packages/ac-schema/src --ext .ts"
   },
   "dependencies": {
     "zod": "^3.23.0"
   },
   "devDependencies": {
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^4.1.6"
   }
 }

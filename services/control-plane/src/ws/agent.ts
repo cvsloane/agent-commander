@@ -15,7 +15,7 @@ import {
 import { ulid } from 'ulid';
 import { pubsub } from '../services/pubsub.js';
 import { handleMCPResponse } from '../routes/mcp.js';
-import { handleCommandResultForPending } from '../routes/sessions.js';
+import { handleCommandResultForPending } from '../services/commandRouter.js';
 import { handleHostCommandResult } from '../routes/hosts.js';
 import { handleTerminalOutput, handleTerminalStatus } from '../routes/terminal.js';
 import * as db from '../db/index.js';

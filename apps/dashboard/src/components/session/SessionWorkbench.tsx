@@ -28,6 +28,8 @@ interface SessionWorkbenchProps {
   viewMode?: WorkbenchViewMode;
   onViewModeChange?: (mode: WorkbenchViewMode) => void;
   className?: string;
+  showDetails?: boolean;
+  terminalCardClassName?: string;
 }
 
 export function SessionWorkbench({
@@ -40,6 +42,8 @@ export function SessionWorkbench({
   viewMode,
   onViewModeChange,
   className,
+  showDetails = true,
+  terminalCardClassName,
 }: SessionWorkbenchProps) {
   const [internalViewMode, setInternalViewMode] = useState<WorkbenchViewMode>(initialView);
   const [maximized, setMaximized] = useState(false);
@@ -128,7 +132,8 @@ export function SessionWorkbench({
           'flex flex-col',
           maximized
             ? 'fixed inset-0 z-[60] rounded-none border-0 h-screen'
-            : isMobile ? 'h-[66vh] min-h-[360px]' : 'h-[66vh]'
+            : isMobile ? 'h-[66vh] min-h-[360px]' : 'h-[66vh]',
+          terminalCardClassName
         )}
       >
         <CardHeader className="py-3">
@@ -185,6 +190,7 @@ export function SessionWorkbench({
         </CardContent>
       </Card>
 
+      {showDetails && (
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div className="space-y-6">
           <Card>
@@ -298,6 +304,7 @@ export function SessionWorkbench({
           </Card>
         </div>
       </div>
+      )}
     </div>
   );
 }

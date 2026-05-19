@@ -5,6 +5,7 @@ import {
   AutomationRunSchema,
   CreateWorkItemSchema,
   MemorySearchQuerySchema,
+  TmuxPaneIdentitySchema,
   UpsertAutomationAgentSchema,
   UpsertMemoryEntrySchema,
   WorkItemsQuerySchema,
@@ -59,6 +60,37 @@ describe('memory schemas', () => {
         content: 'Missing summary should fail.',
       }).success
     ).toBe(false);
+  });
+});
+
+describe('tmux schemas', () => {
+  it('validates pane identity shared across agent, control plane, and dashboard', () => {
+    const parsed = TmuxPaneIdentitySchema.parse({
+      pane_id: '%2',
+      target: 'agents:0.1',
+      session_name: 'agents',
+      window_name: 'agent-command',
+      window_index: 0,
+      pane_index: 1,
+    });
+
+    expect(parsed).toMatchObject({
+      pane_id: '%2',
+      target: 'agents:0.1',
+      session_name: 'agents',
+      window_name: 'agent-command',
+      window_index: 0,
+      pane_index: 1,
+    });
+
+    expect(TmuxPaneIdentitySchema.safeParse({
+      pane_id: '',
+      target: 'agents:0.1',
+      session_name: 'agents',
+      window_name: 'agent-command',
+      window_index: -1,
+      pane_index: 1,
+    }).success).toBe(false);
   });
 });
 

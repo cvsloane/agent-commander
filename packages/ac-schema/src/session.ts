@@ -34,6 +34,16 @@ export const CreateSessionLinkSchema = z.object({
 export type CreateSessionLink = z.infer<typeof CreateSessionLinkSchema>;
 
 // Tmux metadata
+export const TmuxPaneIdentitySchema = z.object({
+  pane_id: z.string().min(1),
+  target: z.string().min(1),
+  session_name: z.string().min(1),
+  window_name: z.string().min(1),
+  window_index: z.number().int().nonnegative(),
+  pane_index: z.number().int().nonnegative(),
+});
+export type TmuxPaneIdentity = z.infer<typeof TmuxPaneIdentitySchema>;
+
 export const TmuxMetadataSchema = z.object({
   pane_pid: z.number().optional(),
   current_command: z.string().optional(),
@@ -155,6 +165,7 @@ export const SessionWithSnapshotSchema = SessionSchema.extend({
   latest_snapshot: SessionSnapshotSchema.pick({
     created_at: true,
     capture_text: true,
+    capture_hash: true,
   })
     .nullable()
     .optional(),

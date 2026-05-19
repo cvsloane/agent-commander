@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { getControlPlaneToken } from '@/lib/wsToken';
 import { getRuntimeConfig } from '@/lib/runtimeConfig';
 import { VirtualKeyboard, SelectionPopup, TerminalContextMenu } from '@/components/mobile';
+import { TmuxKeyBar } from '@/components/tmux/TmuxKeyBar';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useClipboard } from '@/hooks/useClipboard';
 
@@ -20,6 +21,22 @@ interface TerminalViewProps {
 }
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+type TerminalAction =
+  | 'attach'
+  | 'detach'
+  | 'take_control'
+  | 'focus'
+  | 'copy_selection'
+  | 'copy_last_50'
+  | 'copy_all'
+  | 'paste';
+
+interface TerminalActionEventDetail {
+  sessionId: string;
+  action: TerminalAction;
+}
+
+const TERMINAL_ACTION_EVENT = 'agent-command:terminal-action';
 
 export function TerminalView({ sessionId, paneId, className }: TerminalViewProps) {
   const termRef = useRef<HTMLDivElement>(null);
@@ -474,6 +491,58 @@ export function TerminalView({ sessionId, paneId, className }: TerminalViewProps
     setErrorMessage(null);
   }, []);
 
+  const takeControl = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'control' }));
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleTerminalAction = (event: Event) => {
+      const detail = (event as CustomEvent<TerminalActionEventDetail>).detail;
+      if (!detail || detail.sessionId !== sessionId) return;
+
+      switch (detail.action) {
+        case 'attach':
+          void connect();
+          break;
+        case 'detach':
+          disconnect();
+          break;
+        case 'take_control':
+          takeControl();
+          break;
+        case 'focus':
+          terminalRef.current?.focus();
+          break;
+        case 'copy_selection':
+          handleCopy();
+          break;
+        case 'copy_last_50':
+          handleCopyLastLines(50);
+          break;
+        case 'copy_all':
+          handleCopyAll();
+          break;
+        case 'paste':
+          void handlePaste();
+          break;
+      }
+    };
+
+    window.addEventListener(TERMINAL_ACTION_EVENT, handleTerminalAction);
+    return () => window.removeEventListener(TERMINAL_ACTION_EVENT, handleTerminalAction);
+  }, [
+    connect,
+    disconnect,
+    handleCopy,
+    handleCopyAll,
+    handleCopyLastLines,
+    handlePaste,
+    sessionId,
+    takeControl,
+  ]);
+
   useEffect(() => {
     if (!isMobile) return;
     const container = termRef.current;
@@ -772,11 +841,7 @@ export function TerminalView({ sessionId, paneId, className }: TerminalViewProps
           <Button
             size="sm"
             variant="default"
-            onClick={() => {
-              if (wsRef.current?.readyState === WebSocket.OPEN) {
-                wsRef.current.send(JSON.stringify({ type: 'control' }));
-              }
-            }}
+            onClick={takeControl}
           >
             Take Control
           </Button>
@@ -842,15 +907,20 @@ export function TerminalView({ sessionId, paneId, className }: TerminalViewProps
 
       {/* Virtual keyboard for mobile */}
       {status === 'connected' && !readOnly && (
-        <VirtualKeyboard
-          onInput={handleVirtualInput}
-          onInterrupt={handleVirtualInterrupt}
-          onCopy={handleCopy}
-          onPaste={handlePaste}
-          canCopy={hasSelection}
-          canPaste={!readOnly}
-          autoShowOnMobile={isMobile}
-        />
+        <>
+          {isMobile && paneId && (
+            <TmuxKeyBar onInput={handleVirtualInput} />
+          )}
+          <VirtualKeyboard
+            onInput={handleVirtualInput}
+            onInterrupt={handleVirtualInterrupt}
+            onCopy={handleCopy}
+            onPaste={handlePaste}
+            canCopy={hasSelection}
+            canPaste={!readOnly}
+            autoShowOnMobile={isMobile}
+          />
+        </>
       )}
     </div>
   );

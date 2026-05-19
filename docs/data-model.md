@@ -18,6 +18,16 @@ Key fields:
 - cwd, repo_root, git_branch
 - group_id
 
+Tmux pane identity is standardized in the shared schema as `TmuxPaneIdentity`.
+The dashboard derives it from session fields and `metadata.tmux`:
+
+- pane_id
+- target
+- session_name
+- window_name
+- window_index
+- pane_index
+
 ## Repo
 
 Canonical repo identity used for repo-scoped memory and automation targeting.

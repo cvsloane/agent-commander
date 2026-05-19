@@ -26,6 +26,9 @@ Trusted integrations can also authenticate with service headers:
 - `GET /v1/sessions/:id/analytics` - aggregate metrics.
 - `GET /v1/sessions/:id/analytics/timeseries` - time series usage.
 
+## Tmux
+- `GET /v1/tmux/roster` - list active, unarchived tmux pane sessions for roster rendering without fetching snapshots. Accepts optional `host_id`.
+
 ## Approvals
 - `GET /v1/approvals` - list approvals.
 - `GET /v1/approvals/:id` - approval detail.

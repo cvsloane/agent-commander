@@ -563,6 +563,25 @@ export async function getSessions(filters?: SessionFilters): Promise<Session[]> 
   return result.rows;
 }
 
+export async function getTmuxRosterSessions(hostId?: string): Promise<Session[]> {
+  const params: unknown[] = [];
+  let query = `
+    SELECT *
+    FROM sessions
+    WHERE kind = 'tmux_pane'
+      AND archived_at IS NULL
+  `;
+
+  if (hostId) {
+    params.push(hostId);
+    query += ` AND host_id = $${params.length}`;
+  }
+
+  query += ' ORDER BY last_activity_at DESC NULLS LAST';
+  const result = await pool.query(query, params);
+  return result.rows;
+}
+
 export async function getSessionsTotal(filters?: SessionFilters): Promise<number> {
   const { where, params } = buildSessionsFilter(filters);
   const result = await pool.query(`SELECT COUNT(*) ${where}`, params);

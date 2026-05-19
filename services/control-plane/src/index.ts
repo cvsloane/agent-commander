@@ -15,6 +15,7 @@ import { registerAnalyticsRoutes } from './routes/analytics.js';
 import { registerLinkRoutes } from './routes/links.js';
 import { registerContextRoutes } from './routes/context.js';
 import { registerTerminalRoutes } from './routes/terminal.js';
+import { registerTmuxRoutes } from './routes/tmux.js';
 import { registerVoiceRoutes } from './routes/voice.js';
 import { registerProjectRoutes } from './routes/projects.js';
 import { registerRepoRoutes } from './routes/repos.js';
@@ -111,6 +112,7 @@ async function start(): Promise<void> {
   registerLinkRoutes(app);
   registerContextRoutes(app);
   registerTerminalRoutes(app);
+  registerTmuxRoutes(app);
   registerVoiceRoutes(app);
   registerProjectRoutes(app);
   registerRepoRoutes(app);

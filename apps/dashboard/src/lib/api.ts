@@ -27,7 +27,20 @@ import type {
   MemoryEntry,
   MemorySearchQuery,
   UpsertMemoryEntry,
+  CaptureMode,
+  SessionLinkType,
+  SessionLinkWithSession,
+  ToolEvent,
+  ToolStat,
 } from '@agent-command/schema';
+export type {
+  CaptureMode,
+  SessionLinkType,
+  SessionLinkWithSession,
+  ToolEvent,
+  ToolStat,
+} from '@agent-command/schema';
+import type { GroupWithChildren } from '@/lib/groupTypes';
 import { getControlPlaneToken } from '@/lib/wsToken';
 import { getRuntimeConfig } from '@/lib/runtimeConfig';
 
@@ -180,6 +193,15 @@ export async function getAllSessions(filters?: {
   } while (offset < total);
 
   return { sessions, total };
+}
+
+export async function getTmuxRoster(filters?: {
+  host_id?: string;
+}): Promise<{ sessions: SessionWithSnapshot[]; total: number }> {
+  const params = new URLSearchParams();
+  if (filters?.host_id) params.set('host_id', filters.host_id);
+  const query = params.toString();
+  return fetchAPI(`/v1/tmux/roster${query ? `?${query}` : ''}`);
 }
 
 export async function getSessionsTotal(filters?: {
@@ -579,12 +601,6 @@ export async function getHealth(): Promise<{
   return fetchAPI('/health');
 }
 
-// Groups API
-interface GroupWithChildren extends SessionGroup {
-  children: GroupWithChildren[];
-  session_count: number;
-}
-
 export async function getGroups(): Promise<{
   groups: GroupWithChildren[];
   flat: SessionGroup[];
@@ -656,8 +672,6 @@ export async function forkSession(
 }
 
 // Copy to session API
-export type CaptureMode = 'visible' | 'last_n' | 'range' | 'full';
-
 export interface CopyToSessionRequest {
   target_session_id: string;
   mode?: CaptureMode;
@@ -680,22 +694,6 @@ export async function copyToSession(
 }
 
 // Session Links API
-export type SessionLinkType = 'complement' | 'review' | 'implement' | 'research';
-
-export interface SessionLinkWithSession {
-  id: string;
-  source_session_id: string;
-  target_session_id: string;
-  link_type: SessionLinkType;
-  created_at: string;
-  linked_session_id: string;
-  linked_session_title: string | null;
-  linked_session_provider: string;
-  linked_session_status: string;
-  linked_session_cwd: string | null;
-  direction: 'outgoing' | 'incoming';
-}
-
 export async function getSessionLinks(
   sessionId: string
 ): Promise<{ links: SessionLinkWithSession[] }> {
@@ -946,27 +944,6 @@ export async function getSessionTimeSeries(
 }
 
 // Tool Events API
-export interface ToolEvent {
-  id: string;
-  session_id: string;
-  provider: string;
-  tool_name: string;
-  tool_input?: Record<string, unknown>;
-  tool_output?: Record<string, unknown>;
-  started_at: string;
-  completed_at?: string;
-  success?: boolean;
-  duration_ms?: number;
-  created_at: string;
-}
-
-export interface ToolStat {
-  tool_name: string;
-  total_calls: number;
-  avg_duration?: number;
-  success_count: number;
-}
-
 export async function getToolEvents(
   sessionId: string,
   cursor?: string,

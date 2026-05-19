@@ -1,0 +1,35 @@
+{
+  "v": 1,
+  "type": "agent.hello",
+  "ts": "2026-05-19T18:00:00.000Z",
+  "seq": 1,
+  "payload": {
+    "host": {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "name": "heavisidelinux",
+      "tailscale_name": "heavisidelinux",
+      "tailscale_ip": "100.64.0.10",
+      "agent_version": "test",
+      "capabilities": {
+        "tmux": true,
+        "spawn": true,
+        "kill": true,
+        "console_stream": true,
+        "terminal": true,
+        "claude_hooks": true,
+        "codex_exec_json": true,
+        "list_directory": true,
+        "list_directory_roots": ["/home/cvsloane/dev"],
+        "list_directory_show_hidden": false,
+        "providers": {
+          "codex": true,
+          "claude_code": true,
+          "shell": true
+        }
+      }
+    },
+    "resume": {
+      "last_acked_seq": 42
+    }
+  }
+}

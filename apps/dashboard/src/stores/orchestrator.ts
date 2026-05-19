@@ -1,5 +1,11 @@
 import { create } from 'zustand';
-import type { Session, Approval, ApprovalInput, ApprovalType } from '@agent-command/schema';
+import type {
+  Session,
+  SessionWithSnapshot,
+  Approval,
+  ApprovalInput,
+  ApprovalType,
+} from '@agent-command/schema';
 import {
   analyzeSnapshot,
   generateCaptureHash,
@@ -29,17 +35,6 @@ export interface OrchestratorItem {
   summaryLoading?: boolean;
   summaryFailed?: boolean;
   captureHash?: string;
-}
-
-/**
- * Session with optional snapshot data
- */
-interface SessionWithSnapshot extends Session {
-  latest_snapshot?: {
-    created_at: string;
-    capture_text: string;
-    capture_hash?: string;
-  } | null;
 }
 
 /**

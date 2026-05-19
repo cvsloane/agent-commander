@@ -16,12 +16,7 @@ import { useNotifications } from '@/stores/notifications';
 import { useUIStore } from '@/stores/ui';
 import { useSettingsStore } from '@/stores/settings';
 import { shouldTriggerAlertChannel } from '@/lib/alertPolicy';
-import type { SessionGroup } from '@agent-command/schema';
-
-interface GroupWithChildren extends SessionGroup {
-  children: GroupWithChildren[];
-  session_count: number;
-}
+import type { GroupWithChildren } from '@/lib/groupTypes';
 
 interface LayoutShellProps {
   children: React.ReactNode;

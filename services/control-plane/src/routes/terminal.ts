@@ -5,6 +5,8 @@ import { randomUUID } from 'crypto';
 import * as db from '../db/index.js';
 import { pubsub } from '../services/pubsub.js';
 import { verifyRequestToken } from '../auth/verify.js';
+import { canAttachTerminal, canControlTerminal, hostSupportsTerminal } from '../services/terminalPolicy.js';
+import type { AuthUser } from '../auth/types.js';
 
 // Track active terminal channels
 const activeChannels = new Map<
@@ -14,6 +16,7 @@ const activeChannels = new Map<
     hostId: string;
     paneId: string;
     sessionId: string;
+    user: AuthUser;
     idleTimeout?: NodeJS.Timeout;
   }
 >();
@@ -104,33 +107,6 @@ function detachChannel(channelId: string): void {
   cleanupChannel(channelId);
 }
 
-function evictExistingSessionChannels(sessionId: string, reason: string): void {
-  const toEvict: string[] = [];
-  for (const [channelId, channel] of activeChannels.entries()) {
-    if (channel.sessionId === sessionId) {
-      toEvict.push(channelId);
-    }
-  }
-
-  for (const channelId of toEvict) {
-    const channel = activeChannels.get(channelId);
-    if (!channel) continue;
-    try {
-      channel.uiSocket.send(JSON.stringify({ type: 'detached', message: reason }));
-    } catch {
-      // Ignore send errors
-    }
-    try {
-      if (channel.uiSocket.readyState === 1) {
-        channel.uiSocket.close(1000, reason);
-      }
-    } catch {
-      // Ignore close errors
-    }
-    detachChannel(channelId);
-  }
-}
-
 const TerminalInputSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('input'), data: z.string() }),
   z.object({ type: z.literal('resize'), cols: z.number(), rows: z.number() }),
@@ -172,6 +148,11 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
         return;
       }
 
+      if (!canAttachTerminal(user)) {
+        socket.close(4008, 'Terminal access requires operator role');
+        return;
+      }
+
       // Get session
       const session = await db.getSessionById(sessionId);
       if (!session) {
@@ -184,14 +165,18 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
         return;
       }
 
+      const host = await db.getHostById(session.host_id);
+      if (!hostSupportsTerminal(host)) {
+        socket.close(4009, 'Host does not support terminal sessions');
+        return;
+      }
+
       // Check if agent is connected
       const agentConn = pubsub.getAgentConnection(session.host_id);
       if (!agentConn) {
         socket.close(4006, 'Host agent not connected');
         return;
       }
-
-      evictExistingSessionChannels(sessionId, 'Replaced by a new terminal viewer');
 
       // Create terminal channel
       const channelId = randomUUID();
@@ -201,6 +186,7 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
         hostId: session.host_id,
         paneId: session.tmux_pane_id,
         sessionId,
+        user,
       });
 
       // Send attach command to agent
@@ -243,6 +229,10 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
 
           switch (message.type) {
             case 'input':
+              if (!canControlTerminal(channel.user)) {
+                socket.close(4008, 'Terminal input requires operator role');
+                return;
+              }
               pubsub.sendToAgent(channel.hostId, {
                 v: 1,
                 type: 'terminal.input',
@@ -265,6 +255,10 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
               detachChannel(channelId);
               break;
             case 'control':
+              if (!canControlTerminal(channel.user)) {
+                socket.close(4008, 'Terminal control requires operator role');
+                return;
+              }
               pubsub.sendToAgent(channel.hostId, {
                 v: 1,
                 type: 'terminal.control',

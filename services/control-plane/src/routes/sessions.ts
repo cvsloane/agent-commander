@@ -1,70 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ulid } from 'ulid';
-import { CommandRequestSchema, CommandPayloadSchema, CommandsDispatchMessageSchema, UpdateSessionRequestSchema, BulkOperationRequestSchema, CopyToSessionPayloadSchema } from '@agent-command/schema';
+import { CommandRequestSchema, CommandPayloadSchema, UpdateSessionRequestSchema, BulkOperationRequestSchema, CopyToSessionPayloadSchema } from '@agent-command/schema';
 import * as db from '../db/index.js';
 import { pubsub } from '../services/pubsub.js';
 import { consoleSubscriptions } from '../services/consoleSubscriptions.js';
 import { spawnSessionOnHost } from '../services/sessionSpawn.js';
 import { bootstrapSessionMemory, prepareSessionMemoryForSpawn } from '../services/sessionMemory.js';
 import { hasRole } from '../auth/rbac.js';
-
-// Pending command result tracking for cross-host operations
-const pendingCommandResults = new Map<string, {
-  resolve: (value: { ok: boolean; result?: Record<string, unknown>; error?: { code: string; message: string } }) => void;
-  reject: (error: Error) => void;
-  timeout: NodeJS.Timeout;
-}>();
-
-// Called by agent WebSocket handler when a command result is received
-export function handleCommandResultForPending(
-  cmdId: string,
-  result: { ok: boolean; result?: Record<string, unknown>; error?: { code: string; message: string } }
-): boolean {
-  const pending = pendingCommandResults.get(cmdId);
-  if (!pending) return false;
-
-  clearTimeout(pending.timeout);
-  pendingCommandResults.delete(cmdId);
-  pending.resolve(result);
-  return true;
-}
-
-// Helper to send command to agent and wait for result
-async function sendCommandAndWait(
-  hostId: string,
-  sessionId: string,
-  cmdId: string,
-  command: { type: string; payload: unknown },
-  timeoutMs = 30000
-): Promise<{ ok: boolean; result?: Record<string, unknown>; error?: { code: string; message: string } }> {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      pendingCommandResults.delete(cmdId);
-      reject(new Error('Command timed out'));
-    }, timeoutMs);
-
-    pendingCommandResults.set(cmdId, { resolve, reject, timeout });
-
-    const dispatchMessage = CommandsDispatchMessageSchema.parse({
-      v: 1,
-      type: 'commands.dispatch',
-      ts: new Date().toISOString(),
-      payload: {
-        cmd_id: cmdId,
-        session_id: sessionId,
-        command,
-      },
-    });
-
-    const sent = pubsub.sendToAgent(hostId, dispatchMessage);
-    if (!sent) {
-      clearTimeout(timeout);
-      pendingCommandResults.delete(cmdId);
-      reject(new Error('Agent not connected'));
-    }
-  });
-}
+import { commandRouter } from '../services/commandRouter.js';
 
 // Query schemas
 const SessionsQuerySchema = z.object({
@@ -159,6 +103,7 @@ export function registerSessionRoutes(app: FastifyInstance): void {
           ? {
               created_at: snapshot.created_at,
               capture_text: snapshot.capture_text,
+              capture_hash: snapshot.capture_hash,
             }
           : null,
       };
@@ -307,24 +252,10 @@ export function registerSessionRoutes(app: FastifyInstance): void {
       }
 
       const cmdId = ulid();
-
-      // Build command dispatch message
-      const dispatchMessage = CommandsDispatchMessageSchema.parse({
-        v: 1,
-        type: 'commands.dispatch',
-        ts: new Date().toISOString(),
-        payload: {
-          cmd_id: cmdId,
-          session_id: sessionId,
-          command: {
-            type: payloadResult.data.type,
-            payload: payloadResult.data.payload,
-          },
-        },
+      const sent = commandRouter.dispatch(session.host_id, sessionId, cmdId, {
+        type: payloadResult.data.type,
+        payload: payloadResult.data.payload,
       });
-
-      // Send to agent
-      const sent = pubsub.sendToAgent(session.host_id, dispatchMessage);
       if (!sent) {
         return reply.status(503).send({ error: 'Agent not connected' });
       }
@@ -457,24 +388,10 @@ export function registerSessionRoutes(app: FastifyInstance): void {
       }
 
       const cmdId = ulid();
-
-      // Build fork command dispatch
-      const dispatchMessage = CommandsDispatchMessageSchema.parse({
-        v: 1,
-        type: 'commands.dispatch',
-        ts: new Date().toISOString(),
-        payload: {
-          cmd_id: cmdId,
-          session_id: sessionId,
-          command: {
-            type: 'fork',
-            payload: bodyResult.data,
-          },
-        },
+      const sent = commandRouter.dispatch(session.host_id, sessionId, cmdId, {
+        type: 'fork',
+        payload: bodyResult.data,
       });
-
-      // Send to agent
-      const sent = pubsub.sendToAgent(session.host_id, dispatchMessage);
       if (!sent) {
         return reply.status(503).send({ error: 'Agent not connected' });
       }
@@ -531,21 +448,10 @@ export function registerSessionRoutes(app: FastifyInstance): void {
 
       if (sameHost) {
         // Same host - dispatch copy_to_session command directly
-        const dispatchMessage = CommandsDispatchMessageSchema.parse({
-          v: 1,
-          type: 'commands.dispatch',
-          ts: new Date().toISOString(),
-          payload: {
-            cmd_id: cmdId,
-            session_id: sourceSessionId,
-            command: {
-              type: 'copy_to_session',
-              payload: bodyResult.data,
-            },
-          },
+        const sent = commandRouter.dispatch(sourceSession.host_id, sourceSessionId, cmdId, {
+          type: 'copy_to_session',
+          payload: bodyResult.data,
         });
-
-        const sent = pubsub.sendToAgent(sourceSession.host_id, dispatchMessage);
         if (!sent) {
           return reply.status(503).send({ error: 'Source agent not connected' });
         }
@@ -553,7 +459,7 @@ export function registerSessionRoutes(app: FastifyInstance): void {
         // Cross-host - capture from source, send to target
         try {
           // Step 1: Capture from source session
-          const captureResult = await sendCommandAndWait(
+          const captureResult = await commandRouter.dispatchAndWait(
             sourceSession.host_id,
             sourceSessionId,
             cmdId,
@@ -590,24 +496,13 @@ export function registerSessionRoutes(app: FastifyInstance): void {
 
           // Step 3: Send to target session
           const sendCmdId = ulid();
-          const sendMessage = CommandsDispatchMessageSchema.parse({
-            v: 1,
-            type: 'commands.dispatch',
-            ts: new Date().toISOString(),
+          const sent = commandRouter.dispatch(targetSession.host_id, target_session_id, sendCmdId, {
+            type: 'send_input',
             payload: {
-              cmd_id: sendCmdId,
-              session_id: target_session_id,
-              command: {
-                type: 'send_input',
-                payload: {
-                  text: combined,
-                  enter: true,
-                },
-              },
+              text: combined,
+              enter: true,
             },
           });
-
-          const sent = pubsub.sendToAgent(targetSession.host_id, sendMessage);
           if (!sent) {
             return reply.status(503).send({ error: 'Target agent not connected' });
           }
@@ -664,21 +559,10 @@ export function registerSessionRoutes(app: FastifyInstance): void {
         }
 
         const cmdId = ulid();
-        const dispatchMessage = CommandsDispatchMessageSchema.parse({
-          v: 1,
-          type: 'commands.dispatch',
-          ts: new Date().toISOString(),
-          payload: {
-            cmd_id: cmdId,
-            session_id: id,
-            command: {
-              type: 'kill_session',
-              payload: {},
-            },
-          },
+        const sent = commandRouter.dispatch(session.host_id, id, cmdId, {
+          type: 'kill_session',
+          payload: {},
         });
-
-        const sent = pubsub.sendToAgent(session.host_id, dispatchMessage);
         if (!sent) {
           errors.push({ session_id: id, error: 'Agent not connected' });
           continue;

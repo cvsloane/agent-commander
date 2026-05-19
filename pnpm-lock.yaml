@@ -159,6 +159,9 @@ importers:
       '@types/three':
         specifier: ^0.182.0
         version: 0.182.0
+      eslint:
+        specifier: ^9.39.4
+        version: 9.39.4(jiti@2.6.1)
       postcss:
         specifier: ^8.4.0
         version: 8.5.6
@@ -171,6 +174,9 @@ importers:
       typescript:
         specifier: ^5.3.0
         version: 5.9.3
+      vitest:
+        specifier: ^4.1.6
+        version: 4.1.6(@opentelemetry/api@1.9.0)(@types/node@20.19.30)(vite@8.0.13(@types/node@20.19.30)(esbuild@0.27.2)(jiti@2.6.1)(tsx@4.21.0))
 
   packages/ac-schema:
     dependencies:
@@ -181,6 +187,9 @@ importers:
       typescript:
         specifier: ^5.3.0
         version: 5.9.3
+      vitest:
+        specifier: ^4.1.6
+        version: 4.1.6(@opentelemetry/api@1.9.0)(@types/node@20.19.30)(vite@8.0.13(@types/node@20.19.30)(esbuild@0.27.2)(jiti@2.6.1)(tsx@4.21.0))
 
   services/control-plane:
     dependencies:
@@ -236,12 +245,21 @@ importers:
       '@types/pg':
         specifier: ^8.11.0
         version: 8.16.0
+      '@types/ws':
+        specifier: ^8.5.10
+        version: 8.18.1
       tsx:
         specifier: ^4.19.0
         version: 4.21.0
       typescript:
         specifier: ^5.3.0
         version: 5.9.3
+      vitest:
+        specifier: ^4.1.6
+        version: 4.1.6(@opentelemetry/api@1.9.0)(@types/node@20.19.30)(vite@8.0.13(@types/node@20.19.30)(esbuild@0.27.2)(jiti@2.6.1)(tsx@4.21.0))
+      ws:
+        specifier: ^8.18.0
+        version: 8.19.0
 
 packages:
 
@@ -1625,6 +1643,9 @@ packages:
 
   '@types/webxr@0.5.24':
     resolution: {integrity: sha512-h8fgEd/DpoS9CBrjEQXR+dIDraopAEfu4wYVNY2tEPwk60stPWhvZMf4Foo5FakuQ7HFZoa8WceaWFervK2Ovg==}
+
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
   '@typescript-eslint/eslint-plugin@8.57.2':
     resolution: {integrity: sha512-NZZgp0Fm2IkD+La5PR81sd+g+8oS6JwJje+aRWsDocxHkjyRw0J5L5ZTlN3LI1LlOcGL7ph3eaIUmTXMIjLk0w==}
@@ -5572,6 +5593,10 @@ snapshots:
   '@types/unist@3.0.3': {}
 
   '@types/webxr@0.5.24': {}
+
+  '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 20.19.30
 
   '@typescript-eslint/eslint-plugin@8.57.2(@typescript-eslint/parser@8.57.2(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)':
     dependencies:

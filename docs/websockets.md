@@ -38,6 +38,10 @@ Server to UI messages include:
 
 Endpoint: `/v1/ui/terminal/:sessionId?token=<jwt>`
 
+Terminal WebSocket attach and control require an operator-capable user. The target host must also advertise `capabilities.terminal`; otherwise the socket closes before a terminal attach command is sent to `agentd`.
+
+Multiple browser viewers may attach to the same session. Each viewer gets its own terminal channel; `agentd` reports whether that channel is `readonly` or has `control`, and the UI can request control explicitly.
+
 The UI sends:
 - `input`, `resize`, `control`, `detach`
 

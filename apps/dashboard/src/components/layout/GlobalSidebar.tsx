@@ -12,13 +12,7 @@ import { AttentionSettings } from './AttentionSettings';
 import { useUIStore } from '@/stores/ui';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { cn } from '@/lib/utils';
-
-import type { SessionGroup } from '@agent-command/schema';
-
-interface GroupWithChildren extends SessionGroup {
-  children: GroupWithChildren[];
-  session_count: number;
-}
+import type { GroupWithChildren } from '@/lib/groupTypes';
 
 interface GlobalSidebarProps {
   onCreateGroup?: () => void;

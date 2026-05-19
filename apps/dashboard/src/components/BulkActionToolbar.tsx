@@ -5,15 +5,10 @@ import { useQuery } from '@tanstack/react-query';
 import { Archive, ArchiveRestore, Trash2, FolderInput, X, Moon, Sun, Power } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { bulkOperateSessions, getGroups } from '@/lib/api';
-import type { BulkOperationType, Session } from '@agent-command/schema';
-import type { SessionGroup } from '@agent-command/schema';
+import type { BulkOperationType, Session, SessionGroup } from '@agent-command/schema';
 import { useSessionStore } from '@/stores/session';
 import { useNotifications } from '@/stores/notifications';
-
-interface GroupWithChildren extends SessionGroup {
-  children: GroupWithChildren[];
-  session_count: number;
-}
+import type { GroupWithChildren } from '@/lib/groupTypes';
 
 interface BulkActionToolbarProps {
   selectedIds: string[];
