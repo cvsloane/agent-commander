@@ -1,9 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { ListTree, MoreHorizontal, RefreshCw, Rows3, TerminalSquare } from 'lucide-react';
+import { useCallback, useEffect, useState, type MutableRefObject, type ReactNode } from 'react';
+import { ListTree, MoreHorizontal, Plus, RefreshCw, Rows3, TerminalSquare } from 'lucide-react';
 import type { Host, Session, SessionWithSnapshot } from '@agent-command/schema';
 import { StatusBadge } from '@/components/StatusBadge';
+import { MobileLaunchSheet } from '@/components/launch/MobileLaunchSheet';
+import type { TerminalController } from '@/components/TerminalView';
 import { Button } from '@/components/ui/button';
 import type { TmuxRosterFilter, TmuxSessionCluster } from '@/lib/tmuxRoster';
 import { cn, getSessionDisplayName, isHostOnline } from '@/lib/utils';
@@ -42,6 +44,9 @@ interface TmuxMobileShellProps {
   onSendTo: () => void;
   onOpenMcp: () => void;
   onTerminate: () => void;
+  onLaunchChange: () => void;
+  terminalControllerRef: MutableRefObject<TerminalController | null>;
+  initialMode?: TmuxMobileMode;
   terminal: ReactNode;
   emptyTerminal: ReactNode;
 }
@@ -76,16 +81,26 @@ export function TmuxMobileShell({
   onSendTo,
   onOpenMcp,
   onTerminate,
+  onLaunchChange,
+  terminalControllerRef,
+  initialMode = 'roster',
   terminal,
   emptyTerminal,
 }: TmuxMobileShellProps) {
-  const [mode, setMode] = useState<TmuxMobileMode>('roster');
+  const [mode, setMode] = useState<TmuxMobileMode>(initialMode);
+  const [launchOpen, setLaunchOpen] = useState(false);
 
   useEffect(() => {
     if (!selectedSessionId && mode !== 'roster') {
       setMode('roster');
     }
   }, [mode, selectedSessionId]);
+
+  useEffect(() => {
+    if (initialMode === 'terminal' && selectedSessionId) {
+      setMode('terminal');
+    }
+  }, [initialMode, selectedSessionId]);
 
   const handleSelectSession = useCallback((sessionId: string) => {
     onSelectSession(sessionId);
@@ -117,6 +132,14 @@ export function TmuxMobileShell({
             </div>
           </div>
           <div className="flex items-center gap-1">
+            <Button
+              variant="default"
+              size="mobile-icon"
+              onClick={() => setLaunchOpen(true)}
+              aria-label="Launch agent"
+            >
+              <Plus className="h-5 w-5" />
+            </Button>
             <Button
               variant="ghost"
               size="mobile-icon"
@@ -225,7 +248,7 @@ export function TmuxMobileShell({
         </div>
       )}
 
-      {mode === 'terminal' && (
+      {(mode === 'terminal' || mode === 'actions') && (
         <div className="space-y-3">
           {selectedSession && (
             <div className="rounded-lg border bg-card px-3 py-2">
@@ -252,6 +275,7 @@ export function TmuxMobileShell({
       <TmuxActionSheet
         open={actionSheetOpen}
         session={selectedSession}
+        terminalControllerRef={terminalControllerRef}
         idlePending={idlePending}
         terminating={terminating}
         onClose={() => setMode(selectedSessionId ? 'terminal' : 'roster')}
@@ -259,6 +283,12 @@ export function TmuxMobileShell({
         onSendTo={onSendTo}
         onOpenMcp={onOpenMcp}
         onTerminate={onTerminate}
+      />
+      <MobileLaunchSheet
+        open={launchOpen}
+        selectedHostId={selectedHostId}
+        onClose={() => setLaunchOpen(false)}
+        onLaunched={onLaunchChange}
       />
     </div>
   );

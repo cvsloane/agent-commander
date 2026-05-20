@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { RefreshCw, Rows3 } from 'lucide-react';
 import { assignSessionGroup } from '@/lib/api';
@@ -9,6 +10,7 @@ import { useSessionIdle } from '@/hooks/useSessionIdle';
 import { useTerminateSession } from '@/hooks/useTerminateSession';
 import { MCPManagerModal, useMCPManager } from '@/components/mcp/MCPManagerModal';
 import { SendToSessionDialog } from '@/components/SendToSessionDialog';
+import type { TerminalController } from '@/components/TerminalView';
 import { SessionWorkbench } from '@/components/session/SessionWorkbench';
 import { TmuxDesktopShell } from '@/components/tmux/TmuxDesktopShell';
 import { TmuxMobileShell } from '@/components/tmux/TmuxMobileShell';
@@ -22,14 +24,18 @@ import { useTmuxRosterData } from '@/hooks/useTmuxRosterData';
 
 export default function TmuxPageClient() {
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
   const hydrated = useHydrated();
   const isMobileLayout = useIsMobile(1024);
   const mcpManager = useMCPManager();
+  const terminalControllerRef = useRef<TerminalController | null>(null);
   const { setSessionIdle, isSessionIdlePending } = useSessionIdle();
   const { terminateSession, isTerminating } = useTerminateSession();
   const [workbenchViewMode, setWorkbenchViewMode] = useState<'console' | 'terminal'>('terminal');
   const [sendToDialogOpen, setSendToDialogOpen] = useState(false);
   const [sendToTargetId, setSendToTargetId] = useState<string | undefined>(undefined);
+  const terminalModeRequested = searchParams.get('mode') === 'terminal';
+  const autoAttachRequested = searchParams.get('attach') === '1';
   const {
     query,
     activeFilter,
@@ -172,6 +178,8 @@ export default function TmuxPageClient() {
           initialView="terminal"
           showDetails={!options?.mobileTerminalOnly}
           terminalCardClassName={options?.mobileTerminalOnly ? 'h-[calc(100dvh-15rem)] min-h-[420px]' : undefined}
+          autoAttachTerminal={autoAttachRequested}
+          terminalControllerRef={terminalControllerRef}
         />
       </>
     );
@@ -244,6 +252,9 @@ export default function TmuxPageClient() {
           onSendTo={() => setSendToDialogOpen(true)}
           onOpenMcp={() => selectedSession && mcpManager.open(selectedSession.id, selectedSession.repo_root || undefined)}
           onTerminate={handleTerminate}
+          onLaunchChange={handleRefresh}
+          terminalControllerRef={terminalControllerRef}
+          initialMode={terminalModeRequested && selectedSessionId ? 'terminal' : 'roster'}
           terminal={renderWorkbench({ mobileTerminalOnly: true })}
           emptyTerminal={emptyWorkbench}
         />

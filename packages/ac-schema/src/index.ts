@@ -4,6 +4,9 @@ export * from './enums.js';
 // Host schemas
 export * from './host.js';
 
+// Launch schemas
+export * from './launch.js';
+
 // Session schemas
 export * from './session.js';
 

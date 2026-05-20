@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { commandRouter } from '../src/services/commandRouter.js';
+import { commandRouter, HOST_COMMAND_SESSION_ID } from '../src/services/commandRouter.js';
 import { pubsub } from '../src/services/pubsub.js';
 
 const hostId = '11111111-1111-4111-8111-111111111111';
@@ -61,6 +61,30 @@ describe('commandRouter', () => {
     await expect(resultPromise).resolves.toEqual({
       ok: true,
       result: { content: 'captured text' },
+    });
+  });
+
+  it('dispatches host-level commands through the shared pending result path', async () => {
+    const send = vi.fn();
+    pubsub.addAgentConnection(hostId, { send } as never);
+
+    const resultPromise = commandRouter.dispatchHostAndWait(hostId, cmdId, {
+      type: 'list_directory',
+      payload: { path: '/home/cvsloane/dev', show_hidden: false },
+    });
+
+    expect(send).toHaveBeenCalledOnce();
+    const message = JSON.parse(String(send.mock.calls[0]?.[0]));
+    expect(message.payload.session_id).toBe(HOST_COMMAND_SESSION_ID);
+
+    expect(commandRouter.handleResult(cmdId, {
+      ok: true,
+      result: { entries: [] },
+    })).toBe(true);
+
+    await expect(resultPromise).resolves.toEqual({
+      ok: true,
+      result: { entries: [] },
     });
   });
 

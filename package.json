@@ -9,6 +9,7 @@
     "test": "turbo test",
     "test:ci": "turbo test",
     "test:smoke:dashboard": "playwright test -c playwright.dashboard.config.ts",
+    "verify:launch": "pnpm --filter @agent-command/schema test && pnpm --filter @agent-command/control-plane test && pnpm --filter @agent-command/control-plane typecheck && pnpm --filter @agent-command/dashboard typecheck && pnpm test:smoke:dashboard",
     "lint": "turbo lint",
     "db:migrate": "pnpm --filter @agent-command/control-plane db:migrate",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",

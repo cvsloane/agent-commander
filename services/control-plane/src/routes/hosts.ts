@@ -2,17 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ulid } from 'ulid';
 import path from 'path';
-import { CommandsDispatchMessageSchema, DirectoryEntrySchema } from '@agent-command/schema';
+import { DirectoryEntrySchema } from '@agent-command/schema';
 import * as db from '../db/index.js';
 import { hasRole } from '../auth/rbac.js';
 import { pubsub } from '../services/pubsub.js';
-
-// Pending command result tracking for host-level operations
-const pendingHostCommandResults = new Map<string, {
-  resolve: (value: { ok: boolean; result?: Record<string, unknown>; error?: { code: string; message: string } }) => void;
-  reject: (error: Error) => void;
-  timeout: NodeJS.Timeout;
-}>();
+import { commandRouter } from '../services/commandRouter.js';
 
 const HOME_SENTINEL = '/__home__';
 
@@ -46,58 +40,6 @@ function isPathAllowed(rawPath: string, roots: string[]): boolean {
       return normalizedPath === '~' || normalizedPath.startsWith('~/');
     }
     return normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`);
-  });
-}
-
-// Called by agent WebSocket handler when a command result is received
-export function handleHostCommandResult(
-  cmdId: string,
-  result: { ok: boolean; result?: Record<string, unknown>; error?: { code: string; message: string } }
-): boolean {
-  const pending = pendingHostCommandResults.get(cmdId);
-  if (!pending) return false;
-
-  clearTimeout(pending.timeout);
-  pendingHostCommandResults.delete(cmdId);
-  pending.resolve(result);
-  return true;
-}
-
-// Helper to send host-level command and wait for result
-async function sendHostCommandAndWait(
-  hostId: string,
-  cmdId: string,
-  command: { type: string; payload: unknown },
-  timeoutMs = 15000
-): Promise<{ ok: boolean; result?: Record<string, unknown>; error?: { code: string; message: string } }> {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      pendingHostCommandResults.delete(cmdId);
-      reject(new Error('Command timed out'));
-    }, timeoutMs);
-
-    pendingHostCommandResults.set(cmdId, { resolve, reject, timeout });
-
-    // Use a synthetic session_id for host-level commands (agent should recognize this pattern)
-    const syntheticSessionId = '00000000-0000-0000-0000-000000000000';
-
-    const dispatchMessage = CommandsDispatchMessageSchema.parse({
-      v: 1,
-      type: 'commands.dispatch',
-      ts: new Date().toISOString(),
-      payload: {
-        cmd_id: cmdId,
-        session_id: syntheticSessionId,
-        command,
-      },
-    });
-
-    const sent = pubsub.sendToAgent(hostId, dispatchMessage);
-    if (!sent) {
-      clearTimeout(timeout);
-      pendingHostCommandResults.delete(cmdId);
-      reject(new Error('Agent not connected'));
-    }
   });
 }
 
@@ -388,7 +330,7 @@ export function registerHostRoutes(app: FastifyInstance): void {
       const cmdId = ulid();
 
       try {
-        const result = await sendHostCommandAndWait(
+        const result = await commandRouter.dispatchHostAndWait(
           id,
           cmdId,
           {

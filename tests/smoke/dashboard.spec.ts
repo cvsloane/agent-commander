@@ -175,6 +175,52 @@ function apiBody(pathname: string): unknown {
       total: tmuxSessions.length,
     };
   }
+  if (pathname === '/v1/launch/targets') {
+    return {
+      targets: [
+        {
+          host_id: tmuxHost.id,
+          alias: 'heavisidelinux',
+          display_name: 'heavisidelinux',
+          online: true,
+          supports_terminal: true,
+          supports_spawn: true,
+          supports_directory_listing: true,
+          providers: { codex: true, claude_code: true },
+          roots: ['/home/cvsloane/dev'],
+          recent_projects: [
+            {
+              id: '55555555-5555-4555-8555-555555555555',
+              path: '/home/cvsloane/dev/agent-command',
+              display_name: 'agent-command',
+              last_used_at: '2026-05-19T18:00:00.000Z',
+            },
+          ],
+          recent_tmux: tmuxSessions.slice(0, 2).map((session) => ({
+            session_id: session.id,
+            title: session.title,
+            tmux_target: session.tmux_target,
+            pane_id: session.tmux_pane_id,
+            cwd: session.cwd,
+            provider: session.provider,
+            status: session.status,
+          })),
+          recent_launches: [
+            {
+              id: '66666666-6666-4666-8666-666666666666',
+              host_id: tmuxHost.id,
+              provider: 'codex',
+              working_directory: '/home/cvsloane/dev/agent-command',
+              tmux_target: 'agents',
+              title: 'Codex in agent-command',
+              launch_count: 2,
+              last_launched_at: '2026-05-19T18:00:00.000Z',
+            },
+          ],
+        },
+      ],
+    };
+  }
   if (/^\/v1\/sessions\/[^/]+\/analytics$/.test(pathname)) {
     const [, , , id] = pathname.split('/');
     return {
@@ -245,6 +291,33 @@ async function mockControlPlane(page: Page): Promise<void> {
 
   await page.route('**/{v1,health}{,/**}', async (route) => {
     const url = new URL(route.request().url());
+    if (route.request().method() === 'POST' && url.pathname === '/v1/launch') {
+      await fulfillJson(route, {
+        session_id: tmuxSessions[0].id,
+        cmd_id: '01JLAUNCHSMOKE0000000000000',
+        status: 'ready',
+        href: `/tmux?host_id=${tmuxHost.id}&session_id=${tmuxSessions[0].id}&mode=terminal&attach=1`,
+        session: tmuxSessions[0],
+        terminal: {
+          openable: true,
+          pane_id: tmuxSessions[0].tmux_pane_id,
+        },
+      });
+      return;
+    }
+    if (route.request().method() === 'POST' && url.pathname === '/v1/tmux/open') {
+      await fulfillJson(route, {
+        session_id: tmuxSessions[1].id,
+        href: `/tmux?host_id=${tmuxHost.id}&session_id=${tmuxSessions[1].id}&mode=terminal&attach=1`,
+        session: tmuxSessions[1],
+        adopted: false,
+        terminal: {
+          openable: true,
+          pane_id: tmuxSessions[1].tmux_pane_id,
+        },
+      });
+      return;
+    }
     await fulfillJson(route, apiBody(url.pathname));
   });
 }
@@ -344,15 +417,79 @@ test('keeps the tmux roster usable on mobile viewport', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Actions', exact: true })).toBeEnabled();
 
   await page.getByRole('button', { name: 'Actions', exact: true }).click();
-  await expect(page.getByRole('dialog')).toContainText('Pane actions');
-  await expect(page.getByRole('dialog')).toContainText('Mobile UX review');
-  await expect(page.getByRole('button', { name: 'Attach' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Detach' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Take Control' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Copy selection' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Copy last 50' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Copy all' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Paste' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Terminate pane session' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Close actions' })).toBeVisible();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Pane actions');
+  await expect(dialog).toContainText('Mobile UX review');
+  await expect(dialog.getByRole('button', { name: 'Attach', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Detach' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Take Control' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Copy selection' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Copy last 50' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Copy all' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Paste' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Terminate pane session' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Close actions' })).toBeVisible();
+});
+
+test('opens mobile launch sheet and launches a coding agent from a recent project', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page);
+
+  await page.goto('/tmux');
+
+  await page.getByRole('button', { name: 'Launch agent' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Launch agent' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'heavisidelinux' })).toBeVisible();
+  await expect(dialog.getByText('/home/cvsloane/dev/agent-command').first()).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Codex', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Claude', exact: true })).toBeVisible();
+
+  await dialog.getByPlaceholder('Optional first instruction').fill('Check the failing mobile launch test.');
+  await dialog.getByRole('button', { name: 'Launch Codex' }).click();
+
+  await expect(page).toHaveURL(/session_id=22222222-2222-4222-8222-222222222222/);
+  await expect(page).toHaveURL(/mode=terminal/);
+  await expect(page.getByText('Codex implementation').first()).toBeVisible();
+});
+
+test('offers repeat-last launch on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page);
+  await page.evaluate(() => {
+    window.localStorage.setItem('agent-command:last-launch', JSON.stringify({
+      host_id: '11111111-1111-4111-8111-111111111111',
+      provider: 'codex',
+      working_directory: '/home/cvsloane/dev/agent-command',
+      tmux_target: 'agents',
+    }));
+  });
+
+  await page.goto('/tmux');
+
+  await page.getByRole('button', { name: 'Launch agent' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Launch agent' });
+  await expect(dialog.getByRole('button', { name: /Repeat Codex in agent-command/ })).toBeVisible();
+
+  await dialog.getByRole('button', { name: /Repeat Codex in agent-command/ }).click();
+  await expect(page).toHaveURL(/session_id=22222222-2222-4222-8222-222222222222/);
+  await expect(page).toHaveURL(/mode=terminal/);
+});
+
+test('opens an existing tmux target from the mobile launch sheet', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page);
+
+  await page.goto('/tmux');
+
+  await page.getByRole('button', { name: 'Launch agent' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Launch agent' });
+  await dialog.getByRole('button', { name: 'Existing' }).click();
+  await expect(dialog.getByRole('button', { name: /Mobile UX review/ })).toBeVisible();
+
+  await dialog.getByPlaceholder('agents:0.0 or %1').fill('agents:0.1');
+  await dialog.getByRole('button', { name: 'Open' }).click();
+
+  await expect(page).toHaveURL(/session_id=33333333-3333-4333-8333-333333333333/);
+  await expect(page).toHaveURL(/mode=terminal/);
 });

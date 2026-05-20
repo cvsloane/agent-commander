@@ -1,5 +1,6 @@
 'use client';
 
+import type { MutableRefObject } from 'react';
 import Link from 'next/link';
 import {
   Clipboard,
@@ -18,24 +19,14 @@ import {
   X,
 } from 'lucide-react';
 import type { Session } from '@agent-command/schema';
+import type { TerminalController } from '@/components/TerminalView';
 import { Button } from '@/components/ui/button';
 import { getSessionDisplayName } from '@/lib/utils';
-
-type TerminalAction =
-  | 'attach'
-  | 'detach'
-  | 'take_control'
-  | 'focus'
-  | 'copy_selection'
-  | 'copy_last_50'
-  | 'copy_all'
-  | 'paste';
-
-const TERMINAL_ACTION_EVENT = 'agent-command:terminal-action';
 
 interface TmuxActionSheetProps {
   open: boolean;
   session?: Session | null;
+  terminalControllerRef: MutableRefObject<TerminalController | null>;
   idlePending: boolean;
   terminating: boolean;
   onClose: () => void;
@@ -48,6 +39,7 @@ interface TmuxActionSheetProps {
 export function TmuxActionSheet({
   open,
   session,
+  terminalControllerRef,
   idlePending,
   terminating,
   onClose,
@@ -59,15 +51,6 @@ export function TmuxActionSheet({
   if (!open) return null;
 
   const title = session ? getSessionDisplayName(session) : 'No pane selected';
-  const dispatchTerminalAction = (action: TerminalAction) => {
-    if (!session) return;
-    window.dispatchEvent(new CustomEvent(TERMINAL_ACTION_EVENT, {
-      detail: {
-        sessionId: session.id,
-        action,
-      },
-    }));
-  };
 
   return (
     <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm lg:hidden" role="dialog" aria-modal="true">
@@ -94,7 +77,7 @@ export function TmuxActionSheet({
               variant="outline"
               className="justify-start gap-2"
               disabled={!session}
-              onClick={() => dispatchTerminalAction('attach')}
+              onClick={() => terminalControllerRef.current?.attach()}
             >
               <Plug className="h-4 w-4" />
               Attach
@@ -103,7 +86,7 @@ export function TmuxActionSheet({
               variant="outline"
               className="justify-start gap-2"
               disabled={!session}
-              onClick={() => dispatchTerminalAction('detach')}
+              onClick={() => terminalControllerRef.current?.detach()}
             >
               <Unplug className="h-4 w-4" />
               Detach
@@ -112,7 +95,7 @@ export function TmuxActionSheet({
               variant="outline"
               className="justify-start gap-2"
               disabled={!session}
-              onClick={() => dispatchTerminalAction('take_control')}
+              onClick={() => terminalControllerRef.current?.takeControl()}
             >
               <Shield className="h-4 w-4" />
               Take Control
@@ -121,7 +104,7 @@ export function TmuxActionSheet({
               variant="outline"
               className="justify-start gap-2"
               disabled={!session}
-              onClick={() => dispatchTerminalAction('focus')}
+              onClick={() => terminalControllerRef.current?.focus()}
             >
               <Focus className="h-4 w-4" />
               Focus
@@ -133,7 +116,7 @@ export function TmuxActionSheet({
               variant="outline"
               className="justify-start gap-2"
               disabled={!session}
-              onClick={() => dispatchTerminalAction('copy_selection')}
+              onClick={() => terminalControllerRef.current?.copySelection()}
             >
               <Copy className="h-4 w-4" />
               Copy selection
@@ -142,7 +125,7 @@ export function TmuxActionSheet({
               variant="outline"
               className="justify-start gap-2"
               disabled={!session}
-              onClick={() => dispatchTerminalAction('copy_last_50')}
+              onClick={() => terminalControllerRef.current?.copyLastLines(50)}
             >
               <Clipboard className="h-4 w-4" />
               Copy last 50
@@ -151,7 +134,7 @@ export function TmuxActionSheet({
               variant="outline"
               className="justify-start gap-2"
               disabled={!session}
-              onClick={() => dispatchTerminalAction('copy_all')}
+              onClick={() => terminalControllerRef.current?.copyAll()}
             >
               <Files className="h-4 w-4" />
               Copy all
@@ -160,7 +143,7 @@ export function TmuxActionSheet({
               variant="outline"
               className="justify-start gap-2"
               disabled={!session}
-              onClick={() => dispatchTerminalAction('paste')}
+              onClick={() => terminalControllerRef.current?.paste()}
             >
               <ClipboardPaste className="h-4 w-4" />
               Paste

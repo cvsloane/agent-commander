@@ -12,6 +12,7 @@ Start here:
 
 Core guides:
 - [Tmux Manager](tmux-manager.md)
+- [Mobile Launch](mobile-launch.md)
 - [Sessions](sessions.md)
 - [Console Streaming](console.md)
 - [Orchestrator](orchestrator.md)

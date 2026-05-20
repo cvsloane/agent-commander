@@ -28,6 +28,11 @@ import type {
   MemorySearchQuery,
   UpsertMemoryEntry,
   CaptureMode,
+  LaunchRequest,
+  LaunchResponse,
+  LaunchTargetsResponse,
+  TmuxOpenRequest,
+  TmuxOpenResponse,
   SessionLinkType,
   SessionLinkWithSession,
   ToolEvent,
@@ -35,6 +40,11 @@ import type {
 } from '@agent-command/schema';
 export type {
   CaptureMode,
+  LaunchRequest,
+  LaunchResponse,
+  LaunchTargetsResponse,
+  TmuxOpenRequest,
+  TmuxOpenResponse,
   SessionLinkType,
   SessionLinkWithSession,
   ToolEvent,
@@ -202,6 +212,24 @@ export async function getTmuxRoster(filters?: {
   if (filters?.host_id) params.set('host_id', filters.host_id);
   const query = params.toString();
   return fetchAPI(`/v1/tmux/roster${query ? `?${query}` : ''}`);
+}
+
+export async function getLaunchTargets(): Promise<LaunchTargetsResponse> {
+  return fetchAPI('/v1/launch/targets');
+}
+
+export async function launchAgent(request: LaunchRequest): Promise<LaunchResponse> {
+  return fetchAPI('/v1/launch', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+export async function openTmuxTarget(request: TmuxOpenRequest): Promise<TmuxOpenResponse> {
+  return fetchAPI('/v1/tmux/open', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
 }
 
 export async function getSessionsTotal(filters?: {

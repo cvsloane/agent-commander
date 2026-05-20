@@ -1,6 +1,8 @@
 import { CommandsDispatchMessageSchema } from '@agent-command/schema';
 import { pubsub } from './pubsub.js';
 
+export const HOST_COMMAND_SESSION_ID = '00000000-0000-0000-0000-000000000000';
+
 export type CommandResult = {
   ok: boolean;
   result?: Record<string, unknown>;
@@ -36,6 +38,10 @@ class CommandRouter {
     return pubsub.sendToAgent(hostId, dispatchMessage);
   }
 
+  dispatchHost(hostId: string, cmdId: string, command: RoutedCommand): boolean {
+    return this.dispatch(hostId, HOST_COMMAND_SESSION_ID, cmdId, command);
+  }
+
   async dispatchAndWait(
     hostId: string,
     sessionId: string,
@@ -58,6 +64,15 @@ class CommandRouter {
         reject(new Error('Agent not connected'));
       }
     });
+  }
+
+  async dispatchHostAndWait(
+    hostId: string,
+    cmdId: string,
+    command: RoutedCommand,
+    timeoutMs = 15000
+  ): Promise<CommandResult> {
+    return this.dispatchAndWait(hostId, HOST_COMMAND_SESSION_ID, cmdId, command, timeoutMs);
   }
 
   handleResult(cmdId: string, result: CommandResult): boolean {

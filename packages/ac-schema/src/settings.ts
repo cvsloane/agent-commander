@@ -13,6 +13,9 @@ export type SessionTemplate = z.infer<typeof SessionTemplateSchema>;
 export const LinkTypeSchema = z.enum(['complement', 'review']);
 export type LinkType = z.infer<typeof LinkTypeSchema>;
 
+export const MobileLaunchDefaultProviderSchema = z.enum(['codex', 'claude_code']);
+export type MobileLaunchDefaultProvider = z.infer<typeof MobileLaunchDefaultProviderSchema>;
+
 export const VisualizerThemeSchema = z.enum(['botspace', 'civilization', 'bridge-control']);
 export type VisualizerTheme = z.infer<typeof VisualizerThemeSchema>;
 
@@ -156,6 +159,9 @@ export const UserSettingsDataSchema = z.object({
   defaultSessionTemplate: SessionTemplateSchema,
   autoLinkSessions: z.boolean(),
   defaultLinkType: LinkTypeSchema,
+  defaultMobileLaunchProvider: MobileLaunchDefaultProviderSchema.default('codex'),
+  defaultMobileLaunchHostId: z.string().uuid().nullable().default(null),
+  defaultMobileLaunchTmuxTarget: z.string().nullable().default(null),
 });
 export type UserSettingsData = z.infer<typeof UserSettingsDataSchema>;
 

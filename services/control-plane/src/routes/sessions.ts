@@ -10,6 +10,13 @@ import { bootstrapSessionMemory, prepareSessionMemoryForSpawn } from '../service
 import { hasRole } from '../auth/rbac.js';
 import { commandRouter } from '../services/commandRouter.js';
 
+const PRIVILEGED_COMMAND_TYPES = new Set([
+  'spawn_session',
+  'spawn_job',
+  'list_directory',
+  'kill_session',
+]);
+
 // Query schemas
 const SessionsQuerySchema = z.object({
   host_id: z.string().uuid().optional(),
@@ -249,6 +256,12 @@ export function registerSessionRoutes(app: FastifyInstance): void {
       const session = await db.getSessionById(sessionId);
       if (!session) {
         return reply.status(404).send({ error: 'Session not found' });
+      }
+
+      if (PRIVILEGED_COMMAND_TYPES.has(payloadResult.data.type)) {
+        return reply.status(403).send({
+          error: `${payloadResult.data.type} must use a dedicated policy-checked endpoint`,
+        });
       }
 
       const cmdId = ulid();

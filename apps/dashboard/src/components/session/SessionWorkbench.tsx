@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type MutableRefObject } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import { getGroups } from '@/lib/api';
@@ -8,7 +8,7 @@ import { ActivityTimeline } from '@/components/ActivityTimeline';
 import { ConsoleView } from '@/components/ConsoleView';
 import { LinkedSessionsPanel } from '@/components/LinkedSessionsPanel';
 import { SessionAnalytics } from '@/components/analytics/SessionAnalytics';
-import { TerminalView } from '@/components/TerminalView';
+import { TerminalView, type TerminalController } from '@/components/TerminalView';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useHydrated } from '@/hooks/useHydrated';
@@ -30,6 +30,8 @@ interface SessionWorkbenchProps {
   className?: string;
   showDetails?: boolean;
   terminalCardClassName?: string;
+  autoAttachTerminal?: boolean;
+  terminalControllerRef?: MutableRefObject<TerminalController | null>;
 }
 
 export function SessionWorkbench({
@@ -44,6 +46,8 @@ export function SessionWorkbench({
   className,
   showDetails = true,
   terminalCardClassName,
+  autoAttachTerminal = false,
+  terminalControllerRef,
 }: SessionWorkbenchProps) {
   const [internalViewMode, setInternalViewMode] = useState<WorkbenchViewMode>(initialView);
   const [maximized, setMaximized] = useState(false);
@@ -185,6 +189,8 @@ export function SessionWorkbench({
             <TerminalView
               sessionId={session.id}
               paneId={session.tmux_pane_id || undefined}
+              autoAttach={autoAttachTerminal}
+              controllerRef={terminalControllerRef}
             />
           )}
         </CardContent>

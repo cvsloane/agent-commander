@@ -15,8 +15,7 @@ import {
 import { ulid } from 'ulid';
 import { pubsub } from '../services/pubsub.js';
 import { handleMCPResponse } from '../routes/mcp.js';
-import { handleCommandResultForPending } from '../services/commandRouter.js';
-import { handleHostCommandResult } from '../routes/hosts.js';
+import { handleCommandResultForPending, HOST_COMMAND_SESSION_ID } from '../services/commandRouter.js';
 import { handleTerminalOutput, handleTerminalStatus } from '../routes/terminal.js';
 import * as db from '../db/index.js';
 import { consoleSubscriptions } from '../services/consoleSubscriptions.js';
@@ -480,23 +479,14 @@ async function handleCommandResult(
 ): Promise<void> {
   app.log.info({ cmdId: payload.cmd_id, ok: payload.ok }, 'Command result received');
 
-  // Check if this result is awaited by a pending cross-host operation
+  // Resolve any caller waiting on this command id, including host-level commands.
   handleCommandResultForPending(payload.cmd_id, {
     ok: payload.ok,
     result: payload.result,
     error: payload.error,
   });
 
-  // Also check pending host-level commands
-  handleHostCommandResult(payload.cmd_id, {
-    ok: payload.ok,
-    result: payload.result,
-    error: payload.error,
-  });
-
-  const syntheticSessionId = '00000000-0000-0000-0000-000000000000';
-
-  if (payload.session_id && payload.session_id !== syntheticSessionId) {
+  if (payload.session_id && payload.session_id !== HOST_COMMAND_SESSION_ID) {
     try {
       const event = await db.insertEvent(
         payload.session_id,

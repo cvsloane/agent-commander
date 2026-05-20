@@ -212,3 +212,23 @@ export async function waitForSessionReady(
   }
   return db.getSessionById(sessionId);
 }
+
+export async function waitForSessionOpenable(
+  sessionId: string,
+  timeoutMs = 15000,
+  pollMs = 500
+): Promise<Session | null> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const session = await db.getSessionById(sessionId);
+    if (!session) return null;
+    if (session.status === 'ERROR' || session.status === 'DONE') {
+      return session;
+    }
+    if (session.tmux_pane_id) {
+      return session;
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+  return db.getSessionById(sessionId);
+}

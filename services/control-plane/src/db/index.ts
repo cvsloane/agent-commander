@@ -21,6 +21,7 @@ import type {
   SessionUsageSummary,
   Project,
   Repo,
+  RecentLaunch,
 } from '@agent-command/schema';
 
 const { Pool } = pg;
@@ -1277,6 +1278,77 @@ export async function touchProject(data: {
        display_name = COALESCE(EXCLUDED.display_name, projects.display_name)`,
     [data.user_id, data.host_id, data.path, data.display_name || null]
   );
+}
+
+export async function recordRecentLaunch(data: {
+  user_id: string;
+  host_id: string;
+  provider: RecentLaunch['provider'];
+  working_directory: string;
+  tmux_target?: string | null;
+  title?: string | null;
+  prompt?: string | null;
+}): Promise<RecentLaunch> {
+  const promptPreview = data.prompt?.trim()
+    ? data.prompt.trim().slice(0, 160)
+    : null;
+  const result = await pool.query(
+    `INSERT INTO recent_launches (
+       user_id,
+       host_id,
+       provider,
+       working_directory,
+       tmux_target,
+       title,
+       prompt_preview,
+       launch_count,
+       last_launched_at
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 1, NOW())
+     ON CONFLICT (user_id, host_id, provider, working_directory, (COALESCE(tmux_target, '')))
+     DO UPDATE SET
+       title = COALESCE(EXCLUDED.title, recent_launches.title),
+       prompt_preview = COALESCE(EXCLUDED.prompt_preview, recent_launches.prompt_preview),
+       launch_count = recent_launches.launch_count + 1,
+       last_launched_at = NOW(),
+       updated_at = NOW()
+     RETURNING id, host_id, provider, working_directory, tmux_target, title, launch_count, last_launched_at`,
+    [
+      data.user_id,
+      data.host_id,
+      data.provider,
+      data.working_directory,
+      data.tmux_target || null,
+      data.title || null,
+      promptPreview,
+    ]
+  );
+  return result.rows[0];
+}
+
+export async function getRecentLaunches(userId: string, filters?: {
+  host_id?: string;
+  limit?: number;
+}): Promise<RecentLaunch[]> {
+  const params: unknown[] = [userId];
+  let query = `
+    SELECT id, host_id, provider, working_directory, tmux_target, title, launch_count, last_launched_at
+    FROM recent_launches
+    WHERE user_id = $1`;
+
+  if (filters?.host_id) {
+    params.push(filters.host_id);
+    query += ` AND host_id = $${params.length}`;
+  }
+
+  query += ' ORDER BY last_launched_at DESC';
+  if (filters?.limit) {
+    params.push(filters.limit);
+    query += ` LIMIT $${params.length}`;
+  }
+
+  const result = await pool.query(query, params);
+  return result.rows;
 }
 
 // User settings (persisted UI preferences)
