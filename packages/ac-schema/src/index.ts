@@ -10,6 +10,9 @@ export * from './launch.js';
 // Session schemas
 export * from './session.js';
 
+// Orchestration schemas
+export * from './orchestration.js';
+
 // Group schemas
 export * from './group.js';
 

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CommandTypeSchema, SessionProviderSchema } from './enums.js';
+import { SessionRoleSchema } from './orchestration.js';
 
 // Send input command payload
 export const SendInputPayloadSchema = z.object({
@@ -43,6 +44,8 @@ export const SpawnSessionInteractivePayloadSchema = z.object({
   flags: z.array(z.string()).optional(),
   memory_files: z.array(SpawnSessionMemoryFileSchema).optional(),
   group_id: z.string().uuid().optional(),
+  parent_session_id: z.string().uuid().optional(),
+  role: SessionRoleSchema.optional(),
   tmux: z
     .object({
       target_session: z.string().optional(),
@@ -60,6 +63,8 @@ export const SpawnSessionWorktreePayloadSchema = z.object({
   worktree_dir: z.string(),
   title: z.string(),
   memory_files: z.array(SpawnSessionMemoryFileSchema).optional(),
+  parent_session_id: z.string().uuid().optional(),
+  role: SessionRoleSchema.optional(),
   tmux: z.object({
     target_session: z.string().default('agents'),
     window_name: z.string(),

@@ -20,6 +20,7 @@ import {
 } from './mcp.js';
 import { ToolEventStartSchema, ToolEventCompleteSchema, ToolEventSchema } from './toolEvent.js';
 import { ProviderUsageReportSchema, SessionUsageSummarySchema } from './analytics.js';
+import { AgentTaskSchema, SessionEdgeSchema } from './orchestration.js';
 
 // Message envelope (base)
 export const MessageEnvelopeBaseSchema = z.object({
@@ -297,6 +298,8 @@ export const UISubscribeMessageSchema = MessageEnvelopeBaseSchema.extend({
           'governance_approvals',
           'work_items',
           'hosts',
+          'session_edges',
+          'agent_tasks',
         ]),
         filter: z.record(z.unknown()).optional(),
       })
@@ -314,6 +317,24 @@ export const SessionsChangedMessageSchema = ServerMessageEnvelopeSchema.extend({
   }),
 });
 export type SessionsChangedMessage = z.infer<typeof SessionsChangedMessageSchema>;
+
+export const SessionEdgesChangedMessageSchema = ServerMessageEnvelopeSchema.extend({
+  type: z.literal('session_edges.changed'),
+  payload: z.object({
+    session_id: z.string().uuid(),
+    edges: z.array(SessionEdgeSchema),
+  }),
+});
+export type SessionEdgesChangedMessage = z.infer<typeof SessionEdgesChangedMessageSchema>;
+
+export const AgentTasksChangedMessageSchema = ServerMessageEnvelopeSchema.extend({
+  type: z.literal('agent_tasks.changed'),
+  payload: z.object({
+    session_id: z.string().uuid(),
+    agent_tasks: z.array(AgentTaskSchema),
+  }),
+});
+export type AgentTasksChangedMessage = z.infer<typeof AgentTasksChangedMessageSchema>;
 
 // Approvals created
 export const ApprovalsCreatedMessageSchema = ServerMessageEnvelopeSchema.extend({
@@ -452,6 +473,8 @@ export type UIAutomationRuntimeStateUpdatedMessage = z.infer<typeof UIAutomation
 // Union of all UI messages from server
 export const ServerToUIMessageSchema = z.discriminatedUnion('type', [
   SessionsChangedMessageSchema,
+  SessionEdgesChangedMessageSchema,
+  AgentTasksChangedMessageSchema,
   ApprovalsCreatedMessageSchema,
   ApprovalsUpdatedMessageSchema,
   EventsAppendedMessageSchema,

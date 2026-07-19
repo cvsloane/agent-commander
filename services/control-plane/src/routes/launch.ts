@@ -184,6 +184,8 @@ export function registerLaunchRoutes(app: FastifyInstance): void {
         title,
         flags: launch.flags,
         group_id: launch.group_id,
+        parent_session_id: launch.parent_session_id,
+        role: launch.role,
         tmux,
         auditAction: 'launch.spawn',
         failureAuditAction: 'launch.spawn_failed',
@@ -253,6 +255,7 @@ export function registerLaunchRoutes(app: FastifyInstance): void {
         error instanceof IdempotencyConflictError
           || message === 'Idempotency-Key was used with a different request' ? 409
         : message === 'Host not found' ? 404
+        : message === 'Parent session not found' ? 404
         : message === 'Host does not allow remote session spawning' ? 403
         : message.startsWith('Host does not advertise provider support') ? 400
         : message === 'Host is offline' || message === 'Failed to send command to agent' ? 503

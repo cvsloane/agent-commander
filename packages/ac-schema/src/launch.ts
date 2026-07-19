@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { SessionProviderSchema } from './enums.js';
 import { SessionSchema } from './session.js';
+import { SessionRoleSchema } from './orchestration.js';
 
 export const MobileLaunchProviderSchema = z.enum(['codex', 'claude_code']);
 export type MobileLaunchProvider = z.infer<typeof MobileLaunchProviderSchema>;
@@ -71,6 +72,8 @@ export const LaunchRequestSchema = z.object({
   title: z.string().min(1).optional(),
   flags: z.array(z.string()).optional(),
   group_id: z.string().uuid().optional(),
+  parent_session_id: z.string().uuid().optional(),
+  role: SessionRoleSchema.optional(),
   prompt: z.string().optional(),
   wait: z.boolean().default(true),
   wait_timeout_ms: z.number().int().min(1000).max(30000).default(15000),

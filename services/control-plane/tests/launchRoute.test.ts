@@ -6,6 +6,7 @@ import type { AuthUser } from '../src/auth/types.js';
 const hostId = '11111111-1111-4111-8111-111111111111';
 const sessionId = '22222222-2222-4222-8222-222222222222';
 const userId = '33333333-3333-4333-8333-333333333333';
+const parentSessionId = '66666666-6666-4666-8666-666666666666';
 
 function user(role: AuthUser['role']): AuthUser {
   return {
@@ -98,6 +99,7 @@ async function buildServer(role: AuthUser['role'], options: {
 } = {}): Promise<{
   app: FastifyInstance;
   agentSend: ReturnType<typeof vi.fn>;
+  upsertEdge: ReturnType<typeof vi.fn>;
 }> {
   vi.resetModules();
   vi.stubEnv('DATABASE_URL', 'postgres://agent-command:test@localhost:5432/agent_command_test');
@@ -196,6 +198,20 @@ async function buildServer(role: AuthUser['role'], options: {
     bootstrapSessionMemory: vi.fn(async () => undefined),
   }));
 
+  const upsertEdge = vi.fn(async (input: Record<string, unknown>) => ({
+    edge: {
+      ...input,
+      created_at: new Date().toISOString(),
+    },
+    created: true,
+  }));
+  vi.doMock('../src/db/sessionGraph.js', () => ({
+    sessionGraph: {
+      setRole: vi.fn(async (id: string, role: Session['role']) => session({ id, role })),
+      upsert: upsertEdge,
+    },
+  }));
+
   const { registerLaunchRoutes } = await import('../src/routes/launch.js');
   const { pubsub } = await import('../src/services/pubsub.js');
   const app = Fastify({ logger: false });
@@ -213,7 +229,7 @@ async function buildServer(role: AuthUser['role'], options: {
     pubsub.removeAgentConnection(hostId);
   }
 
-  return { app, agentSend };
+  return { app, agentSend, upsertEdge };
 }
 
 describe('launch routes', () => {
@@ -354,6 +370,44 @@ describe('launch routes', () => {
     expect(messages.find((message) => message.payload.command.type === 'send_input')?.payload.command.payload).toMatchObject({
       text: 'Implement the launch workflow',
       enter: true,
+    });
+    await app.close();
+  });
+
+  it('passes parent linkage and role through the mobile launch flow', async () => {
+    const { app, agentSend, upsertEdge } = await buildServer('operator', {
+      sessionSequence: [
+        session({ id: parentSessionId, role: 'orchestrator', status: 'RUNNING' }),
+        session({ role: 'worker' }),
+      ],
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/launch',
+      payload: {
+        host_id: hostId,
+        provider: 'codex',
+        working_directory: '/home/cvsloane/dev/agent-command',
+        parent_session_id: parentSessionId,
+        role: 'worker',
+        wait: false,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const childSessionId = response.json().session_id;
+    expect(upsertEdge).toHaveBeenCalledWith({
+      parent_session_id: parentSessionId,
+      child_session_id: childSessionId,
+      edge_type: 'spawned',
+    });
+    const spawnMessage = agentSend.mock.calls
+      .map(([raw]) => JSON.parse(String(raw)))
+      .find((message) => message.payload.command.type === 'spawn_session');
+    expect(spawnMessage.payload.command.payload).toMatchObject({
+      parent_session_id: parentSessionId,
+      role: 'worker',
     });
     await app.close();
   });

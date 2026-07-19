@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { CommandRequestSchema, CommandPayloadSchema, UpdateSessionRequestSchema, BulkOperationRequestSchema, CopyToSessionPayloadSchema } from '@agent-command/schema';
 import * as db from '../db/index.js';
+import { sessionGraph } from '../db/sessionGraph.js';
+import { agentTasks } from '../db/agentTasks.js';
 import { pubsub } from '../services/pubsub.js';
 import { consoleSubscriptions } from '../services/consoleSubscriptions.js';
 import { spawnSessionOnHost } from '../services/sessionSpawn.js';
@@ -156,6 +158,47 @@ export function registerSessionRoutes(app: FastifyInstance): void {
 
     return result;
   });
+
+  // GET /v1/sessions/:id/graph - Get connected edges and direct-child rollups
+  app.get<{ Params: { id: string } }>(
+    '/v1/sessions/:id/graph',
+    async (request, reply) => {
+      const { id } = request.params;
+      if (!z.string().uuid().safeParse(id).success) {
+        return reply.status(400).send({ error: 'Invalid session ID' });
+      }
+      const session = await db.getSessionById(id);
+      if (!session) {
+        return reply.status(404).send({ error: 'Session not found' });
+      }
+
+      const [edges, rollup] = await Promise.all([
+        sessionGraph.list(id),
+        sessionGraph.rollup(id),
+      ]);
+      return { session_id: id, edges, rollup };
+    }
+  );
+
+  // GET /v1/sessions/:id/agent-tasks - Get in-process provider subagents
+  app.get<{ Params: { id: string } }>(
+    '/v1/sessions/:id/agent-tasks',
+    async (request, reply) => {
+      const { id } = request.params;
+      if (!z.string().uuid().safeParse(id).success) {
+        return reply.status(400).send({ error: 'Invalid session ID' });
+      }
+      const session = await db.getSessionById(id);
+      if (!session) {
+        return reply.status(404).send({ error: 'Session not found' });
+      }
+
+      return {
+        session_id: id,
+        agent_tasks: await agentTasks.list(id),
+      };
+    }
+  );
 
   // GET /v1/sessions/:id/events - Get session events with pagination
   app.get<{ Params: { id: string }; Querystring: unknown }>(
@@ -414,6 +457,11 @@ export function registerSessionRoutes(app: FastifyInstance): void {
       });
       if (!sent) {
         return reply.status(503).send({ error: 'Agent not connected' });
+      }
+
+      const backfilled = await sessionGraph.backfillForkEdges(sessionId);
+      if (backfilled.length > 0) {
+        pubsub.publishSessionEdgesChanged(sessionId, backfilled);
       }
 
       // Log audit
@@ -675,6 +723,8 @@ export function registerSessionRoutes(app: FastifyInstance): void {
     title: z.string().optional(),
     flags: z.array(z.string()).optional(),
     group_id: z.string().uuid().optional(),
+    parent_session_id: z.string().uuid().optional(),
+    role: z.enum(['orchestrator', 'worker', 'standalone']).optional(),
     tmux: z
       .object({
         target_session: z.string().optional(),
@@ -703,7 +753,17 @@ export function registerSessionRoutes(app: FastifyInstance): void {
       return reply.status(400).send({ error: 'Invalid request body', details: bodyResult.error });
     }
 
-    const { host_id, provider, working_directory, title, flags, group_id, tmux } = bodyResult.data;
+    const {
+      host_id,
+      provider,
+      working_directory,
+      title,
+      flags,
+      group_id,
+      parent_session_id,
+      role,
+      tmux,
+    } = bodyResult.data;
     const idempotencyKey = scopeIdempotencyKey(
       rawIdempotencyKey,
       'sessions.spawn',
@@ -731,6 +791,8 @@ export function registerSessionRoutes(app: FastifyInstance): void {
         title,
         flags,
         group_id,
+        parent_session_id,
+        role,
         tmux,
         idempotencyKey,
         idempotencyFingerprint,
@@ -751,6 +813,7 @@ export function registerSessionRoutes(app: FastifyInstance): void {
         error instanceof IdempotencyConflictError
           || message === 'Idempotency-Key was used with a different request' ? 409
         : message === 'Host not found' ? 404
+        : message === 'Parent session not found' ? 404
         : message === 'Host does not allow remote session spawning' ? 403
         : message.startsWith('Host does not advertise provider support') ? 400
         : message === 'Host is offline' || message === 'Failed to send command to agent' ? 503

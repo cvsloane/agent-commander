@@ -179,6 +179,7 @@ export const WorkItemSchema = z.object({
   id: z.string().uuid(),
   user_id: z.string().uuid(),
   repo_id: z.string().uuid().nullable().optional(),
+  session_id: z.string().uuid().nullable().optional(),
   title: z.string(),
   objective: z.string(),
   status: WorkItemStatusSchema,

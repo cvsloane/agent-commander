@@ -26,6 +26,8 @@ import { consoleSubscriptions } from '../services/consoleSubscriptions.js';
 import { installWebSocketHeartbeat } from '../services/webSocketHeartbeat.js';
 import { hostProgress } from '../services/hostProgress.js';
 import { recordAgentMessageHandlerFailure } from '../metrics.js';
+import { agentTasks, agentTaskUpdateFromEvent } from '../db/agentTasks.js';
+import { sessionGraph } from '../db/sessionGraph.js';
 
 interface AgentState {
   hostId: string | null;
@@ -413,6 +415,28 @@ async function handleSessionsUpsert(
     try {
       let updated = await db.upsertSession(state.hostId, session);
 
+      if (session.forked_from) {
+        const edgeResult = await sessionGraph.upsert({
+          parent_session_id: session.forked_from,
+          child_session_id: session.id,
+          edge_type: 'forked',
+        });
+        if (edgeResult.created) {
+          pubsub.publishSessionEdgesChanged(session.forked_from, [edgeResult.edge]);
+        }
+      }
+      const parentSessionId = session.metadata?.parent_session_id;
+      if (parentSessionId) {
+        const edgeResult = await sessionGraph.upsert({
+          parent_session_id: parentSessionId,
+          child_session_id: session.id,
+          edge_type: 'spawned',
+        });
+        if (edgeResult.created) {
+          pubsub.publishSessionEdgesChanged(parentSessionId, [edgeResult.edge]);
+        }
+      }
+
       if (
         updated.kind === 'tmux_pane' &&
         !updated.group_id &&
@@ -497,6 +521,16 @@ async function handleEventsAppend(
     payload.payload,
     payload.event_id
   );
+
+  const agentTaskUpdate = agentTaskUpdateFromEvent(
+    payload.session_id,
+    payload.event_type,
+    payload.payload
+  );
+  if (agentTaskUpdate) {
+    const agentTask = await agentTasks.upsert(agentTaskUpdate);
+    pubsub.publishAgentTasksChanged(payload.session_id, [agentTask]);
+  }
 
   if (event) {
     pubsub.publishEventAppended(payload.session_id, {
