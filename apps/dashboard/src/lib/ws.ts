@@ -203,7 +203,10 @@ class WebSocketClient {
       this.sendSubscriptions();
       return;
     }
-    if (this.ws?.readyState === WebSocket.CONNECTING || this.connectPromise) return;
+    if (this.ws?.readyState === WebSocket.CONNECTING || this.connectPromise) {
+      useConnectionStore.getState().setEventStatus('reconnecting');
+      return;
+    }
     this.applyReconnectEvent(event);
   }
 
