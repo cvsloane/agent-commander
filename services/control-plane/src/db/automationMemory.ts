@@ -836,6 +836,12 @@ export async function claimNextAutomationWakeup(): Promise<ClaimedAutomationWake
        JOIN automation_agents a ON a.id = w.automation_agent_id
        WHERE w.status = 'queued'
          AND a.status = 'active'
+         AND CASE
+           WHEN jsonb_typeof(w.context_json->'automation_deferred_until_ms') = 'number'
+             THEN (w.context_json->>'automation_deferred_until_ms')::numeric
+               <= EXTRACT(EPOCH FROM NOW()) * 1000
+           ELSE TRUE
+         END
          AND NOT (
            COALESCE(a.wake_policy_json->>'concurrency_policy', 'coalesce_if_active') = 'always_enqueue'
            AND (

@@ -29,6 +29,9 @@ import { config } from '../config.js';
 const SCHEDULER_LOCK_KEY = 427001;
 const DEFAULT_TICK_MS = 5000;
 const RUN_IDLE_COMPLETION_GRACE_MS = 15_000;
+const DEFAULT_HOST_OFFLINE_TTL_MINUTES = 15;
+const DEFAULT_HOST_OFFLINE_BACKOFF_SECONDS = 5;
+const MAX_HOST_OFFLINE_BACKOFF_MS = 60_000;
 
 type JsonObject = Record<string, unknown>;
 
@@ -104,6 +107,22 @@ function getMissedRunCap(value: unknown): number {
 
 function getMaxQueueDepth(value: unknown): number {
   return Math.max(1, Math.min(100, asPositiveInt(asObject(value).max_queue_depth) ?? 10));
+}
+
+function getHostOfflineTtlMs(value: unknown): number {
+  const minutes = asPositiveInt(asObject(value).host_offline_ttl_minutes)
+    ?? DEFAULT_HOST_OFFLINE_TTL_MINUTES;
+  return Math.min(24 * 60, minutes) * 60_000;
+}
+
+function getHostOfflineBackoffMs(value: unknown): number {
+  const seconds = asPositiveInt(asObject(value).host_offline_backoff_seconds)
+    ?? DEFAULT_HOST_OFFLINE_BACKOFF_SECONDS;
+  return Math.min(60, seconds) * 1_000;
+}
+
+function requiresHostSelectionApproval(value: unknown): boolean {
+  return asObject(value).require_host_selection_approval === true;
 }
 
 function getPreferredRepoScope(agent: Pick<AutomationAgent, 'wake_policy_json'>): string | null {
@@ -798,7 +817,86 @@ async function cancelRunForWake(options: {
   publishAutomationWakeup(wakeup);
 }
 
-async function processWakeup(
+function isHostOfflineIssue(issue: AutomationPreflightIssue | null): boolean {
+  return Boolean(issue && (
+    issue.code === 'fixed_host_offline'
+    || issue.code === 'repo_host_offline'
+    || issue.code === 'selected_host_offline'
+    || issue.code === 'runtime_host_offline'
+  ));
+}
+
+async function requeueUntilHostOnline(input: {
+  run: AutomationRun;
+  wakeup: automationDb.ClaimedAutomationWakeup;
+  issue: AutomationPreflightIssue;
+}): Promise<boolean> {
+  const nowMs = Date.now();
+  const context = asObject(input.wakeup.context_json);
+  const configuredStartMs = typeof context.host_wait_started_at_ms === 'number'
+    && Number.isFinite(context.host_wait_started_at_ms)
+    ? context.host_wait_started_at_ms
+    : nowMs;
+  const startedAtMs = Math.min(configuredStartMs, nowMs);
+  const ttlMs = getHostOfflineTtlMs(input.wakeup.wake_policy_json);
+  const elapsedMs = nowMs - startedAtMs;
+  if (elapsedMs >= ttlMs) {
+    return false;
+  }
+
+  const previousAttempts = asPositiveInt(context.host_wait_attempt) ?? 0;
+  const attempt = previousAttempts + 1;
+  const baseBackoffMs = getHostOfflineBackoffMs(input.wakeup.wake_policy_json);
+  const backoffMs = Math.min(
+    baseBackoffMs * (2 ** Math.min(previousAttempts, 6)),
+    MAX_HOST_OFFLINE_BACKOFF_MS,
+    ttlMs - elapsedMs
+  );
+  const hostId = input.issue.host_id || null;
+  const summary = hostId
+    ? `Waiting for host ${hostId} to come online.`
+    : 'Waiting for an execution host to come online.';
+
+  await appendRunEvent({
+    automation_run_id: input.run.id,
+    event_type: 'host.offline_wait',
+    level: 'warn',
+    message: summary,
+    payload: {
+      host_id: hostId,
+      attempt,
+      backoff_ms: backoffMs,
+      ttl_ms: ttlMs,
+    },
+  });
+  const cancelled = await automationDb.updateAutomationRun(input.run.id, {
+    status: 'cancelled',
+    result_summary: summary,
+    worker_report_json: buildRunWorkerReport({
+      outcome: 'queued_until_host_online',
+      summary,
+      wakeupId: input.wakeup.id,
+    }),
+    log_ref_json: buildRunLogRefs({ runId: input.run.id }),
+    ended_at: new Date(nowMs).toISOString(),
+  });
+  if (cancelled) {
+    await publishAutomationRun(cancelled, input.wakeup.agent_provider);
+  }
+
+  const requeued = await automationDb.requeueAutomationWakeup(input.wakeup.id, {
+    reason: 'queued_until_host_online',
+    queued_until_host_online: true,
+    waiting_for_host_id: hostId,
+    host_wait_attempt: attempt,
+    host_wait_started_at_ms: startedAtMs,
+    automation_deferred_until_ms: nowMs + backoffMs,
+  });
+  publishAutomationWakeup(requeued);
+  return true;
+}
+
+export async function processAutomationWakeup(
   logger: FastifyBaseLogger,
   wakeup: automationDb.ClaimedAutomationWakeup
 ): Promise<void> {
@@ -962,6 +1060,13 @@ async function processWakeup(
     const primaryIssue = preflight.preflight.issues.find(
       (issue: AutomationPreflightIssue) => issue.level === 'error'
     ) || null;
+    if (isHostOfflineIssue(primaryIssue) && await requeueUntilHostOnline({
+      run: initialRun,
+      wakeup,
+      issue: primaryIssue!,
+    })) {
+      return;
+    }
     const approvalType = primaryIssue?.code === 'budget_exceeded'
       ? 'budget_override'
       : primaryIssue?.code === 'missing_working_directory'
@@ -977,19 +1082,21 @@ async function processWakeup(
       payload: { issues: preflight.preflight.issues },
     });
 
-    await createGovernanceApproval({
-      user_id: wakeup.agent_user_id,
-      automation_agent_id: wakeup.automation_agent_id,
-      automation_run_id: initialRun.id,
-      type: approvalType,
-      request_payload: {
-        reason: summary,
-        issues: preflight.preflight.issues,
-        wakeup_id: wakeup.id,
-        repo_id: wakeup.repo_id || null,
-        budget_usage: preflight.budget.usage,
-      },
-    });
+    if (approvalType !== 'host_selection' || requiresHostSelectionApproval(wakeup.wake_policy_json)) {
+      await createGovernanceApproval({
+        user_id: wakeup.agent_user_id,
+        automation_agent_id: wakeup.automation_agent_id,
+        automation_run_id: initialRun.id,
+        type: approvalType,
+        request_payload: {
+          reason: summary,
+          issues: preflight.preflight.issues,
+          wakeup_id: wakeup.id,
+          repo_id: wakeup.repo_id || null,
+          budget_usage: preflight.budget.usage,
+        },
+      });
+    }
 
     await cancelRunForWake({
       run: initialRun,
@@ -1208,7 +1315,7 @@ async function processQueuedWakeups(logger: FastifyBaseLogger): Promise<void> {
     const wakeup = await automationDb.claimNextAutomationWakeup();
     if (!wakeup) return;
     publishAutomationWakeup(wakeup);
-    await processWakeup(logger, wakeup);
+    await processAutomationWakeup(logger, wakeup);
   }
 }
 
