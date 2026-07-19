@@ -100,7 +100,7 @@ func (q *Queue) appendMessage(msg Message) error {
 	if _, err := q.append.WriteString("\n"); err != nil {
 		return err
 	}
-	return nil
+	return q.append.Sync()
 }
 
 func (q *Queue) compact() error {
@@ -219,10 +219,72 @@ func (q *Queue) GetUnacked() []Message {
 	return result
 }
 
+// MaxSeq returns the highest sequence number currently retained by the queue.
+func (q *Queue) MaxSeq() int64 {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	var maxSeq int64
+	for _, msg := range q.messages {
+		if msg.Seq > maxSeq {
+			maxSeq = msg.Seq
+		}
+	}
+	return maxSeq
+}
+
+// RebaseAbove shifts retained messages, if necessary, so every sequence number
+// is strictly greater than floor. This is used once during startup to reserve a
+// positive sequence number for the hello handshake without colliding with a
+// queue written by an older agentd version.
+func (q *Queue) RebaseAbove(floor int64) (int64, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if len(q.messages) == 0 {
+		return floor, nil
+	}
+
+	minSeq := q.messages[0].Seq
+	maxSeq := q.messages[0].Seq
+	for _, msg := range q.messages[1:] {
+		if msg.Seq < minSeq {
+			minSeq = msg.Seq
+		}
+		if msg.Seq > maxSeq {
+			maxSeq = msg.Seq
+		}
+	}
+	if minSeq > floor {
+		return maxSeq, nil
+	}
+
+	offset := floor + 1 - minSeq
+	for i := range q.messages {
+		q.messages[i].Seq += offset
+	}
+	if err := q.compact(); err != nil {
+		return 0, err
+	}
+	return maxSeq + offset, nil
+}
+
 func (q *Queue) Len() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return len(q.messages)
+}
+
+// Close flushes and closes the queue's append handle.
+func (q *Queue) Close() error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.append == nil {
+		return nil
+	}
+	err := q.append.Close()
+	q.append = nil
+	return err
 }
 
 // LoadAckedSeq loads the last acked sequence number

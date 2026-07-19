@@ -24,6 +24,7 @@ type Pane struct {
 	CurrentCommand   string
 	PaneTitle        string
 	ProviderOverride string
+	SessionID        string
 }
 
 type Client struct {
@@ -36,7 +37,11 @@ func NewClient(cfg *config.TmuxConfig) *Client {
 
 // ListPanes returns all panes across all tmux sessions
 func (c *Client) ListPanes() ([]Pane, error) {
-	format := "#{pane_id}\t#{pane_pid}\t#{session_name}\t#{window_name}\t#{window_index}\t#{pane_index}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_title}\t#{@ac_provider}"
+	sessionOption := c.cfg.OptionSessionID
+	if sessionOption == "" {
+		sessionOption = "@ac_session_id"
+	}
+	format := "#{pane_id}\t#{pane_pid}\t#{session_name}\t#{window_name}\t#{window_index}\t#{pane_index}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_title}\t#{@ac_provider}\t#{" + sessionOption + "}"
 
 	args := []string{"list-panes", "-a", "-F", format}
 	if c.cfg.Socket != "" {
@@ -60,32 +65,40 @@ func (c *Client) ListPanes() ([]Pane, error) {
 	var panes []Pane
 	scanner := bufio.NewScanner(bytes.NewReader(output))
 	for scanner.Scan() {
-		line := scanner.Text()
-		fields := strings.Split(line, "\t")
-		if len(fields) < 8 {
+		pane, ok := parsePaneLine(scanner.Text())
+		if !ok {
 			continue
 		}
-
-		var pane Pane
-		pane.PaneID = fields[0]
-		fmt.Sscanf(fields[1], "%d", &pane.PanePID)
-		pane.SessionName = fields[2]
-		pane.WindowName = fields[3]
-		fmt.Sscanf(fields[4], "%d", &pane.WindowIndex)
-		fmt.Sscanf(fields[5], "%d", &pane.PaneIndex)
-		pane.CurrentPath = fields[6]
-		pane.CurrentCommand = fields[7]
-		if len(fields) > 8 {
-			pane.PaneTitle = fields[8]
-		}
-		if len(fields) > 9 {
-			pane.ProviderOverride = fields[9]
-		}
-
 		panes = append(panes, pane)
 	}
 
 	return panes, scanner.Err()
+}
+
+func parsePaneLine(line string) (Pane, bool) {
+	fields := strings.Split(line, "\t")
+	if len(fields) < 8 {
+		return Pane{}, false
+	}
+	var pane Pane
+	pane.PaneID = fields[0]
+	fmt.Sscanf(fields[1], "%d", &pane.PanePID)
+	pane.SessionName = fields[2]
+	pane.WindowName = fields[3]
+	fmt.Sscanf(fields[4], "%d", &pane.WindowIndex)
+	fmt.Sscanf(fields[5], "%d", &pane.PaneIndex)
+	pane.CurrentPath = fields[6]
+	pane.CurrentCommand = fields[7]
+	if len(fields) > 8 {
+		pane.PaneTitle = fields[8]
+	}
+	if len(fields) > 9 {
+		pane.ProviderOverride = fields[9]
+	}
+	if len(fields) > 10 {
+		pane.SessionID = fields[10]
+	}
+	return pane, true
 }
 
 // GetPaneOption retrieves a pane option value

@@ -41,6 +41,11 @@ var (
 		Help:    "Backoff delay (sleep) used before each reconnect attempt.",
 		Buckets: []float64{0.25, 0.5, 1, 2, 5, 10, 30, 60},
 	})
+
+	messageDropsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "agentd_message_drops_total",
+		Help: "Total outbound messages that could not be delivered or durably queued.",
+	}, []string{"type"})
 )
 
 func initOnce() {
@@ -52,6 +57,7 @@ func initOnce() {
 			wsReconnectFailuresTotal,
 			wsReconnectSuccessTotal,
 			wsReconnectBackoffSeconds,
+			messageDropsTotal,
 		)
 	})
 }
@@ -95,4 +101,9 @@ func RecordWSReconnectFailure() {
 func RecordWSReconnectSuccess() {
 	initOnce()
 	wsReconnectSuccessTotal.Inc()
+}
+
+func RecordMessageDrop(messageType string) {
+	initOnce()
+	messageDropsTotal.WithLabelValues(messageType).Inc()
 }
