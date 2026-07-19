@@ -12,3 +12,4 @@
 - 2026-07-19T18:55Z [AI Lead] W2-CP-ORCH PASS (gate re-run 107 tests; firewall clean) => merged. Noted follow-up: inject session token into child env once spawn env field exists (agentd local API supports env).
 - 2026-07-19T19:02Z [AI Lead] W2-CP-ORCH integrated (33da2d7). Post-merge 7-test failure was a stale ac-schema dist in the integration clone — rebuild fixed, 107/107. Process rules: (1) rebuild ac-schema before post-merge gates; (2) never pipe gate commands through grep in && chains — masked a red gate before push.
 - 2026-07-19T19:25Z [AI Lead] W2-MCP-CLI PASS (44/44 re-run) => merged. WAVE 2 CLOSED: full gate green (221 tests, 7 smoke, go clean, exit-code verified). Orchestrator loop now end-to-end: local agentd API + session graph + structured completion + governance resume + ac CLI/MCP tools.
+- 2026-07-19T19:40Z [AI Lead] Wave 3 (push-backend, pwa) + W4-AGENTD-TERM launched and verified active at 2b895f6.

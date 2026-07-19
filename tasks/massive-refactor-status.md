@@ -44,3 +44,12 @@ Handoffs land in `tasks/massive-refactor-handoffs/` on each lane branch.
 | W2-AGENTD-API | heavisidelinux | ~/dev/wt/ac-w2-agentd | refactor/wave2-agentd | (done) | INTEGRATED @ e6ffc47 |
 
 Wave 2 firewall: CONTRACTS = migrations 032-034, ac-schema additive, CP db/sessionGraph+agentTasks, scoped additive ws-ingest/routes edits. AGENTD-API = agents/** only, pushes to origin. Pending after CONTRACTS freeze: W2-CP-ORCH, W2-MCP-CLI.
+
+## Wave 3+4a lanes (launched 2026-07-19T19:40Z)
+| Lane | Machine | Worktree | Branch | Pane | State |
+|---|---|---|---|---|---|
+| W3-PUSH-BACKEND | homelinux | ~/dev/wt/ac-w3-push | refactor/wave3-push-backend | agent-command:w3-push | active |
+| W3-PWA | homelinux | ~/dev/wt/ac-w3-pwa | refactor/wave3-pwa | agent-command:w3-pwa | active |
+| W4-AGENTD-TERM | heavisidelinux | ~/dev/wt/ac-w4-term | refactor/wave4-agentd-term | agent-command:w4-term | active |
+
+Migration claims: 036 = push-backend. Next free: 037.
