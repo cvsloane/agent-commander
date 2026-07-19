@@ -9,20 +9,13 @@ import {
 } from '@agent-command/schema';
 import * as db from '../db/index.js';
 import { hasRole } from '../auth/rbac.js';
-import { pubsub } from '../services/pubsub.js';
+import { isHostOnline } from '../services/hostPresence.js';
 import {
   sendInputToSession,
   spawnSessionOnHost,
   waitForSessionOpenable,
 } from '../services/sessionSpawn.js';
 import { bootstrapSessionMemory, prepareSessionMemoryForSpawn } from '../services/sessionMemory.js';
-
-const HOST_ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
-
-function isHostOnline(lastSeenAt?: string | null, now = Date.now()): boolean {
-  if (!lastSeenAt) return false;
-  return now - new Date(lastSeenAt).getTime() < HOST_ONLINE_THRESHOLD_MS;
-}
 
 function getHostAlias(host: Host): string {
   return host.tailscale_name || host.name;
@@ -67,10 +60,11 @@ async function resolveLaunchHost(hostId?: string, hostAlias?: string): Promise<H
   if (!alias) return null;
 
   const hosts = await db.getHosts();
-  return hosts.find((host) => (
-    host.name.toLowerCase() === alias ||
-    host.tailscale_name?.toLowerCase() === alias
-  )) ?? null;
+  return (
+    hosts.find(
+      (host) => host.name.toLowerCase() === alias || host.tailscale_name?.toLowerCase() === alias
+    ) ?? null
+  );
 }
 
 function defaultTmuxTargetFromPath(path: string): string | undefined {
@@ -94,28 +88,30 @@ export function registerLaunchRoutes(app: FastifyInstance): void {
     }
 
     const hosts = await db.getHosts();
-    const targets = await Promise.all(hosts.map(async (host) => {
-      const [projects, tmuxSessions, recentLaunches] = await Promise.all([
-        db.getProjects(request.user!.id, { host_id: host.id, limit: 5 }),
-        db.getTmuxRosterSessions(host.id),
-        db.getRecentLaunches(request.user!.id, { host_id: host.id, limit: 5 }),
-      ]);
-      const roots = host.capabilities?.list_directory_roots ?? [];
-      return {
-        host_id: host.id,
-        alias: getHostAlias(host),
-        display_name: host.name,
-        online: isHostOnline(host.last_seen_at),
-        supports_terminal: host.capabilities?.terminal === true,
-        supports_spawn: host.capabilities?.spawn !== false,
-        supports_directory_listing: host.capabilities?.list_directory === true,
-        providers: getProviderSupport(host),
-        roots,
-        recent_projects: projects.slice(0, 5).map(recentProject),
-        recent_tmux: tmuxSessions.slice(0, 5).map(recentTmux),
-        recent_launches: recentLaunches,
-      };
-    }));
+    const targets = await Promise.all(
+      hosts.map(async (host) => {
+        const [projects, tmuxSessions, recentLaunches] = await Promise.all([
+          db.getProjects(request.user!.id, { host_id: host.id, limit: 5 }),
+          db.getTmuxRosterSessions(host.id),
+          db.getRecentLaunches(request.user!.id, { host_id: host.id, limit: 5 }),
+        ]);
+        const roots = host.capabilities?.list_directory_roots ?? [];
+        return {
+          host_id: host.id,
+          alias: getHostAlias(host),
+          display_name: host.name,
+          online: isHostOnline(host.id),
+          supports_terminal: host.capabilities?.terminal === true,
+          supports_spawn: host.capabilities?.spawn !== false,
+          supports_directory_listing: host.capabilities?.list_directory === true,
+          providers: getProviderSupport(host),
+          roots,
+          recent_projects: projects.slice(0, 5).map(recentProject),
+          recent_tmux: tmuxSessions.slice(0, 5).map(recentTmux),
+          recent_launches: recentLaunches,
+        };
+      })
+    );
 
     return LaunchTargetsResponseSchema.parse({ targets });
   });
@@ -135,7 +131,7 @@ export function registerLaunchRoutes(app: FastifyInstance): void {
     if (!host) {
       return reply.status(404).send({ error: 'Host not found' });
     }
-    if (!isHostOnline(host.last_seen_at) || !pubsub.isAgentConnected(host.id)) {
+    if (!isHostOnline(host.id)) {
       return reply.status(503).send({ error: 'Host is offline' });
     }
     if (host.capabilities?.spawn === false) {
@@ -143,13 +139,16 @@ export function registerLaunchRoutes(app: FastifyInstance): void {
     }
     const providerSupport = getProviderSupport(host);
     if (!providerSupport[launch.provider]) {
-      return reply.status(400).send({ error: `Host does not advertise provider support for ${launch.provider}` });
+      return reply
+        .status(400)
+        .send({ error: `Host does not advertise provider support for ${launch.provider}` });
     }
 
     try {
       const title = launch.title || `${launch.provider} session`;
       const tmux = {
-        target_session: launch.tmux?.target_session || defaultTmuxTargetFromPath(launch.working_directory),
+        target_session:
+          launch.tmux?.target_session || defaultTmuxTargetFromPath(launch.working_directory),
         window_name: launch.tmux?.window_name || title,
       };
       const memoryPlan = await prepareSessionMemoryForSpawn({
@@ -179,7 +178,10 @@ export function registerLaunchRoutes(app: FastifyInstance): void {
         session_id: spawned.session.id,
         source: 'automatic',
       }).catch((error) => {
-        request.log.warn({ error, sessionId: spawned.session.id }, 'Failed to bootstrap launch session memory');
+        request.log.warn(
+          { error, sessionId: spawned.session.id },
+          'Failed to bootstrap launch session memory'
+        );
       });
 
       const session = launch.wait
@@ -208,11 +210,7 @@ export function registerLaunchRoutes(app: FastifyInstance): void {
         prompt: launch.prompt,
       });
 
-      const status = openable
-        ? 'ready'
-        : finalSession.status === 'ERROR'
-          ? 'failed'
-          : 'starting';
+      const status = openable ? 'ready' : finalSession.status === 'ERROR' ? 'failed' : 'starting';
 
       return LaunchResponseSchema.parse({
         session_id: finalSession.id,
@@ -229,11 +227,15 @@ export function registerLaunchRoutes(app: FastifyInstance): void {
     } catch (error) {
       const message = (error as Error).message;
       const status =
-        message === 'Host not found' ? 404
-        : message === 'Host does not allow remote session spawning' ? 403
-        : message.startsWith('Host does not advertise provider support') ? 400
-        : message === 'Host is offline' || message === 'Failed to send command to agent' ? 503
-        : 500;
+        message === 'Host not found'
+          ? 404
+          : message === 'Host does not allow remote session spawning'
+            ? 403
+            : message.startsWith('Host does not advertise provider support')
+              ? 400
+              : message === 'Host is offline' || message === 'Failed to send command to agent'
+                ? 503
+                : 500;
       return reply.status(status).send({ error: message });
     }
   });

@@ -3,12 +3,16 @@ import type { WebSocket } from '@fastify/websocket';
 import { UISubscribeMessageSchema } from '@agent-command/schema';
 import { pubsub } from '../services/pubsub.js';
 import { verifyTokenString } from '../auth/verify.js';
+import { installWebSocketHeartbeat } from '../services/webSocketHeartbeat.js';
 
 export function registerUIWebSocket(app: FastifyInstance): void {
   app.get(
     '/v1/ui/stream',
     { websocket: true },
     async (socket: WebSocket, request: FastifyRequest) => {
+      const heartbeat = installWebSocketHeartbeat(socket, {
+        onStale: () => app.log.warn('Terminating stale UI WebSocket'),
+      });
       const url = new URL(request.url, 'http://localhost');
       const token = url.searchParams.get('token');
       if (!token) {
@@ -28,6 +32,7 @@ export function registerUIWebSocket(app: FastifyInstance): void {
       app.log.info({ clientId }, 'UI client connected');
 
       socket.on('message', (data: Buffer) => {
+        heartbeat.markAlive();
         try {
           const raw = JSON.parse(data.toString());
 
@@ -39,7 +44,10 @@ export function registerUIWebSocket(app: FastifyInstance): void {
                 filter: t.filter,
               }));
               pubsub.setUISubscriptions(clientId, topics);
-              app.log.info({ clientId, topics: topics.map(t => t.type) }, 'UI subscriptions updated');
+              app.log.info(
+                { clientId, topics: topics.map((t) => t.type) },
+                'UI subscriptions updated'
+              );
             }
           }
         } catch (error) {

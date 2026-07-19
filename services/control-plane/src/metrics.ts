@@ -80,3 +80,14 @@ export const memorySearchesTotal = new client.Counter({
 export function recordMemorySearch(scope: string, hit: boolean): void {
   memorySearchesTotal.inc({ scope, hit: hit ? 'true' : 'false' });
 }
+
+export const agentMessageHandlerFailuresTotal = new client.Counter({
+  name: 'agent_command_agent_message_handler_failures_total',
+  help: 'Count of agent messages that could not be durably handled and were left unacknowledged.',
+  labelNames: ['message_type'] as const,
+  registers: [registry],
+});
+
+export function recordAgentMessageHandlerFailure(messageType: string): void {
+  agentMessageHandlerFailuresTotal.inc({ message_type: messageType });
+}
