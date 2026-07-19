@@ -40,7 +40,7 @@ Handoffs land in `tasks/massive-refactor-handoffs/` on each lane branch.
 ## Wave 2 lanes (launched 2026-07-19T17:30Z)
 | Lane | Machine | Worktree | Branch | Pane | State |
 |---|---|---|---|---|---|
-| W2-CONTRACTS | homelinux | ~/dev/wt/ac-w2-contracts | refactor/wave2-contracts | agent-command:w2-contracts | active |
-| W2-AGENTD-API | heavisidelinux | ~/dev/wt/ac-w2-agentd | refactor/wave2-agentd | agent-command:w2-agentd-api | active |
+| W2-CONTRACTS | homelinux | ~/dev/wt/ac-w2-contracts | refactor/wave2-contracts | (done) | INTEGRATED @ 9ec6fa6 |
+| W2-AGENTD-API | heavisidelinux | ~/dev/wt/ac-w2-agentd | refactor/wave2-agentd | (done) | INTEGRATED @ e6ffc47 |
 
 Wave 2 firewall: CONTRACTS = migrations 032-034, ac-schema additive, CP db/sessionGraph+agentTasks, scoped additive ws-ingest/routes edits. AGENTD-API = agents/** only, pushes to origin. Pending after CONTRACTS freeze: W2-CP-ORCH, W2-MCP-CLI.

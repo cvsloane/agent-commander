@@ -8,3 +8,4 @@
 - 2026-07-19T16:35Z [AI Lead] W1-DASHBOARD (43 tests, gate re-run clean) and W1-AGENTD (go build/vet/test re-run clean on fetched branch) both PASS => merged. Only W1-CP-CORE outstanding.
 - 2026-07-19T17:15Z [AI Lead] W1-CP-CORE PASS (gate re-run 59 tests; firewall: sanctioned 3-line automation.ts call-site). Merge conflict in hostAllowsSpawn resolved preserving queued-until-online semantics; hostIsOnline delegated to hostPresence. One integration fallout fixed (db mock missing pool export). WAVE 1 CLOSED: full gate green (lint, typecheck, 137 tests, 7 smoke, go build/vet/test).
 - 2026-07-19T17:30Z [AI Lead] Wave 2 launched: W2-CONTRACTS (homelinux) + W2-AGENTD-API (heavisidelinux) verified active in fresh contexts at e6b4c7b.
+- 2026-07-19T18:05Z [AI Lead] W2-CONTRACTS (91/91 re-run; first-run failure was AI Lead env stubs) and W2-AGENTD-API (go gate re-run clean) PASS => merged; combined gate green. Launching W2-CP-ORCH + W2-MCP-CLI.
