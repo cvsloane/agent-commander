@@ -21,35 +21,17 @@ export function useWebSocket(
 
   useEffect(() => {
     if (!enabled) return;
-    let active = true;
     const client = getWebSocketClient();
-    let subscriptionId: string | null = null;
-    let removeHandler: (() => void) | null = null;
-
-    const setup = async () => {
-      const token = await getControlPlaneToken();
-      if (!active) return;
-      if (!token) return;
-      client.setTokenProvider(getControlPlaneToken);
-      client.setToken(token);
-      void client.connect();
-      subscriptionId = client.registerSubscription(topicsRef.current);
-
-      removeHandler = client.addHandler((message) => {
-        handlerRef.current(message);
-      });
-    };
-
-    setup();
+    client.setTokenProvider(getControlPlaneToken);
+    const subscriptionId = client.registerSubscription(topicsRef.current);
+    const removeHandler = client.addHandler((message) => {
+      handlerRef.current(message);
+    });
+    void client.connect();
 
     return () => {
-      active = false;
-      if (removeHandler) {
-        removeHandler();
-      }
-      if (subscriptionId) {
-        client.unregisterSubscription(subscriptionId);
-      }
+      removeHandler();
+      client.unregisterSubscription(subscriptionId);
     };
   }, [topicsKey, enabled]);
 }

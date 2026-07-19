@@ -1,7 +1,12 @@
 export type XTerminal = import('xterm').Terminal;
 export type XFitAddon = import('xterm-addon-fit').FitAddon;
 
-export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+export type ConnectionStatus =
+  | 'disconnected'
+  | 'connecting'
+  | 'reconnecting'
+  | 'connected'
+  | 'error';
 
 export interface TerminalController {
   attach: () => void;

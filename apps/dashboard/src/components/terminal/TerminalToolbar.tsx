@@ -7,6 +7,7 @@ import type { ConnectionStatus } from './types';
 const statusColors: Record<ConnectionStatus, string> = {
   disconnected: 'bg-gray-500',
   connecting: 'bg-yellow-500 animate-pulse',
+  reconnecting: 'bg-amber-500 animate-pulse',
   connected: 'bg-green-500',
   error: 'bg-red-500',
 };
@@ -14,6 +15,7 @@ const statusColors: Record<ConnectionStatus, string> = {
 const statusLabels: Record<ConnectionStatus, string> = {
   disconnected: 'Disconnected',
   connecting: 'Connecting...',
+  reconnecting: 'Reconnecting...',
   connected: 'Connected',
   error: 'Error',
 };
@@ -37,8 +39,10 @@ export function TerminalToolbar({
   onTakeControl,
   onFocus,
 }: TerminalToolbarProps) {
+  const connectionPending = status === 'connecting' || status === 'reconnecting';
+
   return (
-    <div className="flex items-center gap-2 border-b bg-muted/30 p-2">
+    <div className="flex min-h-12 min-w-0 items-center gap-2 border-b bg-muted/30 p-2">
       {status === 'connected' ? (
         <Button size="sm" variant="outline" onClick={onDisconnect}>
           Detach
@@ -47,14 +51,14 @@ export function TerminalToolbar({
         <Button
           size="sm"
           onClick={onConnect}
-          disabled={status === 'connecting'}
+          disabled={connectionPending}
         >
-          {status === 'connecting' ? 'Connecting...' : 'Attach Terminal'}
+          {connectionPending ? statusLabels[status] : 'Attach Terminal'}
         </Button>
       )}
 
-      <div className="flex items-center gap-2 text-xs">
-        <span className={cn('h-2 w-2 rounded-full', statusColors[status])} />
+      <div className="flex shrink-0 items-center gap-2 text-xs" aria-live="polite">
+        <span className={cn('h-2 w-2 rounded-full', statusColors[status])} aria-hidden="true" />
         {statusLabels[status]}
       </div>
 
@@ -66,7 +70,9 @@ export function TerminalToolbar({
       )}
 
       {errorMessage && (
-        <span className="ml-2 text-xs text-destructive">{errorMessage}</span>
+        <span className="ml-2 min-w-0 truncate text-xs text-destructive" title={errorMessage}>
+          {errorMessage}
+        </span>
       )}
 
       <div className="flex-1" />

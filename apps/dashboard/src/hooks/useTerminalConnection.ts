@@ -1,8 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
-import { getRuntimeConfig } from '@/lib/runtimeConfig';
 import { getControlPlaneToken } from '@/lib/wsToken';
+import {
+  initialReconnectState,
+  shouldReconnectTerminal,
+  transitionReconnect,
+  type ReconnectEvent,
+  type ReconnectState,
+} from '@/lib/reconnect';
+import { resolveControlPlaneWebSocketUrl } from '@/lib/wsUrl';
 import type { ConnectionStatus, XTerminal } from '@/components/terminal/types';
 
 export function useTerminalConnection({
@@ -24,9 +31,15 @@ export function useTerminalConnection({
 }) {
   const dataDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const fitTimerRef = useRef<number | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const reconnectStateRef = useRef<ReconnectState>(initialReconnectState);
   const readOnlyRef = useRef(false);
   const intentionalCloseRef = useRef(false);
-  const suppressCloseErrorRef = useRef(false);
+  const terminalEndedRef = useRef(false);
+  const idleTimedOutRef = useRef(false);
+  const reconnectEnabledRef = useRef(false);
+  const connectingRef = useRef(false);
+  const connectionGenerationRef = useRef(0);
   const autoAttachedSessionRef = useRef<string | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -36,225 +49,266 @@ export function useTerminalConnection({
     readOnlyRef.current = readOnly;
   }, [readOnly]);
 
-  const resolveWsUrl = useCallback((token: string) => {
-    const runtime = getRuntimeConfig();
-    const base =
-      runtime.controlPlaneUrl ||
-      process.env.NEXT_PUBLIC_CONTROL_PLANE_URL ||
-      process.env.NEXT_PUBLIC_CONTROL_PLANE_BASE_URL ||
-      '';
-    const configuredWs =
-      runtime.controlPlaneWsUrl ||
-      process.env.NEXT_PUBLIC_CONTROL_PLANE_WS_URL ||
-      '';
-    let configured = configuredWs;
-    if (base && configuredWs) {
-      try {
-        const baseHost = new URL(base.replace(/\/+$/, '')).host;
-        const wsHost = new URL(configuredWs).host;
-        if (baseHost && wsHost && baseHost !== wsHost) {
-          configured = '';
-        }
-      } catch {
-        // ignore invalid URL parsing
-      }
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
     }
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    let url: URL | null = null;
+  }, []);
 
-    if (configured) {
-      try {
-        url = new URL(configured);
-        const host = url.hostname;
-        if (
-          host === 'control-plane' ||
-          (!host.includes('.') && host !== 'localhost' && host !== '127.0.0.1')
-        ) {
-          url.host = window.location.host;
-          url.protocol = protocol;
-        } else {
-          url.protocol = url.protocol === 'https:' ? 'wss:' : url.protocol;
-          url.protocol = url.protocol === 'http:' ? 'ws:' : url.protocol;
-        }
-      } catch {
-        url = null;
-      }
+  const applyReconnectEvent = useCallback(function handleReconnectEvent(
+    event: ReconnectEvent,
+    reconnect: () => void
+  ) {
+    const transition = transitionReconnect(reconnectStateRef.current, event);
+    reconnectStateRef.current = transition.state;
+
+    clearReconnectTimer();
+    if (transition.effect.type === 'reconnect') {
+      reconnect();
+    } else if (transition.effect.type === 'schedule') {
+      reconnectTimerRef.current = window.setTimeout(() => {
+        reconnectTimerRef.current = null;
+        handleReconnectEvent({ type: 'timer' }, reconnect);
+      }, transition.effect.delayMs);
     }
+  }, [clearReconnectTimer]);
 
-    if (!url && base) {
-      try {
-        url = new URL(base.replace(/\/+$/, ''));
-        const host = url.hostname;
-        if (
-          host === 'control-plane' ||
-          (!host.includes('.') && host !== 'localhost' && host !== '127.0.0.1')
-        ) {
-          url.host = window.location.host;
-          url.protocol = protocol;
-        } else {
-          url.protocol = url.protocol === 'https:' ? 'wss:' : url.protocol;
-          url.protocol = url.protocol === 'http:' ? 'ws:' : url.protocol;
-        }
-      } catch {
-        url = null;
-      }
-    }
-
-    if (!url) {
-      url = new URL(`${protocol}//${window.location.host}/v1/ui/stream`);
-    }
-
-    url.pathname = `/v1/ui/terminal/${sessionId}`;
-    url.search = '';
-    url.searchParams.set('token', token);
-    return url.toString();
-  }, [sessionId]);
-
-  const connect = useCallback(async () => {
+  const connect = useCallback(async function connectTerminal() {
     if (!paneId) return;
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    if (
+      connectingRef.current ||
+      wsRef.current?.readyState === WebSocket.OPEN ||
+      wsRef.current?.readyState === WebSocket.CONNECTING
+    ) return;
 
-    setStatus('connecting');
-    setErrorMessage(null);
+    if (!reconnectEnabledRef.current) {
+      reconnectStateRef.current = initialReconnectState;
+    }
+    reconnectEnabledRef.current = true;
+    intentionalCloseRef.current = false;
+    terminalEndedRef.current = false;
+    idleTimedOutRef.current = false;
 
-    await ensureTerminal();
-
-    const token = await getControlPlaneToken();
-    if (!token) {
-      setStatus('error');
-      setErrorMessage('Authentication token not found');
+    if (!navigator.onLine) {
+      setStatus('reconnecting');
+      setErrorMessage(null);
       return;
     }
 
-    const ws = new WebSocket(resolveWsUrl(token));
-    wsRef.current = ws;
+    setStatus(reconnectStateRef.current.attempt > 0 ? 'reconnecting' : 'connecting');
+    setErrorMessage(null);
+    connectingRef.current = true;
+    const generation = ++connectionGenerationRef.current;
 
-    ws.onopen = () => {
-      setStatus('connected');
-      terminalRef.current?.focus();
-      window.setTimeout(() => terminalRef.current?.focus(), 0);
-      fitAndResize();
-    };
+    try {
+      await ensureTerminal();
+      if (generation !== connectionGenerationRef.current || !reconnectEnabledRef.current) return;
 
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-
-        switch (msg.type) {
-          case 'output':
-            if (msg.encoding === 'base64' && typeof msg.data === 'string') {
-              const decoded = atob(msg.data);
-              const bytes = new Uint8Array(decoded.length);
-              for (let i = 0; i < decoded.length; i += 1) {
-                bytes[i] = decoded.charCodeAt(i);
-              }
-              terminalRef.current?.write(bytes);
-            } else {
-              terminalRef.current?.write(msg.data);
-            }
-            terminalRef.current?.scrollToBottom();
-            break;
-          case 'attached':
-            setStatus('connected');
-            setReadOnly(false);
-            fitAndResize();
-            terminalRef.current?.focus();
-            break;
-          case 'readonly':
-            setReadOnly(true);
-            setErrorMessage(null);
-            break;
-          case 'control':
-            setReadOnly(false);
-            setErrorMessage(null);
-            break;
-          case 'detached':
-            setStatus('disconnected');
-            setReadOnly(false);
-            suppressCloseErrorRef.current = true;
-            terminalRef.current?.writeln('\r\n\x1b[33m[Terminal detached]\x1b[0m');
-            break;
-          case 'error':
-            setStatus('error');
-            setReadOnly(false);
-            setErrorMessage(msg.message || 'Terminal error');
-            terminalRef.current?.writeln(`\r\n\x1b[31m[Error: ${msg.message || 'Unknown error'}]\x1b[0m`);
-            break;
-          case 'idle_timeout':
-            setStatus('disconnected');
-            setReadOnly(false);
-            suppressCloseErrorRef.current = true;
-            terminalRef.current?.writeln('\r\n\x1b[33m[Session timed out due to inactivity]\x1b[0m');
-            break;
-        }
-      } catch (error) {
-        console.error('Failed to parse terminal message:', error);
-      }
-    };
-
-    ws.onerror = () => {
-      setStatus('error');
-      setErrorMessage('WebSocket connection error');
-    };
-
-    ws.onclose = (event) => {
-      setStatus((current) => (current === 'error' ? current : 'disconnected'));
-      const suppressed = intentionalCloseRef.current || suppressCloseErrorRef.current;
-      intentionalCloseRef.current = false;
-      suppressCloseErrorRef.current = false;
-      if (suppressed) {
-        setErrorMessage(null);
+      const token = await getControlPlaneToken();
+      if (generation !== connectionGenerationRef.current || !reconnectEnabledRef.current) return;
+      if (!token) {
+        reconnectEnabledRef.current = false;
+        reconnectStateRef.current = initialReconnectState;
+        setStatus('error');
+        setErrorMessage('Authentication token not found');
         return;
       }
-      if (event.code !== 1000 && event.code !== 1001 && event.code !== 1005) {
-        setErrorMessage(`Connection closed: ${event.reason || `code ${event.code}`}`);
-      }
-    };
 
-    dataDisposableRef.current?.dispose();
-    dataDisposableRef.current = terminalRef.current?.onData((data) => {
-      if (readOnlyRef.current) return;
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'input', data }));
-      }
-    }) || null;
+      const ws = new WebSocket(resolveControlPlaneWebSocketUrl({
+        type: 'terminal',
+        sessionId,
+        token,
+      }));
+      wsRef.current = ws;
 
-    if (fitTimerRef.current) {
-      window.clearTimeout(fitTimerRef.current);
+      const markConnected = () => {
+        applyReconnectEvent({ type: 'opened' }, () => undefined);
+        setStatus('connected');
+        setErrorMessage(null);
+      };
+
+      ws.onopen = () => {
+        if (wsRef.current !== ws) return;
+        fitAndResize();
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+
+          switch (msg.type) {
+            case 'output':
+              markConnected();
+              if (msg.encoding === 'base64' && typeof msg.data === 'string') {
+                const decoded = atob(msg.data);
+                const bytes = new Uint8Array(decoded.length);
+                for (let i = 0; i < decoded.length; i += 1) {
+                  bytes[i] = decoded.charCodeAt(i);
+                }
+                terminalRef.current?.write(bytes);
+              } else {
+                terminalRef.current?.write(msg.data);
+              }
+              terminalRef.current?.scrollToBottom();
+              break;
+            case 'attached':
+              markConnected();
+              setReadOnly(false);
+              fitAndResize();
+              terminalRef.current?.focus();
+              window.setTimeout(() => terminalRef.current?.focus(), 0);
+              break;
+            case 'readonly':
+              markConnected();
+              setReadOnly(true);
+              break;
+            case 'control':
+              markConnected();
+              setReadOnly(false);
+              break;
+            case 'detached':
+              reconnectEnabledRef.current = false;
+              terminalEndedRef.current = true;
+              setStatus('disconnected');
+              setReadOnly(false);
+              setErrorMessage(null);
+              terminalRef.current?.writeln('\r\n\x1b[33m[Terminal detached]\x1b[0m');
+              ws.close(1000, 'terminal detached');
+              break;
+            case 'error':
+              reconnectEnabledRef.current = false;
+              terminalEndedRef.current = true;
+              setStatus('error');
+              setReadOnly(false);
+              setErrorMessage(msg.message || 'Terminal error');
+              terminalRef.current?.writeln(`\r\n\x1b[31m[Error: ${msg.message || 'Unknown error'}]\x1b[0m`);
+              ws.close(1000, 'terminal error');
+              break;
+            case 'idle_timeout':
+              reconnectEnabledRef.current = false;
+              idleTimedOutRef.current = true;
+              setStatus('disconnected');
+              setReadOnly(false);
+              setErrorMessage(null);
+              terminalRef.current?.writeln('\r\n\x1b[33m[Session timed out due to inactivity]\x1b[0m');
+              ws.close(1000, 'idle timeout');
+              break;
+          }
+        } catch (error) {
+          console.error('Failed to parse terminal message:', error);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('Terminal WebSocket error:', error);
+      };
+
+      ws.onclose = (event) => {
+        if (wsRef.current !== ws) return;
+        wsRef.current = null;
+        const deliberate = intentionalCloseRef.current || terminalEndedRef.current;
+        const idleTimedOut = idleTimedOutRef.current;
+
+        if (
+          reconnectEnabledRef.current &&
+          shouldReconnectTerminal({ code: event.code, deliberate, idleTimedOut })
+        ) {
+          setStatus('reconnecting');
+          setErrorMessage(null);
+          applyReconnectEvent({ type: 'closed' }, () => void connectTerminal());
+          return;
+        }
+
+        reconnectEnabledRef.current = false;
+        reconnectStateRef.current = initialReconnectState;
+        clearReconnectTimer();
+        setStatus((current) => (current === 'error' ? current : 'disconnected'));
+        if (!deliberate && !idleTimedOut && event.code !== 1000) {
+          setErrorMessage(`Connection closed: ${event.reason || `code ${event.code}`}`);
+        }
+      };
+
+      dataDisposableRef.current?.dispose();
+      dataDisposableRef.current = terminalRef.current?.onData((data) => {
+        if (readOnlyRef.current) return;
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'input', data }));
+        }
+      }) || null;
+
+      if (fitTimerRef.current) {
+        window.clearTimeout(fitTimerRef.current);
+      }
+      fitTimerRef.current = window.setTimeout(() => {
+        fitAndResize();
+      }, 60);
+    } finally {
+      if (generation === connectionGenerationRef.current) {
+        connectingRef.current = false;
+      }
     }
-    fitTimerRef.current = window.setTimeout(() => {
-      fitAndResize();
-    }, 60);
-  }, [ensureTerminal, fitAndResize, paneId, resolveWsUrl, terminalRef, wsRef]);
+  }, [
+    applyReconnectEvent,
+    clearReconnectTimer,
+    ensureTerminal,
+    fitAndResize,
+    paneId,
+    sessionId,
+    terminalRef,
+    wsRef,
+  ]);
+
+  const reconnectImmediately = useCallback((
+    event: Extract<ReconnectEvent, { type: 'visibility' | 'online' }>
+  ) => {
+    if (!paneId || !reconnectEnabledRef.current) return;
+    if (
+      connectingRef.current ||
+      wsRef.current?.readyState === WebSocket.OPEN ||
+      wsRef.current?.readyState === WebSocket.CONNECTING
+    ) return;
+
+    setStatus('reconnecting');
+    setErrorMessage(null);
+    applyReconnectEvent(event, () => void connect());
+  }, [applyReconnectEvent, connect, paneId, wsRef]);
 
   const disconnect = useCallback(() => {
-    if (wsRef.current) {
-      if (wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'detach' }));
-      }
+    reconnectEnabledRef.current = false;
+    reconnectStateRef.current = initialReconnectState;
+    connectingRef.current = false;
+    connectionGenerationRef.current += 1;
+    clearReconnectTimer();
+
+    const ws = wsRef.current;
+    wsRef.current = null;
+    if (ws) {
       intentionalCloseRef.current = true;
-      wsRef.current.close();
-      wsRef.current = null;
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'detach' }));
+      }
+      ws.close();
     }
     dataDisposableRef.current?.dispose();
     dataDisposableRef.current = null;
     setStatus('disconnected');
     setReadOnly(false);
     setErrorMessage(null);
-  }, [wsRef]);
+  }, [clearReconnectTimer, wsRef]);
 
   const takeControl = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'control' }));
     }
-  }, []);
+  }, [wsRef]);
 
   const sendInput = useCallback((data: string) => {
     if (readOnlyRef.current) return;
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'input', data }));
     }
-  }, []);
+  }, [wsRef]);
 
   const handleViewportResize = useCallback(() => {
     if (fitTimerRef.current) {
@@ -264,6 +318,16 @@ export function useTerminalConnection({
       fitAndResize();
     }, 100);
   }, [fitAndResize]);
+
+  const handleOnline = useCallback(() => {
+    reconnectImmediately({ type: 'online' });
+  }, [reconnectImmediately]);
+
+  const handleVisibilityChange = useCallback(() => {
+    if (document.visibilityState === 'visible') {
+      reconnectImmediately({ type: 'visibility' });
+    }
+  }, [reconnectImmediately]);
 
   useEffect(() => {
     if (!autoAttach || !paneId) return;
@@ -277,6 +341,8 @@ export function useTerminalConnection({
     if (typeof window !== 'undefined') {
       window.visualViewport?.addEventListener('resize', handleViewportResize);
       window.addEventListener('orientationchange', handleViewportResize);
+      window.addEventListener('online', handleOnline);
+      document.addEventListener('visibilitychange', handleVisibilityChange);
     }
 
     return () => {
@@ -287,9 +353,18 @@ export function useTerminalConnection({
       if (typeof window !== 'undefined') {
         window.visualViewport?.removeEventListener('resize', handleViewportResize);
         window.removeEventListener('orientationchange', handleViewportResize);
+        window.removeEventListener('online', handleOnline);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
       }
     };
-  }, [disconnect, handleViewportResize]);
+  }, [
+    disconnect,
+    handleOnline,
+    handleViewportResize,
+    handleVisibilityChange,
+    paneId,
+    sessionId,
+  ]);
 
   return {
     readOnlyRef,
