@@ -124,9 +124,13 @@ function getBudgetPolicy(value: unknown): BudgetPolicy {
   return asObject(value) as BudgetPolicy;
 }
 
+function hostIsOnline(hostId: string): boolean {
+  return pubsub.isAgentConnected(hostId);
+}
+
 function hostAllowsSpawn(host: Host | null | undefined): boolean {
   const capabilities = asObject(host?.capabilities);
-  return Boolean(host) && capabilities.spawn !== false && pubsub.isAgentConnected(host!.id);
+  return Boolean(host) && capabilities.spawn !== false;
 }
 
 function providerSupport(host: Host, provider: SessionProvider): 'supported' | 'unsupported' | 'unknown' {
@@ -304,7 +308,7 @@ async function resolveBudgetAssessment(
   return { usage, issues, blockedReason: null };
 }
 
-async function selectExecutionHost(input: {
+export async function selectExecutionHost(input: {
   fixedHostId?: string | null;
   repoLastHostId?: string | null;
   provider: SessionProvider;
@@ -326,7 +330,7 @@ async function selectExecutionHost(input: {
       });
       return null;
     }
-    if (!pubsub.isAgentConnected(host.id)) {
+    if (!hostIsOnline(host.id)) {
       issues.push({
         code: `${codePrefix}_offline`,
         level: 'error',
@@ -379,21 +383,9 @@ async function selectExecutionHost(input: {
   }
 
   const hosts = await db.getHosts();
-  const candidates = hosts.filter((host) => hostAllowsSpawn(host));
-  const viable = candidates.filter((host) => providerSupport(host, input.provider) !== 'unsupported');
-
-  if (viable.length === 1) {
-    const host = viable[0]!;
-    if (providerSupport(host, input.provider) === 'unknown') {
-      issues.push({
-        code: 'provider_unknown',
-        level: 'warn',
-        message: `Host ${host.name} has no provider availability map for ${input.provider}.`,
-        host_id: host.id,
-      });
-    }
-    return { host, issues };
-  }
+  const viable = hosts.filter(
+    (host) => hostAllowsSpawn(host) && providerSupport(host, input.provider) !== 'unsupported'
+  );
 
   if (viable.length === 0) {
     issues.push({
@@ -404,12 +396,32 @@ async function selectExecutionHost(input: {
     return { host: null, issues };
   }
 
-  issues.push({
-    code: 'ambiguous_host_selection',
-    level: 'error',
-    message: 'Multiple viable hosts are online. Pin a host or narrow repo affinity.',
+  const activeRunsByHost = await automationDb.countActiveAutomationRunsByHost();
+  const online = viable.filter((host) => hostIsOnline(host.id));
+  const ranked = (online.length > 0 ? online : viable).sort((left, right) => {
+    const loadDifference = (activeRunsByHost[left.id] ?? 0) - (activeRunsByHost[right.id] ?? 0);
+    if (loadDifference !== 0) return loadDifference;
+    const nameDifference = left.name.localeCompare(right.name, 'en', { sensitivity: 'base' });
+    return nameDifference !== 0 ? nameDifference : left.id.localeCompare(right.id);
   });
-  return { host: null, issues };
+  const host = ranked[0]!;
+  if (!hostIsOnline(host.id)) {
+    issues.push({
+      code: 'selected_host_offline',
+      level: 'error',
+      message: `Selected host ${host.name} is offline.`,
+      host_id: host.id,
+    });
+  }
+  if (providerSupport(host, input.provider) === 'unknown') {
+    issues.push({
+      code: 'provider_unknown',
+      level: 'warn',
+      message: `Host ${host.name} has no provider availability map for ${input.provider}.`,
+      host_id: host.id,
+    });
+  }
+  return { host, issues };
 }
 
 async function evaluateAutomationPreflightInternal(input: {

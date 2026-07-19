@@ -1149,6 +1149,19 @@ export async function countActiveAutomationRuns(automationAgentId: string): Prom
   return result.rows[0]?.count ?? 0;
 }
 
+export async function countActiveAutomationRunsByHost(): Promise<Record<string, number>> {
+  const result = await pool.query(
+    `SELECT s.host_id, COUNT(*)::int AS count
+     FROM automation_runs ar
+     JOIN sessions s ON s.id = ar.session_id
+     WHERE ar.status IN ('starting', 'running')
+     GROUP BY s.host_id`
+  );
+  return Object.fromEntries(
+    result.rows.map((row) => [row.host_id as string, Number(row.count) || 0])
+  );
+}
+
 export async function listAutomationRuns(userId: string, filters?: {
   automation_agent_id?: string;
   status?: string;
