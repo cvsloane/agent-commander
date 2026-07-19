@@ -16,7 +16,13 @@ import {
   waitForSessionOpenable,
 } from '../services/sessionSpawn.js';
 import { bootstrapSessionMemory, prepareSessionMemoryForSpawn } from '../services/sessionMemory.js';
-import { getIdempotencyKey, InvalidIdempotencyKeyError } from '../services/idempotency.js';
+import {
+  fingerprintIdempotentRequest,
+  getIdempotencyKey,
+  IdempotencyConflictError,
+  InvalidIdempotencyKeyError,
+  scopeIdempotencyKey,
+} from '../services/idempotency.js';
 
 function getHostAlias(host: Host): string {
   return host.tailscale_name || host.name;
@@ -119,9 +125,9 @@ export function registerLaunchRoutes(app: FastifyInstance): void {
       return reply.status(403).send({ error: 'Forbidden' });
     }
 
-    let idempotencyKey: string | undefined;
+    let rawIdempotencyKey: string | undefined;
     try {
-      idempotencyKey = getIdempotencyKey(request.headers['idempotency-key']);
+      rawIdempotencyKey = getIdempotencyKey(request.headers['idempotency-key']);
     } catch (error) {
       if (error instanceof InvalidIdempotencyKeyError) {
         return reply.status(400).send({ error: error.message });
@@ -135,6 +141,14 @@ export function registerLaunchRoutes(app: FastifyInstance): void {
     }
 
     const launch = body.data;
+    const idempotencyKey = scopeIdempotencyKey(
+      rawIdempotencyKey,
+      'launch',
+      request.user.id
+    );
+    const idempotencyFingerprint = rawIdempotencyKey
+      ? fingerprintIdempotentRequest(launch)
+      : undefined;
     const host = await resolveLaunchHost(launch.host_id, launch.host_alias);
     if (!host) {
       return reply.status(404).send({ error: 'Host not found' });
@@ -174,6 +188,7 @@ export function registerLaunchRoutes(app: FastifyInstance): void {
         auditAction: 'launch.spawn',
         failureAuditAction: 'launch.spawn_failed',
         idempotencyKey,
+        idempotencyFingerprint,
       });
 
       if (!spawned.queued && !spawned.replayed) {
@@ -235,7 +250,9 @@ export function registerLaunchRoutes(app: FastifyInstance): void {
     } catch (error) {
       const message = (error as Error).message;
       const status =
-        message === 'Host not found' ? 404
+        error instanceof IdempotencyConflictError
+          || message === 'Idempotency-Key was used with a different request' ? 409
+        : message === 'Host not found' ? 404
         : message === 'Host does not allow remote session spawning' ? 403
         : message.startsWith('Host does not advertise provider support') ? 400
         : message === 'Host is offline' || message === 'Failed to send command to agent' ? 503

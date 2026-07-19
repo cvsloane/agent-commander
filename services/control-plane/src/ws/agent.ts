@@ -18,6 +18,7 @@ import {
   commandRouter,
   handleCommandResultForPending,
   HOST_COMMAND_SESSION_ID,
+  isOutboxCommandId,
 } from '../services/commandRouter.js';
 import { handleTerminalOutput, handleTerminalStatus } from '../routes/terminal.js';
 import * as db from '../db/index.js';
@@ -31,6 +32,8 @@ interface AgentState {
   lastProcessedSeq: number;
   authenticated: boolean;
   failed: boolean;
+  helloReceived: boolean;
+  outboxDelivered: boolean;
 }
 
 /**
@@ -50,6 +53,8 @@ export function registerAgentWebSocket(app: FastifyInstance): void {
         lastProcessedSeq: 0,
         authenticated: false,
         failed: false,
+        helloReceived: false,
+        outboxDelivered: false,
       };
 
       const heartbeat = installWebSocketHeartbeat(socket, {
@@ -189,10 +194,12 @@ async function processAgentMessage(
 
     case 'sessions.upsert':
       await handleSessionsUpsert(app, state, message.payload.sessions);
+      await deliverPendingAfterInventory(app, socket, state);
       sendAck(socket, seq, 'ok');
       break;
     case 'sessions.prune':
       await handleSessionsPrune(app, state, message.payload.session_ids);
+      await deliverPendingAfterInventory(app, socket, state);
       sendAck(socket, seq, 'ok');
       break;
 
@@ -212,7 +219,7 @@ async function processAgentMessage(
       break;
 
     case 'commands.result':
-      await handleCommandResult(app, message.payload);
+      await handleCommandResult(app, state, message.payload);
       sendAck(socket, seq, 'ok');
       break;
 
@@ -226,8 +233,8 @@ async function processAgentMessage(
     case 'mcp.project_config':
     case 'mcp.update_result': {
       const payload = message.payload as { cmd_id?: string };
-      if (payload.cmd_id) {
-        await commandRouter.handleResponse(payload.cmd_id, message.payload);
+      if (payload.cmd_id && state.hostId) {
+        await commandRouter.handleResponse(state.hostId, payload.cmd_id, message.payload);
       }
       sendAck(socket, seq, 'ok');
       break;
@@ -340,21 +347,35 @@ async function handleAgentHello(
 
   // Register connection
   pubsub.addAgentConnection(host.id, socket, state.lastProcessedSeq);
-
-  // Deliver durable commands in creation order before reconnect-only volatile work.
-  const delivery = await commandRouter.deliverPending(host.id);
-  if (delivery.delivered > 0 || delivery.expired > 0) {
-    app.log.info({ hostId: host.id, ...delivery }, 'Processed command outbox on agent hello');
-  }
+  state.helloReceived = true;
 
   app.log.info({ hostId: host.id, name: host.name }, 'Agent registered');
 
-  // Re-send console subscriptions for this host on reconnect
-  const activeConsoleSubs = consoleSubscriptions.getByHost(host.id);
+  // Send ack
+  sendAck(socket, message.seq, 'ok');
+}
+
+async function deliverPendingAfterInventory(
+  app: FastifyInstance,
+  socket: WebSocket,
+  state: AgentState
+): Promise<void> {
+  if (!state.hostId || !state.helloReceived || state.outboxDelivered) return;
+  if (!pubsub.markAgentReady(state.hostId, socket)) return;
+  const delivery = await commandRouter.deliverPending(state.hostId);
+  state.outboxDelivered = true;
+  if (delivery.delivered > 0 || delivery.expired > 0) {
+    app.log.info(
+      { hostId: state.hostId, ...delivery },
+      'Processed command outbox after initial agent inventory'
+    );
+  }
+
+  const activeConsoleSubs = consoleSubscriptions.getByHost(state.hostId);
   if (activeConsoleSubs.length > 0) {
     app.log.info(
-      { hostId: host.id, count: activeConsoleSubs.length },
-      'Re-subscribing console streams'
+      { hostId: state.hostId, count: activeConsoleSubs.length },
+      'Re-subscribing console streams after initial agent inventory'
     );
     for (const sub of activeConsoleSubs) {
       const resend = CommandsDispatchMessageSchema.parse({
@@ -373,12 +394,9 @@ async function handleAgentHello(
           },
         },
       });
-      pubsub.sendToAgent(host.id, resend);
+      pubsub.sendToAgent(state.hostId, resend);
     }
   }
-
-  // Send ack
-  sendAck(socket, message.seq, 'ok');
 }
 
 async function handleSessionsUpsert(
@@ -524,20 +542,31 @@ async function handleEventsAppend(
 
 async function handleCommandResult(
   app: FastifyInstance,
+  state: AgentState,
   payload: { cmd_id: string; session_id?: string; ok: boolean; result?: Record<string, unknown>; error?: { code: string; message: string } }
 ): Promise<void> {
   app.log.info({ cmdId: payload.cmd_id, ok: payload.ok }, 'Command result received');
+  if (!state.hostId) return;
 
   // Resolve any caller waiting on this command id, including host-level commands.
-  await handleCommandResultForPending(payload.cmd_id, {
+  await handleCommandResultForPending(state.hostId, payload.cmd_id, {
     ok: payload.ok,
     result: payload.result,
     error: payload.error,
   });
 
-  if (payload.session_id && payload.session_id !== HOST_COMMAND_SESSION_ID) {
+  const persisted = isOutboxCommandId(payload.cmd_id)
+    ? await commandRouter.getByIdForHost(state.hostId, payload.cmd_id)
+    : null;
+  let sessionId = persisted?.session_id ?? null;
+  if (!persisted && payload.session_id && payload.session_id !== HOST_COMMAND_SESSION_ID) {
+    const legacySession = await db.getSessionById(payload.session_id);
+    if (legacySession?.host_id === state.hostId) sessionId = legacySession.id;
+  }
+
+  if (sessionId) {
     const event = await db.insertEvent(
-      payload.session_id,
+      sessionId,
       'command.completed',
       {
         cmd_id: payload.cmd_id,
@@ -549,7 +578,7 @@ async function handleCommandResult(
     );
 
     if (event) {
-      pubsub.publishEventAppended(payload.session_id, {
+      pubsub.publishEventAppended(sessionId, {
         id: event.id!,
         ts: event.ts,
         type: event.type,

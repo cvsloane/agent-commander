@@ -14,14 +14,15 @@ describe('host presence', () => {
 
   it('keeps a replacement socket registered when the stale socket closes', () => {
     const uiSend = vi.fn();
-    const first = { send: vi.fn() };
-    const replacement = { send: vi.fn() };
+    const first = { send: vi.fn(), terminate: vi.fn() };
+    const replacement = { send: vi.fn(), terminate: vi.fn() };
     pubsub.addUIClient('presence-test', { send: uiSend } as never);
     pubsub.setUISubscriptions('presence-test', [{ type: 'hosts' }]);
 
     pubsub.addAgentConnection(hostId, first as never);
     pubsub.addAgentConnection(hostId, replacement as never);
 
+    expect(first.terminate).toHaveBeenCalledOnce();
     expect(pubsub.removeAgentConnection(hostId, first as never)).toBe(false);
     expect(pubsub.getAgentConnection(hostId)?.ws).toBe(replacement);
     expect(pubsub.removeAgentConnection(hostId, replacement as never)).toBe(true);
@@ -36,6 +37,11 @@ describe('host presence', () => {
     pubsub.addAgentConnection(hostId, socket as never);
     const connection = pubsub.getAgentConnection(hostId)!;
 
+    expect(pubsub.sendToAgent(hostId, { type: 'before-inventory' })).toBe(false);
+    expect(pubsub.isAgentReady(hostId)).toBe(false);
+    expect(pubsub.markAgentReady(hostId, socket as never)).toBe(true);
+    expect(pubsub.isAgentReady(hostId)).toBe(true);
+    expect(pubsub.sendToAgent(hostId, { type: 'after-inventory' })).toBe(true);
     expect(isHostOnline(hostId, connection.lastHeartbeatAt)).toBe(true);
     expect(isHostOnline(hostId, connection.lastHeartbeatAt + WS_HEARTBEAT_TIMEOUT_MS + 1)).toBe(false);
     expect(getHostPresence(connection.lastHeartbeatAt)).toEqual([expect.objectContaining({

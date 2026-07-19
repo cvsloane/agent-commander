@@ -123,18 +123,22 @@ async function buildServer(role: AuthUser['role'], options: {
         if (idempotencyKey) idempotentRecords.set(idempotencyKey, record);
         return { record, created: true };
       }),
+      getByIdForHost: vi.fn(async () => null),
       getByIdempotencyKey: vi.fn(async (_hostId: string, key: string) => (
         idempotentRecords.get(key) ?? null
       )),
-      markSent: vi.fn(async (cmdId: string) => ({
+      markSent: vi.fn(async (_hostId: string, cmdId: string) => ({
         ...commandRecords.get(cmdId),
         status: 'sent',
       })),
+      markQueued: vi.fn(async () => null),
       markCompleted: vi.fn(async () => null),
       markFailed: vi.fn(async () => null),
       listDeliverable: vi.fn(async () => []),
       expireStale: vi.fn(async () => []),
+      pruneTerminal: vi.fn(async () => 0),
     },
+    decideApprovalAndEnqueue: vi.fn(),
   }));
 
   const testHost = options.host === undefined ? host() : options.host;
@@ -202,7 +206,9 @@ async function buildServer(role: AuthUser['role'], options: {
 
   const agentSend = vi.fn();
   if (options.agentConnected ?? true) {
-    pubsub.addAgentConnection(hostId, { send: agentSend } as never);
+    const socket = { send: agentSend };
+    pubsub.addAgentConnection(hostId, socket as never);
+    pubsub.markAgentReady(hostId, socket as never);
   } else {
     pubsub.removeAgentConnection(hostId);
   }

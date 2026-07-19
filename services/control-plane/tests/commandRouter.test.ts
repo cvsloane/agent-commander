@@ -26,11 +26,12 @@ function record(input: Partial<CommandRecord> = {}): CommandRecord {
     result: null,
     error: null,
     idempotency_key: null,
+    idempotency_fingerprint: null,
     ...input,
   };
 }
 
-function buildRouter(sendResult = true) {
+function buildRouter(sendResult = true, ready?: boolean) {
   const records: CommandRecord[] = [];
   const outbox: CommandOutbox = {
     enqueue: vi.fn(async (input: EnqueueCommand) => {
@@ -43,18 +44,36 @@ function buildRouter(sendResult = true) {
         class: input.class,
         expires_at: input.expires_at,
         idempotency_key: input.idempotency_key ?? null,
+        idempotency_fingerprint: input.idempotency_fingerprint ?? null,
       });
       records.push(created);
       return { record: created, created: true };
     }),
+    getByIdForHost: vi.fn(async (requestedHostId, requestedCmdId) => (
+      records.find((item) => (
+        item.host_id === requestedHostId && item.cmd_id === requestedCmdId
+      )) ?? null
+    )),
     getByIdempotencyKey: vi.fn(async () => null),
-    markSent: vi.fn(async (id) => record({ cmd_id: id, status: 'sent' })),
-    markCompleted: vi.fn(async (id, result) => record({ cmd_id: id, status: 'completed', result: result ?? null })),
-    markFailed: vi.fn(async (id, error) => record({ cmd_id: id, status: 'failed', error })),
-    listDeliverable: vi.fn(async () => records),
+    markSent: vi.fn(async (requestedHostId, id) => record({ host_id: requestedHostId, cmd_id: id, status: 'sent' })),
+    markQueued: vi.fn(async (requestedHostId, id) => record({ host_id: requestedHostId, cmd_id: id, status: 'queued' })),
+    markCompleted: vi.fn(async (requestedHostId, id, result) => record({ host_id: requestedHostId, cmd_id: id, status: 'completed', result: result ?? null })),
+    markFailed: vi.fn(async (requestedHostId, id, error) => record({ host_id: requestedHostId, cmd_id: id, status: 'failed', error })),
+    listDeliverable: vi.fn(async () => {
+      const next = records.find((item) => (
+        item.class === 'durable' && item.status === 'queued'
+      ));
+      if (!next) return [];
+      next.status = 'sent';
+      return [{ ...next }];
+    }),
     expireStale: vi.fn(async () => []),
+    pruneTerminal: vi.fn(async () => 0),
   };
-  const transport = { send: vi.fn(() => sendResult) };
+  const transport = {
+    send: vi.fn(() => sendResult),
+    isReady: ready === undefined ? undefined : vi.fn(() => ready),
+  };
   return { router: new CommandRouter(outbox, transport, () => Date.parse('2026-07-19T16:00:00.000Z')), outbox, transport, records };
 }
 
@@ -91,7 +110,7 @@ describe('CommandRouter', () => {
         },
       }),
     }));
-    expect(outbox.markSent).toHaveBeenCalledWith(cmdId);
+    expect(outbox.markSent).toHaveBeenCalledWith(hostId, cmdId);
   });
 
   it('fails fast for offline volatile commands but keeps durable commands queued', async () => {
@@ -101,7 +120,7 @@ describe('CommandRouter', () => {
       type: 'send_input',
       payload: { text: 'hello' },
     })).resolves.toBe(false);
-    expect(outbox.markFailed).toHaveBeenCalledWith(cmdId, expect.objectContaining({
+    expect(outbox.markFailed).toHaveBeenCalledWith(hostId, cmdId, expect.objectContaining({
       code: 'agent_not_connected',
     }));
 
@@ -115,6 +134,19 @@ describe('CommandRouter', () => {
       class: 'durable',
     }));
     expect(outbox.markFailed).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves commands queued without claiming while the connection is not inventory-ready', async () => {
+    const { router, outbox, transport } = buildRouter(true, false);
+
+    await expect(router.dispatch(hostId, sessionId, cmdId, {
+      type: 'spawn_session',
+      payload: { provider: 'codex', working_directory: '/tmp' },
+    })).resolves.toBe(true);
+
+    expect(outbox.markSent).not.toHaveBeenCalled();
+    expect(outbox.markQueued).not.toHaveBeenCalled();
+    expect(transport.send).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -142,7 +174,7 @@ describe('CommandRouter', () => {
     });
     await vi.waitFor(() => expect(outbox.markSent).toHaveBeenCalled());
 
-    await expect(router.handleResult(cmdId, {
+    await expect(router.handleResult(hostId, cmdId, {
       ok: true,
       result: { content: 'captured text' },
     })).resolves.toBe(true);
@@ -150,7 +182,7 @@ describe('CommandRouter', () => {
       ok: true,
       result: { content: 'captured text' },
     });
-    expect(outbox.markCompleted).toHaveBeenCalledWith(cmdId, { content: 'captured text' });
+    expect(outbox.markCompleted).toHaveBeenCalledWith(hostId, cmdId, { content: 'captured text' });
   });
 
   it('uses the shared pending-response seam for host and legacy MCP messages', async () => {
@@ -161,7 +193,7 @@ describe('CommandRouter', () => {
       payload: { path: '/home/cvsloane/dev', show_hidden: false },
     });
     await vi.waitFor(() => expect(outbox.markSent).toHaveBeenCalled());
-    await router.handleResult(hostCommandId, { ok: true, result: { entries: [] } });
+    await router.handleResult(hostId, hostCommandId, { ok: true, result: { entries: [] } });
     await expect(hostResult).resolves.toEqual({ ok: true, result: { entries: [] } });
     expect(outbox.enqueue).toHaveBeenCalledWith(expect.objectContaining({ session_id: null }));
 
@@ -174,15 +206,16 @@ describe('CommandRouter', () => {
       payload: { cmd_id: mcpId, host_id: hostId },
     });
     await vi.waitFor(() => expect(outbox.markSent).toHaveBeenCalledTimes(2));
-    await router.handleResponse(mcpId, { servers: [] });
+    await router.handleResponse(hostId, mcpId, { servers: [] });
     await expect(mcpResult).resolves.toEqual({ servers: [] });
   });
 
-  it('redelivers queued and sent records in order after hello', async () => {
+  it('claims and delivers only queued durable records in order after hello', async () => {
     const { router, outbox, transport, records } = buildRouter();
     records.push(
       record({ cmd_id: '77777777-7777-4777-8777-777777777777', payload: { type: 'first' }, class: 'durable' }),
-      record({ cmd_id: '88888888-8888-4888-8888-888888888888', payload: { type: 'second' }, class: 'durable', status: 'sent' })
+      record({ cmd_id: '88888888-8888-4888-8888-888888888888', payload: { type: 'second' }, class: 'durable' }),
+      record({ cmd_id: '99999999-9999-4999-8999-999999999999', payload: { type: 'ambiguous' }, class: 'durable', status: 'sent' })
     );
 
     await expect(router.deliverPending(hostId)).resolves.toEqual({ delivered: 2, expired: 0 });
@@ -190,7 +223,37 @@ describe('CommandRouter', () => {
       { type: 'first' },
       { type: 'second' },
     ]);
-    expect(outbox.markSent).toHaveBeenCalledTimes(2);
+    expect(outbox.markSent).not.toHaveBeenCalled();
+  });
+
+  it('completes one-way approval decisions on their first successful delivery', async () => {
+    const { router, outbox, records } = buildRouter();
+    const approvalId = '77777777-7777-4777-8777-777777777777';
+    records.push(record({
+      cmd_id: approvalId,
+      type: 'approvals.decision',
+      payload: { type: 'approvals.decision' },
+      class: 'durable',
+    }));
+
+    await expect(router.deliverPending(hostId)).resolves.toEqual({ delivered: 1, expired: 0 });
+    expect(outbox.markCompleted).toHaveBeenCalledWith(hostId, approvalId);
+  });
+
+  it('does not let another host resolve or complete a pending command', async () => {
+    const { router, outbox } = buildRouter();
+    const otherHostId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const resultPromise = router.dispatchAndWait(hostId, sessionId, cmdId, {
+      type: 'capture_pane',
+      payload: {},
+    });
+    await vi.waitFor(() => expect(outbox.markSent).toHaveBeenCalled());
+
+    await expect(router.handleResult(otherHostId, cmdId, { ok: true })).resolves.toBe(false);
+    expect(outbox.markCompleted).not.toHaveBeenCalled();
+
+    await router.handleResult(hostId, cmdId, { ok: true });
+    await expect(resultPromise).resolves.toEqual({ ok: true });
   });
 
   it('rejects pending commands on timeout', async () => {
@@ -204,6 +267,6 @@ describe('CommandRouter', () => {
 
     await vi.advanceTimersByTimeAsync(101);
     await rejection;
-    await expect(router.handleResult(cmdId, { ok: true })).resolves.toBe(false);
+    await expect(router.handleResult(hostId, cmdId, { ok: true })).resolves.toBe(false);
   });
 });

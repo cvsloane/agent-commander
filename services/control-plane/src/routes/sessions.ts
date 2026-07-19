@@ -9,7 +9,13 @@ import { spawnSessionOnHost } from '../services/sessionSpawn.js';
 import { bootstrapSessionMemory, prepareSessionMemoryForSpawn } from '../services/sessionMemory.js';
 import { hasRole } from '../auth/rbac.js';
 import { commandRouter } from '../services/commandRouter.js';
-import { getIdempotencyKey, InvalidIdempotencyKeyError } from '../services/idempotency.js';
+import {
+  fingerprintIdempotentRequest,
+  getIdempotencyKey,
+  IdempotencyConflictError,
+  InvalidIdempotencyKeyError,
+  scopeIdempotencyKey,
+} from '../services/idempotency.js';
 
 const PRIVILEGED_COMMAND_TYPES = new Set([
   'spawn_session',
@@ -682,9 +688,9 @@ export function registerSessionRoutes(app: FastifyInstance): void {
       return reply.status(403).send({ error: 'Forbidden' });
     }
 
-    let idempotencyKey: string | undefined;
+    let rawIdempotencyKey: string | undefined;
     try {
-      idempotencyKey = getIdempotencyKey(request.headers['idempotency-key']);
+      rawIdempotencyKey = getIdempotencyKey(request.headers['idempotency-key']);
     } catch (error) {
       if (error instanceof InvalidIdempotencyKeyError) {
         return reply.status(400).send({ error: error.message });
@@ -698,6 +704,14 @@ export function registerSessionRoutes(app: FastifyInstance): void {
     }
 
     const { host_id, provider, working_directory, title, flags, group_id, tmux } = bodyResult.data;
+    const idempotencyKey = scopeIdempotencyKey(
+      rawIdempotencyKey,
+      'sessions.spawn',
+      request.user.id
+    );
+    const idempotencyFingerprint = rawIdempotencyKey
+      ? fingerprintIdempotentRequest(bodyResult.data)
+      : undefined;
 
     try {
       const memoryPlan = await prepareSessionMemoryForSpawn({
@@ -719,6 +733,7 @@ export function registerSessionRoutes(app: FastifyInstance): void {
         group_id,
         tmux,
         idempotencyKey,
+        idempotencyFingerprint,
       });
       if (!result.queued && !result.replayed) {
         void bootstrapSessionMemory({
@@ -733,7 +748,9 @@ export function registerSessionRoutes(app: FastifyInstance): void {
     } catch (error) {
       const message = (error as Error).message;
       const status =
-        message === 'Host not found' ? 404
+        error instanceof IdempotencyConflictError
+          || message === 'Idempotency-Key was used with a different request' ? 409
+        : message === 'Host not found' ? 404
         : message === 'Host does not allow remote session spawning' ? 403
         : message.startsWith('Host does not advertise provider support') ? 400
         : message === 'Host is offline' || message === 'Failed to send command to agent' ? 503

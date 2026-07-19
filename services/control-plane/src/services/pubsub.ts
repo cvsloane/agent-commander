@@ -80,6 +80,7 @@ export interface AgentConnection {
   hostId: string;
   lastAckedSeq: number;
   lastHeartbeatAt: number;
+  readyForCommands: boolean;
 }
 
 class PubSub {
@@ -115,8 +116,17 @@ class PubSub {
     const wasOnline = Boolean(
       previous && Date.now() - previous.lastHeartbeatAt <= WS_HEARTBEAT_TIMEOUT_MS
     );
-    const connection = { ws, hostId, lastAckedSeq, lastHeartbeatAt: Date.now() };
+    const connection = {
+      ws,
+      hostId,
+      lastAckedSeq,
+      lastHeartbeatAt: Date.now(),
+      readyForCommands: false,
+    };
     this.agentConnections.set(hostId, connection);
+    if (previous && previous.ws !== ws) {
+      previous.ws.terminate();
+    }
     if (!wasOnline) {
       this.publishHostPresence(connection, true);
     }
@@ -144,6 +154,17 @@ class PubSub {
     if (!connection || connection.ws !== ws) return false;
     connection.lastHeartbeatAt = at;
     return true;
+  }
+
+  markAgentReady(hostId: string, ws: WebSocket): boolean {
+    const connection = this.agentConnections.get(hostId);
+    if (!connection || connection.ws !== ws) return false;
+    connection.readyForCommands = true;
+    return true;
+  }
+
+  isAgentReady(hostId: string): boolean {
+    return this.agentConnections.get(hostId)?.readyForCommands === true;
   }
 
   private publishHostPresence(connection: AgentConnection, online: boolean): void {
@@ -486,7 +507,7 @@ class PubSub {
   // Publish to specific agent
   sendToAgent(hostId: string, message: unknown): boolean {
     const conn = this.agentConnections.get(hostId);
-    if (!conn) return false;
+    if (!conn?.readyForCommands) return false;
 
     try {
       conn.ws.send(JSON.stringify(message));

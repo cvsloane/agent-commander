@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const hostId = '11111111-1111-4111-8111-111111111111';
 const sessionId = '22222222-2222-4222-8222-222222222222';
+const hostCommandSessionId = '00000000-0000-0000-0000-000000000000';
 
 function waitForClose(socket: WebSocket): Promise<number> {
   return new Promise((resolve) => socket.once('close', resolve));
@@ -46,6 +47,15 @@ async function buildServer(
   const upsertSession = vi.fn(async () => ({ id: sessionId }));
   const pool = {
     query: vi.fn(async (text: string, values?: unknown[]) => {
+      if (text.includes('WITH deliverable AS')) {
+        const next = deliverable.find((row) => row.status === 'queued');
+        if (!next) return { rows: [] };
+        next.status = 'sent';
+        return { rows: [{ ...next }] };
+      }
+      if (text.includes('SELECT * FROM commands') && String(values?.[0]).length !== 36) {
+        throw Object.assign(new Error('invalid input syntax for type uuid'), { code: '22P02' });
+      }
       if (text.includes('SELECT * FROM commands')) return { rows: deliverable };
       if (text.includes("SET status = 'sent'")) {
         const row = deliverable.find((candidate) => candidate.cmd_id === values?.[0]);
@@ -145,7 +155,7 @@ describe('agent websocket ingest', () => {
     await app.close();
   });
 
-  it('delivers queued commands in order before acknowledging agent hello', async () => {
+  it('delivers queued commands after initial inventory and before its acknowledgement', async () => {
     const queued = {
       cmd_id: '55555555-5555-4555-8555-555555555555',
       host_id: hostId,
@@ -170,15 +180,64 @@ describe('agent websocket ingest', () => {
     });
     await new Promise<void>((resolve) => socket.once('open', resolve));
 
-    const messages = waitForMessages(socket, 2);
     socket.send(JSON.stringify(hello()));
-    const [delivered, helloAck] = await messages;
+    const helloAck = await waitForMessage(socket);
 
+    const messages = waitForMessages(socket, 2);
+    socket.send(JSON.stringify({
+      v: 1,
+      type: 'sessions.upsert',
+      ts: new Date().toISOString(),
+      seq: 2,
+      payload: { sessions: [] },
+    }));
+    const [delivered, inventoryAck] = await messages;
+
+    expect(helloAck).toMatchObject({ type: 'agent.ack', payload: { ack_seq: 1 } });
     expect(delivered).toMatchObject({
       type: 'commands.dispatch',
       payload: { command: { type: 'kill_session' } },
     });
-    expect(helloAck).toMatchObject({ type: 'agent.ack', payload: { ack_seq: 1 } });
+    expect(inventoryAck).toMatchObject({ type: 'agent.ack', payload: { ack_seq: 2 } });
+    socket.close();
+    await app.close();
+  });
+
+  it('acknowledges legacy ULID command results without querying the UUID outbox key', async () => {
+    const { app, url } = await buildServer(vi.fn(async () => undefined));
+    const socket = new WebSocket(`${url}/v1/agent/connect`, {
+      headers: { Authorization: 'Bearer test-agent-token' },
+    });
+    await new Promise<void>((resolve) => socket.once('open', resolve));
+
+    socket.send(JSON.stringify(hello()));
+    await waitForMessage(socket);
+    socket.send(JSON.stringify({
+      v: 1,
+      type: 'sessions.upsert',
+      ts: new Date().toISOString(),
+      seq: 2,
+      payload: { sessions: [] },
+    }));
+    await waitForMessage(socket);
+    socket.send(JSON.stringify({
+      v: 1,
+      type: 'commands.result',
+      ts: new Date().toISOString(),
+      seq: 3,
+      payload: {
+        cmd_id: '01J00000000000000000000000',
+        session_id: hostCommandSessionId,
+        ok: true,
+        result: {},
+      },
+    }));
+
+    await expect(waitForMessage(socket)).resolves.toMatchObject({
+      type: 'agent.ack',
+      payload: { ack_seq: 3, status: 'ok' },
+    });
+    expect(socket.readyState).toBe(WebSocket.OPEN);
     socket.close();
     await app.close();
   });

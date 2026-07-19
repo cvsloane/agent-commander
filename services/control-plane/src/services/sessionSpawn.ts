@@ -8,6 +8,7 @@ import * as db from '../db/index.js';
 import { pubsub } from './pubsub.js';
 import { commandRouter } from './commandRouter.js';
 import { isHostOnline } from './hostPresence.js';
+import { assertIdempotencyFingerprint } from './idempotency.js';
 
 type SpawnSessionOptions = {
   actorUserId: string;
@@ -26,6 +27,7 @@ type SpawnSessionOptions = {
   auditAction?: string;
   failureAuditAction?: string;
   idempotencyKey?: string;
+  idempotencyFingerprint?: string;
 };
 
 type SendInputOptions = {
@@ -63,6 +65,10 @@ export async function spawnSessionOnHost(
       options.idempotencyKey
     );
     if (existing) {
+      assertIdempotencyFingerprint(
+        existing.idempotency_fingerprint,
+        options.idempotencyFingerprint
+      );
       const existingSession = existing.session_id
         ? await db.getSessionById(existing.session_id)
         : null;
@@ -130,6 +136,7 @@ export async function spawnSessionOnHost(
       {
         class: 'durable',
         idempotencyKey: options.idempotencyKey,
+        idempotencyFingerprint: options.idempotencyFingerprint,
       }
     );
   } catch (error) {
@@ -165,6 +172,10 @@ export async function spawnSessionOnHost(
     if (receipt.record.session_id !== sessionId) {
       await db.deleteSession(sessionId);
     }
+    assertIdempotencyFingerprint(
+      receipt.record.idempotency_fingerprint,
+      options.idempotencyFingerprint
+    );
     const existingSession = receipt.record.session_id
       ? await db.getSessionById(receipt.record.session_id)
       : null;

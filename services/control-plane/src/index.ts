@@ -145,8 +145,8 @@ async function start(): Promise<void> {
     app.log.info(`Control plane listening on ${config.HOST}:${config.PORT}`);
     automationService = startAutomationService(app.log);
     commandOutboxSweepTimer = setInterval(() => {
-      void commandRouter.expireStale().catch((error) => {
-        app.log.error({ error }, 'Failed to expire stale command outbox rows');
+      void commandRouter.maintain().catch((error) => {
+        app.log.error({ error }, 'Failed to maintain command outbox rows');
       });
     }, 60_000);
     commandOutboxSweepTimer.unref?.();

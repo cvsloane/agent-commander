@@ -20,7 +20,13 @@ const DURABLE_COMMAND_TYPES = new Set([
 ]);
 const VOLATILE_TTL_MS = 5 * 60 * 1000;
 const DURABLE_TTL_MS = 24 * 60 * 60 * 1000;
+const OUTBOX_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const COMPLETE_ON_SEND_TYPES = new Set(['approvals.decision']);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function isOutboxCommandId(cmdId: string): boolean {
+  return UUID_PATTERN.test(cmdId);
+}
 
 export type CommandResult = {
   ok: boolean;
@@ -38,6 +44,7 @@ export type DispatchOptions = {
   ttlMs?: number;
   expiresAt?: string | Date;
   idempotencyKey?: string;
+  idempotencyFingerprint?: string;
 };
 
 export type RawDispatchOptions = DispatchOptions & {
@@ -52,6 +59,7 @@ export type DispatchReceipt = {
 };
 
 type PendingCommand = {
+  hostId: string;
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timeout: NodeJS.Timeout;
@@ -59,20 +67,25 @@ type PendingCommand = {
 
 export interface CommandOutbox {
   enqueue(command: EnqueueCommand): Promise<EnqueueResult>;
+  getByIdForHost(hostId: string, cmdId: string): Promise<CommandRecord | null>;
   getByIdempotencyKey(hostId: string, idempotencyKey: string): Promise<CommandRecord | null>;
-  markSent(cmdId: string): Promise<CommandRecord | null>;
-  markCompleted(cmdId: string, result?: Record<string, unknown>): Promise<CommandRecord | null>;
-  markFailed(cmdId: string, error: Record<string, unknown>): Promise<CommandRecord | null>;
+  markSent(hostId: string, cmdId: string): Promise<CommandRecord | null>;
+  markQueued(hostId: string, cmdId: string): Promise<CommandRecord | null>;
+  markCompleted(hostId: string, cmdId: string, result?: Record<string, unknown>): Promise<CommandRecord | null>;
+  markFailed(hostId: string, cmdId: string, error: Record<string, unknown>): Promise<CommandRecord | null>;
   listDeliverable(hostId: string): Promise<CommandRecord[]>;
   expireStale(hostId?: string): Promise<CommandRecord[]>;
+  pruneTerminal(retentionMs: number): Promise<number>;
 }
 
 export interface CommandTransport {
   send(hostId: string, message: unknown): boolean;
+  isReady?: (hostId: string) => boolean;
 }
 
 const defaultTransport: CommandTransport = {
   send: (hostId, message) => pubsub.sendToAgent(hostId, message),
+  isReady: (hostId) => pubsub.isAgentReady(hostId),
 };
 
 export class CommandRouter {
@@ -148,20 +161,20 @@ export class CommandRouter {
       class: commandClass,
       expires_at: expiresAt,
       idempotency_key: options.idempotencyKey,
+      idempotency_fingerprint: options.idempotencyFingerprint,
     });
 
     if (!created) {
       return { accepted: true, delivered: false, created, record };
     }
 
-    const delivered = this.transport.send(hostId, message);
-    if (delivered) {
-      const sent = await this.outbox.markSent(record.cmd_id);
-      return { accepted: true, delivered: true, created, record: sent ?? record };
+    const deliveredRecord = await this.deliverPersisted(record);
+    if (deliveredRecord) {
+      return { accepted: true, delivered: true, created, record: deliveredRecord };
     }
 
     if (commandClass === 'volatile') {
-      const failed = await this.outbox.markFailed(record.cmd_id, {
+      const failed = await this.outbox.markFailed(hostId, record.cmd_id, {
         code: 'agent_not_connected',
         message: 'Agent not connected',
       });
@@ -178,17 +191,17 @@ export class CommandRouter {
     command: RoutedCommand,
     timeoutMs = 30000
   ): Promise<CommandResult> {
-    const response = this.registerPending<CommandResult>(cmdId, timeoutMs, 'Command timed out');
+    const response = this.registerPending<CommandResult>(hostId, cmdId, timeoutMs, 'Command timed out');
     try {
       const sent = await this.dispatch(hostId, sessionId, cmdId, command, {
         class: 'volatile',
         ttlMs: timeoutMs,
       });
       if (!sent) {
-        this.rejectPending(cmdId, new Error('Agent not connected'));
+        this.rejectPending(hostId, cmdId, new Error('Agent not connected'));
       }
     } catch (error) {
-      this.rejectPending(cmdId, error instanceof Error ? error : new Error(String(error)));
+      this.rejectPending(hostId, cmdId, error instanceof Error ? error : new Error(String(error)));
     }
     return response;
   }
@@ -209,7 +222,7 @@ export class CommandRouter {
     timeoutMs = 10000,
     options: RawDispatchOptions = {}
   ): Promise<T> {
-    const response = this.registerPending<T>(cmdId, timeoutMs, 'Request timed out');
+    const response = this.registerPending<T>(hostId, cmdId, timeoutMs, 'Request timed out');
     try {
       const receipt = await this.dispatchMessageDetailed(hostId, cmdId, message, {
         ...options,
@@ -217,22 +230,28 @@ export class CommandRouter {
         ttlMs: timeoutMs,
       });
       if (!receipt.accepted) {
-        this.rejectPending(cmdId, new Error('Agent not connected'));
+        this.rejectPending(hostId, cmdId, new Error('Agent not connected'));
       }
     } catch (error) {
-      this.rejectPending(cmdId, error instanceof Error ? error : new Error(String(error)));
+      this.rejectPending(hostId, cmdId, error instanceof Error ? error : new Error(String(error)));
     }
     return response;
   }
 
   async deliverPending(hostId: string): Promise<{ delivered: number; expired: number }> {
     const expired = await this.outbox.expireStale(hostId);
-    const commands = await this.outbox.listDeliverable(hostId);
     let delivered = 0;
 
-    for (const command of commands) {
-      if (!this.transport.send(hostId, command.payload)) break;
-      await this.outbox.markSent(command.cmd_id);
+    while (true) {
+      const [command] = await this.outbox.listDeliverable(hostId);
+      if (!command) break;
+      if (!this.transport.send(hostId, command.payload)) {
+        await this.outbox.markQueued(hostId, command.cmd_id);
+        break;
+      }
+      if (this.completeOnSend(command)) {
+        await this.outbox.markCompleted(hostId, command.cmd_id);
+      }
       delivered += 1;
     }
 
@@ -243,32 +262,60 @@ export class CommandRouter {
     return (await this.outbox.expireStale()).length;
   }
 
+  async maintain(): Promise<{ expired: number; pruned: number }> {
+    const expired = await this.expireStale();
+    const pruned = await this.outbox.pruneTerminal(OUTBOX_RETENTION_MS);
+    return { expired, pruned };
+  }
+
   getByIdempotencyKey(hostId: string, idempotencyKey: string): Promise<CommandRecord | null> {
     return this.outbox.getByIdempotencyKey(hostId, idempotencyKey);
   }
 
-  async handleResult(cmdId: string, result: CommandResult): Promise<boolean> {
-    if (UUID_PATTERN.test(cmdId)) {
+  getByIdForHost(hostId: string, cmdId: string): Promise<CommandRecord | null> {
+    return this.outbox.getByIdForHost(hostId, cmdId);
+  }
+
+  async deliverPersisted(record: CommandRecord): Promise<CommandRecord | null> {
+    if (this.transport.isReady?.(record.host_id) === false) return null;
+    const sent = await this.outbox.markSent(record.host_id, record.cmd_id);
+    if (!sent) return null;
+    if (!this.transport.send(record.host_id, record.payload)) {
+      await this.outbox.markQueued(record.host_id, record.cmd_id);
+      return null;
+    }
+    if (this.completeOnSend(record)) {
+      return await this.outbox.markCompleted(record.host_id, record.cmd_id) ?? sent ?? record;
+    }
+    return sent ?? record;
+  }
+
+  async handleResult(hostId: string, cmdId: string, result: CommandResult): Promise<boolean> {
+    if (isOutboxCommandId(cmdId)) {
+      const command = await this.outbox.getByIdForHost(hostId, cmdId);
+      if (!command) return false;
       if (result.ok) {
-        await this.outbox.markCompleted(cmdId, result.result);
+        await this.outbox.markCompleted(hostId, cmdId, result.result);
       } else {
-        await this.outbox.markFailed(cmdId, result.error ?? {
+        await this.outbox.markFailed(hostId, cmdId, result.error ?? {
           code: 'agent_error',
           message: 'Agent command failed',
         });
       }
     }
-    return this.resolvePending(cmdId, result);
+    return this.resolvePending(hostId, cmdId, result);
   }
 
-  async handleResponse(cmdId: string, response: unknown): Promise<boolean> {
-    if (UUID_PATTERN.test(cmdId)) {
+  async handleResponse(hostId: string, cmdId: string, response: unknown): Promise<boolean> {
+    if (isOutboxCommandId(cmdId)) {
+      const command = await this.outbox.getByIdForHost(hostId, cmdId);
+      if (!command) return false;
       const result = response && typeof response === 'object'
         ? response as Record<string, unknown>
         : { value: response };
-      await this.outbox.markCompleted(cmdId, result);
+      await this.outbox.markCompleted(hostId, cmdId, result);
     }
-    return this.resolvePending(cmdId, response);
+    return this.resolvePending(hostId, cmdId, response);
   }
 
   private classify(commandType: string): CommandClass {
@@ -283,7 +330,12 @@ export class CommandRouter {
     return !sessionId || sessionId === HOST_COMMAND_SESSION_ID ? null : sessionId;
   }
 
-  private registerPending<T>(cmdId: string, timeoutMs: number, timeoutMessage: string): Promise<T> {
+  private registerPending<T>(
+    hostId: string,
+    cmdId: string,
+    timeoutMs: number,
+    timeoutMessage: string
+  ): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pendingResponses.delete(cmdId);
@@ -292,6 +344,7 @@ export class CommandRouter {
       timeout.unref?.();
 
       this.pendingResponses.set(cmdId, {
+        hostId,
         resolve: (value) => resolve(value as T),
         reject,
         timeout,
@@ -299,22 +352,26 @@ export class CommandRouter {
     });
   }
 
-  private resolvePending(cmdId: string, response: unknown): boolean {
+  private resolvePending(hostId: string, cmdId: string, response: unknown): boolean {
     const pending = this.pendingResponses.get(cmdId);
-    if (!pending) return false;
+    if (!pending || pending.hostId !== hostId) return false;
     clearTimeout(pending.timeout);
     this.pendingResponses.delete(cmdId);
     pending.resolve(response);
     return true;
   }
 
-  private rejectPending(cmdId: string, error: Error): boolean {
+  private rejectPending(hostId: string, cmdId: string, error: Error): boolean {
     const pending = this.pendingResponses.get(cmdId);
-    if (!pending) return false;
+    if (!pending || pending.hostId !== hostId) return false;
     clearTimeout(pending.timeout);
     this.pendingResponses.delete(cmdId);
     pending.reject(error);
     return true;
+  }
+
+  private completeOnSend(command: Pick<CommandRecord, 'type'>): boolean {
+    return COMPLETE_ON_SEND_TYPES.has(command.type);
   }
 }
 
@@ -324,8 +381,9 @@ export const commandRouter = new CommandRouter(
 );
 
 export async function handleCommandResultForPending(
+  hostId: string,
   cmdId: string,
   result: CommandResult
 ): Promise<boolean> {
-  return commandRouter.handleResult(cmdId, result);
+  return commandRouter.handleResult(hostId, cmdId, result);
 }

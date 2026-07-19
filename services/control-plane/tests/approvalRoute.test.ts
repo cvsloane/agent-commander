@@ -36,7 +36,10 @@ function session(): Session {
   };
 }
 
-async function buildServer(): Promise<{
+async function buildServer(options: {
+  failTransaction?: boolean;
+  loseDecisionRace?: boolean;
+} = {}): Promise<{
   app: FastifyInstance;
   enqueue: ReturnType<typeof vi.fn>;
 }> {
@@ -66,36 +69,43 @@ async function buildServer(): Promise<{
   vi.doMock('../src/db/commandOutbox.js', () => ({
     commandOutbox: {
       enqueue,
+      getByIdForHost: vi.fn(async () => null),
       getByIdempotencyKey: vi.fn(async (_hostId: string, key: string) => (
         idempotentRecords.get(key) ?? null
       )),
       markSent: vi.fn(async () => null),
+      markQueued: vi.fn(async () => null),
       markCompleted: vi.fn(async () => null),
       markFailed: vi.fn(async () => null),
       listDeliverable: vi.fn(async () => []),
       expireStale: vi.fn(async () => []),
+      pruneTerminal: vi.fn(async () => 0),
     },
+    decideApprovalAndEnqueue: vi.fn(async (input: {
+      decision: 'allow' | 'deny';
+      decided_payload: Record<string, unknown>;
+      decided_by_user_id: string;
+      command: Record<string, unknown>;
+    }) => {
+      if (options.failTransaction) throw new Error('database unavailable');
+      const enqueued = await enqueue(input.command);
+      currentApproval = {
+        ...currentApproval,
+        decision: input.decision,
+        decided_payload: input.decided_payload,
+        decided_by_user_id: input.decided_by_user_id,
+        ts_decided: new Date().toISOString(),
+      };
+      if (options.loseDecisionRace) return null;
+      return { approval: currentApproval, command: enqueued.record };
+    }),
   }));
   vi.doMock('../src/db/index.js', () => ({
+    pool: { query: vi.fn(async () => ({ rows: [] })) },
     getApprovalById: vi.fn(async (id: string) => (
       id === approvalId ? currentApproval : null
     )),
     getSessionById: vi.fn(async () => session()),
-    decideApproval: vi.fn(async (
-      _id: string,
-      decision: 'allow' | 'deny',
-      payload: Record<string, unknown>,
-      decidedBy: string
-    ) => {
-      currentApproval = {
-        ...currentApproval,
-        decision,
-        decided_payload: payload,
-        decided_by_user_id: decidedBy,
-        ts_decided: new Date().toISOString(),
-      };
-      return currentApproval;
-    }),
     clearSessionApprovalMetadata: vi.fn(async () => session()),
     updateApprovalMetrics: vi.fn(async () => undefined),
     createAuditLog: vi.fn(async () => undefined),
@@ -161,6 +171,57 @@ describe('approval decision route', () => {
       id: approvalId,
       decision: 'allow',
     });
+    expect(enqueue).toHaveBeenCalledOnce();
+    await app.close();
+  });
+
+  it('leaves the approval undecided when the transactional enqueue fails', async () => {
+    const { app } = await buildServer({ failTransaction: true });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/approvals/${approvalId}/decide`,
+      payload: { decision: 'allow' },
+    });
+    const approvalResponse = await app.inject({
+      method: 'GET',
+      url: `/v1/approvals/${approvalId}`,
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(approvalResponse.json().approval.decision).toBeNull();
+    await app.close();
+  });
+
+  it('rejects reuse of an Idempotency-Key for a different decision', async () => {
+    const { app, enqueue } = await buildServer();
+    const request = {
+      method: 'POST' as const,
+      url: `/v1/approvals/${approvalId}/decide`,
+      headers: { 'idempotency-key': 'approval-decision' },
+    };
+
+    const first = await app.inject({ ...request, payload: { decision: 'allow' } });
+    const conflict = await app.inject({ ...request, payload: { decision: 'deny' } });
+
+    expect(first.statusCode).toBe(200);
+    expect(conflict.statusCode).toBe(409);
+    expect(enqueue).toHaveBeenCalledOnce();
+    await app.close();
+  });
+
+  it('replays the winning approval decision after losing a concurrent race', async () => {
+    const { app, enqueue } = await buildServer({ loseDecisionRace: true });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/approvals/${approvalId}/decide`,
+      headers: { 'idempotency-key': 'concurrent-approval' },
+      payload: { decision: 'allow' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().approval).toMatchObject({ id: approvalId, decision: 'allow' });
     expect(enqueue).toHaveBeenCalledOnce();
     await app.close();
   });

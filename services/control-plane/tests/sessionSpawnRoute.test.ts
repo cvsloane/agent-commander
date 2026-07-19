@@ -60,10 +60,11 @@ function makeSession(data: Partial<Session>): Session {
   };
 }
 
-async function buildServer(): Promise<{
+async function buildServer(options: { hideIdempotencyLookup?: boolean } = {}): Promise<{
   app: FastifyInstance;
   send: ReturnType<typeof vi.fn>;
   enqueue: ReturnType<typeof vi.fn>;
+  deleteSession: ReturnType<typeof vi.fn>;
 }> {
   vi.resetModules();
   const sessions = new Map<string, Session>();
@@ -80,20 +81,25 @@ async function buildServer(): Promise<{
   vi.doMock('../src/db/commandOutbox.js', () => ({
     commandOutbox: {
       enqueue,
+      getByIdForHost: vi.fn(async () => null),
       getByIdempotencyKey: vi.fn(async (_hostId: string, key: string) => (
-        idempotentRecords.get(key) ?? null
+        options.hideIdempotencyLookup ? null : idempotentRecords.get(key) ?? null
       )),
-      markSent: vi.fn(async (cmdId: string) => ({
+      markSent: vi.fn(async (_hostId: string, cmdId: string) => ({
         cmd_id: cmdId,
         status: 'sent',
       })),
+      markQueued: vi.fn(async () => null),
       markCompleted: vi.fn(async () => null),
       markFailed: vi.fn(async () => null),
       listDeliverable: vi.fn(async () => []),
       expireStale: vi.fn(async () => []),
+      pruneTerminal: vi.fn(async () => 0),
     },
+    decideApprovalAndEnqueue: vi.fn(),
   }));
   const createAuditLog = vi.fn(async () => undefined);
+  const deleteSession = vi.fn(async (id: string) => sessions.delete(id));
   vi.doMock('../src/db/index.js', () => ({
     getHostById: vi.fn(async () => host()),
     upsertSession: vi.fn(async (_hostId: string, data: Partial<Session>) => {
@@ -104,7 +110,7 @@ async function buildServer(): Promise<{
     getSessionById: vi.fn(async (id: string) => sessions.get(id) ?? null),
     touchProject: vi.fn(async () => undefined),
     assignSessionGroup: vi.fn(async () => null),
-    deleteSession: vi.fn(async (id: string) => sessions.delete(id)),
+    deleteSession,
     createAuditLog,
   }));
   vi.doMock('../src/services/sessionMemory.js', () => ({
@@ -115,7 +121,9 @@ async function buildServer(): Promise<{
   const { registerSessionRoutes } = await import('../src/routes/sessions.js');
   const { pubsub } = await import('../src/services/pubsub.js');
   const send = vi.fn();
-  pubsub.addAgentConnection(hostId, { send } as never);
+  const socket = { send };
+  pubsub.addAgentConnection(hostId, socket as never);
+  pubsub.markAgentReady(hostId, socket as never);
   const app = Fastify({ logger: false });
   app.addHook('onRequest', async (request) => {
     request.user = {
@@ -126,7 +134,7 @@ async function buildServer(): Promise<{
     } satisfies AuthUser;
   });
   registerSessionRoutes(app);
-  return { app, send, enqueue };
+  return { app, send, enqueue, deleteSession };
 }
 
 describe('session spawn route', () => {
@@ -134,8 +142,10 @@ describe('session spawn route', () => {
     vi.restoreAllMocks();
   });
 
-  it('returns the original session and command for a repeated Idempotency-Key', async () => {
-    const { app, send, enqueue } = await buildServer();
+  it('returns the original session when the idempotency precheck loses a race', async () => {
+    const { app, send, enqueue, deleteSession } = await buildServer({
+      hideIdempotencyLookup: true,
+    });
     const request = {
       method: 'POST' as const,
       url: '/v1/sessions/spawn',
@@ -156,8 +166,57 @@ describe('session spawn route', () => {
       cmd_id: first.json().cmd_id,
       session: { id: first.json().session.id },
     });
-    expect(enqueue).toHaveBeenCalledOnce();
+    expect(enqueue).toHaveBeenCalledTimes(2);
     expect(send).toHaveBeenCalledOnce();
+    expect(deleteSession).toHaveBeenCalledOnce();
+    await app.close();
+  });
+
+  it('rejects reuse of an Idempotency-Key with a different spawn request', async () => {
+    const { app, send, enqueue, deleteSession } = await buildServer({
+      hideIdempotencyLookup: true,
+    });
+    const baseRequest = {
+      method: 'POST' as const,
+      url: '/v1/sessions/spawn',
+      headers: { 'idempotency-key': 'spawn-once' },
+      payload: {
+        host_id: hostId,
+        provider: 'codex',
+        working_directory: '/tmp',
+      },
+    };
+
+    const first = await app.inject(baseRequest);
+    const conflict = await app.inject({
+      ...baseRequest,
+      payload: { ...baseRequest.payload, working_directory: '/different' },
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(conflict.statusCode).toBe(409);
+    expect(enqueue).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenCalledOnce();
+    expect(deleteSession).toHaveBeenCalledOnce();
+    await app.close();
+  });
+
+  it('returns 400 for an overlong Idempotency-Key', async () => {
+    const { app, enqueue } = await buildServer();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/sessions/spawn',
+      headers: { 'idempotency-key': 'x'.repeat(256) },
+      payload: {
+        host_id: hostId,
+        provider: 'codex',
+        working_directory: '/tmp',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(enqueue).not.toHaveBeenCalled();
     await app.close();
   });
 });

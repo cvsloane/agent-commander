@@ -25,6 +25,7 @@ function record(overrides: Partial<CommandRecord> = {}): CommandRecord {
     result: null,
     error: null,
     idempotency_key: null,
+    idempotency_fingerprint: null,
     ...overrides,
   };
 }
@@ -69,21 +70,20 @@ describe('CommandOutboxRepository', () => {
     expect(query.mock.calls[1]?.[1]).toEqual([hostId, 'same-request']);
   });
 
-  it('lists queued and sent commands in stable delivery order and expires stale rows', async () => {
+  it('atomically claims queued durable commands in stable delivery order and expires stale rows', async () => {
     const queued = record();
-    const sent = record({
-      cmd_id: '55555555-5555-4555-8555-555555555555',
-      status: 'sent',
-    });
     const expired = record({ status: 'expired' });
     const query = vi.fn()
-      .mockResolvedValueOnce({ rows: [queued, sent] })
+      .mockResolvedValueOnce({ rows: [queued] })
       .mockResolvedValueOnce({ rows: [expired] });
     const repository = new CommandOutboxRepository({ query } as Queryer);
 
-    await expect(repository.listDeliverable(hostId)).resolves.toEqual([queued, sent]);
+    await expect(repository.listDeliverable(hostId)).resolves.toEqual([queued]);
     await expect(repository.expireStale(hostId)).resolves.toEqual([expired]);
     expect(String(query.mock.calls[0]?.[0])).toContain("class = 'durable'");
+    expect(String(query.mock.calls[0]?.[0])).toContain("status = 'queued'");
+    expect(String(query.mock.calls[0]?.[0])).toContain('FOR UPDATE SKIP LOCKED');
+    expect(String(query.mock.calls[0]?.[0])).toContain('LIMIT 1');
     expect(String(query.mock.calls[0]?.[0])).toContain('ORDER BY created_at ASC, cmd_id ASC');
   });
 
@@ -94,11 +94,25 @@ describe('CommandOutboxRepository', () => {
       .mockResolvedValueOnce({ rows: [record({ status: 'failed' })] });
     const repository = new CommandOutboxRepository({ query } as Queryer);
 
-    await repository.markSent(cmdId);
-    await repository.markCompleted(cmdId, { pane_id: '%1' });
-    await repository.markFailed(cmdId, { code: 'agent_error' });
+    await repository.markSent(hostId, cmdId);
+    await repository.markCompleted(hostId, cmdId, { pane_id: '%1' });
+    await repository.markFailed(hostId, cmdId, { code: 'agent_error' });
 
-    expect(query.mock.calls[1]?.[1]).toEqual([cmdId, JSON.stringify({ pane_id: '%1' })]);
-    expect(query.mock.calls[2]?.[1]).toEqual([cmdId, JSON.stringify({ code: 'agent_error' })]);
+    expect(query.mock.calls[0]?.[1]).toEqual([cmdId, hostId]);
+    expect(query.mock.calls[1]?.[1]).toEqual([cmdId, hostId, JSON.stringify({ pane_id: '%1' })]);
+    expect(query.mock.calls[2]?.[1]).toEqual([cmdId, hostId, JSON.stringify({ code: 'agent_error' })]);
+  });
+
+  it('requeues failed claims and prunes terminal rows after retention', async () => {
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rows: [record()] })
+      .mockResolvedValueOnce({ rows: [], rowCount: 3 });
+    const repository = new CommandOutboxRepository({ query } as Queryer);
+
+    await repository.markQueued(hostId, cmdId);
+    await expect(repository.pruneTerminal(60_000)).resolves.toBe(3);
+
+    expect(query.mock.calls[0]?.[1]).toEqual([cmdId, hostId]);
+    expect(String(query.mock.calls[1]?.[0])).toContain('DELETE FROM commands');
   });
 });
