@@ -10,3 +10,4 @@
 - 2026-07-19T17:30Z [AI Lead] Wave 2 launched: W2-CONTRACTS (homelinux) + W2-AGENTD-API (heavisidelinux) verified active in fresh contexts at e6b4c7b.
 - 2026-07-19T18:05Z [AI Lead] W2-CONTRACTS (91/91 re-run; first-run failure was AI Lead env stubs) and W2-AGENTD-API (go gate re-run clean) PASS => merged; combined gate green. Launching W2-CP-ORCH + W2-MCP-CLI.
 - 2026-07-19T18:55Z [AI Lead] W2-CP-ORCH PASS (gate re-run 107 tests; firewall clean) => merged. Noted follow-up: inject session token into child env once spawn env field exists (agentd local API supports env).
+- 2026-07-19T19:02Z [AI Lead] W2-CP-ORCH integrated (33da2d7). Post-merge 7-test failure was a stale ac-schema dist in the integration clone — rebuild fixed, 107/107. Process rules: (1) rebuild ac-schema before post-merge gates; (2) never pipe gate commands through grep in && chains — masked a red gate before push.
