@@ -1,0 +1,10 @@
+# W4-AGENTD-TERM — Per-Viewer PTY, True Read-Only, Backpressure, Channel Resume
+
+Read master plan workstream D + findings §1 items 8-11 + `webtmux_fix.md`. Worktree `/home/cvsloane/dev/wt/ac-w4-term`, branch `refactor/wave4-agentd-term` off latest origin/refactor/tmux-command-center. `export PATH=$HOME/.local/go/bin:$PATH`. Ownership: `agents/**` only; wire protocol ADDITIVE (control plane not updated in lockstep; new behavior behind config flags where behavior differs). Push branch when gate green. Handoff `tasks/massive-refactor-handoffs/w4-agentd-term.md`; token `W4-AGENTD-TERM FROZEN <sha>`.
+
+1. Per-viewer PTY attach via grouped tmux session (`tmux new-session -t <session> -s ac-view-<chan>` + select-window + select-pane): each viewer gets independent size/window focus; the user's own attached client is never resized/refocused. Config flag `terminal.per_viewer_pty` (default on), fallback to current shared bridge.
+2. True read-only: non-controller channels attach with `-r`; controller channel writable; TakeControl swaps roles (kill/re-attach the two viewer sessions or re-exec attach). Initial size from `terminal.attach` payload cols/rows when present (additive field).
+3. Backpressure + single-encode: per-channel bounded ring buffer with drop-oldest + additive `terminal.lag` status message; coalesce PTY reads (~16ms flush); encode chunk once, fan out.
+4. Lifecycle: sweeper reaps viewer-less bridges + orphan `tmux attach`/grouped view sessions (crash-safe: name-prefix scan `ac-view-*` on startup); audit events (additive event_type `terminal.audit`: attach/detach/control-transfer with channel + session ids).
+5. Channel resume: attach accepts additive `resume_token`; on agentd restart or WS flap the CP can re-attach with the token and the bridge re-seeds via capture-pane + continues. Keep tokens in memory + pane option.
+6. Tests: grouped-session lifecycle via TmuxRunner fake, read-only enforcement at PTY layer, ring-buffer drop behavior, sweeper reaping, resume-token round trip. Gate: `go build ./... && go vet ./... && go test ./...` bare.
