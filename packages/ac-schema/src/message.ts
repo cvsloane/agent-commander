@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AgentHostInfoSchema, HostPresenceSchema } from './host.js';
+import { AgentHostInfoSchema } from './host.js';
 import { SessionSchema, SessionUpsertSchema, SessionSnapshotSchema } from './session.js';
 import { EventAppendPayloadSchema } from './event.js';
 import { CommandDispatchSchema, CommandResultSchema } from './command.js';
@@ -296,7 +296,6 @@ export const UISubscribeMessageSchema = MessageEnvelopeBaseSchema.extend({
           'automation_wakeups',
           'governance_approvals',
           'work_items',
-          'hosts',
         ]),
         filter: z.record(z.unknown()).optional(),
       })
@@ -404,15 +403,6 @@ export const UISessionUsageUpdatedMessageSchema = ServerMessageEnvelopeSchema.ex
 });
 export type UISessionUsageUpdatedMessage = z.infer<typeof UISessionUsageUpdatedMessageSchema>;
 
-// Host presence changed (to UI)
-export const UIHostsChangedMessageSchema = ServerMessageEnvelopeSchema.extend({
-  type: z.literal('hosts.changed'),
-  payload: z.object({
-    hosts: z.array(HostPresenceSchema),
-  }),
-});
-export type UIHostsChangedMessage = z.infer<typeof UIHostsChangedMessageSchema>;
-
 export const UIAutomationRunUpdatedMessageSchema = ServerMessageEnvelopeSchema.extend({
   type: z.literal('automation.run.updated'),
   payload: AutomationRunSchema,
@@ -429,17 +419,13 @@ export const UIAutomationWakeupUpdatedMessageSchema = ServerMessageEnvelopeSchem
   type: z.literal('automation.wakeup.updated'),
   payload: AutomationWakeupSchema,
 });
-export type UIAutomationWakeupUpdatedMessage = z.infer<
-  typeof UIAutomationWakeupUpdatedMessageSchema
->;
+export type UIAutomationWakeupUpdatedMessage = z.infer<typeof UIAutomationWakeupUpdatedMessageSchema>;
 
 export const UIGovernanceApprovalUpdatedMessageSchema = ServerMessageEnvelopeSchema.extend({
   type: z.literal('governance_approval.updated'),
   payload: GovernanceApprovalSchema,
 });
-export type UIGovernanceApprovalUpdatedMessage = z.infer<
-  typeof UIGovernanceApprovalUpdatedMessageSchema
->;
+export type UIGovernanceApprovalUpdatedMessage = z.infer<typeof UIGovernanceApprovalUpdatedMessageSchema>;
 
 export const UIWorkItemUpdatedMessageSchema = ServerMessageEnvelopeSchema.extend({
   type: z.literal('work_item.updated'),
@@ -451,9 +437,7 @@ export const UIAutomationRuntimeStateUpdatedMessageSchema = ServerMessageEnvelop
   type: z.literal('automation.runtime_state.updated'),
   payload: AutomationRuntimeStateSchema,
 });
-export type UIAutomationRuntimeStateUpdatedMessage = z.infer<
-  typeof UIAutomationRuntimeStateUpdatedMessageSchema
->;
+export type UIAutomationRuntimeStateUpdatedMessage = z.infer<typeof UIAutomationRuntimeStateUpdatedMessageSchema>;
 
 // Union of all UI messages from server
 export const ServerToUIMessageSchema = z.discriminatedUnion('type', [
@@ -472,6 +456,5 @@ export const ServerToUIMessageSchema = z.discriminatedUnion('type', [
   UIGovernanceApprovalUpdatedMessageSchema,
   UIWorkItemUpdatedMessageSchema,
   UIAutomationRuntimeStateUpdatedMessageSchema,
-  UIHostsChangedMessageSchema,
 ]);
 export type ServerToUIMessage = z.infer<typeof ServerToUIMessageSchema>;

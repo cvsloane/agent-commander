@@ -12,10 +12,13 @@ import type {
   WorkItem,
 } from '@agent-command/schema';
 import { clawdbotNotifier } from './clawdbot.js';
-import { WS_HEARTBEAT_TIMEOUT_MS } from './webSocketHeartbeat.js';
 
 // Tools that don't block workflow - user can respond async
-const NON_BLOCKING_APPROVAL_TOOLS = new Set(['askuserquestion', 'exitplanmode', 'enterplanmode']);
+const NON_BLOCKING_APPROVAL_TOOLS = new Set([
+  'askuserquestion',
+  'exitplanmode',
+  'enterplanmode',
+]);
 
 // Check if an approval payload contains an actual decision (allow/deny choices)
 function approvalHasDecisionPayload(payload: unknown): boolean {
@@ -58,8 +61,7 @@ type TopicType =
   | 'automation_run_events'
   | 'automation_wakeups'
   | 'governance_approvals'
-  | 'work_items'
-  | 'hosts';
+  | 'work_items';
 
 interface Subscription {
   type: TopicType;
@@ -71,11 +73,10 @@ interface UIClient {
   subscriptions: Subscription[];
 }
 
-export interface AgentConnection {
+interface AgentConnection {
   ws: WebSocket;
   hostId: string;
   lastAckedSeq: number;
-  lastHeartbeatAt: number;
 }
 
 class PubSub {
@@ -107,56 +108,15 @@ class PubSub {
 
   // Agent connection management
   addAgentConnection(hostId: string, ws: WebSocket, lastAckedSeq = 0): void {
-    const previous = this.agentConnections.get(hostId);
-    const wasOnline = Boolean(
-      previous && Date.now() - previous.lastHeartbeatAt <= WS_HEARTBEAT_TIMEOUT_MS
-    );
-    const connection = { ws, hostId, lastAckedSeq, lastHeartbeatAt: Date.now() };
-    this.agentConnections.set(hostId, connection);
-    if (!wasOnline) {
-      this.publishHostPresence(connection, true);
-    }
+    this.agentConnections.set(hostId, { ws, hostId, lastAckedSeq });
   }
 
-  removeAgentConnection(hostId: string, ws?: WebSocket): boolean {
-    const connection = this.agentConnections.get(hostId);
-    if (!connection || (ws && connection.ws !== ws)) return false;
-
+  removeAgentConnection(hostId: string): void {
     this.agentConnections.delete(hostId);
-    this.publishHostPresence(connection, false);
-    return true;
   }
 
   getAgentConnection(hostId: string): AgentConnection | undefined {
     return this.agentConnections.get(hostId);
-  }
-
-  getAgentConnections(): AgentConnection[] {
-    return Array.from(this.agentConnections.values());
-  }
-
-  markAgentHeartbeat(hostId: string, ws: WebSocket, at = Date.now()): boolean {
-    const connection = this.agentConnections.get(hostId);
-    if (!connection || connection.ws !== ws) return false;
-    connection.lastHeartbeatAt = at;
-    return true;
-  }
-
-  private publishHostPresence(connection: AgentConnection, online: boolean): void {
-    this.publishToUI({
-      v: 1,
-      type: 'hosts.changed',
-      ts: new Date().toISOString(),
-      payload: {
-        hosts: [
-          {
-            host_id: connection.hostId,
-            online,
-            last_heartbeat_at: new Date(connection.lastHeartbeatAt).toISOString(),
-          },
-        ],
-      },
-    });
   }
 
   updateAgentAckedSeq(hostId: string, seq: number): void {
@@ -200,7 +160,6 @@ class PubSub {
       'automation.wakeup.updated': 'automation_wakeups',
       'governance_approval.updated': 'governance_approvals',
       'work_item.updated': 'work_items',
-      'hosts.changed': 'hosts',
     };
 
     const topic = topicMap[message.type];
@@ -324,10 +283,7 @@ class PubSub {
           continue;
         }
         if (typeof filter.session_ids === 'string') {
-          const ids = filter.session_ids
-            .split(',')
-            .map((id) => id.trim())
-            .filter(Boolean);
+          const ids = filter.session_ids.split(',').map((id) => id.trim()).filter(Boolean);
           if (ids.includes(payload.session_id)) {
             return message;
           }
@@ -344,10 +300,7 @@ class PubSub {
       const payload = message.payload as AutomationRun;
       for (const sub of relevantSubs) {
         const filter = sub.filter || {};
-        if (
-          filter.automation_agent_id &&
-          filter.automation_agent_id !== payload.automation_agent_id
-        ) {
+        if (filter.automation_agent_id && filter.automation_agent_id !== payload.automation_agent_id) {
           continue;
         }
         if (filter.status && filter.status !== payload.status) {
@@ -374,10 +327,7 @@ class PubSub {
       const payload = message.payload as AutomationWakeup;
       for (const sub of relevantSubs) {
         const filter = sub.filter || {};
-        if (
-          filter.automation_agent_id &&
-          filter.automation_agent_id !== payload.automation_agent_id
-        ) {
+        if (filter.automation_agent_id && filter.automation_agent_id !== payload.automation_agent_id) {
           continue;
         }
         if (filter.status && filter.status !== payload.status) {
@@ -429,25 +379,18 @@ class PubSub {
       const ids = Array.isArray(filter.session_ids)
         ? filter.session_ids.filter((id): id is string => typeof id === 'string')
         : typeof filter.session_ids === 'string'
-          ? filter.session_ids
-              .split(',')
-              .map((id) => id.trim())
-              .filter(Boolean)
+          ? filter.session_ids.split(',').map((id) => id.trim()).filter(Boolean)
           : [];
       if (ids.length > 0 && !ids.includes(session.id)) return false;
     }
     if (filter.session_id && filter.session_id !== session.id) return false;
     if (filter.host_id && filter.host_id !== session.host_id) return false;
     if (filter.status) {
-      const statuses =
-        typeof filter.status === 'string'
+      const statuses = typeof filter.status === 'string'
+        ? filter.status.split(',').map((s) => s.trim()).filter(Boolean)
+        : Array.isArray(filter.status)
           ? filter.status
-              .split(',')
-              .map((s) => s.trim())
-              .filter(Boolean)
-          : Array.isArray(filter.status)
-            ? filter.status
-            : [];
+          : [];
       if (statuses.length > 0 && !statuses.includes(session.status)) return false;
     }
     if (filter.provider && filter.provider !== session.provider) return false;
@@ -463,12 +406,19 @@ class PubSub {
       if (session.archived_at) return false;
     }
     if (filter.needs_attention) {
-      const needs = ['WAITING_FOR_INPUT', 'WAITING_FOR_APPROVAL', 'ERROR'].includes(session.status);
+      const needs = ['WAITING_FOR_INPUT', 'WAITING_FOR_APPROVAL', 'ERROR'].includes(
+        session.status
+      );
       if (!needs) return false;
     }
     if (filter.q && typeof filter.q === 'string') {
       const q = filter.q.toLowerCase();
-      const hay = [session.title, session.cwd, session.repo_root, session.git_branch]
+      const hay = [
+        session.title,
+        session.cwd,
+        session.repo_root,
+        session.git_branch,
+      ]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
@@ -485,12 +435,7 @@ class PubSub {
       return new Set(filter.session_ids.filter((id): id is string => typeof id === 'string'));
     }
     if (typeof filter.session_ids === 'string') {
-      return new Set(
-        filter.session_ids
-          .split(',')
-          .map((id) => id.trim())
-          .filter(Boolean)
-      );
+      return new Set(filter.session_ids.split(',').map((id) => id.trim()).filter(Boolean));
     }
     return null;
   }
@@ -598,19 +543,12 @@ class PubSub {
 
   private buildSessionFingerprint(session: Session): string {
     const metadata = session.metadata ?? null;
-    const git =
-      metadata && typeof metadata === 'object'
-        ? (metadata as Record<string, unknown>).git_status
-        : null;
-    const approval =
-      metadata && typeof metadata === 'object'
-        ? (metadata as Record<string, unknown>).approval
-        : null;
-    const tmux =
-      metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>).tmux : null;
+    const git = metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>).git_status : null;
+    const approval = metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>).approval : null;
+    const tmux = metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>).tmux : null;
     const statusDetail =
       metadata && typeof metadata === 'object'
-        ? ((metadata as Record<string, unknown>).status_detail ?? null)
+        ? (metadata as Record<string, unknown>).status_detail ?? null
         : null;
 
     return JSON.stringify([
@@ -656,7 +594,11 @@ class PubSub {
   }
 
   // Publish approval updated
-  publishApprovalUpdated(approvalId: string, decision: 'allow' | 'deny', userId?: string): void {
+  publishApprovalUpdated(
+    approvalId: string,
+    decision: 'allow' | 'deny',
+    userId?: string
+  ): void {
     this.publishToUI({
       v: 1,
       type: 'approvals.updated',
@@ -807,10 +749,7 @@ class PubSub {
 
   // Check if agent is connected
   isAgentConnected(hostId: string): boolean {
-    const connection = this.agentConnections.get(hostId);
-    return Boolean(
-      connection && Date.now() - connection.lastHeartbeatAt <= WS_HEARTBEAT_TIMEOUT_MS
-    );
+    return this.agentConnections.has(hostId);
   }
 
   // Get stats

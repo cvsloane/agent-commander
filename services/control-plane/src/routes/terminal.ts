@@ -5,13 +5,8 @@ import { randomUUID } from 'crypto';
 import * as db from '../db/index.js';
 import { pubsub } from '../services/pubsub.js';
 import { verifyRequestToken } from '../auth/verify.js';
-import {
-  canAttachTerminal,
-  canControlTerminal,
-  hostSupportsTerminal,
-} from '../services/terminalPolicy.js';
+import { canAttachTerminal, canControlTerminal, hostSupportsTerminal } from '../services/terminalPolicy.js';
 import type { AuthUser } from '../auth/types.js';
-import { installWebSocketHeartbeat } from '../services/webSocketHeartbeat.js';
 
 // Track active terminal channels
 const activeChannels = new Map<
@@ -72,22 +67,19 @@ function resetIdleTimeout(channelId: string): void {
   }
 
   // 10 minute idle timeout
-  channel.idleTimeout = setTimeout(
-    () => {
-      const ch = activeChannels.get(channelId);
-      if (ch) {
-        try {
-          if (ch.uiSocket.readyState === 1) {
-            ch.uiSocket.send(JSON.stringify({ type: 'idle_timeout' }));
-          }
-        } catch {
-          // Ignore send errors on idle timeout
+  channel.idleTimeout = setTimeout(() => {
+    const ch = activeChannels.get(channelId);
+    if (ch) {
+      try {
+        if (ch.uiSocket.readyState === 1) {
+          ch.uiSocket.send(JSON.stringify({ type: 'idle_timeout' }));
         }
-        detachChannel(channelId);
+      } catch {
+        // Ignore send errors on idle timeout
       }
-    },
-    10 * 60 * 1000
-  );
+      detachChannel(channelId);
+    }
+  }, 10 * 60 * 1000);
 }
 
 function cleanupChannel(channelId: string): void {
@@ -129,9 +121,6 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
     { websocket: true },
     async (socket: WebSocket, request: FastifyRequest<{ Params: { sessionId: string } }>) => {
       const { sessionId } = request.params;
-      const heartbeat = installWebSocketHeartbeat(socket, {
-        onStale: () => app.log.warn({ sessionId }, 'Terminating stale terminal WebSocket'),
-      });
 
       // Validate session ID
       if (!z.string().uuid().safeParse(sessionId).success) {
@@ -225,7 +214,6 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
 
       // Handle messages from UI
       socket.on('message', (data: Buffer) => {
-        heartbeat.markAlive();
         try {
           const raw = JSON.parse(data.toString());
           const parseResult = TerminalInputSchema.safeParse(raw);

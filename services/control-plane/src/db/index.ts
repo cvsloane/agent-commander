@@ -103,7 +103,9 @@ export async function resolveRepo(data: {
   const repoRootHash = normalizedRoot
     ? createHash('sha256').update(normalizedRoot).digest('hex')
     : null;
-  const canonicalKey = normalizedRemote ? `remote:${normalizedRemote}` : `root:${repoRootHash}`;
+  const canonicalKey = normalizedRemote
+    ? `remote:${normalizedRemote}`
+    : `root:${repoRootHash}`;
 
   const result = await pool.query(
     `INSERT INTO repos (
@@ -187,13 +189,10 @@ export async function findRepoByWorkingDirectory(input: {
   return result.rows[0] || null;
 }
 
-export async function listRepos(
-  userId: string,
-  filters?: {
-    q?: string;
-    limit?: number;
-  }
-): Promise<Repo[]> {
+export async function listRepos(userId: string, filters?: {
+  q?: string;
+  limit?: number;
+}): Promise<Repo[]> {
   let query = `
     SELECT DISTINCT r.*
     FROM repos r
@@ -299,10 +298,7 @@ export async function updateHostLastSeen(hostId: string): Promise<void> {
 }
 
 export async function updateHostAckedSeq(hostId: string, seq: number): Promise<void> {
-  await pool.query(
-    'UPDATE hosts SET last_acked_seq = GREATEST(COALESCE(last_acked_seq, 0), $2) WHERE id = $1',
-    [hostId, seq]
-  );
+  await pool.query('UPDATE hosts SET last_acked_seq = $2 WHERE id = $1', [hostId, seq]);
 }
 
 export async function getHosts(): Promise<Host[]> {
@@ -336,10 +332,10 @@ export async function updateHostCapabilities(
   hostId: string,
   capabilities: Record<string, unknown>
 ): Promise<Host | null> {
-  const result = await pool.query('UPDATE hosts SET capabilities = $2 WHERE id = $1 RETURNING *', [
-    hostId,
-    JSON.stringify(capabilities),
-  ]);
+  const result = await pool.query(
+    'UPDATE hosts SET capabilities = $2 WHERE id = $1 RETURNING *',
+    [hostId, JSON.stringify(capabilities)]
+  );
   return result.rows[0] || null;
 }
 
@@ -371,9 +367,7 @@ export async function validateAgentToken(token: string): Promise<string | null> 
       if (!warnedMissingTokenSha) {
         warnedMissingTokenSha = true;
         // eslint-disable-next-line no-console
-        console.warn(
-          '[db] agent_tokens.token_sha256 missing; run migrations to enable fast token validation'
-        );
+        console.warn('[db] agent_tokens.token_sha256 missing; run migrations to enable fast token validation');
       }
     } else {
       throw error;
@@ -412,20 +406,17 @@ export async function createAgentToken(hostId: string, token: string): Promise<v
 export async function upsertSession(hostId: string, session: SessionUpsert): Promise<Session> {
   const metadataProvided = session.metadata !== undefined;
   const idledAtProvided = session.idled_at !== undefined;
-  const resolvedRepoId =
-    session.repo_id ??
-    (session.git_remote || session.repo_root
-      ? ((
-          await resolveRepo({
-            git_remote: session.git_remote || null,
-            repo_root: session.repo_root || null,
-            host_id: hostId,
-            display_name: session.title || null,
-          })
-        )?.id ?? null)
+  const resolvedRepoId = session.repo_id
+    ?? (session.git_remote || session.repo_root
+      ? (await resolveRepo({
+          git_remote: session.git_remote || null,
+          repo_root: session.repo_root || null,
+          host_id: hostId,
+          display_name: session.title || null,
+        }))?.id ?? null
       : null);
   const result = await pool.query(
-    `INSERT INTO sessions (
+     `INSERT INTO sessions (
        id, host_id, user_id, repo_id, kind, provider, status, title, cwd, repo_root,
        git_remote, git_branch, tmux_pane_id, tmux_target, metadata, last_activity_at,
        group_id, forked_from, fork_depth, archived_at, idled_at
@@ -479,10 +470,7 @@ export async function upsertSession(hostId: string, session: SessionUpsert): Pro
   return result.rows[0];
 }
 
-export async function pruneHostSessions(
-  hostId: string,
-  activeSessionIds: string[]
-): Promise<number> {
+export async function pruneHostSessions(hostId: string, activeSessionIds: string[]): Promise<number> {
   const result = await pool.query(
     `UPDATE sessions
      SET archived_at = NOW(),
@@ -525,10 +513,7 @@ function buildSessionsFilter(filters?: SessionFilters): { where: string; params:
   if (filters?.status) {
     const statuses = Array.isArray(filters.status)
       ? filters.status
-      : filters.status
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean);
+      : filters.status.split(',').map((s) => s.trim()).filter(Boolean);
     if (statuses.length === 1) {
       query += ` AND status = $${paramIndex++}`;
       params.push(statuses[0]);
@@ -677,8 +662,14 @@ export async function getSessionWithSnapshot(id: string): Promise<{
        LIMIT 1`,
       [id, snapshotMaxChars]
     ),
-    pool.query(`SELECT * FROM events WHERE session_id = $1 ORDER BY ts DESC LIMIT 50`, [id]),
-    pool.query(`SELECT * FROM approvals WHERE session_id = $1 ORDER BY ts_requested DESC`, [id]),
+    pool.query(
+      `SELECT * FROM events WHERE session_id = $1 ORDER BY ts DESC LIMIT 50`,
+      [id]
+    ),
+    pool.query(
+      `SELECT * FROM approvals WHERE session_id = $1 ORDER BY ts_requested DESC`,
+      [id]
+    ),
   ]);
 
   return {
@@ -710,10 +701,7 @@ export async function getOrphanPanes(hostId: string): Promise<Session[]> {
 }
 
 // Adopt orphan panes (mark them as managed)
-export async function adoptOrphanPanes(
-  sessionIds: string[],
-  title?: string
-): Promise<{
+export async function adoptOrphanPanes(sessionIds: string[], title?: string): Promise<{
   adopted: string[];
   errors: Array<{ session_id: string; error: string }>;
 }> {
@@ -794,9 +782,10 @@ export async function insertSnapshot(
 
   if (existing.rows.length > 0) {
     // Return existing snapshot without inserting
-    const result = await pool.query(`SELECT * FROM session_snapshots WHERE id = $1`, [
-      existing.rows[0].id,
-    ]);
+    const result = await pool.query(
+      `SELECT * FROM session_snapshots WHERE id = $1`,
+      [existing.rows[0].id]
+    );
     return result.rows[0];
   }
 
@@ -806,7 +795,10 @@ export async function insertSnapshot(
      RETURNING *`,
     [sessionId, captureText, captureHash]
   );
-  await pool.query(`UPDATE sessions SET last_activity_at = NOW() WHERE id = $1`, [sessionId]);
+  await pool.query(
+    `UPDATE sessions SET last_activity_at = NOW() WHERE id = $1`,
+    [sessionId]
+  );
   return result.rows[0];
 }
 
@@ -863,7 +855,11 @@ export async function insertEvent(
   return result.rows[0];
 }
 
-export async function getEvents(sessionId: string, cursor?: number, limit = 50): Promise<Event[]> {
+export async function getEvents(
+  sessionId: string,
+  cursor?: number,
+  limit = 50
+): Promise<Event[]> {
   let query = `SELECT * FROM events WHERE session_id = $1`;
   const params: unknown[] = [sessionId];
   let paramIndex = 2;
@@ -1152,10 +1148,10 @@ export async function updateGroup(
 ): Promise<SessionGroupWithCount | null> {
   // Check for cycles if parent_id is being updated
   if (updates.parent_id !== undefined) {
-    const cycleCheck = await pool.query(`SELECT check_group_cycle($1, $2) as has_cycle`, [
-      id,
-      updates.parent_id,
-    ]);
+    const cycleCheck = await pool.query(
+      `SELECT check_group_cycle($1, $2) as has_cycle`,
+      [id, updates.parent_id]
+    );
     if (cycleCheck.rows[0]?.has_cycle) {
       throw new Error('Cannot set parent: would create a cycle in the group hierarchy');
     }
@@ -1215,28 +1211,34 @@ export async function updateGroup(
 
 export async function deleteGroup(id: string): Promise<void> {
   // Get the group's parent_id for reparenting children
-  const group = await pool.query(`SELECT parent_id FROM session_groups WHERE id = $1`, [id]);
+  const group = await pool.query(
+    `SELECT parent_id FROM session_groups WHERE id = $1`,
+    [id]
+  );
   const parentId = group.rows[0]?.parent_id || null;
 
   // Reparent sessions to parent group (or null)
-  await pool.query(`UPDATE sessions SET group_id = $2 WHERE group_id = $1`, [id, parentId]);
+  await pool.query(
+    `UPDATE sessions SET group_id = $2 WHERE group_id = $1`,
+    [id, parentId]
+  );
 
   // Reparent child groups to parent group (or null)
-  await pool.query(`UPDATE session_groups SET parent_id = $2 WHERE parent_id = $1`, [id, parentId]);
+  await pool.query(
+    `UPDATE session_groups SET parent_id = $2 WHERE parent_id = $1`,
+    [id, parentId]
+  );
 
   // Delete the group
   await pool.query(`DELETE FROM session_groups WHERE id = $1`, [id]);
 }
 
 // Project queries
-export async function getProjects(
-  userId: string,
-  filters?: {
-    host_id?: string;
-    q?: string;
-    limit?: number;
-  }
-): Promise<Project[]> {
+export async function getProjects(userId: string, filters?: {
+  host_id?: string;
+  q?: string;
+  limit?: number;
+}): Promise<Project[]> {
   let query = 'SELECT * FROM projects WHERE user_id = $1';
   const params: unknown[] = [userId];
   let paramIndex = 2;
@@ -1287,7 +1289,9 @@ export async function recordRecentLaunch(data: {
   title?: string | null;
   prompt?: string | null;
 }): Promise<RecentLaunch> {
-  const promptPreview = data.prompt?.trim() ? data.prompt.trim().slice(0, 160) : null;
+  const promptPreview = data.prompt?.trim()
+    ? data.prompt.trim().slice(0, 160)
+    : null;
   const result = await pool.query(
     `INSERT INTO recent_launches (
        user_id,
@@ -1322,13 +1326,10 @@ export async function recordRecentLaunch(data: {
   return result.rows[0];
 }
 
-export async function getRecentLaunches(
-  userId: string,
-  filters?: {
-    host_id?: string;
-    limit?: number;
-  }
-): Promise<RecentLaunch[]> {
+export async function getRecentLaunches(userId: string, filters?: {
+  host_id?: string;
+  limit?: number;
+}): Promise<RecentLaunch[]> {
   const params: unknown[] = [userId];
   let query = `
     SELECT id, host_id, provider, working_directory, tmux_target, title, launch_count, last_launched_at
@@ -1409,10 +1410,10 @@ export async function assignSessionGroup(
   sessionId: string,
   groupId: string | null
 ): Promise<Session | null> {
-  const result = await pool.query(`UPDATE sessions SET group_id = $2 WHERE id = $1 RETURNING *`, [
-    sessionId,
-    groupId,
-  ]);
+  const result = await pool.query(
+    `UPDATE sessions SET group_id = $2 WHERE id = $1 RETURNING *`,
+    [sessionId, groupId]
+  );
   if (result.rows[0]) {
     await pruneEmptyGroups();
     return result.rows[0];
@@ -1602,9 +1603,10 @@ export async function bulkDeleteSessions(sessionIds: string[]): Promise<BulkOper
     return { success_count: 0, error_count: 0, errors: [] };
   }
 
-  const result = await pool.query('DELETE FROM sessions WHERE id = ANY($1::uuid[]) RETURNING id', [
-    sessionIds,
-  ]);
+  const result = await pool.query(
+    'DELETE FROM sessions WHERE id = ANY($1::uuid[]) RETURNING id',
+    [sessionIds]
+  );
   const deletedIds = new Set(result.rows.map((row) => row.id as string));
   const errors = sessionIds
     .filter((id) => !deletedIds.has(id))
@@ -1655,9 +1657,10 @@ export async function bulkUnarchiveSessions(sessionIds: string[]): Promise<BulkO
 
 export async function archiveSessions(sessionIds: string[]): Promise<void> {
   if (sessionIds.length === 0) return;
-  await pool.query('UPDATE sessions SET archived_at = NOW() WHERE id = ANY($1::uuid[])', [
-    sessionIds,
-  ]);
+  await pool.query(
+    'UPDATE sessions SET archived_at = NOW() WHERE id = ANY($1::uuid[])',
+    [sessionIds]
+  );
   await pruneEmptyGroups();
 }
 
@@ -1738,9 +1741,10 @@ export interface SessionMetrics {
 }
 
 export async function getSessionMetrics(sessionId: string): Promise<SessionMetrics | null> {
-  const result = await pool.query('SELECT * FROM session_metrics WHERE session_id = $1', [
-    sessionId,
-  ]);
+  const result = await pool.query(
+    'SELECT * FROM session_metrics WHERE session_id = $1',
+    [sessionId]
+  );
   return result.rows[0] || null;
 }
 
@@ -1852,33 +1856,31 @@ export async function getLatestProviderUsage(filters?: {
   host_id?: string;
   session_id?: string;
   scope?: 'account' | 'session';
-}): Promise<
-  Array<{
-    provider: string;
-    host_id: string | null;
-    session_id: string | null;
-    scope: string;
-    reported_at: string;
-    raw_text: string | null;
-    raw_json: Record<string, unknown> | null;
-    remaining_tokens: number | null;
-    remaining_requests: number | null;
-    weekly_limit_tokens: number | null;
-    weekly_remaining_tokens: number | null;
-    weekly_remaining_cost_cents: number | null;
-    reset_at: string | null;
-    five_hour_utilization: number | null;
-    five_hour_reset_at: string | null;
-    weekly_utilization: number | null;
-    weekly_reset_at: string | null;
-    weekly_opus_utilization: number | null;
-    weekly_opus_reset_at: string | null;
-    weekly_sonnet_utilization: number | null;
-    weekly_sonnet_reset_at: string | null;
-    daily_utilization: number | null;
-    daily_reset_at: string | null;
-  }>
-> {
+}): Promise<Array<{
+  provider: string;
+  host_id: string | null;
+  session_id: string | null;
+  scope: string;
+  reported_at: string;
+  raw_text: string | null;
+  raw_json: Record<string, unknown> | null;
+  remaining_tokens: number | null;
+  remaining_requests: number | null;
+  weekly_limit_tokens: number | null;
+  weekly_remaining_tokens: number | null;
+  weekly_remaining_cost_cents: number | null;
+  reset_at: string | null;
+  five_hour_utilization: number | null;
+  five_hour_reset_at: string | null;
+  weekly_utilization: number | null;
+  weekly_reset_at: string | null;
+  weekly_opus_utilization: number | null;
+  weekly_opus_reset_at: string | null;
+  weekly_sonnet_utilization: number | null;
+  weekly_sonnet_reset_at: string | null;
+  daily_utilization: number | null;
+  daily_reset_at: string | null;
+}>> {
   let whereClause = 'WHERE 1=1';
   const params: (string | undefined)[] = [];
   let paramIndex = 1;
@@ -2038,12 +2040,9 @@ export async function updateApprovalMetrics(
   sessionId: string,
   action: 'requested' | 'granted' | 'denied'
 ): Promise<void> {
-  const column =
-    action === 'requested'
-      ? 'approvals_requested'
-      : action === 'granted'
-        ? 'approvals_granted'
-        : 'approvals_denied';
+  const column = action === 'requested' ? 'approvals_requested'
+    : action === 'granted' ? 'approvals_granted'
+    : 'approvals_denied';
 
   await pool.query(
     `INSERT INTO session_metrics (session_id, ${column})
@@ -2142,14 +2141,12 @@ export async function getAnalyticsSummary(filters?: {
 export async function getTokenUsageTimeSeries(
   sessionId: string,
   options?: { limit?: number }
-): Promise<
-  Array<{
-    timestamp: string;
-    tokens_in: number;
-    tokens_out: number;
-    tool_calls: number;
-  }>
-> {
+): Promise<Array<{
+  timestamp: string;
+  tokens_in: number;
+  tokens_out: number;
+  tool_calls: number;
+}>> {
   const limit = options?.limit || 100;
   const result = await pool.query(
     `SELECT
@@ -2186,7 +2183,9 @@ export interface WeeklyUsage {
 
 export async function getWeeklyUsage(): Promise<WeeklyUsage> {
   // Get the start of the current week (Monday)
-  const weekStartResult = await pool.query(`SELECT DATE_TRUNC('week', NOW())::DATE as week_start`);
+  const weekStartResult = await pool.query(
+    `SELECT DATE_TRUNC('week', NOW())::DATE as week_start`
+  );
   const weekStart = weekStartResult.rows[0]?.week_start || new Date().toISOString().split('T')[0];
 
   // Get daily breakdown for the week
@@ -2283,13 +2282,7 @@ export async function createSessionLink(
   sourceSessionId: string,
   targetSessionId: string,
   linkType: string
-): Promise<{
-  id: string;
-  source_session_id: string;
-  target_session_id: string;
-  link_type: string;
-  created_at: string;
-}> {
+): Promise<{ id: string; source_session_id: string; target_session_id: string; link_type: string; created_at: string }> {
   const result = await pool.query(
     `INSERT INTO session_links (source_session_id, target_session_id, link_type)
      VALUES ($1, $2, $3)
@@ -2332,20 +2325,20 @@ export async function getSessionLinks(sessionId: string): Promise<SessionLinkWit
 }
 
 export async function deleteSessionLink(linkId: string): Promise<boolean> {
-  const result = await pool.query('DELETE FROM session_links WHERE id = $1', [linkId]);
+  const result = await pool.query(
+    'DELETE FROM session_links WHERE id = $1',
+    [linkId]
+  );
   return (result.rowCount || 0) > 0;
 }
 
 export async function getSessionLinkById(
   linkId: string
-): Promise<{
-  id: string;
-  source_session_id: string;
-  target_session_id: string;
-  link_type: string;
-  created_at: string;
-} | null> {
-  const result = await pool.query('SELECT * FROM session_links WHERE id = $1', [linkId]);
+): Promise<{ id: string; source_session_id: string; target_session_id: string; link_type: string; created_at: string } | null> {
+  const result = await pool.query(
+    'SELECT * FROM session_links WHERE id = $1',
+    [linkId]
+  );
   return result.rows[0] || null;
 }
 
@@ -2366,10 +2359,7 @@ export async function listSessionContext(sessionId: string): Promise<SessionCont
   return result.rows;
 }
 
-export async function getSessionContext(
-  sessionId: string,
-  key: string
-): Promise<SessionContextItem | null> {
+export async function getSessionContext(sessionId: string, key: string): Promise<SessionContextItem | null> {
   const result = await pool.query(
     'SELECT * FROM session_context WHERE session_id = $1 AND key = $2',
     [sessionId, key]
@@ -2407,7 +2397,6 @@ export async function insertToolEventStart(payload: ToolEventStart): Promise<Too
   const result = await pool.query(
     `INSERT INTO tool_events (id, session_id, provider, tool_name, tool_input, started_at)
      VALUES ($1, $2, $3, $4, $5, $6)
-     ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
      RETURNING *`,
     [
       payload.event_id,
@@ -2500,7 +2489,10 @@ export interface Summary {
 }
 
 export async function getSummaryByCaptureHash(captureHash: string): Promise<Summary | null> {
-  const result = await pool.query('SELECT * FROM summaries WHERE capture_hash = $1', [captureHash]);
+  const result = await pool.query(
+    'SELECT * FROM summaries WHERE capture_hash = $1',
+    [captureHash]
+  );
   return result.rows[0] || null;
 }
 

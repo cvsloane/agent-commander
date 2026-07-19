@@ -18,7 +18,6 @@ import * as db from '../db/index.js';
 import * as automationDb from '../db/automationMemory.js';
 import { pubsub } from './pubsub.js';
 import { spawnSessionOnHost } from './sessionSpawn.js';
-import { isHostOnline } from './hostPresence.js';
 import { bootstrapSessionMemory, prepareSessionMemoryForSpawn } from './sessionMemory.js';
 import {
   recordAutomationRun,
@@ -60,7 +59,9 @@ type RuntimeResolution = {
 };
 
 function asObject(value: unknown): JsonObject {
-  return value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonObject) : {};
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as JsonObject)
+    : {};
 }
 
 function asPositiveInt(value: unknown): number | null {
@@ -85,12 +86,16 @@ function getConcurrencyPolicy(value: unknown): AutomationConcurrencyPolicy {
 
 function getSchedulerMode(value: unknown): AutomationSchedulerMode {
   const raw = asObject(value).scheduler_mode;
-  return raw === 'external' || raw === 'hybrid' || raw === 'native' ? raw : 'native';
+  return raw === 'external' || raw === 'hybrid' || raw === 'native'
+    ? raw
+    : 'native';
 }
 
 function getCatchUpPolicy(value: unknown): AutomationCatchUpPolicy {
   const raw = asObject(value).catch_up_policy;
-  return raw === 'enqueue_missed_with_cap' || raw === 'skip_missed' ? raw : 'skip_missed';
+  return raw === 'enqueue_missed_with_cap' || raw === 'skip_missed'
+    ? raw
+    : 'skip_missed';
 }
 
 function getMissedRunCap(value: unknown): number {
@@ -121,13 +126,10 @@ function getBudgetPolicy(value: unknown): BudgetPolicy {
 
 function hostAllowsSpawn(host: Host | null | undefined): boolean {
   const capabilities = asObject(host?.capabilities);
-  return Boolean(host) && capabilities.spawn !== false && isHostOnline(host!.id);
+  return Boolean(host) && capabilities.spawn !== false && pubsub.isAgentConnected(host!.id);
 }
 
-function providerSupport(
-  host: Host,
-  provider: SessionProvider
-): 'supported' | 'unsupported' | 'unknown' {
+function providerSupport(host: Host, provider: SessionProvider): 'supported' | 'unsupported' | 'unknown' {
   const capabilities = asObject(host.capabilities);
   const providers = asObject(capabilities.providers);
   if (Object.keys(providers).length === 0) {
@@ -169,7 +171,10 @@ function buildAppUrl(path: string): string {
   return `${config.APP_BASE_URL.replace(/\/+$/, '')}${path}`;
 }
 
-function buildRunLogRefs(input: { runId: string; sessionId?: string | null }): JsonObject {
+function buildRunLogRefs(input: {
+  runId: string;
+  sessionId?: string | null;
+}): JsonObject {
   const sessionPath = input.sessionId ? `/sessions/${input.sessionId}` : undefined;
   return {
     session_id: input.sessionId || null,
@@ -213,14 +218,7 @@ async function publishAutomationRun(run: AutomationRun, provider: string): Promi
   recordAutomationRun(run.status, provider);
 }
 
-function publishAutomationWakeup(
-  wakeup:
-    | automationDb.ClaimedAutomationWakeup
-    | Awaited<ReturnType<typeof automationDb.markAutomationWakeupStatus>>
-    | Awaited<ReturnType<typeof automationDb.requeueAutomationWakeup>>
-    | Awaited<ReturnType<typeof automationDb.coalesceAutomationWakeup>>
-    | Awaited<ReturnType<typeof automationDb.createAutomationWakeup>>
-): void {
+function publishAutomationWakeup(wakeup: automationDb.ClaimedAutomationWakeup | Awaited<ReturnType<typeof automationDb.markAutomationWakeupStatus>> | Awaited<ReturnType<typeof automationDb.requeueAutomationWakeup>> | Awaited<ReturnType<typeof automationDb.coalesceAutomationWakeup>> | Awaited<ReturnType<typeof automationDb.createAutomationWakeup>>): void {
   if (!wakeup) return;
   pubsub.publishAutomationWakeupUpdated(wakeup);
   recordAutomationWakeup(wakeup.status, wakeup.source);
@@ -243,9 +241,7 @@ async function appendRunEvent(input: {
 }
 
 async function tryAcquireSchedulerLock(): Promise<boolean> {
-  const result = await db.pool.query('SELECT pg_try_advisory_lock($1) AS locked', [
-    SCHEDULER_LOCK_KEY,
-  ]);
+  const result = await db.pool.query('SELECT pg_try_advisory_lock($1) AS locked', [SCHEDULER_LOCK_KEY]);
   return Boolean(result.rows[0]?.locked);
 }
 
@@ -253,9 +249,7 @@ async function releaseSchedulerLock(): Promise<void> {
   await db.pool.query('SELECT pg_advisory_unlock($1)', [SCHEDULER_LOCK_KEY]);
 }
 
-async function createGovernanceApproval(
-  input: Parameters<typeof automationDb.createGovernanceApproval>[0]
-): Promise<void> {
+async function createGovernanceApproval(input: Parameters<typeof automationDb.createGovernanceApproval>[0]): Promise<void> {
   const approval = await automationDb.createGovernanceApproval(input);
   pubsub.publishGovernanceApprovalUpdated(approval);
   recordGovernanceApproval(approval.status, approval.type);
@@ -377,19 +371,16 @@ async function selectExecutionHost(input: {
     return { host: fixedHost, issues };
   }
 
-  const repoHost =
-    input.repoLastHostId && input.repoLastHostId !== input.fixedHostId
-      ? await evaluateCandidate(input.repoLastHostId, 'repo_host')
-      : null;
+  const repoHost = input.repoLastHostId && input.repoLastHostId !== input.fixedHostId
+    ? await evaluateCandidate(input.repoLastHostId, 'repo_host')
+    : null;
   if (repoHost) {
     return { host: repoHost, issues };
   }
 
   const hosts = await db.getHosts();
   const candidates = hosts.filter((host) => hostAllowsSpawn(host));
-  const viable = candidates.filter(
-    (host) => providerSupport(host, input.provider) !== 'unsupported'
-  );
+  const viable = candidates.filter((host) => providerSupport(host, input.provider) !== 'unsupported');
 
   if (viable.length === 1) {
     const host = viable[0]!;
@@ -463,12 +454,11 @@ async function evaluateAutomationPreflightInternal(input: {
     issues.push(...hostSelection.issues);
   }
 
-  const cwd =
-    input.reusableSession?.cwd ||
-    input.reusableSession?.repo_root ||
-    input.defaultCwd ||
-    repo?.last_repo_root ||
-    null;
+  const cwd = input.reusableSession?.cwd
+    || input.reusableSession?.repo_root
+    || input.defaultCwd
+    || repo?.last_repo_root
+    || null;
 
   if (!cwd) {
     issues.push({
@@ -490,17 +480,13 @@ async function evaluateAutomationPreflightInternal(input: {
   return { preflight, repo, host, cwd, budget };
 }
 
-async function replaceRuntimeState(
-  input: Parameters<typeof automationDb.replaceAutomationRuntimeState>[0]
-): Promise<AutomationRuntimeState> {
+async function replaceRuntimeState(input: Parameters<typeof automationDb.replaceAutomationRuntimeState>[0]): Promise<AutomationRuntimeState> {
   const state = await automationDb.replaceAutomationRuntimeState(input);
   await publishRuntimeState(state);
   return state;
 }
 
-async function upsertRuntimeState(
-  input: Parameters<typeof automationDb.upsertAutomationRuntimeState>[0]
-): Promise<AutomationRuntimeState> {
+async function upsertRuntimeState(input: Parameters<typeof automationDb.upsertAutomationRuntimeState>[0]): Promise<AutomationRuntimeState> {
   const state = await automationDb.upsertAutomationRuntimeState(input);
   await publishRuntimeState(state);
   return state;
@@ -534,11 +520,10 @@ async function resolveRuntimeContext(input: {
       runtime_status: 'stale',
       state_json: {
         ...asObject(state.state_json),
-        stale_reason: !session
-          ? 'missing_session'
-          : !hostConnected
-            ? 'host_offline'
-            : 'provider_mismatch',
+        stale_reason:
+          !session ? 'missing_session'
+          : !hostConnected ? 'host_offline'
+          : 'provider_mismatch',
       },
       usage_rollup_json: asObject(state.usage_rollup_json),
     });
@@ -599,10 +584,7 @@ function workItemText(workItem: WorkItem | null): string | null {
   return `${workItem.title}\n${workItem.objective}`;
 }
 
-async function decorateAgent(
-  agent: AutomationAgent,
-  repoId?: string | null
-): Promise<AutomationAgent> {
+async function decorateAgent(agent: AutomationAgent, repoId?: string | null): Promise<AutomationAgent> {
   const effectiveRepoId = repoId ?? getPreferredRepoScope(agent);
   const [runtimeState, preflightResult] = await Promise.all([
     automationDb.getAutomationRuntimeState({
@@ -704,8 +686,9 @@ async function enqueueDueScheduledWakeups(logger: FastifyBaseLogger): Promise<vo
           repo_id: repoId || null,
         });
         const lastRequestedMs = lastRequestedAt ? new Date(lastRequestedAt).getTime() : 0;
-        const elapsedBuckets =
-          lastRequestedMs > 0 ? Math.floor((now - lastRequestedMs) / intervalMs) : 1;
+        const elapsedBuckets = lastRequestedMs > 0
+          ? Math.floor((now - lastRequestedMs) / intervalMs)
+          : 1;
         if (elapsedBuckets < 1) {
           continue;
         }
@@ -715,42 +698,36 @@ async function enqueueDueScheduledWakeups(logger: FastifyBaseLogger): Promise<vo
           repo_id: repoId || null,
         });
         if (queueDepth >= maxQueueDepth) {
-          logger.warn(
-            {
-              automationAgentId: row.id,
-              repoId: repoId || null,
-              queueDepth,
-              maxQueueDepth,
-            },
-            'Skipping scheduled wake enqueue because queue depth cap is reached'
-          );
+          logger.warn({
+            automationAgentId: row.id,
+            repoId: repoId || null,
+            queueDepth,
+            maxQueueDepth,
+          }, 'Skipping scheduled wake enqueue because queue depth cap is reached');
           continue;
         }
 
-        const dueCount =
-          catchUpPolicy === 'enqueue_missed_with_cap'
-            ? Math.min(elapsedBuckets, missedRunCap, maxQueueDepth - queueDepth)
-            : 1;
+        const dueCount = catchUpPolicy === 'enqueue_missed_with_cap'
+          ? Math.min(elapsedBuckets, missedRunCap, maxQueueDepth - queueDepth)
+          : 1;
         const currentBucket = Math.floor(now / intervalMs);
 
         for (let offset = dueCount - 1; offset >= 0; offset -= 1) {
           const bucket = currentBucket - offset;
-          const wakeup = await automationDb.createAutomationWakeup(
-            row.user_id as string,
-            row.id as string,
-            {
-              source: 'schedule',
-              repo_id: repoId,
-              idempotency_key: `schedule:${row.id}:${repoId ?? 'global'}:${bucket}`,
-              context_json: {
-                objective:
-                  typeof wakePolicy.objective === 'string' ? wakePolicy.objective : undefined,
-                scheduler_mode: schedulerMode,
-                catch_up_policy: catchUpPolicy,
-                schedule_bucket: bucket,
-              },
-            }
-          );
+          const wakeup = await automationDb.createAutomationWakeup(row.user_id as string, row.id as string, {
+            source: 'schedule',
+            repo_id: repoId,
+            idempotency_key: `schedule:${row.id}:${repoId ?? 'global'}:${bucket}`,
+            context_json: {
+              objective:
+                typeof wakePolicy.objective === 'string'
+                  ? wakePolicy.objective
+                  : undefined,
+              scheduler_mode: schedulerMode,
+              catch_up_policy: catchUpPolicy,
+              schedule_bucket: bucket,
+            },
+          });
           publishAutomationWakeup(wakeup);
         }
       }
@@ -779,44 +756,33 @@ async function cancelRunForWake(options: {
     payload: options.contextPatch,
   });
   const cancelled = await automationDb.updateAutomationRun(options.run.id, {
-    status:
-      options.wakeStatus === 'failed'
-        ? 'failed'
-        : options.wakeStatus === 'blocked'
-          ? 'blocked'
-          : 'cancelled',
+    status: options.wakeStatus === 'failed' ? 'failed' : options.wakeStatus === 'blocked' ? 'blocked' : 'cancelled',
     result_summary: options.summary,
     worker_report_json: buildRunWorkerReport({
       outcome: options.wakeStatus,
       summary: options.summary,
       wakeupId: options.wakeup.id,
-      followups: Array.isArray(options.run.pending_followups_json)
-        ? options.run.pending_followups_json
-        : [],
+      followups: Array.isArray(options.run.pending_followups_json) ? options.run.pending_followups_json : [],
     }),
-    log_ref_json: buildRunLogRefs({
-      runId: options.run.id,
-      sessionId: options.run.session_id || null,
-    }),
+    log_ref_json: buildRunLogRefs({ runId: options.run.id, sessionId: options.run.session_id || null }),
     ended_at: new Date().toISOString(),
   });
   if (cancelled) {
     await publishAutomationRun(cancelled, options.wakeup.agent_provider);
   }
-  const wakeup =
-    options.wakeStatus === 'coalesced'
-      ? await automationDb.coalesceAutomationWakeup(
-          options.wakeup.id,
-          typeof options.contextPatch?.coalesced_into_run_id === 'string'
-            ? options.contextPatch.coalesced_into_run_id
-            : options.run.id,
-          options.contextPatch
-        )
-      : await automationDb.markAutomationWakeupStatus(
-          options.wakeup.id,
-          options.wakeStatus,
-          options.contextPatch
-        );
+  const wakeup = options.wakeStatus === 'coalesced'
+    ? await automationDb.coalesceAutomationWakeup(
+        options.wakeup.id,
+        typeof options.contextPatch?.coalesced_into_run_id === 'string'
+          ? options.contextPatch.coalesced_into_run_id
+          : options.run.id,
+        options.contextPatch
+      )
+    : await automationDb.markAutomationWakeupStatus(
+        options.wakeup.id,
+        options.wakeStatus,
+        options.contextPatch
+      );
   publishAutomationWakeup(wakeup);
 }
 
@@ -840,8 +806,7 @@ async function processWakeup(
     runtime.busySession ? 1 : 0
   );
 
-  const { objective, workItem: previewWorkItem } =
-    await automationDb.buildObjectiveFromWake(wakeup);
+  const { objective, workItem: previewWorkItem } = await automationDb.buildObjectiveFromWake(wakeup);
 
   if (activeRunForScope) {
     if (policy === 'coalesce_if_active') {
@@ -861,14 +826,10 @@ async function processWakeup(
         });
         pubsub.publishAutomationRunUpdated(updatedRun);
       }
-      const coalescedWake = await automationDb.coalesceAutomationWakeup(
-        wakeup.id,
-        activeRunForScope.id,
-        {
-          reason: 'active_run',
-          coalesced_into_run_id: activeRunForScope.id,
-        }
-      );
+      const coalescedWake = await automationDb.coalesceAutomationWakeup(wakeup.id, activeRunForScope.id, {
+        reason: 'active_run',
+        coalesced_into_run_id: activeRunForScope.id,
+      });
       publishAutomationWakeup(coalescedWake);
       return;
     }
@@ -926,19 +887,18 @@ async function processWakeup(
   let workItem = previewWorkItem;
   if (wakeup.agent_role === 'worker') {
     const context = asObject(wakeup.context_json);
-    const checkedOut =
-      typeof context.work_item_id === 'string'
-        ? await automationDb.checkoutWorkItem({
-            work_item_id: context.work_item_id,
-            agent_id: wakeup.automation_agent_id,
-            run_id: initialRun.id,
-          })
-        : await automationDb.claimNextWorkItemForAgent({
-            user_id: wakeup.agent_user_id,
-            agent_id: wakeup.automation_agent_id,
-            run_id: initialRun.id,
-            repo_id: wakeup.repo_id || null,
-          });
+    const checkedOut = typeof context.work_item_id === 'string'
+      ? await automationDb.checkoutWorkItem({
+          work_item_id: context.work_item_id,
+          agent_id: wakeup.automation_agent_id,
+          run_id: initialRun.id,
+        })
+      : await automationDb.claimNextWorkItemForAgent({
+          user_id: wakeup.agent_user_id,
+          agent_id: wakeup.automation_agent_id,
+          run_id: initialRun.id,
+          repo_id: wakeup.repo_id || null,
+        });
 
     if (!checkedOut && !context.objective) {
       await cancelRunForWake({
@@ -987,16 +947,14 @@ async function processWakeup(
   }
 
   if (preflight.preflight.status === 'blocked') {
-    const primaryIssue =
-      preflight.preflight.issues.find(
-        (issue: AutomationPreflightIssue) => issue.level === 'error'
-      ) || null;
-    const approvalType =
-      primaryIssue?.code === 'budget_exceeded'
-        ? 'budget_override'
-        : primaryIssue?.code === 'missing_working_directory'
-          ? 'scope_escalation'
-          : 'host_selection';
+    const primaryIssue = preflight.preflight.issues.find(
+      (issue: AutomationPreflightIssue) => issue.level === 'error'
+    ) || null;
+    const approvalType = primaryIssue?.code === 'budget_exceeded'
+      ? 'budget_override'
+      : primaryIssue?.code === 'missing_working_directory'
+        ? 'scope_escalation'
+        : 'host_selection';
     const summary = primaryIssue?.message || 'Automation preflight failed.';
 
     await appendRunEvent({
@@ -1070,10 +1028,7 @@ async function processWakeup(
           global: bootstrapped.globalEntryIds,
           reused_session_id: runtime.reusableSession.id,
         },
-        log_ref_json: buildRunLogRefs({
-          runId: initialRun.id,
-          sessionId: runtime.reusableSession.id,
-        }),
+        log_ref_json: buildRunLogRefs({ runId: initialRun.id, sessionId: runtime.reusableSession.id }),
       });
       if (updatedRun) {
         await publishAutomationRun(updatedRun, wakeup.agent_provider);
@@ -1309,9 +1264,9 @@ async function syncActiveRuns(logger: FastifyBaseLogger): Promise<void> {
 
     const startedAt = run.started_at ? new Date(run.started_at).getTime() : 0;
     const settledIdle =
-      (session.status === 'WAITING_FOR_INPUT' || session.status === 'IDLE') &&
-      startedAt > 0 &&
-      now - startedAt >= RUN_IDLE_COMPLETION_GRACE_MS;
+      (session.status === 'WAITING_FOR_INPUT' || session.status === 'IDLE')
+      && startedAt > 0
+      && now - startedAt >= RUN_IDLE_COMPLETION_GRACE_MS;
     const terminal = session.status === 'DONE' || session.status === 'ERROR' || settledIdle;
     if (!terminal) {
       continue;
@@ -1398,10 +1353,7 @@ async function syncFinishedSessionsToMemory(logger: FastifyBaseLogger): Promise<
         logger.info({ sessionId: session.id }, 'Ingested finished session into memory');
       }
     } catch (error) {
-      logger.error(
-        { error, sessionId: session.id },
-        'Failed to ingest finished session into memory'
-      );
+      logger.error({ error, sessionId: session.id }, 'Failed to ingest finished session into memory');
     }
   }
 }
@@ -1422,15 +1374,13 @@ async function reconcileRuntimeStates(logger: FastifyBaseLogger): Promise<void> 
           active_host_id: null,
           last_session_id: session?.id || state.last_session_id || state.active_session_id || null,
           last_run_id: state.last_run_id || null,
-          runtime_status:
-            !session || !hostConnected ? 'stale' : session.status === 'ERROR' ? 'error' : 'idle',
+          runtime_status: !session || !hostConnected ? 'stale' : session.status === 'ERROR' ? 'error' : 'idle',
           state_json: {
             ...asObject(state.state_json),
-            reconciliation_reason: !session
-              ? 'missing_session'
-              : !hostConnected
-                ? 'host_offline'
-                : session.status.toLowerCase(),
+            reconciliation_reason:
+              !session ? 'missing_session'
+              : !hostConnected ? 'host_offline'
+              : session.status.toLowerCase(),
           },
           usage_rollup_json: asObject(state.usage_rollup_json),
         });

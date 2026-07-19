@@ -41,11 +41,3 @@ export const AgentHostInfoSchema = z.object({
   capabilities: HostCapabilitiesSchema,
 });
 export type AgentHostInfo = z.infer<typeof AgentHostInfoSchema>;
-
-// In-memory control-plane presence for a connected host.
-export const HostPresenceSchema = z.object({
-  host_id: z.string().uuid(),
-  online: z.boolean(),
-  last_heartbeat_at: z.string().datetime({ offset: true }).nullable(),
-});
-export type HostPresence = z.infer<typeof HostPresenceSchema>;

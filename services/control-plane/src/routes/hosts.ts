@@ -7,7 +7,6 @@ import * as db from '../db/index.js';
 import { hasRole } from '../auth/rbac.js';
 import { pubsub } from '../services/pubsub.js';
 import { commandRouter } from '../services/commandRouter.js';
-import { getHostPresence, isHostOnline } from '../services/hostPresence.js';
 
 const HOME_SENTINEL = '/__home__';
 
@@ -51,30 +50,19 @@ const CreateHostSchema = z.object({
   capabilities: z.record(z.unknown()).optional(),
 });
 
-const UpdateHostCapabilitiesSchema = z
-  .object({
-    capabilities: z
-      .object({
-        list_directory: z.boolean().optional(),
-        list_directory_roots: z.array(z.string().min(1)).optional(),
-        list_directory_show_hidden: z.boolean().optional(),
-      })
-      .strict(),
-  })
-  .strict();
+const UpdateHostCapabilitiesSchema = z.object({
+  capabilities: z.object({
+    list_directory: z.boolean().optional(),
+    list_directory_roots: z.array(z.string().min(1)).optional(),
+    list_directory_show_hidden: z.boolean().optional(),
+  }).strict(),
+}).strict();
 
 export function registerHostRoutes(app: FastifyInstance): void {
   // GET /v1/hosts - List all hosts
   app.get('/v1/hosts', async () => {
     const hosts = await db.getHosts();
-    const presence = new Map(getHostPresence().map((item) => [item.host_id, item]));
-    return {
-      hosts: hosts.map((host) => ({
-        ...host,
-        online: presence.get(host.id)?.online ?? false,
-        last_heartbeat_at: presence.get(host.id)?.last_heartbeat_at ?? null,
-      })),
-    };
+    return { hosts };
   });
 
   // POST /v1/hosts - Create host + token (admin only)
@@ -118,57 +106,54 @@ export function registerHostRoutes(app: FastifyInstance): void {
       return reply.status(404).send({ error: 'Host not found' });
     }
 
-    return { host: { ...host, online: isHostOnline(host.id) } };
+    return { host };
   });
 
   // PATCH /v1/hosts/:id - Update host capabilities (admin only)
-  app.patch<{ Params: { id: string }; Body: unknown }>('/v1/hosts/:id', async (request, reply) => {
-    if (!request.user || !hasRole(request.user, 'admin')) {
-      return reply.status(403).send({ error: 'Forbidden' });
-    }
+  app.patch<{ Params: { id: string }; Body: unknown }>(
+    '/v1/hosts/:id',
+    async (request, reply) => {
+      if (!request.user || !hasRole(request.user, 'admin')) {
+        return reply.status(403).send({ error: 'Forbidden' });
+      }
 
-    const { id } = request.params;
+      const { id } = request.params;
 
-    if (!z.string().uuid().safeParse(id).success) {
-      return reply.status(400).send({ error: 'Invalid host ID' });
-    }
+      if (!z.string().uuid().safeParse(id).success) {
+        return reply.status(400).send({ error: 'Invalid host ID' });
+      }
 
-    const body = UpdateHostCapabilitiesSchema.safeParse(request.body);
-    if (!body.success) {
-      return reply.status(400).send({ error: 'Invalid request body', details: body.error });
-    }
+      const body = UpdateHostCapabilitiesSchema.safeParse(request.body);
+      if (!body.success) {
+        return reply.status(400).send({ error: 'Invalid request body', details: body.error });
+      }
 
-    const host = await db.getHostById(id);
-    if (!host) {
-      return reply.status(404).send({ error: 'Host not found' });
-    }
+      const host = await db.getHostById(id);
+      if (!host) {
+        return reply.status(404).send({ error: 'Host not found' });
+      }
 
-    const currentCaps = (host.capabilities || {}) as Record<string, unknown>;
-    const nextCaps = { ...currentCaps, ...body.data.capabilities };
+      const currentCaps = (host.capabilities || {}) as Record<string, unknown>;
+      const nextCaps = { ...currentCaps, ...body.data.capabilities };
 
-    if (Array.isArray(body.data.capabilities.list_directory_roots)) {
-      nextCaps.list_directory_roots = body.data.capabilities.list_directory_roots
-        .map((root) => root.trim())
-        .filter((root) => root.length > 0);
-    }
+      if (Array.isArray(body.data.capabilities.list_directory_roots)) {
+        nextCaps.list_directory_roots = body.data.capabilities.list_directory_roots
+          .map((root) => root.trim())
+          .filter((root) => root.length > 0);
+      }
 
-    const updatedHost = await db.updateHostCapabilities(id, nextCaps);
-    if (!updatedHost) {
-      return reply.status(404).send({ error: 'Host not found' });
-    }
+      const updatedHost = await db.updateHostCapabilities(id, nextCaps);
+      if (!updatedHost) {
+        return reply.status(404).send({ error: 'Host not found' });
+      }
 
-    await db.createAuditLog(
-      'host.capabilities.update',
-      'host',
-      id,
-      {
+      await db.createAuditLog('host.capabilities.update', 'host', id, {
         capabilities: body.data.capabilities,
-      },
-      request.user.id
-    );
+      }, request.user.id);
 
-    return { host: updatedHost };
-  });
+      return { host: updatedHost };
+    }
+  );
 
   // POST /v1/hosts/:id/token - Generate new agent token
   app.post<{ Params: { id: string } }>('/v1/hosts/:id/token', async (request, reply) => {
@@ -268,17 +253,11 @@ export function registerHostRoutes(app: FastifyInstance): void {
       const result = await db.adoptOrphanPanes(bodyResult.data.session_ids, bodyResult.data.title);
 
       // Log audit
-      await db.createAuditLog(
-        'host.adopt_panes',
-        'host',
-        hostId,
-        {
-          session_ids: bodyResult.data.session_ids,
-          adopted: result.adopted,
-          errors: result.errors,
-        },
-        request.user.id
-      );
+      await db.createAuditLog('host.adopt_panes', 'host', hostId, {
+        session_ids: bodyResult.data.session_ids,
+        adopted: result.adopted,
+        errors: result.errors,
+      }, request.user.id);
 
       // Broadcast updates for adopted sessions
       if (result.adopted.length > 0) {
@@ -298,10 +277,7 @@ export function registerHostRoutes(app: FastifyInstance): void {
   // GET /v1/hosts/:id/directories - List directory contents on host
   const DirectoryQuerySchema = z.object({
     path: z.string().min(1),
-    show_hidden: z
-      .string()
-      .transform((v) => v === 'true')
-      .optional(),
+    show_hidden: z.string().transform((v) => v === 'true').optional(),
   });
 
   app.get<{ Params: { id: string }; Querystring: unknown }>(
@@ -319,9 +295,7 @@ export function registerHostRoutes(app: FastifyInstance): void {
 
       const queryResult = DirectoryQuerySchema.safeParse(request.query);
       if (!queryResult.success) {
-        return reply
-          .status(400)
-          .send({ error: 'Invalid query parameters', details: queryResult.error });
+        return reply.status(400).send({ error: 'Invalid query parameters', details: queryResult.error });
       }
 
       const host = await db.getHostById(id);
@@ -349,20 +323,24 @@ export function registerHostRoutes(app: FastifyInstance): void {
       }
 
       // Check if agent is connected
-      if (!isHostOnline(id)) {
+      if (!pubsub.isAgentConnected(id)) {
         return reply.status(503).send({ error: 'Host is offline' });
       }
 
       const cmdId = ulid();
 
       try {
-        const result = await commandRouter.dispatchHostAndWait(id, cmdId, {
-          type: 'list_directory',
-          payload: {
-            path: requestedPath,
-            show_hidden: show_hidden ?? false,
-          },
-        });
+        const result = await commandRouter.dispatchHostAndWait(
+          id,
+          cmdId,
+          {
+            type: 'list_directory',
+            payload: {
+              path: requestedPath,
+              show_hidden: show_hidden ?? false,
+            },
+          }
+        );
 
         if (!result.ok) {
           return reply.status(500).send({
@@ -380,15 +358,13 @@ export function registerHostRoutes(app: FastifyInstance): void {
         }
 
         // Validate each entry
-        const validatedEntries = entries
-          .map((entry) => {
-            const parsed = DirectoryEntrySchema.safeParse(entry);
-            if (!parsed.success) {
-              return null;
-            }
-            return parsed.data;
-          })
-          .filter(Boolean);
+        const validatedEntries = entries.map((entry) => {
+          const parsed = DirectoryEntrySchema.safeParse(entry);
+          if (!parsed.success) {
+            return null;
+          }
+          return parsed.data;
+        }).filter(Boolean);
 
         return {
           entries: validatedEntries,

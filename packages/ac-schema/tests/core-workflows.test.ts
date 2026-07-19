@@ -5,12 +5,10 @@ import {
   AutomationRunSchema,
   CreateWorkItemSchema,
   MemorySearchQuerySchema,
-  ServerToUIMessageSchema,
   TmuxPaneIdentitySchema,
   UpsertAutomationAgentSchema,
   UpsertMemoryEntrySchema,
   WorkItemsQuerySchema,
-  UISubscribeMessageSchema,
 } from '../src/index.js';
 
 const uuid = '11111111-1111-4111-8111-111111111111';
@@ -35,44 +33,12 @@ describe('approval schemas', () => {
   });
 });
 
-describe('host presence schemas', () => {
-  it('accepts additive hosts subscriptions and presence change messages', () => {
-    expect(
-      UISubscribeMessageSchema.safeParse({
-        v: 1,
-        type: 'ui.subscribe',
-        ts: '2026-07-19T16:00:00.000Z',
-        payload: { topics: [{ type: 'hosts' }] },
-      }).success
-    ).toBe(true);
-
-    const parsed = ServerToUIMessageSchema.parse({
-      v: 1,
-      type: 'hosts.changed',
-      ts: '2026-07-19T16:00:00.000Z',
-      payload: {
-        hosts: [
-          {
-            host_id: uuid,
-            online: true,
-            last_heartbeat_at: '2026-07-19T16:00:00.000Z',
-          },
-        ],
-      },
-    });
-
-    expect(parsed.type).toBe('hosts.changed');
-  });
-});
-
 describe('memory schemas', () => {
   it('bounds memory search limits for operator queries', () => {
     const parsed = MemorySearchQuerySchema.parse({ q: 'approval policy', limit: '25' });
 
     expect(parsed.limit).toBe(25);
-    expect(MemorySearchQuerySchema.safeParse({ q: 'approval policy', limit: 101 }).success).toBe(
-      false
-    );
+    expect(MemorySearchQuerySchema.safeParse({ q: 'approval policy', limit: 101 }).success).toBe(false);
   });
 
   it('requires durable memory content and confidence in range', () => {
@@ -117,16 +83,14 @@ describe('tmux schemas', () => {
       pane_index: 1,
     });
 
-    expect(
-      TmuxPaneIdentitySchema.safeParse({
-        pane_id: '',
-        target: 'agents:0.1',
-        session_name: 'agents',
-        window_name: 'agent-command',
-        window_index: -1,
-        pane_index: 1,
-      }).success
-    ).toBe(false);
+    expect(TmuxPaneIdentitySchema.safeParse({
+      pane_id: '',
+      target: 'agents:0.1',
+      session_name: 'agents',
+      window_name: 'agent-command',
+      window_index: -1,
+      pane_index: 1,
+    }).success).toBe(false);
   });
 });
 
