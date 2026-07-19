@@ -10,10 +10,15 @@ type Config struct {
 	Host         HostConfig         `yaml:"host"`
 	ControlPlane ControlPlaneConfig `yaml:"control_plane"`
 	Tmux         TmuxConfig         `yaml:"tmux"`
+	Terminal     TerminalConfig     `yaml:"terminal"`
 	Spawn        SpawnConfig        `yaml:"spawn"`
 	Security     SecurityConfig     `yaml:"security"`
 	Providers    ProvidersConfig    `yaml:"providers"`
 	Storage      StorageConfig      `yaml:"storage"`
+}
+
+type TerminalConfig struct {
+	PerViewerPTY bool `yaml:"per_viewer_pty"`
 }
 
 type HostConfig struct {
@@ -115,7 +120,7 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 
-	var cfg Config
+	cfg := Config{Terminal: TerminalConfig{PerViewerPTY: true}}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}

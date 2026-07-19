@@ -458,8 +458,11 @@ func (a *Agent) Run() error {
 
 	// Initialize terminal manager
 	a.terminalManager = tmux.NewTerminalManager(a.tmuxClient, a.cfg.Storage.StateDir)
+	a.terminalManager.SetPerViewerPTY(a.cfg.Terminal.PerViewerPTY)
 	a.terminalManager.SetOutputHandler(a.handleTerminalOutput)
 	a.terminalManager.SetStatusHandler(a.handleTerminalStatus)
+	a.terminalManager.SetAuditHandler(a.handleTerminalAudit)
+	a.terminalManager.Start()
 
 	// Initialize pipe mux for console + terminal output
 	a.pipeMux = tmux.NewPipeMux(a.tmuxClient, a.cfg.Storage.StateDir+"/console")
@@ -5245,16 +5248,24 @@ func hashString(value string) string {
 
 func (a *Agent) handleTerminalAttach(payload json.RawMessage) {
 	var req struct {
-		ChannelID string `json:"channel_id"`
-		PaneID    string `json:"pane_id"`
-		SessionID string `json:"session_id"`
+		ChannelID   string `json:"channel_id"`
+		PaneID      string `json:"pane_id"`
+		SessionID   string `json:"session_id"`
+		Cols        int    `json:"cols,omitempty"`
+		Rows        int    `json:"rows,omitempty"`
+		ResumeToken string `json:"resume_token,omitempty"`
 	}
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse terminal.attach: %v", err)
 		return
 	}
 
-	fifoPath, first, err := a.terminalManager.Attach(req.ChannelID, req.PaneID, req.SessionID)
+	result, err := a.terminalManager.AttachWithOptions(req.ChannelID, req.PaneID, tmux.AttachOptions{
+		SessionID:   req.SessionID,
+		Cols:        req.Cols,
+		Rows:        req.Rows,
+		ResumeToken: req.ResumeToken,
+	})
 	if err != nil {
 		log.Printf("Failed to attach terminal: %v", err)
 		a.send("terminal.error", map[string]any{
@@ -5265,11 +5276,11 @@ func (a *Agent) handleTerminalAttach(payload json.RawMessage) {
 	}
 
 	// Check if using PTY mode (fifoPath is empty in PTY mode)
-	isPTYMode := fifoPath == ""
+	isPTYMode := result.PTY
 
 	// If using FIFO mode and this is the first viewer, enable terminal output in pipe mux
-	if !isPTYMode && first {
-		if err := a.pipeMux.SetTerminal(req.PaneID, fifoPath, true); err != nil {
+	if !isPTYMode && result.First {
+		if err := a.pipeMux.SetTerminal(req.PaneID, result.FIFOPath, true); err != nil {
 			log.Printf("Failed to enable terminal output: %v", err)
 			a.send("terminal.error", map[string]any{
 				"channel_id": req.ChannelID,
@@ -5288,8 +5299,22 @@ func (a *Agent) handleTerminalAttach(payload json.RawMessage) {
 		}); err != nil {
 			log.Printf("Failed to capture pane for terminal attach: %v", err)
 		} else if text != "" {
-			a.handleTerminalOutput(req.ChannelID, []byte(text))
+			a.handleTerminalOutput(req.ChannelID, base64.StdEncoding.EncodeToString([]byte(text)))
 		}
+	}
+	attachedPayload := map[string]any{
+		"channel_id": req.ChannelID,
+		"readonly":   result.ReadOnly,
+		"resumed":    result.Resumed,
+	}
+	if result.ResumeToken != "" {
+		attachedPayload["resume_token"] = result.ResumeToken
+	}
+	a.send("terminal.attached", attachedPayload)
+	if result.ReadOnly {
+		a.handleTerminalStatus(req.ChannelID, "readonly", "Read-only: another viewer has control")
+	} else {
+		a.handleTerminalStatus(req.ChannelID, "control", "Control granted")
 	}
 
 	log.Printf("Terminal attached: channel=%s pane=%s mode=%s", req.ChannelID, req.PaneID, map[bool]string{true: "PTY", false: "FIFO"}[isPTYMode])
@@ -5365,11 +5390,11 @@ func (a *Agent) handleTerminalDetach(payload json.RawMessage) {
 	}
 }
 
-func (a *Agent) handleTerminalOutput(channelID string, data []byte) {
+func (a *Agent) handleTerminalOutput(channelID, encodedData string) {
 	a.send("terminal.output", map[string]any{
 		"channel_id": channelID,
 		"encoding":   "base64",
-		"data":       base64.StdEncoding.EncodeToString(data),
+		"data":       encodedData,
 	})
 }
 
@@ -5382,4 +5407,18 @@ func (a *Agent) handleTerminalStatus(channelID, status, message string) {
 		payload["message"] = message
 	}
 	a.send(msgType, payload)
+}
+
+func (a *Agent) handleTerminalAudit(event tmux.TerminalAuditEvent) {
+	payload := map[string]any{
+		"event_type": "terminal.audit",
+		"action":     event.Action,
+		"channel_id": event.ChannelID,
+		"session_id": event.SessionID,
+		"pane_id":    event.PaneID,
+	}
+	if event.PreviousControllerChannelID != "" {
+		payload["previous_controller_channel_id"] = event.PreviousControllerChannelID
+	}
+	a.send("terminal.audit", payload)
 }

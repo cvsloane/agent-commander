@@ -19,6 +19,11 @@ tmux:
   snapshot_max_bytes: 65536
   option_session_id: "@ac_session_id"
 
+terminal:
+  # Isolate each browser viewer in a grouped tmux session. Set false to use
+  # the legacy shared PTY bridge.
+  per_viewer_pty: true
+
 spawn:
   tmux_session_name: "agents"
   default_shell: "/bin/bash"
