@@ -18,6 +18,18 @@ Branch: `refactor/wave1-agentd`
 - Added focused queue and WebSocket tests, including fake-server reconnect/replay coverage.
 - Focused checkpoint: `go test ./internal/queue ./internal/ws ./cmd/agentd` passed.
 
+## Command, polling, hook, and observability paths
+
+- Added a four-worker command executor with in-memory per-session FIFO queues. `commands.dispatch` now returns immediately from the WebSocket reader after enqueueing.
+- The executor owns result construction and deduplicates accepted `cmd_id` values. `capture_pane` now returns its capture payload to the executor instead of sending a second result itself.
+- `list-panes` now includes the configured session option (`@ac_session_id` by default); both daemon polling and the `sessions` CLI use the parsed value without per-pane option subprocesses.
+- Tmux option writes plus git metadata/status resolution occur before the polling mutation lock. Session updates are cloned and sent after releasing `sessionsMu`. The adopt path also no longer holds `sessionsMu` over a tmux subprocess.
+- Unknown-pane Claude/Codex hooks are buffered for at least one configured poll cycle (minimum five seconds), retried after polling, and explicitly logged when they expire unmatched.
+- Added `Agent.send`, which logs every send error and increments `agentd_message_drops_total{type=...}`. All agent send call sites now use it.
+- The single build-stampable `Version` variable is used by CLI/status/hello and supports `-ldflags "-X main.Version=..."`.
+- Added command executor, hook buffering, and tmux pane parsing tests.
+- Focused checkpoints passed: `go test ./...` and `go test -race ./internal/commands ./internal/queue ./internal/ws ./cmd/agentd`.
+
 ## Final gate
 
 Pending.
