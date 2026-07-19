@@ -57,6 +57,14 @@ export type ClaimedAutomationWakeup = AutomationWakeup & {
   active_run_count?: number;
 };
 
+export type StaleRunningAutomationWakeup = AutomationWakeup & {
+  automation_run_id: string | null;
+};
+
+export type StaleStartingAutomationRun = AutomationRun & {
+  wakeup_context_json: JsonObject;
+};
+
 let vectorColumnSupport: Promise<boolean> | null = null;
 
 function asJson(value: unknown): JsonObject {
@@ -836,6 +844,12 @@ export async function claimNextAutomationWakeup(): Promise<ClaimedAutomationWake
        JOIN automation_agents a ON a.id = w.automation_agent_id
        WHERE w.status = 'queued'
          AND a.status = 'active'
+         AND CASE
+           WHEN jsonb_typeof(w.context_json->'automation_deferred_until_ms') = 'number'
+             THEN (w.context_json->>'automation_deferred_until_ms')::numeric
+               <= EXTRACT(EPOCH FROM NOW()) * 1000
+           ELSE TRUE
+         END
          AND NOT (
            COALESCE(a.wake_policy_json->>'concurrency_policy', 'coalesce_if_active') = 'always_enqueue'
            AND (
@@ -1039,6 +1053,25 @@ export async function updateAutomationRun(
   return result.rows[0] || null;
 }
 
+export async function attachAutomationRunSession(input: {
+  id: string;
+  session_id: string;
+  log_ref_json: JsonObject;
+}): Promise<AutomationRun | null> {
+  const result = await pool.query(
+    `UPDATE automation_runs
+     SET session_id = $2,
+         status = 'running',
+         log_ref_json = $3
+     WHERE id = $1
+       AND status = 'starting'
+       AND session_id IS NULL
+     RETURNING *`,
+    [input.id, input.session_id, JSON.stringify(input.log_ref_json)]
+  );
+  return result.rows[0] || null;
+}
+
 export async function getAutomationRunById(
   userId: string,
   runId: string
@@ -1149,6 +1182,19 @@ export async function countActiveAutomationRuns(automationAgentId: string): Prom
   return result.rows[0]?.count ?? 0;
 }
 
+export async function countActiveAutomationRunsByHost(): Promise<Record<string, number>> {
+  const result = await pool.query(
+    `SELECT s.host_id, COUNT(*)::int AS count
+     FROM automation_runs ar
+     JOIN sessions s ON s.id = ar.session_id
+     WHERE ar.status IN ('starting', 'running')
+     GROUP BY s.host_id`
+  );
+  return Object.fromEntries(
+    result.rows.map((row) => [row.host_id as string, Number(row.count) || 0])
+  );
+}
+
 export async function listAutomationRuns(userId: string, filters?: {
   automation_agent_id?: string;
   status?: string;
@@ -1253,6 +1299,95 @@ export async function listActiveAutomationRuns(): Promise<AutomationRun[]> {
      ORDER BY started_at`
   );
   return result.rows;
+}
+
+export async function listStaleStartingAutomationRuns(
+  startedBefore: string
+): Promise<StaleStartingAutomationRun[]> {
+  const result = await pool.query(
+    `SELECT ar.*, w.context_json AS wakeup_context_json
+     FROM automation_runs ar
+     JOIN automation_wakeups w ON w.id = ar.wakeup_id
+     WHERE ar.status = 'starting'
+       AND ar.session_id IS NULL
+       AND ar.started_at <= $1
+     ORDER BY ar.started_at`,
+    [startedBefore]
+  );
+  return result.rows;
+}
+
+export async function failStaleStartingAutomationRun(input: {
+  id: string;
+  started_before: string;
+  summary: string;
+}): Promise<AutomationRun | null> {
+  const result = await pool.query(
+    `UPDATE automation_runs
+     SET status = 'failed',
+         result_summary = $3,
+         ended_at = NOW()
+     WHERE id = $1
+       AND status = 'starting'
+       AND session_id IS NULL
+       AND started_at <= $2
+     RETURNING *`,
+    [input.id, input.started_before, input.summary]
+  );
+  return result.rows[0] || null;
+}
+
+export async function listStaleRunningAutomationWakeups(
+  claimedBefore: string
+): Promise<StaleRunningAutomationWakeup[]> {
+  const result = await pool.query(
+    `SELECT w.*, latest_run.id AS automation_run_id
+     FROM automation_wakeups w
+     LEFT JOIN LATERAL (
+       SELECT ar.id
+       FROM automation_runs ar
+       WHERE ar.wakeup_id = w.id
+       ORDER BY ar.started_at DESC
+       LIMIT 1
+     ) latest_run ON TRUE
+     WHERE w.status = 'running'
+       AND w.claimed_at <= $1
+       AND NOT EXISTS (
+         SELECT 1
+         FROM automation_runs active_run
+         WHERE active_run.wakeup_id = w.id
+           AND active_run.status IN ('starting', 'running')
+       )
+     ORDER BY w.claimed_at`,
+    [claimedBefore]
+  );
+  return result.rows;
+}
+
+export async function recoverRunningAutomationWakeup(input: {
+  id: string;
+  status: 'queued' | 'failed';
+  contextPatch: JsonObject;
+  claimed_before?: string;
+}): Promise<AutomationWakeup | null> {
+  const result = await pool.query(
+    `UPDATE automation_wakeups
+     SET status = $2,
+         claimed_at = CASE WHEN $2 = 'queued' THEN NULL ELSE claimed_at END,
+         finished_at = CASE WHEN $2 = 'failed' THEN NOW() ELSE NULL END,
+         context_json = context_json || $3::jsonb
+     WHERE id = $1
+       AND status = 'running'
+       AND ($4::timestamptz IS NULL OR claimed_at <= $4)
+     RETURNING *`,
+    [
+      input.id,
+      input.status,
+      JSON.stringify(input.contextPatch),
+      input.claimed_before || null,
+    ]
+  );
+  return result.rows[0] || null;
 }
 
 export async function listFinishedSessionsPendingMemoryIngestion(limit = 10): Promise<Array<{ id: string }>> {
