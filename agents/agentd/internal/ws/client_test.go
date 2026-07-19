@@ -54,7 +54,7 @@ func TestDisconnectedDurableAndVolatileLanes(t *testing.T) {
 		t.Fatalf("durable message was not queued with resumed sequence: %+v", q.GetUnacked())
 	}
 
-	for _, msgType := range []string{"terminal.output", "sessions.snapshot", "console.chunk"} {
+	for _, msgType := range []string{"terminal.output", "terminal.lag", "sessions.snapshot", "console.chunk"} {
 		if err := client.Send(msgType, map[string]any{"data": "drop"}); !errors.Is(err, ErrNotConnected) {
 			t.Fatalf("%s error=%v, want ErrNotConnected", msgType, err)
 		}

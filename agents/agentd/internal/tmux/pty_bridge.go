@@ -1,12 +1,14 @@
 package tmux
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"os/exec"
 	"sync"
+
 	"github.com/creack/pty"
 )
 
@@ -22,7 +24,7 @@ type ptyBridge struct {
 	channelsMu  sync.RWMutex
 	closeOnce   sync.Once
 	closed      chan struct{}
-	onOutput    func(channelID string, data []byte)
+	onOutput    func(channelID string, encodedData string)
 	onStatus    func(channelID string, status string, message string)
 }
 
@@ -30,6 +32,7 @@ type ptyBridge struct {
 type ptyChannel struct {
 	id       string
 	readonly bool
+	output   *terminalOutputChannel
 }
 
 // newPtyBridge creates a new PTY-based terminal bridge for a tmux pane.
@@ -92,7 +95,7 @@ func newPtyBridge(client *Client, paneID string, readonly bool) (*ptyBridge, err
 }
 
 // SetOutputHandler sets the callback for terminal output
-func (b *ptyBridge) SetOutputHandler(handler func(channelID string, data []byte)) {
+func (b *ptyBridge) SetOutputHandler(handler func(channelID string, encodedData string)) {
 	b.onOutput = handler
 }
 
@@ -113,6 +116,11 @@ func (b *ptyBridge) AttachChannel(channelID string, readonly bool) error {
 	b.channels[channelID] = &ptyChannel{
 		id:       channelID,
 		readonly: readonly,
+		output: newTerminalOutputChannel(channelID, defaultTerminalBufferChunks, b.onOutput, func(channelID string, dropped int) {
+			if b.onStatus != nil {
+				b.onStatus(channelID, "lag", fmt.Sprintf("Dropped %d terminal output chunks", dropped))
+			}
+		}),
 	}
 
 	return nil
@@ -124,7 +132,11 @@ func (b *ptyBridge) DetachChannel(channelID string) bool {
 	b.channelsMu.Lock()
 	defer b.channelsMu.Unlock()
 
+	channel := b.channels[channelID]
 	delete(b.channels, channelID)
+	if channel != nil && channel.output != nil {
+		channel.output.Close()
+	}
 	return len(b.channels) == 0
 }
 
@@ -195,10 +207,17 @@ func (b *ptyBridge) Close() {
 		// Notify all channels
 		b.channelsMu.RLock()
 		channels := make([]string, 0, len(b.channels))
-		for id := range b.channels {
+		outputs := make([]*terminalOutputChannel, 0, len(b.channels))
+		for id, channel := range b.channels {
 			channels = append(channels, id)
+			outputs = append(outputs, channel.output)
 		}
 		b.channelsMu.RUnlock()
+		for _, output := range outputs {
+			if output != nil {
+				output.Close()
+			}
+		}
 
 		for _, ch := range channels {
 			if b.onStatus != nil {
@@ -257,17 +276,15 @@ func (b *ptyBridge) broadcast(data []byte) {
 
 	// Make a copy of channel IDs to avoid holding the lock during callbacks
 	b.channelsMu.RLock()
-	channels := make([]string, 0, len(b.channels))
-	for id := range b.channels {
-		channels = append(channels, id)
+	channels := make([]*terminalOutputChannel, 0, len(b.channels))
+	for _, channel := range b.channels {
+		channels = append(channels, channel.output)
 	}
 	b.channelsMu.RUnlock()
 
-	// Make a copy of the data for each channel
-	for _, ch := range channels {
-		dataCopy := make([]byte, len(data))
-		copy(dataCopy, data)
-		b.onOutput(ch, dataCopy)
+	encoded := base64.StdEncoding.EncodeToString(data)
+	for _, channel := range channels {
+		channel.Enqueue(encoded)
 	}
 }
 
