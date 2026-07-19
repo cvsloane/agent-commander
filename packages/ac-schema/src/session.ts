@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { SessionKindSchema, SessionProviderSchema, SessionStatusSchema } from './enums.js';
+import { SessionRoleSchema } from './orchestration.js';
 
 // Session Link Types
 export const SessionLinkTypeSchema = z.enum(['complement', 'review', 'implement', 'research']);
@@ -57,6 +58,7 @@ export type TmuxMetadata = z.infer<typeof TmuxMetadataSchema>;
 // Session metadata
 export const SessionMetadataSchema = z.object({
   tmux: TmuxMetadataSchema.optional(),
+  parent_session_id: z.string().uuid().optional(),
   unmanaged: z.boolean().optional(),
   claude_session_id: z.string().optional(),
   codex_thread_id: z.string().optional(),
@@ -102,6 +104,7 @@ export const SessionSchema = z.object({
   kind: SessionKindSchema,
   provider: SessionProviderSchema,
   status: SessionStatusSchema,
+  role: SessionRoleSchema.optional(),
   title: z.string().nullable().optional(),
   cwd: z.string().nullable().optional(),
   repo_root: z.string().nullable().optional(),
@@ -133,6 +136,7 @@ export const SessionUpsertSchema = z.object({
   kind: SessionKindSchema,
   provider: SessionProviderSchema,
   status: SessionStatusSchema,
+  role: SessionRoleSchema.optional(),
   title: z.string().optional(),
   cwd: z.string().optional(),
   repo_root: z.string().optional(),

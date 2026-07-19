@@ -5,6 +5,7 @@ import type { AuthUser } from '../src/auth/types.js';
 
 const hostId = '11111111-1111-4111-8111-111111111111';
 const userId = '22222222-2222-4222-8222-222222222222';
+const parentSessionId = '33333333-3333-4333-8333-333333333333';
 
 function host(): Host {
   return {
@@ -60,14 +61,27 @@ function makeSession(data: Partial<Session>): Session {
   };
 }
 
-async function buildServer(options: { hideIdempotencyLookup?: boolean } = {}): Promise<{
+async function buildServer(options: {
+  hideIdempotencyLookup?: boolean;
+  withParentSession?: boolean;
+  edgeError?: Error;
+} = {}): Promise<{
   app: FastifyInstance;
   send: ReturnType<typeof vi.fn>;
   enqueue: ReturnType<typeof vi.fn>;
   deleteSession: ReturnType<typeof vi.fn>;
+  upsertEdge: ReturnType<typeof vi.fn>;
+  setRole: ReturnType<typeof vi.fn>;
 }> {
   vi.resetModules();
   const sessions = new Map<string, Session>();
+  if (options.withParentSession) {
+    sessions.set(parentSessionId, makeSession({
+      id: parentSessionId,
+      status: 'RUNNING',
+      role: 'orchestrator',
+    }));
+  }
   const idempotentRecords = new Map<string, Record<string, unknown>>();
   const enqueue = vi.fn(async (input: Record<string, unknown>) => {
     const key = typeof input.idempotency_key === 'string' ? input.idempotency_key : null;
@@ -113,6 +127,33 @@ async function buildServer(options: { hideIdempotencyLookup?: boolean } = {}): P
     deleteSession,
     createAuditLog,
   }));
+  const upsertEdge = vi.fn(async (input: Record<string, unknown>) => ({
+    edge: {
+      ...input,
+      created_at: new Date().toISOString(),
+    },
+    created: true,
+  }));
+  if (options.edgeError) {
+    upsertEdge.mockRejectedValue(options.edgeError);
+  }
+  const setRole = vi.fn(async (sessionId: string, role: Session['role']) => {
+    const existing = sessions.get(sessionId);
+    if (!existing) return null;
+    const updated = { ...existing, role };
+    sessions.set(sessionId, updated);
+    return updated;
+  });
+  vi.doMock('../src/db/sessionGraph.js', () => ({
+    sessionGraph: {
+      upsert: upsertEdge,
+      setRole,
+      backfillForkEdges: vi.fn(async () => []),
+    },
+  }));
+  vi.doMock('../src/db/agentTasks.js', () => ({
+    agentTasks: { list: vi.fn(async () => []) },
+  }));
   vi.doMock('../src/services/sessionMemory.js', () => ({
     prepareSessionMemoryForSpawn: vi.fn(async () => ({ repoId: null, memoryFiles: [] })),
     bootstrapSessionMemory: vi.fn(async () => undefined),
@@ -134,7 +175,7 @@ async function buildServer(options: { hideIdempotencyLookup?: boolean } = {}): P
     } satisfies AuthUser;
   });
   registerSessionRoutes(app);
-  return { app, send, enqueue, deleteSession };
+  return { app, send, enqueue, deleteSession, upsertEdge, setRole };
 }
 
 describe('session spawn route', () => {
@@ -217,6 +258,69 @@ describe('session spawn route', () => {
 
     expect(response.statusCode).toBe(400);
     expect(enqueue).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('persists and publishes parent linkage and role for a spawned worker session', async () => {
+    const { app, send, upsertEdge, setRole } = await buildServer({
+      withParentSession: true,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/sessions/spawn',
+      payload: {
+        host_id: hostId,
+        provider: 'codex',
+        working_directory: '/tmp',
+        parent_session_id: parentSessionId,
+        role: 'worker',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const childSessionId = response.json().session.id;
+    expect(response.json().session.role).toBe('worker');
+    expect(setRole).toHaveBeenCalledWith(childSessionId, 'worker');
+    expect(upsertEdge).toHaveBeenCalledWith({
+      parent_session_id: parentSessionId,
+      child_session_id: childSessionId,
+      edge_type: 'spawned',
+    });
+    expect(JSON.parse(String(send.mock.calls[0]?.[0]))).toMatchObject({
+      payload: {
+        command: {
+          type: 'spawn_session',
+          payload: {
+            parent_session_id: parentSessionId,
+            role: 'worker',
+          },
+        },
+      },
+    });
+    await app.close();
+  });
+
+  it('does not dispatch a spawn when parent-edge persistence fails', async () => {
+    const { app, send } = await buildServer({
+      withParentSession: true,
+      edgeError: new Error('session_edges unavailable'),
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/sessions/spawn',
+      payload: {
+        host_id: hostId,
+        provider: 'codex',
+        working_directory: '/tmp',
+        parent_session_id: parentSessionId,
+        role: 'worker',
+      },
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(send).not.toHaveBeenCalled();
     await app.close();
   });
 });

@@ -2,9 +2,12 @@ import { randomUUID } from 'node:crypto';
 import {
   type SpawnSessionMemoryFile,
   type Session,
+  type SessionEdge,
   type SessionProvider,
+  type SessionRole,
 } from '@agent-command/schema';
 import * as db from '../db/index.js';
+import { sessionGraph } from '../db/sessionGraph.js';
 import { pubsub } from './pubsub.js';
 import { commandRouter } from './commandRouter.js';
 import { isHostOnline } from './hostPresence.js';
@@ -20,6 +23,8 @@ type SpawnSessionOptions = {
   title?: string;
   flags?: string[];
   group_id?: string;
+  parent_session_id?: string;
+  role?: SessionRole;
   tmux?: {
     target_session?: string;
     window_name?: string;
@@ -59,6 +64,40 @@ export async function spawnSessionOnHost(
   ) {
     throw new Error(`Host does not advertise provider support for ${options.provider}`);
   }
+  if (options.parent_session_id) {
+    const parentSession = await db.getSessionById(options.parent_session_id);
+    if (!parentSession) {
+      throw new Error('Parent session not found');
+    }
+  }
+
+  const applyOrchestrationContract = async (
+    target: Session
+  ): Promise<{ session: Session; edge: SessionEdge | null }> => {
+    let updated = target;
+    let edge: SessionEdge | null = null;
+    if (options.role) {
+      const roleSession = await sessionGraph.setRole(target.id, options.role);
+      if (!roleSession) throw new Error('Spawned session not found while setting role');
+      updated = roleSession;
+    }
+    if (options.parent_session_id) {
+      const edgeResult = await sessionGraph.upsert({
+        parent_session_id: options.parent_session_id,
+        child_session_id: target.id,
+        edge_type: 'spawned',
+      });
+      edge = edgeResult.created ? edgeResult.edge : null;
+    }
+    return { session: updated, edge };
+  };
+
+  const publishOrchestrationEdge = (edge: SessionEdge | null): void => {
+    if (edge && options.parent_session_id) {
+      pubsub.publishSessionEdgesChanged(options.parent_session_id, [edge]);
+    }
+  };
+
   if (options.idempotencyKey) {
     const existing = await commandRouter.getByIdempotencyKey(
       options.host_id,
@@ -75,8 +114,10 @@ export async function spawnSessionOnHost(
       if (!existingSession) {
         throw new Error('Idempotent spawn session not found');
       }
+      const linked = await applyOrchestrationContract(existingSession);
+      publishOrchestrationEdge(linked.edge);
       return {
-        session: existingSession,
+        session: linked.session,
         cmd_id: existing.cmd_id,
         replayed: true,
         queued: existing.status === 'queued',
@@ -94,6 +135,9 @@ export async function spawnSessionOnHost(
     status: 'STARTING',
     title: options.title || `${options.provider} session`,
     cwd: options.working_directory,
+    metadata: options.parent_session_id
+      ? { parent_session_id: options.parent_session_id }
+      : undefined,
   });
 
   try {
@@ -114,6 +158,9 @@ export async function spawnSessionOnHost(
     }
   }
 
+  const prepared = await applyOrchestrationContract(session);
+  session = prepared.session;
+
   const cmdId = randomUUID();
   let receipt;
   try {
@@ -130,6 +177,8 @@ export async function spawnSessionOnHost(
           flags: options.flags,
           memory_files: options.memory_files,
           group_id: options.group_id,
+          parent_session_id: options.parent_session_id,
+          role: options.role,
           tmux: options.tmux,
         },
       },
@@ -151,8 +200,12 @@ export async function spawnSessionOnHost(
       cwd: options.working_directory,
       metadata: {
         status_detail: 'Failed to send spawn command to agent',
+        ...(options.parent_session_id
+          ? { parent_session_id: options.parent_session_id }
+          : {}),
       },
     });
+    publishOrchestrationEdge(prepared.edge);
     pubsub.publishSessionsChanged([failedSession]);
     await db.createAuditLog(
       options.failureAuditAction || 'session.spawn_failed',
@@ -182,14 +235,17 @@ export async function spawnSessionOnHost(
     if (!existingSession) {
       throw new Error('Idempotent spawn session not found');
     }
+    const linked = await applyOrchestrationContract(existingSession);
+    publishOrchestrationEdge(linked.edge);
     return {
-      session: existingSession,
+      session: linked.session,
       cmd_id: receipt.record.cmd_id,
       replayed: true,
       queued: receipt.record.status === 'queued',
     };
   }
 
+  publishOrchestrationEdge(prepared.edge);
   pubsub.publishSessionsChanged([session]);
   await db.createAuditLog(
     options.auditAction || 'session.spawn',
@@ -200,6 +256,8 @@ export async function spawnSessionOnHost(
       host_id: options.host_id,
       provider: options.provider,
       working_directory: options.working_directory,
+      parent_session_id: options.parent_session_id,
+      role: options.role,
     },
     options.actorUserId
   );

@@ -10,6 +10,8 @@ import type {
   AutomationWakeup,
   GovernanceApproval,
   WorkItem,
+  SessionEdge,
+  AgentTask,
 } from '@agent-command/schema';
 import { clawdbotNotifier } from './clawdbot.js';
 import { WS_HEARTBEAT_TIMEOUT_MS } from './webSocketHeartbeat.js';
@@ -63,7 +65,9 @@ type TopicType =
   | 'automation_wakeups'
   | 'governance_approvals'
   | 'work_items'
-  | 'hosts';
+  | 'hosts'
+  | 'session_edges'
+  | 'agent_tasks';
 
 interface Subscription {
   type: TopicType;
@@ -224,6 +228,8 @@ class PubSub {
       'governance_approval.updated': 'governance_approvals',
       'work_item.updated': 'work_items',
       'hosts.changed': 'hosts',
+      'session_edges.changed': 'session_edges',
+      'agent_tasks.changed': 'agent_tasks',
     };
 
     const topic = topicMap[message.type];
@@ -274,6 +280,17 @@ class PubSub {
     }
 
     if (message.type === 'events.appended') {
+      const payload = message.payload as { session_id: string };
+      for (const sub of relevantSubs) {
+        const filter = sub.filter || {};
+        if (!filter.session_id || filter.session_id === payload.session_id) {
+          return message;
+        }
+      }
+      return null;
+    }
+
+    if (message.type === 'session_edges.changed' || message.type === 'agent_tasks.changed') {
       const payload = message.payload as { session_id: string };
       for (const sub of relevantSubs) {
         const filter = sub.filter || {};
@@ -687,6 +704,30 @@ class PubSub {
       payload: {
         session_id: sessionId,
         event,
+      },
+    });
+  }
+
+  publishSessionEdgesChanged(sessionId: string, edges: SessionEdge[]): void {
+    this.publishToUI({
+      v: 1,
+      type: 'session_edges.changed',
+      ts: new Date().toISOString(),
+      payload: {
+        session_id: sessionId,
+        edges,
+      },
+    });
+  }
+
+  publishAgentTasksChanged(sessionId: string, agentTasks: AgentTask[]): void {
+    this.publishToUI({
+      v: 1,
+      type: 'agent_tasks.changed',
+      ts: new Date().toISOString(),
+      payload: {
+        session_id: sessionId,
+        agent_tasks: agentTasks,
       },
     });
   }

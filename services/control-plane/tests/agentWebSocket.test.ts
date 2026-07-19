@@ -42,9 +42,14 @@ async function buildServer(
   app: FastifyInstance;
   url: string;
   upsertSession: ReturnType<typeof vi.fn>;
+  upsertEdge: ReturnType<typeof vi.fn>;
+  publishSessionEdgesChanged: ReturnType<typeof vi.fn>;
 }> {
   vi.resetModules();
-  const upsertSession = vi.fn(async () => ({ id: sessionId }));
+  const upsertSession = vi.fn(async (upsertHostId: string, input: Record<string, unknown>) => ({
+    host_id: upsertHostId,
+    ...input,
+  }));
   const pool = {
     query: vi.fn(async (text: string, values?: unknown[]) => {
       if (text.includes('WITH deliverable AS')) {
@@ -73,13 +78,37 @@ async function buildServer(
     insertEvent,
     upsertSession,
   }));
+  const edgeKeys = new Set<string>();
+  const upsertEdge = vi.fn(async (input: Record<string, unknown>) => {
+    const key = `${input.parent_session_id}:${input.child_session_id}:${input.edge_type}`;
+    const created = !edgeKeys.has(key);
+    edgeKeys.add(key);
+    return {
+      edge: {
+        ...input,
+        created_at: new Date().toISOString(),
+      },
+      created,
+    };
+  });
+  vi.doMock('../src/db/sessionGraph.js', () => ({
+    sessionGraph: { upsert: upsertEdge },
+  }));
 
   const { registerAgentWebSocket } = await import('../src/ws/agent.js');
+  const { pubsub } = await import('../src/services/pubsub.js');
+  const publishSessionEdgesChanged = vi.spyOn(pubsub, 'publishSessionEdgesChanged');
   const app = Fastify({ logger: false });
   await app.register(websocket);
   registerAgentWebSocket(app);
   const address = await app.listen({ port: 0, host: '127.0.0.1' });
-  return { app, url: address.replace(/^http/, 'ws'), upsertSession };
+  return {
+    app,
+    url: address.replace(/^http/, 'ws'),
+    upsertSession,
+    upsertEdge,
+    publishSessionEdgesChanged,
+  };
 }
 
 function hello() {
@@ -238,6 +267,103 @@ describe('agent websocket ingest', () => {
       payload: { ack_seq: 3, status: 'ok' },
     });
     expect(socket.readyState).toBe(WebSocket.OPEN);
+    socket.close();
+    await app.close();
+  });
+
+  it('persists and publishes forked and parent-stamped edges from session inventory', async () => {
+    const {
+      app,
+      url,
+      upsertEdge,
+      publishSessionEdgesChanged,
+    } = await buildServer(vi.fn(async () => undefined));
+    const socket = new WebSocket(`${url}/v1/agent/connect`, {
+      headers: { Authorization: 'Bearer test-agent-token' },
+    });
+    await new Promise<void>((resolve) => socket.once('open', resolve));
+    socket.send(JSON.stringify(hello()));
+    await waitForMessage(socket);
+
+    const forkParentId = '66666666-6666-4666-8666-666666666666';
+    const spawnParentId = '77777777-7777-4777-8777-777777777777';
+    const spawnedChildId = '88888888-8888-4888-8888-888888888888';
+    socket.send(JSON.stringify({
+      v: 1,
+      type: 'sessions.upsert',
+      ts: new Date().toISOString(),
+      seq: 2,
+      payload: {
+        sessions: [
+          {
+            id: sessionId,
+            kind: 'tmux_pane',
+            provider: 'codex',
+            status: 'RUNNING',
+            forked_from: forkParentId,
+          },
+          {
+            id: spawnedChildId,
+            kind: 'tmux_pane',
+            provider: 'claude_code',
+            status: 'RUNNING',
+            metadata: { parent_session_id: spawnParentId },
+          },
+        ],
+      },
+    }));
+
+    await expect(waitForMessage(socket)).resolves.toMatchObject({
+      payload: { ack_seq: 2, status: 'ok' },
+    });
+    expect(upsertEdge).toHaveBeenCalledWith({
+      parent_session_id: forkParentId,
+      child_session_id: sessionId,
+      edge_type: 'forked',
+    });
+    expect(upsertEdge).toHaveBeenCalledWith({
+      parent_session_id: spawnParentId,
+      child_session_id: spawnedChildId,
+      edge_type: 'spawned',
+    });
+    expect(publishSessionEdgesChanged).toHaveBeenCalledWith(
+      forkParentId,
+      [expect.objectContaining({ child_session_id: sessionId, edge_type: 'forked' })]
+    );
+    expect(publishSessionEdgesChanged).toHaveBeenCalledWith(
+      spawnParentId,
+      [expect.objectContaining({ child_session_id: spawnedChildId, edge_type: 'spawned' })]
+    );
+
+    socket.send(JSON.stringify({
+      v: 1,
+      type: 'sessions.upsert',
+      ts: new Date().toISOString(),
+      seq: 3,
+      payload: {
+        sessions: [
+          {
+            id: sessionId,
+            kind: 'tmux_pane',
+            provider: 'codex',
+            status: 'RUNNING',
+            forked_from: forkParentId,
+          },
+          {
+            id: spawnedChildId,
+            kind: 'tmux_pane',
+            provider: 'claude_code',
+            status: 'RUNNING',
+            metadata: { parent_session_id: spawnParentId },
+          },
+        ],
+      },
+    }));
+    await expect(waitForMessage(socket)).resolves.toMatchObject({
+      payload: { ack_seq: 3, status: 'ok' },
+    });
+    expect(upsertEdge).toHaveBeenCalledTimes(4);
+    expect(publishSessionEdgesChanged).toHaveBeenCalledTimes(2);
     socket.close();
     await app.close();
   });
