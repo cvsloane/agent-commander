@@ -77,6 +77,7 @@ async function buildServer(
     updateHostAckedSeq: vi.fn(async () => undefined),
     insertEvent,
     upsertSession,
+    getSessionById: vi.fn(async (id: string) => id === sessionId ? { id, host_id: hostId } : null),
   }));
   const edgeKeys = new Set<string>();
   const upsertEdge = vi.fn(async (input: Record<string, unknown>) => {

@@ -115,4 +115,22 @@ describe('token verification', () => {
 
     expect(verified).toBeNull();
   });
+
+  it('mints a short-lived token scoped to one orchestrator session', async () => {
+    const { mintSessionToken, verifyTokenString } = await import('../src/auth/verify.js');
+    const sessionId = '22222222-2222-4222-8222-222222222222';
+    const userId = '33333333-3333-4333-8333-333333333333';
+
+    const minted = await mintSessionToken({ session_id: sessionId, user_id: userId });
+    const verified = await verifyTokenString(minted.token);
+
+    expect(verified).toEqual({
+      id: userId,
+      sub: `session:${sessionId}`,
+      role: 'viewer',
+      auth_type: 'session',
+      session_id: sessionId,
+    });
+    expect(new Date(minted.expires_at).getTime()).toBeGreaterThan(Date.now());
+  });
 });

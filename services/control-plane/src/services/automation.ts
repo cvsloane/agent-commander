@@ -6,6 +6,7 @@ import type {
   AutomationPreflight,
   AutomationPreflightIssue,
   AutomationRun,
+  AutomationRunReportRequest,
   AutomationSchedulerMode,
   AutomationRuntimeState,
   Host,
@@ -38,6 +39,12 @@ const STALE_STARTING_RUN_MS = 2 * 60_000;
 const MAX_STALE_WAKEUP_RETRIES = 3;
 const MAX_STARTING_RUN_REQUEUES = 1;
 const DEFAULT_WAKEUP_PROCESSING_CONCURRENCY = 3;
+const COMPLETION_FALLBACK_STATUSES = new Set([
+  'DONE',
+  'ERROR',
+  'WAITING_FOR_INPUT',
+  'IDLE',
+]);
 
 type JsonObject = Record<string, unknown>;
 
@@ -51,6 +58,12 @@ type BudgetAssessment = {
   usage: { daily_cents: number; monthly_cents: number };
   issues: AutomationPreflightIssue[];
   blockedReason: string | null;
+};
+
+type PreflightOverride = {
+  budgetGrace: boolean;
+  budgetGraceCents: number | null;
+  hostId: string | null;
 };
 
 type PreflightEvaluation = {
@@ -84,6 +97,18 @@ function asPositiveInt(value: unknown): number | null {
     }
   }
   return null;
+}
+
+export function getPreflightOverride(contextValue: unknown): PreflightOverride {
+  const override = asObject(asObject(contextValue).preflight_override);
+  const rawBudgetGrace = override.budget_grace;
+  const budgetGraceCents = asPositiveInt(override.budget_grace_cents)
+    ?? (typeof rawBudgetGrace === 'number' ? asPositiveInt(rawBudgetGrace) : null);
+  return {
+    budgetGrace: rawBudgetGrace === true,
+    budgetGraceCents,
+    hostId: typeof override.host_id === 'string' ? override.host_id : null,
+  };
 }
 
 function getConcurrencyPolicy(value: unknown): AutomationConcurrencyPolicy {
@@ -286,7 +311,8 @@ async function createGovernanceApproval(input: Parameters<typeof automationDb.cr
 
 async function resolveBudgetAssessment(
   automationAgentId: string,
-  budgetPolicyValue: unknown
+  budgetPolicyValue: unknown,
+  preflightOverride?: PreflightOverride
 ): Promise<BudgetAssessment> {
   const budgetPolicy = getBudgetPolicy(budgetPolicyValue);
   const dailyLimit = asPositiveInt(budgetPolicy.daily_limit_cents);
@@ -295,8 +321,19 @@ async function resolveBudgetAssessment(
   const usage = await automationDb.computeAutomationBudgetUsage(automationAgentId);
   const issues: AutomationPreflightIssue[] = [];
 
-  const dailyBlocked = dailyLimit && usage.daily_cents >= dailyLimit;
-  const monthlyBlocked = monthlyLimit && usage.monthly_cents >= monthlyLimit;
+  const dailyExceeded = Boolean(dailyLimit && usage.daily_cents >= dailyLimit);
+  const monthlyExceeded = Boolean(monthlyLimit && usage.monthly_cents >= monthlyLimit);
+  const graceCents = preflightOverride?.budgetGraceCents ?? 0;
+  const dailyGraceApplied = dailyExceeded && Boolean(
+    preflightOverride?.budgetGrace
+    || (dailyLimit && graceCents > 0 && usage.daily_cents <= dailyLimit + graceCents)
+  );
+  const monthlyGraceApplied = monthlyExceeded && Boolean(
+    preflightOverride?.budgetGrace
+    || (monthlyLimit && graceCents > 0 && usage.monthly_cents <= monthlyLimit + graceCents)
+  );
+  const dailyBlocked = dailyExceeded && !dailyGraceApplied;
+  const monthlyBlocked = monthlyExceeded && !monthlyGraceApplied;
   const blockedReason = dailyBlocked
     ? `Daily budget exceeded (${usage.daily_cents}/${dailyLimit} cents).`
     : monthlyBlocked
@@ -310,6 +347,13 @@ async function resolveBudgetAssessment(
       message: blockedReason,
     });
     return { usage, issues, blockedReason };
+  }
+  if (dailyGraceApplied || monthlyGraceApplied) {
+    issues.push({
+      code: 'budget_override_applied',
+      level: 'warn',
+      message: 'Approved budget grace applied to this resumed automation run.',
+    });
   }
 
   const dailyWarnThreshold = dailyLimit ? Math.floor((dailyLimit * warnPercent) / 100) : null;
@@ -449,7 +493,7 @@ export async function selectExecutionHost(input: {
   return { host, issues };
 }
 
-async function evaluateAutomationPreflightInternal(input: {
+export async function evaluateAutomationPreflight(input: {
   automationAgentId: string;
   provider: SessionProvider;
   budgetPolicyJson: unknown;
@@ -457,9 +501,14 @@ async function evaluateAutomationPreflightInternal(input: {
   defaultCwd?: string | null;
   repoId?: string | null;
   reusableSession?: Session | null;
+  preflightOverride?: PreflightOverride;
 }): Promise<PreflightEvaluation> {
   const repo = await automationDb.describeRepo(input.repoId || null);
-  const budget = await resolveBudgetAssessment(input.automationAgentId, input.budgetPolicyJson);
+  const budget = await resolveBudgetAssessment(
+    input.automationAgentId,
+    input.budgetPolicyJson,
+    input.preflightOverride
+  );
   const issues: AutomationPreflightIssue[] = [...budget.issues];
 
   let host: Host | null = null;
@@ -483,7 +532,7 @@ async function evaluateAutomationPreflightInternal(input: {
     }
   } else {
     const hostSelection = await selectExecutionHost({
-      fixedHostId: input.fixedHostId || null,
+      fixedHostId: input.preflightOverride?.hostId || input.fixedHostId || null,
       repoLastHostId: repo?.last_host_id || null,
       provider: input.provider,
     });
@@ -621,6 +670,17 @@ function workItemText(workItem: WorkItem | null): string | null {
   return `${workItem.title}\n${workItem.objective}`;
 }
 
+export function isAutomationCompletionFallbackReady(
+  sessionStatus: string,
+  observedAt: string | null,
+  nowMs = Date.now()
+): boolean {
+  if (!COMPLETION_FALLBACK_STATUSES.has(sessionStatus) || !observedAt) return false;
+  const observedAtMs = new Date(observedAt).getTime();
+  return Number.isFinite(observedAtMs)
+    && nowMs - observedAtMs >= RUN_IDLE_COMPLETION_GRACE_MS;
+}
+
 async function decorateAgent(agent: AutomationAgent, repoId?: string | null): Promise<AutomationAgent> {
   const effectiveRepoId = repoId ?? getPreferredRepoScope(agent);
   const [runtimeState, preflightResult] = await Promise.all([
@@ -628,7 +688,7 @@ async function decorateAgent(agent: AutomationAgent, repoId?: string | null): Pr
       automation_agent_id: agent.id,
       repo_id: effectiveRepoId || null,
     }),
-    evaluateAutomationPreflightInternal({
+    evaluateAutomationPreflight({
       automationAgentId: agent.id,
       provider: agent.provider,
       budgetPolicyJson: agent.budget_policy_json,
@@ -667,7 +727,7 @@ export async function getAutomationAgentPreflight(
 ): Promise<AutomationPreflight | null> {
   const agent = await automationDb.getAutomationAgentById(userId, id);
   if (!agent) return null;
-  const result = await evaluateAutomationPreflightInternal({
+  const result = await evaluateAutomationPreflight({
     automationAgentId: agent.id,
     provider: agent.provider,
     budgetPolicyJson: agent.budget_policy_json,
@@ -683,6 +743,116 @@ export async function getAutomationRunEvents(
   runId: string
 ): Promise<Awaited<ReturnType<typeof automationDb.listAutomationRunEvents>>> {
   return automationDb.listAutomationRunEvents(userId, runId);
+}
+
+export class AutomationRunReportError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode: 403 | 404 | 409
+  ) {
+    super(message);
+    this.name = 'AutomationRunReportError';
+  }
+}
+
+async function finalizeStructuredReport(input: {
+  run: AutomationRun;
+  report: AutomationRunReportRequest;
+}): Promise<Awaited<ReturnType<typeof automationDb.finalizeAutomationRunFromReport>>> {
+  let finalized: Awaited<ReturnType<typeof automationDb.finalizeAutomationRunFromReport>>;
+  try {
+    finalized = await automationDb.finalizeAutomationRunFromReport(input.run, input.report);
+  } catch (error) {
+    if ((error as Error).message === 'Automation run is not active') {
+      throw new AutomationRunReportError('Automation run is not active', 409);
+    }
+    throw error;
+  }
+
+  const session = input.run.session_id
+    ? await db.getSessionById(input.run.session_id)
+    : null;
+  await publishAutomationRun(finalized.run, session?.provider || 'unknown');
+  if (!finalized.replayed) {
+    await appendRunEvent({
+      automation_run_id: finalized.run.id,
+      event_type: 'orchestrator.report',
+      level: input.report.outcome === 'succeeded' ? 'info' : 'warn',
+      message: input.report.summary,
+      payload: {
+        outcome: input.report.outcome,
+        completion_source: 'structured_report',
+      },
+    });
+  }
+  if (finalized.ingested.memory && !finalized.replayed) {
+    await appendRunEvent({
+      automation_run_id: finalized.run.id,
+      event_type: 'memory.ingested',
+      message: `Ingested memory ${finalized.ingested.memory.id}.`,
+      payload: {
+        memory_id: finalized.ingested.memory.id,
+        trajectory_id: finalized.ingested.trajectory?.id || null,
+      },
+    });
+  }
+  if (finalized.work_item) {
+    pubsub.publishWorkItemUpdated(finalized.work_item);
+  }
+
+  if (session) {
+    const terminal = session.status === 'DONE' || session.status === 'ERROR';
+    await replaceRuntimeState({
+      automation_agent_id: finalized.run.automation_agent_id,
+      repo_id: finalized.run.repo_id || null,
+      active_session_id: terminal ? null : session.id,
+      active_host_id: terminal ? null : session.host_id,
+      last_session_id: session.id,
+      last_run_id: finalized.run.id,
+      runtime_status: terminal
+        ? session.status === 'ERROR' ? 'error' : 'idle'
+        : 'attached',
+      state_json: {
+        session_status: session.status,
+        completion_source: 'structured_report',
+        reusable: !terminal && (
+          session.status === 'WAITING_FOR_INPUT' || session.status === 'IDLE'
+        ),
+      },
+      usage_rollup_json: asObject(finalized.run.usage_json),
+    });
+  }
+  await queueFollowupWake(finalized.run);
+  return finalized;
+}
+
+export async function reportAutomationRunById(input: {
+  user_id: string;
+  run_id: string;
+  session_id?: string;
+  allow_unscoped?: boolean;
+  report: AutomationRunReportRequest;
+}): Promise<Awaited<ReturnType<typeof automationDb.finalizeAutomationRunFromReport>>> {
+  const run = input.allow_unscoped
+    ? await automationDb.getAutomationRunByIdUnscoped(input.run_id)
+    : await automationDb.getAutomationRunById(input.user_id, input.run_id);
+  if (!run) {
+    throw new AutomationRunReportError('Automation run not found', 404);
+  }
+  if (input.session_id && run.session_id !== input.session_id) {
+    throw new AutomationRunReportError('Automation run does not belong to this session', 403);
+  }
+  return finalizeStructuredReport({ run, report: input.report });
+}
+
+export async function reportAutomationRunForSession(
+  sessionId: string,
+  report: AutomationRunReportRequest
+): Promise<Awaited<ReturnType<typeof automationDb.finalizeAutomationRunFromReport>> | null> {
+  const run = await automationDb.getActiveAutomationRunBySessionId(sessionId)
+    ?? await automationDb.getAutomationRunBySessionId(sessionId);
+  if (!run) return null;
+  return finalizeStructuredReport({ run, report });
 }
 
 async function enqueueDueScheduledWakeups(logger: FastifyBaseLogger): Promise<void> {
@@ -1040,7 +1210,7 @@ export async function processAutomationWakeup(
     }
   }
 
-  const preflight = await evaluateAutomationPreflightInternal({
+  const preflight = await evaluateAutomationPreflight({
     automationAgentId: wakeup.automation_agent_id,
     provider: wakeup.agent_provider as SessionProvider,
     budgetPolicyJson: wakeup.budget_policy_json,
@@ -1048,6 +1218,7 @@ export async function processAutomationWakeup(
     defaultCwd: wakeup.agent_default_cwd || null,
     repoId: wakeup.repo_id || null,
     reusableSession: runtime.reusableSession,
+    preflightOverride: getPreflightOverride(wakeup.context_json),
   });
 
   for (const issue of preflight.preflight.issues.filter(
@@ -1558,15 +1729,15 @@ async function syncActiveRuns(logger: FastifyBaseLogger): Promise<void> {
       continue;
     }
 
-    const startedAt = run.started_at ? new Date(run.started_at).getTime() : 0;
-    const settledIdle =
-      (session.status === 'WAITING_FOR_INPUT' || session.status === 'IDLE')
-      && startedAt > 0
-      && now - startedAt >= RUN_IDLE_COMPLETION_GRACE_MS;
-    const terminal = session.status === 'DONE' || session.status === 'ERROR' || settledIdle;
-    if (!terminal) {
+    if (!COMPLETION_FALLBACK_STATUSES.has(session.status)) {
+      await automationDb.clearAutomationCompletionFallback(run.id);
       continue;
     }
+    const observedAt = await automationDb.observeAutomationCompletionFallback({
+      run_id: run.id,
+      session_status: session.status,
+    });
+    if (!isAutomationCompletionFallbackReady(session.status, observedAt, now)) continue;
 
     try {
       const finalized = await automationDb.finalizeAutomationRunFromSession(run);

@@ -59,6 +59,7 @@ async function buildServer(options: {
     updateHostLastSeen: vi.fn(async () => undefined),
     updateHostAckedSeq: vi.fn(async () => undefined),
     insertEvent: vi.fn(async () => insertedEvent),
+    getSessionById: vi.fn(async (id: string) => ({ id, host_id: hostId })),
   }));
 
   const upsertAgentTask = vi.fn(async (input: Record<string, unknown>) => {

@@ -13,6 +13,9 @@ export * from './session.js';
 // Orchestration schemas
 export * from './orchestration.js';
 
+// Session-scoped orchestrator API schemas
+export * from './orchestrator.js';
+
 // Group schemas
 export * from './group.js';
 
