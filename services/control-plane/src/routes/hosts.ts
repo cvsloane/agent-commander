@@ -1,12 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { ulid } from 'ulid';
+import { randomUUID } from 'node:crypto';
 import path from 'path';
 import { DirectoryEntrySchema } from '@agent-command/schema';
 import * as db from '../db/index.js';
 import { hasRole } from '../auth/rbac.js';
 import { pubsub } from '../services/pubsub.js';
 import { commandRouter } from '../services/commandRouter.js';
+import { getHostPresence, isHostOnline } from '../services/hostPresence.js';
 
 const HOME_SENTINEL = '/__home__';
 
@@ -62,7 +63,14 @@ export function registerHostRoutes(app: FastifyInstance): void {
   // GET /v1/hosts - List all hosts
   app.get('/v1/hosts', async () => {
     const hosts = await db.getHosts();
-    return { hosts };
+    const presence = new Map(getHostPresence().map((item) => [item.host_id, item]));
+    return {
+      hosts: hosts.map((host) => ({
+        ...host,
+        online: presence.get(host.id)?.online ?? false,
+        last_heartbeat_at: presence.get(host.id)?.last_heartbeat_at ?? null,
+      })),
+    };
   });
 
   // POST /v1/hosts - Create host + token (admin only)
@@ -106,7 +114,7 @@ export function registerHostRoutes(app: FastifyInstance): void {
       return reply.status(404).send({ error: 'Host not found' });
     }
 
-    return { host };
+    return { host: { ...host, online: isHostOnline(host.id) } };
   });
 
   // PATCH /v1/hosts/:id - Update host capabilities (admin only)
@@ -323,11 +331,11 @@ export function registerHostRoutes(app: FastifyInstance): void {
       }
 
       // Check if agent is connected
-      if (!pubsub.isAgentConnected(id)) {
+      if (!isHostOnline(id)) {
         return reply.status(503).send({ error: 'Host is offline' });
       }
 
-      const cmdId = ulid();
+      const cmdId = randomUUID();
 
       try {
         const result = await commandRouter.dispatchHostAndWait(

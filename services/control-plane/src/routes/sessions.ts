@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { ulid } from 'ulid';
+import { randomUUID } from 'node:crypto';
 import { CommandRequestSchema, CommandPayloadSchema, UpdateSessionRequestSchema, BulkOperationRequestSchema, CopyToSessionPayloadSchema } from '@agent-command/schema';
 import * as db from '../db/index.js';
 import { pubsub } from '../services/pubsub.js';
@@ -9,6 +9,13 @@ import { spawnSessionOnHost } from '../services/sessionSpawn.js';
 import { bootstrapSessionMemory, prepareSessionMemoryForSpawn } from '../services/sessionMemory.js';
 import { hasRole } from '../auth/rbac.js';
 import { commandRouter } from '../services/commandRouter.js';
+import {
+  fingerprintIdempotentRequest,
+  getIdempotencyKey,
+  IdempotencyConflictError,
+  InvalidIdempotencyKeyError,
+  scopeIdempotencyKey,
+} from '../services/idempotency.js';
 
 const PRIVILEGED_COMMAND_TYPES = new Set([
   'spawn_session',
@@ -264,8 +271,8 @@ export function registerSessionRoutes(app: FastifyInstance): void {
         });
       }
 
-      const cmdId = ulid();
-      const sent = commandRouter.dispatch(session.host_id, sessionId, cmdId, {
+      const cmdId = randomUUID();
+      const sent = await commandRouter.dispatch(session.host_id, sessionId, cmdId, {
         type: payloadResult.data.type,
         payload: payloadResult.data.payload,
       });
@@ -400,8 +407,8 @@ export function registerSessionRoutes(app: FastifyInstance): void {
         return reply.status(404).send({ error: 'Session not found' });
       }
 
-      const cmdId = ulid();
-      const sent = commandRouter.dispatch(session.host_id, sessionId, cmdId, {
+      const cmdId = randomUUID();
+      const sent = await commandRouter.dispatch(session.host_id, sessionId, cmdId, {
         type: 'fork',
         payload: bodyResult.data,
       });
@@ -457,11 +464,11 @@ export function registerSessionRoutes(app: FastifyInstance): void {
       }
 
       const sameHost = sourceSession.host_id === targetSession.host_id;
-      const cmdId = ulid();
+      const cmdId = randomUUID();
 
       if (sameHost) {
         // Same host - dispatch copy_to_session command directly
-        const sent = commandRouter.dispatch(sourceSession.host_id, sourceSessionId, cmdId, {
+        const sent = await commandRouter.dispatch(sourceSession.host_id, sourceSessionId, cmdId, {
           type: 'copy_to_session',
           payload: bodyResult.data,
         });
@@ -508,8 +515,8 @@ export function registerSessionRoutes(app: FastifyInstance): void {
           }
 
           // Step 3: Send to target session
-          const sendCmdId = ulid();
-          const sent = commandRouter.dispatch(targetSession.host_id, target_session_id, sendCmdId, {
+          const sendCmdId = randomUUID();
+          const sent = await commandRouter.dispatch(targetSession.host_id, target_session_id, sendCmdId, {
             type: 'send_input',
             payload: {
               text: combined,
@@ -571,8 +578,8 @@ export function registerSessionRoutes(app: FastifyInstance): void {
           continue;
         }
 
-        const cmdId = ulid();
-        const sent = commandRouter.dispatch(session.host_id, id, cmdId, {
+        const cmdId = randomUUID();
+        const sent = await commandRouter.dispatch(session.host_id, id, cmdId, {
           type: 'kill_session',
           payload: {},
         });
@@ -681,12 +688,30 @@ export function registerSessionRoutes(app: FastifyInstance): void {
       return reply.status(403).send({ error: 'Forbidden' });
     }
 
+    let rawIdempotencyKey: string | undefined;
+    try {
+      rawIdempotencyKey = getIdempotencyKey(request.headers['idempotency-key']);
+    } catch (error) {
+      if (error instanceof InvalidIdempotencyKeyError) {
+        return reply.status(400).send({ error: error.message });
+      }
+      throw error;
+    }
+
     const bodyResult = DashboardSpawnRequestSchema.safeParse(request.body);
     if (!bodyResult.success) {
       return reply.status(400).send({ error: 'Invalid request body', details: bodyResult.error });
     }
 
     const { host_id, provider, working_directory, title, flags, group_id, tmux } = bodyResult.data;
+    const idempotencyKey = scopeIdempotencyKey(
+      rawIdempotencyKey,
+      'sessions.spawn',
+      request.user.id
+    );
+    const idempotencyFingerprint = rawIdempotencyKey
+      ? fingerprintIdempotentRequest(bodyResult.data)
+      : undefined;
 
     try {
       const memoryPlan = await prepareSessionMemoryForSpawn({
@@ -707,19 +732,25 @@ export function registerSessionRoutes(app: FastifyInstance): void {
         flags,
         group_id,
         tmux,
+        idempotencyKey,
+        idempotencyFingerprint,
       });
-      void bootstrapSessionMemory({
-        host_id,
-        session_id: result.session.id,
-        source: 'automatic',
-      }).catch((error) => {
-        request.log.warn({ error, sessionId: result.session.id }, 'Failed to bootstrap session memory');
-      });
-      return result;
+      if (!result.queued && !result.replayed) {
+        void bootstrapSessionMemory({
+          host_id,
+          session_id: result.session.id,
+          source: 'automatic',
+        }).catch((error) => {
+          request.log.warn({ error, sessionId: result.session.id }, 'Failed to bootstrap session memory');
+        });
+      }
+      return { session: result.session, cmd_id: result.cmd_id };
     } catch (error) {
       const message = (error as Error).message;
       const status =
-        message === 'Host not found' ? 404
+        error instanceof IdempotencyConflictError
+          || message === 'Idempotency-Key was used with a different request' ? 409
+        : message === 'Host not found' ? 404
         : message === 'Host does not allow remote session spawning' ? 403
         : message.startsWith('Host does not advertise provider support') ? 400
         : message === 'Host is offline' || message === 'Failed to send command to agent' ? 503

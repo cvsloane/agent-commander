@@ -1,52 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { ulid } from 'ulid';
+import { randomUUID } from 'node:crypto';
 import { UpdateMCPConfigRequestSchema } from '@agent-command/schema';
 import * as db from '../db/index.js';
-import { pubsub } from '../services/pubsub.js';
 import { hasRole } from '../auth/rbac.js';
-
-// Pending request tracking for async agent responses
-const pendingRequests = new Map<string, {
-  resolve: (value: unknown) => void;
-  reject: (error: Error) => void;
-  timeout: NodeJS.Timeout;
-}>();
-
-// Called by agent WebSocket handler when mcp.* response is received
-export function handleMCPResponse(cmdId: string, response: unknown): boolean {
-  const pending = pendingRequests.get(cmdId);
-  if (!pending) return false;
-
-  clearTimeout(pending.timeout);
-  pendingRequests.delete(cmdId);
-  pending.resolve(response);
-  return true;
-}
-
-// Helper to send request to agent and wait for response
-async function sendToAgentAndWait(
-  hostId: string,
-  message: unknown,
-  cmdId: string,
-  timeoutMs = 10000
-): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      pendingRequests.delete(cmdId);
-      reject(new Error('Request timed out'));
-    }, timeoutMs);
-
-    pendingRequests.set(cmdId, { resolve, reject, timeout });
-
-    const sent = pubsub.sendToAgent(hostId, message);
-    if (!sent) {
-      clearTimeout(timeout);
-      pendingRequests.delete(cmdId);
-      reject(new Error('Agent not connected'));
-    }
-  });
-}
+import { commandRouter } from '../services/commandRouter.js';
 
 export function registerMCPRoutes(app: FastifyInstance): void {
   // GET /v1/hosts/:id/mcp/servers - List MCP servers available on a host
@@ -64,7 +22,7 @@ export function registerMCPRoutes(app: FastifyInstance): void {
         return reply.status(404).send({ error: 'Host not found' });
       }
 
-      const cmdId = ulid();
+      const cmdId = randomUUID();
       const message = {
         v: 1,
         type: 'mcp.list_servers',
@@ -74,10 +32,10 @@ export function registerMCPRoutes(app: FastifyInstance): void {
       };
 
       try {
-        const response = await sendToAgentAndWait(hostId, message, cmdId) as {
+        const response = await commandRouter.dispatchMessageAndWait<{
           servers: unknown[];
           pool_config?: unknown;
-        };
+        }>(hostId, cmdId, message);
         return response;
       } catch (error) {
         return reply.status(503).send({ error: (error as Error).message });
@@ -100,7 +58,7 @@ export function registerMCPRoutes(app: FastifyInstance): void {
         return reply.status(404).send({ error: 'Session not found' });
       }
 
-      const cmdId = ulid();
+      const cmdId = randomUUID();
       const message = {
         v: 1,
         type: 'mcp.get_config',
@@ -110,7 +68,13 @@ export function registerMCPRoutes(app: FastifyInstance): void {
       };
 
       try {
-        const response = await sendToAgentAndWait(session.host_id, message, cmdId);
+        const response = await commandRouter.dispatchMessageAndWait(
+          session.host_id,
+          cmdId,
+          message,
+          10000,
+          { sessionId }
+        );
         return response;
       } catch (error) {
         return reply.status(503).send({ error: (error as Error).message });
@@ -142,7 +106,7 @@ export function registerMCPRoutes(app: FastifyInstance): void {
         return reply.status(404).send({ error: 'Session not found' });
       }
 
-      const cmdId = ulid();
+      const cmdId = randomUUID();
       const message = {
         v: 1,
         type: 'mcp.update_config',
@@ -156,7 +120,13 @@ export function registerMCPRoutes(app: FastifyInstance): void {
       };
 
       try {
-        const response = await sendToAgentAndWait(session.host_id, message, cmdId);
+        const response = await commandRouter.dispatchMessageAndWait(
+          session.host_id,
+          cmdId,
+          message,
+          10000,
+          { sessionId }
+        );
 
         // Log audit
         await db.createAuditLog('mcp.update_config', 'session', sessionId, {
@@ -189,7 +159,7 @@ export function registerMCPRoutes(app: FastifyInstance): void {
         return reply.status(404).send({ error: 'No session found for this repo_root' });
       }
 
-      const cmdId = ulid();
+      const cmdId = randomUUID();
       const message = {
         v: 1,
         type: 'mcp.get_project_config',
@@ -199,7 +169,13 @@ export function registerMCPRoutes(app: FastifyInstance): void {
       };
 
       try {
-        const response = await sendToAgentAndWait(session.host_id, message, cmdId);
+        const response = await commandRouter.dispatchMessageAndWait(
+          session.host_id,
+          cmdId,
+          message,
+          10000,
+          { sessionId: session.id }
+        );
         return response;
       } catch (error) {
         return reply.status(503).send({ error: (error as Error).message });
@@ -234,7 +210,7 @@ export function registerMCPRoutes(app: FastifyInstance): void {
         return reply.status(404).send({ error: 'No session found for this repo_root' });
       }
 
-      const cmdId = ulid();
+      const cmdId = randomUUID();
       const message = {
         v: 1,
         type: 'mcp.update_project_config',
@@ -248,7 +224,13 @@ export function registerMCPRoutes(app: FastifyInstance): void {
       };
 
       try {
-        const response = await sendToAgentAndWait(session.host_id, message, cmdId);
+        const response = await commandRouter.dispatchMessageAndWait(
+          session.host_id,
+          cmdId,
+          message,
+          10000,
+          { sessionId: session.id }
+        );
 
         // Log audit
         await db.createAuditLog('mcp.update_project_config', 'project', repoRoot, {

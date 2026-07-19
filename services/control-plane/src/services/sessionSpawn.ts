@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { ulid } from 'ulid';
 import {
-  CommandsDispatchMessageSchema,
   type SpawnSessionMemoryFile,
   type Session,
   type SessionProvider,
 } from '@agent-command/schema';
 import * as db from '../db/index.js';
 import { pubsub } from './pubsub.js';
+import { commandRouter } from './commandRouter.js';
+import { isHostOnline } from './hostPresence.js';
+import { assertIdempotencyFingerprint } from './idempotency.js';
 
 type SpawnSessionOptions = {
   actorUserId: string;
@@ -25,6 +26,8 @@ type SpawnSessionOptions = {
   };
   auditAction?: string;
   failureAuditAction?: string;
+  idempotencyKey?: string;
+  idempotencyFingerprint?: string;
 };
 
 type SendInputOptions = {
@@ -36,7 +39,7 @@ type SendInputOptions = {
 
 export async function spawnSessionOnHost(
   options: SpawnSessionOptions
-): Promise<{ session: Session; cmd_id: string }> {
+): Promise<{ session: Session; cmd_id: string; replayed: boolean; queued: boolean }> {
   const host = await db.getHostById(options.host_id);
   if (!host) {
     throw new Error('Host not found');
@@ -56,8 +59,29 @@ export async function spawnSessionOnHost(
   ) {
     throw new Error(`Host does not advertise provider support for ${options.provider}`);
   }
-  if (!pubsub.isAgentConnected(options.host_id)) {
-    throw new Error('Host is offline');
+  if (options.idempotencyKey) {
+    const existing = await commandRouter.getByIdempotencyKey(
+      options.host_id,
+      options.idempotencyKey
+    );
+    if (existing) {
+      assertIdempotencyFingerprint(
+        existing.idempotency_fingerprint,
+        options.idempotencyFingerprint
+      );
+      const existingSession = existing.session_id
+        ? await db.getSessionById(existing.session_id)
+        : null;
+      if (!existingSession) {
+        throw new Error('Idempotent spawn session not found');
+      }
+      return {
+        session: existingSession,
+        cmd_id: existing.cmd_id,
+        replayed: true,
+        queued: existing.status === 'queued',
+      };
+    }
   }
 
   const sessionId = randomUUID();
@@ -90,15 +114,14 @@ export async function spawnSessionOnHost(
     }
   }
 
-  const cmdId = ulid();
-  const dispatchMessage = CommandsDispatchMessageSchema.parse({
-    v: 1,
-    type: 'commands.dispatch',
-    ts: new Date().toISOString(),
-    payload: {
-      cmd_id: cmdId,
-      session_id: sessionId,
-      command: {
+  const cmdId = randomUUID();
+  let receipt;
+  try {
+    receipt = await commandRouter.dispatchDetailed(
+      options.host_id,
+      sessionId,
+      cmdId,
+      {
         type: 'spawn_session',
         payload: {
           provider: options.provider,
@@ -110,11 +133,13 @@ export async function spawnSessionOnHost(
           tmux: options.tmux,
         },
       },
-    },
-  });
-
-  const sent = pubsub.sendToAgent(options.host_id, dispatchMessage);
-  if (!sent) {
+      {
+        class: 'durable',
+        idempotencyKey: options.idempotencyKey,
+        idempotencyFingerprint: options.idempotencyFingerprint,
+      }
+    );
+  } catch (error) {
     const failedSession = await db.upsertSession(options.host_id, {
       id: sessionId,
       user_id: options.actorUserId,
@@ -140,7 +165,29 @@ export async function spawnSessionOnHost(
       },
       options.actorUserId
     );
-    throw new Error('Failed to send command to agent');
+    throw error;
+  }
+
+  if (!receipt.created) {
+    if (receipt.record.session_id !== sessionId) {
+      await db.deleteSession(sessionId);
+    }
+    assertIdempotencyFingerprint(
+      receipt.record.idempotency_fingerprint,
+      options.idempotencyFingerprint
+    );
+    const existingSession = receipt.record.session_id
+      ? await db.getSessionById(receipt.record.session_id)
+      : null;
+    if (!existingSession) {
+      throw new Error('Idempotent spawn session not found');
+    }
+    return {
+      session: existingSession,
+      cmd_id: receipt.record.cmd_id,
+      replayed: true,
+      queued: receipt.record.status === 'queued',
+    };
   }
 
   pubsub.publishSessionsChanged([session]);
@@ -157,7 +204,7 @@ export async function spawnSessionOnHost(
     options.actorUserId
   );
 
-  return { session, cmd_id: cmdId };
+  return { session, cmd_id: cmdId, replayed: false, queued: !receipt.delivered };
 }
 
 export async function sendInputToSession(
@@ -167,29 +214,26 @@ export async function sendInputToSession(
   if (!session) {
     throw new Error('Session not found');
   }
-  if (!pubsub.isAgentConnected(options.host_id)) {
+  if (!isHostOnline(options.host_id)) {
     throw new Error('Host is offline');
   }
 
-  const cmdId = ulid();
-  const dispatchMessage = CommandsDispatchMessageSchema.parse({
-    v: 1,
-    type: 'commands.dispatch',
-    ts: new Date().toISOString(),
-    payload: {
-      cmd_id: cmdId,
-      session_id: options.session_id,
-      command: {
-        type: 'send_input',
-        payload: {
-          text: options.text,
-          enter: options.enter ?? true,
-        },
+  const cmdId = randomUUID();
+  const sent = await commandRouter.dispatch(
+    options.host_id,
+    options.session_id,
+    cmdId,
+    {
+      type: 'send_input',
+      payload: {
+        text: options.text,
+        enter: options.enter ?? true,
       },
     },
-  });
+    { class: 'volatile' }
+  );
 
-  if (!pubsub.sendToAgent(options.host_id, dispatchMessage)) {
+  if (!sent) {
     throw new Error('Failed to send input command to agent');
   }
 

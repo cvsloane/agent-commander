@@ -14,16 +14,26 @@ import {
 } from '@agent-command/schema';
 import { ulid } from 'ulid';
 import { pubsub } from '../services/pubsub.js';
-import { handleMCPResponse } from '../routes/mcp.js';
-import { handleCommandResultForPending, HOST_COMMAND_SESSION_ID } from '../services/commandRouter.js';
+import {
+  commandRouter,
+  handleCommandResultForPending,
+  HOST_COMMAND_SESSION_ID,
+  isOutboxCommandId,
+} from '../services/commandRouter.js';
 import { handleTerminalOutput, handleTerminalStatus } from '../routes/terminal.js';
 import * as db from '../db/index.js';
 import { consoleSubscriptions } from '../services/consoleSubscriptions.js';
+import { installWebSocketHeartbeat } from '../services/webSocketHeartbeat.js';
+import { hostProgress } from '../services/hostProgress.js';
+import { recordAgentMessageHandlerFailure } from '../metrics.js';
 
 interface AgentState {
   hostId: string | null;
   lastProcessedSeq: number;
   authenticated: boolean;
+  failed: boolean;
+  helloReceived: boolean;
+  outboxDelivered: boolean;
 }
 
 /**
@@ -42,12 +52,31 @@ export function registerAgentWebSocket(app: FastifyInstance): void {
         hostId: null,
         lastProcessedSeq: 0,
         authenticated: false,
+        failed: false,
+        helloReceived: false,
+        outboxDelivered: false,
       };
+
+      const heartbeat = installWebSocketHeartbeat(socket, {
+        onHeartbeat: (at) => {
+          if (state.hostId) {
+            pubsub.markAgentHeartbeat(state.hostId, socket, at);
+          }
+        },
+        onStale: () => {
+          app.log.warn({ hostId: state.hostId }, 'Terminating stale agent WebSocket');
+        },
+      });
 
       const pendingMessages: Buffer[] = [];
       const MAX_PENDING_MESSAGES = 100;
 
-      socket.on('message', async (data: Buffer) => {
+      let messageQueue = Promise.resolve();
+      socket.on('message', (data: Buffer) => {
+        heartbeat.markAlive();
+        if (state.hostId) {
+          pubsub.markAgentHeartbeat(state.hostId, socket);
+        }
         if (!state.authenticated) {
           if (pendingMessages.length >= MAX_PENDING_MESSAGES) {
             app.log.warn({ count: pendingMessages.length }, 'Dropping message: pre-auth buffer full');
@@ -57,13 +86,20 @@ export function registerAgentWebSocket(app: FastifyInstance): void {
           return;
         }
 
-        await handleSocketMessage(app, socket, state, data);
+        const buffered = Buffer.from(data);
+        messageQueue = messageQueue.then(async () => {
+          if (state.failed) return;
+          await handleSocketMessage(app, socket, state, buffered);
+        });
       });
 
       socket.on('close', () => {
         if (state.hostId) {
-          pubsub.removeAgentConnection(state.hostId);
-          app.log.info({ hostId: state.hostId }, 'Agent disconnected');
+          const removed = pubsub.removeAgentConnection(state.hostId, socket);
+          void hostProgress.flush(state.hostId).catch((error) => {
+            app.log.error({ error, hostId: state.hostId }, 'Failed to flush host progress on disconnect');
+          });
+          app.log.info({ hostId: state.hostId, removed }, 'Agent disconnected');
         }
       });
 
@@ -95,14 +131,13 @@ export function registerAgentWebSocket(app: FastifyInstance): void {
       // re-register with the correct lastAckedSeq from the database.
       pubsub.addAgentConnection(hostId, socket, 0);
 
-      for (const buffered of pendingMessages) {
-        try {
+      for (const buffered of pendingMessages.splice(0)) {
+        messageQueue = messageQueue.then(async () => {
+          if (state.failed) return;
           await handleSocketMessage(app, socket, state, buffered);
-        } catch (error) {
-          app.log.error({ error, hostId }, 'Error draining buffered message');
-        }
+        });
       }
-      pendingMessages.length = 0;
+      await messageQueue;
     }
   );
 }
@@ -119,7 +154,9 @@ async function handleSocketMessage(
 
     if (!parseResult.success) {
       app.log.warn({ error: parseResult.error }, 'Invalid agent message');
-      sendAck(socket, 0, 'error', 'Invalid message format');
+      state.failed = true;
+      recordAgentMessageHandlerFailure('invalid');
+      socket.terminate();
       return;
     }
 
@@ -127,6 +164,9 @@ async function handleSocketMessage(
     await processAgentMessage(app, socket, state, message);
   } catch (error) {
     app.log.error({ error }, 'Error processing agent message');
+    state.failed = true;
+    recordAgentMessageHandlerFailure('invalid');
+    socket.terminate();
   }
 }
 
@@ -140,23 +180,26 @@ async function processAgentMessage(
 
   if (message.type !== 'agent.hello' && seq <= state.lastProcessedSeq) {
     if (state.hostId) {
-      await db.updateHostLastSeen(state.hostId);
+      hostProgress.record(state.hostId);
     }
     sendAck(socket, seq, 'ok');
     return;
   }
 
-  switch (message.type) {
+  try {
+    switch (message.type) {
     case 'agent.hello':
       await handleAgentHello(app, socket, state, message);
       break;
 
     case 'sessions.upsert':
       await handleSessionsUpsert(app, state, message.payload.sessions);
+      await deliverPendingAfterInventory(app, socket, state);
       sendAck(socket, seq, 'ok');
       break;
     case 'sessions.prune':
       await handleSessionsPrune(app, state, message.payload.session_ids);
+      await deliverPendingAfterInventory(app, socket, state);
       sendAck(socket, seq, 'ok');
       break;
 
@@ -176,7 +219,7 @@ async function processAgentMessage(
       break;
 
     case 'commands.result':
-      await handleCommandResult(app, message.payload);
+      await handleCommandResult(app, state, message.payload);
       sendAck(socket, seq, 'ok');
       break;
 
@@ -190,8 +233,8 @@ async function processAgentMessage(
     case 'mcp.project_config':
     case 'mcp.update_result': {
       const payload = message.payload as { cmd_id?: string };
-      if (payload.cmd_id) {
-        handleMCPResponse(payload.cmd_id, message.payload);
+      if (payload.cmd_id && state.hostId) {
+        await commandRouter.handleResponse(state.hostId, payload.cmd_id, message.payload);
       }
       sendAck(socket, seq, 'ok');
       break;
@@ -221,36 +264,50 @@ async function processAgentMessage(
     }
 
     case 'tool.event.started': {
-      await handleToolEventStarted(app, message.payload);
+      await handleToolEventStarted(message.payload);
       sendAck(socket, seq, 'ok');
       break;
     }
 
     case 'tool.event.completed': {
-      await handleToolEventCompleted(app, message.payload);
+      await handleToolEventCompleted(message.payload);
       sendAck(socket, seq, 'ok');
       break;
     }
 
     case 'provider.usage': {
-      await handleProviderUsageReport(app, state, message.payload);
+      await handleProviderUsageReport(state, message.payload);
       sendAck(socket, seq, 'ok');
       break;
     }
 
     case 'session.usage': {
-      await handleSessionUsageReport(app, state, message.payload);
+      await handleSessionUsageReport(state, message.payload);
       sendAck(socket, seq, 'ok');
       break;
     }
+    }
+  } catch (error) {
+    state.failed = true;
+    recordAgentMessageHandlerFailure(message.type);
+    app.log.error(
+      { error, hostId: state.hostId, seq, messageType: message.type },
+      'Agent message handler failed; closing without acknowledgement for redelivery'
+    );
+    socket.terminate();
+    return;
   }
 
+  if (state.failed) return;
+
   if (state.hostId) {
-    await db.updateHostLastSeen(state.hostId);
+    let ackedSeq: number | undefined;
     if (seq > state.lastProcessedSeq) {
       state.lastProcessedSeq = seq;
-      await db.updateHostAckedSeq(state.hostId, seq);
+      ackedSeq = seq;
+      pubsub.updateAgentAckedSeq(state.hostId, seq);
     }
+    hostProgress.record(state.hostId, ackedSeq);
   }
 }
 
@@ -269,6 +326,7 @@ async function handleAgentHello(
       'Host ID mismatch'
     );
     socket.close(4003, 'Host ID mismatch');
+    state.failed = true;
     return;
   }
 
@@ -289,15 +347,35 @@ async function handleAgentHello(
 
   // Register connection
   pubsub.addAgentConnection(host.id, socket, state.lastProcessedSeq);
+  state.helloReceived = true;
 
   app.log.info({ hostId: host.id, name: host.name }, 'Agent registered');
 
-  // Re-send console subscriptions for this host on reconnect
-  const activeConsoleSubs = consoleSubscriptions.getByHost(host.id);
+  // Send ack
+  sendAck(socket, message.seq, 'ok');
+}
+
+async function deliverPendingAfterInventory(
+  app: FastifyInstance,
+  socket: WebSocket,
+  state: AgentState
+): Promise<void> {
+  if (!state.hostId || !state.helloReceived || state.outboxDelivered) return;
+  if (!pubsub.markAgentReady(state.hostId, socket)) return;
+  const delivery = await commandRouter.deliverPending(state.hostId);
+  state.outboxDelivered = true;
+  if (delivery.delivered > 0 || delivery.expired > 0) {
+    app.log.info(
+      { hostId: state.hostId, ...delivery },
+      'Processed command outbox after initial agent inventory'
+    );
+  }
+
+  const activeConsoleSubs = consoleSubscriptions.getByHost(state.hostId);
   if (activeConsoleSubs.length > 0) {
     app.log.info(
-      { hostId: host.id, count: activeConsoleSubs.length },
-      'Re-subscribing console streams'
+      { hostId: state.hostId, count: activeConsoleSubs.length },
+      'Re-subscribing console streams after initial agent inventory'
     );
     for (const sub of activeConsoleSubs) {
       const resend = CommandsDispatchMessageSchema.parse({
@@ -316,12 +394,9 @@ async function handleAgentHello(
           },
         },
       });
-      pubsub.sendToAgent(host.id, resend);
+      pubsub.sendToAgent(state.hostId, resend);
     }
   }
-
-  // Send ack
-  sendAck(socket, message.seq, 'ok');
 }
 
 async function handleSessionsUpsert(
@@ -332,6 +407,7 @@ async function handleSessionsUpsert(
   if (!state.hostId) return;
 
   const updatedSessions: Session[] = [];
+  let firstFailure: unknown;
 
   for (const session of sessions) {
     try {
@@ -370,12 +446,15 @@ async function handleSessionsUpsert(
       updatedSessions.push(updated);
     } catch (error) {
       app.log.error({ error, sessionId: session.id }, 'Failed to upsert session');
+      firstFailure ??= error;
     }
   }
 
   if (updatedSessions.length > 0) {
     pubsub.publishSessionsChanged(updatedSessions);
   }
+
+  if (firstFailure) throw firstFailure;
 }
 
 async function handleSessionsPrune(
@@ -384,12 +463,8 @@ async function handleSessionsPrune(
   sessionIds: string[]
 ): Promise<void> {
   if (!state.hostId) return;
-  try {
-    const pruned = await db.pruneHostSessions(state.hostId, sessionIds);
-    app.log.info({ hostId: state.hostId, pruned }, 'Pruned stale sessions');
-  } catch (error) {
-    app.log.error({ error, hostId: state.hostId }, 'Failed to prune sessions');
-  }
+  const pruned = await db.pruneHostSessions(state.hostId, sessionIds);
+  app.log.info({ hostId: state.hostId, pruned }, 'Pruned stale sessions');
 }
 
 async function handleSessionSnapshot(
@@ -398,17 +473,13 @@ async function handleSessionSnapshot(
   captureHash: string,
   captureText: string
 ): Promise<void> {
-  try {
-    const snapshot = await db.insertSnapshot(sessionId, captureHash, captureText);
-    pubsub.publishSnapshotUpdated(
-      sessionId,
-      snapshot.capture_text,
-      snapshot.capture_hash,
-      snapshot.created_at
-    );
-  } catch (error) {
-    app.log.error({ error, sessionId }, 'Failed to insert snapshot');
-  }
+  const snapshot = await db.insertSnapshot(sessionId, captureHash, captureText);
+  pubsub.publishSnapshotUpdated(
+    sessionId,
+    snapshot.capture_text,
+    snapshot.capture_hash,
+    snapshot.created_at
+  );
 }
 
 async function handleEventsAppend(
@@ -420,95 +491,99 @@ async function handleEventsAppend(
     payload: Record<string, unknown>;
   }
 ): Promise<void> {
-  try {
-    const event = await db.insertEvent(
-      payload.session_id,
-      payload.event_type,
-      payload.payload,
-      payload.event_id
-    );
+  const event = await db.insertEvent(
+    payload.session_id,
+    payload.event_type,
+    payload.payload,
+    payload.event_id
+  );
 
-    if (event) {
-      pubsub.publishEventAppended(payload.session_id, {
-        id: event.id!,
-        ts: event.ts,
-        type: event.type,
-        payload: event.payload,
-      });
+  if (event) {
+    pubsub.publishEventAppended(payload.session_id, {
+      id: event.id!,
+      ts: event.ts,
+      type: event.type,
+      payload: event.payload,
+    });
 
-      // Handle special event types that create approvals
-      if (payload.event_type === 'approval.requested') {
-        const session = await db.getSessionById(payload.session_id);
-        if (session) {
-          const approvalId =
-            typeof payload.payload.approval_id === 'string'
-              ? payload.payload.approval_id
-              : undefined;
-          const provider =
-            typeof payload.payload.provider === 'string'
-              ? payload.payload.provider
-              : session.provider;
-          const approval = await db.createApproval(
-            payload.session_id,
-            provider,
-            payload.payload,
-            approvalId
-          );
-          pubsub.publishApprovalCreated(approval, session);
-        }
-      }
-
-      // Record token usage if present
-      const tokenUsage = extractTokenUsage(payload.payload);
-      if (tokenUsage) {
-        await db.recordTokenUsage({
-          session_id: payload.session_id,
-          event_id: event.id,
-          ...tokenUsage,
-        });
+    // Handle special event types that create approvals
+    if (payload.event_type === 'approval.requested') {
+      const session = await db.getSessionById(payload.session_id);
+      if (session) {
+        const approvalId =
+          typeof payload.payload.approval_id === 'string'
+            ? payload.payload.approval_id
+            : undefined;
+        const provider =
+          typeof payload.payload.provider === 'string'
+            ? payload.payload.provider
+            : session.provider;
+        const approval = await db.createApproval(
+          payload.session_id,
+          provider,
+          payload.payload,
+          approvalId
+        );
+        pubsub.publishApprovalCreated(approval, session);
       }
     }
-  } catch (error) {
-    app.log.error({ error, sessionId: payload.session_id }, 'Failed to append event');
+
+    // Record token usage if present
+    const tokenUsage = extractTokenUsage(payload.payload);
+    if (tokenUsage) {
+      await db.recordTokenUsage({
+        session_id: payload.session_id,
+        event_id: event.id,
+        ...tokenUsage,
+      });
+    }
   }
 }
 
 async function handleCommandResult(
   app: FastifyInstance,
+  state: AgentState,
   payload: { cmd_id: string; session_id?: string; ok: boolean; result?: Record<string, unknown>; error?: { code: string; message: string } }
 ): Promise<void> {
   app.log.info({ cmdId: payload.cmd_id, ok: payload.ok }, 'Command result received');
+  if (!state.hostId) return;
 
   // Resolve any caller waiting on this command id, including host-level commands.
-  handleCommandResultForPending(payload.cmd_id, {
+  await handleCommandResultForPending(state.hostId, payload.cmd_id, {
     ok: payload.ok,
     result: payload.result,
     error: payload.error,
   });
 
-  if (payload.session_id && payload.session_id !== HOST_COMMAND_SESSION_ID) {
-    try {
-      const event = await db.insertEvent(
-        payload.session_id,
-        'command.completed',
-        {
-          cmd_id: payload.cmd_id,
-          ok: payload.ok,
-          result: payload.result,
-          error: payload.error,
-        }
-      );
+  const persisted = isOutboxCommandId(payload.cmd_id)
+    ? await commandRouter.getByIdForHost(state.hostId, payload.cmd_id)
+    : null;
+  let sessionId = persisted?.session_id ?? null;
+  if (!persisted && payload.session_id && payload.session_id !== HOST_COMMAND_SESSION_ID) {
+    const legacySession = await db.getSessionById(payload.session_id);
+    if (legacySession?.host_id === state.hostId) sessionId = legacySession.id;
+  }
 
-      if (event) {
-        pubsub.publishEventAppended(payload.session_id, {
-          id: event.id!,
-          ts: event.ts,
-          type: event.type,
-          payload: event.payload,
-        });
-      }
-    } catch (error) {
-      app.log.error({ error, cmdId: payload.cmd_id }, 'Failed to store command result');
+  if (sessionId) {
+    const event = await db.insertEvent(
+      sessionId,
+      'command.completed',
+      {
+        cmd_id: payload.cmd_id,
+        ok: payload.ok,
+        result: payload.result,
+        error: payload.error,
+      },
+      `command:${payload.cmd_id}`
+    );
+
+    if (event) {
+      pubsub.publishEventAppended(sessionId, {
+        id: event.id!,
+        ts: event.ts,
+        type: event.type,
+        payload: event.payload,
+      });
     }
   }
 }
@@ -527,48 +602,32 @@ function handleConsoleChunk(payload: {
   );
 }
 
-async function handleToolEventStarted(
-  app: FastifyInstance,
-  payload: unknown
-): Promise<void> {
-  try {
-    const parsed = ToolEventStartSchema.parse(payload);
-    const event = await db.insertToolEventStart(parsed);
+async function handleToolEventStarted(payload: unknown): Promise<void> {
+  const parsed = ToolEventStartSchema.parse(payload);
+  const event = await db.insertToolEventStart(parsed);
 
-    // Publish to UI subscribers
-    pubsub.publishToolEventStarted(parsed.session_id, event);
-  } catch (error) {
-    app.log.error({ error }, 'Failed to handle tool event started');
-  }
+  // Publish to UI subscribers
+  pubsub.publishToolEventStarted(parsed.session_id, event);
 }
 
-async function handleToolEventCompleted(
-  app: FastifyInstance,
-  payload: unknown
-): Promise<void> {
-  try {
-    const parsed = ToolEventCompleteSchema.parse(payload);
-    const event = await db.completeToolEvent(parsed);
+async function handleToolEventCompleted(payload: unknown): Promise<void> {
+  const parsed = ToolEventCompleteSchema.parse(payload);
+  const event = await db.completeToolEvent(parsed);
 
-    if (event) {
-      // Publish to UI subscribers
-      pubsub.publishToolEventCompleted(event.session_id, event);
-    }
-  } catch (error) {
-    app.log.error({ error }, 'Failed to handle tool event completed');
+  if (event) {
+    // Publish to UI subscribers
+    pubsub.publishToolEventCompleted(event.session_id, event);
   }
 }
 
 async function handleProviderUsageReport(
-  app: FastifyInstance,
   state: AgentState,
   payload: unknown
 ): Promise<void> {
   if (!state.hostId) return;
-  try {
-    const parsed = ProviderUsageReportSchema.parse(payload);
-    const utilizationOverrides = extractUtilizationFromRaw(parsed.raw_json, parsed.provider);
-    await db.recordProviderUsage({
+  const parsed = ProviderUsageReportSchema.parse(payload);
+  const utilizationOverrides = extractUtilizationFromRaw(parsed.raw_json, parsed.provider);
+  await db.recordProviderUsage({
       provider: parsed.provider,
       host_id: parsed.host_id || state.hostId,
       session_id: parsed.session_id,
@@ -597,46 +656,38 @@ async function handleProviderUsageReport(
         utilizationOverrides.daily_utilization ?? parsed.daily_utilization,
       daily_reset_at:
         utilizationOverrides.daily_reset_at ?? parsed.daily_reset_at,
-    });
-  } catch (error) {
-    app.log.error({ error }, 'Failed to handle provider usage report');
-  }
+  });
 }
 
 async function handleSessionUsageReport(
-  app: FastifyInstance,
   state: AgentState,
   payload: unknown
 ): Promise<void> {
-  try {
-    const parsed = SessionUsageSummarySchema.parse(payload);
-    await db.upsertSessionUsageLatest(parsed);
+  const parsed = SessionUsageSummarySchema.parse(payload);
+  await db.upsertSessionUsageLatest(parsed);
 
-    pubsub.publishToUI({
-      v: 1,
-      type: 'session_usage.updated',
-      ts: new Date().toISOString(),
-      payload: parsed,
+  pubsub.publishToUI({
+    v: 1,
+    type: 'session_usage.updated',
+    ts: new Date().toISOString(),
+    payload: parsed,
+  });
+
+  // For Gemini, also record to provider_usage so it shows in dashboard
+  if (parsed.provider === 'gemini_cli' && parsed.daily_utilization_percent != null) {
+    const resetAt = parsed.daily_reset_hours
+      ? new Date(Date.now() + parsed.daily_reset_hours * 60 * 60 * 1000).toISOString()
+      : undefined;
+
+    await db.recordProviderUsage({
+      provider: parsed.provider,
+      host_id: state.hostId,
+      session_id: parsed.session_id,
+      scope: 'account',
+      reported_at: parsed.reported_at,
+      daily_utilization: parsed.daily_utilization_percent,
+      daily_reset_at: resetAt,
     });
-
-    // For Gemini, also record to provider_usage so it shows in dashboard
-    if (parsed.provider === 'gemini_cli' && parsed.daily_utilization_percent != null) {
-      const resetAt = parsed.daily_reset_hours
-        ? new Date(Date.now() + parsed.daily_reset_hours * 60 * 60 * 1000).toISOString()
-        : undefined;
-
-      await db.recordProviderUsage({
-        provider: parsed.provider,
-        host_id: state.hostId,
-        session_id: parsed.session_id,
-        scope: 'account',
-        reported_at: parsed.reported_at,
-        daily_utilization: parsed.daily_utilization_percent,
-        daily_reset_at: resetAt,
-      });
-    }
-  } catch (error) {
-    app.log.error({ error }, 'Failed to handle session usage report');
   }
 }
 

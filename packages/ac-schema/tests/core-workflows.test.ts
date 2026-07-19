@@ -5,10 +5,12 @@ import {
   AutomationRunSchema,
   CreateWorkItemSchema,
   MemorySearchQuerySchema,
+  ServerToUIMessageSchema,
   TmuxPaneIdentitySchema,
   UpsertAutomationAgentSchema,
   UpsertMemoryEntrySchema,
   WorkItemsQuerySchema,
+  UISubscribeMessageSchema,
 } from '../src/index.js';
 
 const uuid = '11111111-1111-4111-8111-111111111111';
@@ -30,6 +32,32 @@ describe('approval schemas', () => {
     });
 
     expect(parsed.payload?.updatedInput).toEqual({ command: 'pnpm test:ci' });
+  });
+});
+
+describe('host presence schemas', () => {
+  it('accepts additive hosts subscriptions and presence change messages', () => {
+    expect(UISubscribeMessageSchema.safeParse({
+      v: 1,
+      type: 'ui.subscribe',
+      ts: '2026-07-19T16:00:00.000Z',
+      payload: { topics: [{ type: 'hosts' }] },
+    }).success).toBe(true);
+
+    const parsed = ServerToUIMessageSchema.parse({
+      v: 1,
+      type: 'hosts.changed',
+      ts: '2026-07-19T16:00:00.000Z',
+      payload: {
+        hosts: [{
+          host_id: uuid,
+          online: true,
+          last_heartbeat_at: '2026-07-19T16:00:00.000Z',
+        }],
+      },
+    });
+
+    expect(parsed.type).toBe('hosts.changed');
   });
 });
 

@@ -49,6 +49,7 @@ describe('session command policy', () => {
     vi.resetModules();
     vi.stubEnv('DATABASE_URL', 'postgres://agent-command:test@localhost:5432/agent_command_test');
     vi.doMock('../src/db/index.js', () => ({
+      pool: { query: vi.fn(async () => ({ rows: [] })) },
       getSessionById: vi.fn(async () => session()),
     }));
   });

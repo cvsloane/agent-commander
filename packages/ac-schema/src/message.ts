@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AgentHostInfoSchema } from './host.js';
+import { AgentHostInfoSchema, HostPresenceSchema } from './host.js';
 import { SessionSchema, SessionUpsertSchema, SessionSnapshotSchema } from './session.js';
 import { EventAppendPayloadSchema } from './event.js';
 import { CommandDispatchSchema, CommandResultSchema } from './command.js';
@@ -296,6 +296,7 @@ export const UISubscribeMessageSchema = MessageEnvelopeBaseSchema.extend({
           'automation_wakeups',
           'governance_approvals',
           'work_items',
+          'hosts',
         ]),
         filter: z.record(z.unknown()).optional(),
       })
@@ -403,6 +404,15 @@ export const UISessionUsageUpdatedMessageSchema = ServerMessageEnvelopeSchema.ex
 });
 export type UISessionUsageUpdatedMessage = z.infer<typeof UISessionUsageUpdatedMessageSchema>;
 
+// Host presence changed (to UI)
+export const UIHostsChangedMessageSchema = ServerMessageEnvelopeSchema.extend({
+  type: z.literal('hosts.changed'),
+  payload: z.object({
+    hosts: z.array(HostPresenceSchema),
+  }),
+});
+export type UIHostsChangedMessage = z.infer<typeof UIHostsChangedMessageSchema>;
+
 export const UIAutomationRunUpdatedMessageSchema = ServerMessageEnvelopeSchema.extend({
   type: z.literal('automation.run.updated'),
   payload: AutomationRunSchema,
@@ -456,5 +466,6 @@ export const ServerToUIMessageSchema = z.discriminatedUnion('type', [
   UIGovernanceApprovalUpdatedMessageSchema,
   UIWorkItemUpdatedMessageSchema,
   UIAutomationRuntimeStateUpdatedMessageSchema,
+  UIHostsChangedMessageSchema,
 ]);
 export type ServerToUIMessage = z.infer<typeof ServerToUIMessageSchema>;

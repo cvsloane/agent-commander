@@ -32,6 +32,7 @@ import { registerWorkItemRoutes } from './routes/workItems.js';
 import { pubsub } from './services/pubsub.js';
 import { startAutomationService } from './services/automation.js';
 import { verifyRequestToken } from './auth/verify.js';
+import { commandRouter } from './services/commandRouter.js';
 
 const app = Fastify({
   logger: {
@@ -69,7 +70,7 @@ async function start(): Promise<void> {
     origin: true,
     credentials: true,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Authorization', 'Content-Type'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'Idempotency-Key'],
   });
 
   await app.register(websocket);
@@ -143,6 +144,12 @@ async function start(): Promise<void> {
     await app.listen({ host: config.HOST, port: config.PORT });
     app.log.info(`Control plane listening on ${config.HOST}:${config.PORT}`);
     automationService = startAutomationService(app.log);
+    commandOutboxSweepTimer = setInterval(() => {
+      void commandRouter.maintain().catch((error) => {
+        app.log.error({ error }, 'Failed to maintain command outbox rows');
+      });
+    }, 60_000);
+    commandOutboxSweepTimer.unref?.();
   } catch (error) {
     app.log.error(error);
     process.exit(1);
@@ -150,11 +157,13 @@ async function start(): Promise<void> {
 }
 
 let automationService: { stop: () => void } | null = null;
+let commandOutboxSweepTimer: NodeJS.Timeout | null = null;
 
 // Graceful shutdown
 const shutdown = async (): Promise<void> => {
   app.log.info('Shutting down...');
   automationService?.stop();
+  if (commandOutboxSweepTimer) clearInterval(commandOutboxSweepTimer);
   await app.close();
   process.exit(0);
 };

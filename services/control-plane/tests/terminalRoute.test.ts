@@ -130,7 +130,9 @@ async function buildServer(options: {
 
   const agentSend = vi.fn();
   if (options.agentConnected ?? true) {
-    pubsub.addAgentConnection(hostId, { send: agentSend } as never);
+    const socket = { send: agentSend };
+    pubsub.addAgentConnection(hostId, socket as never);
+    pubsub.markAgentReady(hostId, socket as never);
   }
 
   const address = await app.listen({ port: 0, host: '127.0.0.1' });

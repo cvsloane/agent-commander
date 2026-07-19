@@ -102,6 +102,45 @@ async function buildServer(role: AuthUser['role'], options: {
   vi.resetModules();
   vi.stubEnv('DATABASE_URL', 'postgres://agent-command:test@localhost:5432/agent_command_test');
 
+  const commandRecords = new Map<string, Record<string, unknown>>();
+  const idempotentRecords = new Map<string, Record<string, unknown>>();
+  vi.doMock('../src/db/commandOutbox.js', () => ({
+    commandOutbox: {
+      enqueue: vi.fn(async (input: Record<string, unknown>) => {
+        const idempotencyKey = typeof input.idempotency_key === 'string'
+          ? input.idempotency_key
+          : null;
+        if (idempotencyKey && idempotentRecords.has(idempotencyKey)) {
+          return { record: idempotentRecords.get(idempotencyKey), created: false };
+        }
+        const record = {
+          ...input,
+          status: 'queued',
+          payload: input.payload,
+          idempotency_key: input.idempotency_key ?? null,
+        };
+        commandRecords.set(String(input.cmd_id), record);
+        if (idempotencyKey) idempotentRecords.set(idempotencyKey, record);
+        return { record, created: true };
+      }),
+      getByIdForHost: vi.fn(async () => null),
+      getByIdempotencyKey: vi.fn(async (_hostId: string, key: string) => (
+        idempotentRecords.get(key) ?? null
+      )),
+      markSent: vi.fn(async (_hostId: string, cmdId: string) => ({
+        ...commandRecords.get(cmdId),
+        status: 'sent',
+      })),
+      markQueued: vi.fn(async () => null),
+      markCompleted: vi.fn(async () => null),
+      markFailed: vi.fn(async () => null),
+      listDeliverable: vi.fn(async () => []),
+      expireStale: vi.fn(async () => []),
+      pruneTerminal: vi.fn(async () => 0),
+    },
+    decideApprovalAndEnqueue: vi.fn(),
+  }));
+
   const testHost = options.host === undefined ? host() : options.host;
   const sessions = options.sessionSequence ?? [
     session(),
@@ -167,7 +206,9 @@ async function buildServer(role: AuthUser['role'], options: {
 
   const agentSend = vi.fn();
   if (options.agentConnected ?? true) {
-    pubsub.addAgentConnection(hostId, { send: agentSend } as never);
+    const socket = { send: agentSend };
+    pubsub.addAgentConnection(hostId, socket as never);
+    pubsub.markAgentReady(hostId, socket as never);
   } else {
     pubsub.removeAgentConnection(hostId);
   }
@@ -224,7 +265,7 @@ describe('launch routes', () => {
     await app.close();
   });
 
-  it('rejects offline hosts before spawning', async () => {
+  it('queues durable launches while hosts are offline', async () => {
     const { app, agentSend } = await buildServer('operator', {
       host: host({ last_seen_at: '2026-05-19T10:00:00.000Z' }),
       agentConnected: false,
@@ -240,7 +281,8 @@ describe('launch routes', () => {
       },
     });
 
-    expect(response.statusCode).toBe(503);
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ status: 'starting' });
     expect(agentSend).not.toHaveBeenCalled();
     await app.close();
   });
@@ -313,6 +355,35 @@ describe('launch routes', () => {
       text: 'Implement the launch workflow',
       enter: true,
     });
+    await app.close();
+  });
+
+  it('returns the original launch for a repeated Idempotency-Key without redispatching', async () => {
+    const { app, agentSend } = await buildServer('operator');
+    const request = {
+      method: 'POST' as const,
+      url: '/v1/launch',
+      headers: { 'idempotency-key': 'launch-once' },
+      payload: {
+        host_id: hostId,
+        provider: 'codex',
+        working_directory: '/home/cvsloane/dev/agent-command',
+      },
+    };
+
+    const first = await app.inject(request);
+    const second = await app.inject(request);
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(second.json()).toMatchObject({
+      session_id: first.json().session_id,
+      cmd_id: first.json().cmd_id,
+    });
+    const spawnMessages = agentSend.mock.calls
+      .map(([raw]) => JSON.parse(String(raw)))
+      .filter((message) => message.payload?.command?.type === 'spawn_session');
+    expect(spawnMessages).toHaveLength(1);
     await app.close();
   });
 });
