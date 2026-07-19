@@ -18,7 +18,7 @@ export type ClawdbotReason =
 
 export const clawdbotNotificationDecisionsTotal = new client.Counter({
   name: 'agent_command_clawdbot_notification_decisions_total',
-  help: 'Count of Clawdbot notification decisions (allowed/blocked) and reasons.',
+  help: 'Count of OpenClaw notification decisions (allowed/blocked) and reasons.',
   labelNames: ['decision', 'reason', 'event_type', 'provider'] as const,
   registers: [registry],
 });

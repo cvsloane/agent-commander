@@ -30,6 +30,7 @@ import { registerIntegrationRoutes } from './routes/integrations.js';
 import { registerGovernanceApprovalRoutes } from './routes/governanceApprovals.js';
 import { registerWorkItemRoutes } from './routes/workItems.js';
 import { registerOrchestratorRoutes } from './routes/orchestrator.js';
+import { registerPushSubscriptionRoutes } from './routes/pushSubscriptions.js';
 import { pubsub } from './services/pubsub.js';
 import { startAutomationService } from './services/automation.js';
 import { verifyRequestToken } from './auth/verify.js';
@@ -142,6 +143,7 @@ async function start(): Promise<void> {
   registerGovernanceApprovalRoutes(app);
   registerWorkItemRoutes(app);
   registerOrchestratorRoutes(app);
+  registerPushSubscriptionRoutes(app);
 
   // Health check endpoint
   app.get('/health', async () => {

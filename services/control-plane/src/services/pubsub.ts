@@ -13,7 +13,7 @@ import type {
   SessionEdge,
   AgentTask,
 } from '@agent-command/schema';
-import { clawdbotNotifier } from './clawdbot.js';
+import { notificationDispatcher } from './notificationDispatcher.js';
 import { WS_HEARTBEAT_TIMEOUT_MS } from './webSocketHeartbeat.js';
 
 // Tools that don't block workflow - user can respond async
@@ -67,7 +67,8 @@ type TopicType =
   | 'work_items'
   | 'hosts'
   | 'session_edges'
-  | 'agent_tasks';
+  | 'agent_tasks'
+  | 'attention';
 
 interface Subscription {
   type: TopicType;
@@ -90,8 +91,6 @@ export interface AgentConnection {
 class PubSub {
   private uiClients: Map<string, UIClient> = new Map();
   private agentConnections: Map<string, AgentConnection> = new Map();
-  // Track notified session+status to prevent duplicate notifications
-  private notifiedSessionStatus: Map<string, string> = new Map();
   // Track last published session state to throttle activity-only updates
   private lastSessionFingerprint: Map<string, string> = new Map();
   private lastActivityPublishedAt: Map<string, number> = new Map();
@@ -184,6 +183,11 @@ class PubSub {
         }],
       },
     });
+    if (!online) {
+      void notificationDispatcher.notifyHostOffline(connection.hostId).catch((error) => {
+        console.error('[pubsub] Failed to send host-offline notification:', error);
+      });
+    }
   }
 
   updateAgentAckedSeq(hostId: string, seq: number): void {
@@ -230,6 +234,7 @@ class PubSub {
       'hosts.changed': 'hosts',
       'session_edges.changed': 'session_edges',
       'agent_tasks.changed': 'agent_tasks',
+      'attention.changed': 'attention',
     };
 
     const topic = topicMap[message.type];
@@ -291,6 +296,17 @@ class PubSub {
     }
 
     if (message.type === 'session_edges.changed' || message.type === 'agent_tasks.changed') {
+      const payload = message.payload as { session_id: string };
+      for (const sub of relevantSubs) {
+        const filter = sub.filter || {};
+        if (!filter.session_id || filter.session_id === payload.session_id) {
+          return message;
+        }
+      }
+      return null;
+    }
+
+    if (message.type === 'attention.changed') {
       const payload = message.payload as { session_id: string };
       for (const sub of relevantSubs) {
         const filter = sub.filter || {};
@@ -487,9 +503,11 @@ class PubSub {
       if (session.archived_at) return false;
     }
     if (filter.needs_attention) {
-      const needs = ['WAITING_FOR_INPUT', 'WAITING_FOR_APPROVAL', 'ERROR'].includes(
-        session.status
-      );
+      const needs = Boolean(session.attention_reason) || [
+        'WAITING_FOR_INPUT',
+        'WAITING_FOR_APPROVAL',
+        'ERROR',
+      ].includes(session.status);
       if (!needs) return false;
     }
     if (filter.q && typeof filter.q === 'string') {
@@ -573,51 +591,12 @@ class PubSub {
       });
     }
 
-    // Clean up notification tracking and clawdbot state for deleted sessions
+    // Clean up publication fingerprints for deleted sessions.
     if (deleted) {
       for (const sessionId of deleted) {
-        this.notifiedSessionStatus.delete(sessionId);
         this.lastSessionFingerprint.delete(sessionId);
         this.lastActivityPublishedAt.delete(sessionId);
         this.lastActivityPublishedValue.delete(sessionId);
-        clawdbotNotifier.clearSessionState(sessionId);
-      }
-    }
-
-    // Send clawdbot notifications only on status transitions
-    for (const session of filteredSessions) {
-      const notifiableStatuses = ['ERROR', 'WAITING_FOR_INPUT', 'WAITING_FOR_APPROVAL'];
-      const lastNotifiedStatus = this.notifiedSessionStatus.get(session.id);
-
-      // Clear tracking if session moved to a non-notifiable status
-      if (!notifiableStatuses.includes(session.status)) {
-        this.notifiedSessionStatus.delete(session.id);
-        continue;
-      }
-
-      // Skip if already notified for this status
-      if (lastNotifiedStatus === session.status) {
-        continue;
-      }
-
-      // Update tracking and send notification
-      this.notifiedSessionStatus.set(session.id, session.status);
-
-      if (session.status === 'ERROR') {
-        // Errors are actionable
-        clawdbotNotifier.notifySessionError(session, true).catch((err) => {
-          console.error('[pubsub] Error sending clawdbot error notification:', err);
-        });
-      } else if (session.status === 'WAITING_FOR_INPUT') {
-        // waiting_input is NOT actionable (redundant with approval notifications)
-        clawdbotNotifier.notifyWaitingInput(session, false).catch((err) => {
-          console.error('[pubsub] Error sending clawdbot waiting input notification:', err);
-        });
-      } else if (session.status === 'WAITING_FOR_APPROVAL') {
-        // waiting_approval is NOT actionable (redundant with approval notifications)
-        clawdbotNotifier.notifyWaitingApproval(session, false).catch((err) => {
-          console.error('[pubsub] Error sending clawdbot waiting approval notification:', err);
-        });
       }
     }
   }
@@ -634,6 +613,7 @@ class PubSub {
 
     return JSON.stringify([
       session.status,
+      session.attention_reason ?? null,
       session.title ?? null,
       session.cwd ?? null,
       session.repo_root ?? null,
@@ -668,10 +648,11 @@ class PubSub {
     // Determine if this approval is actionable (requires immediate response)
     const actionable = isActionableApproval(approval);
 
-    // Send clawdbot notification for new approvals
-    clawdbotNotifier.notifyApprovalCreated(approval, session ?? null, actionable).catch((err) => {
-      console.error('[pubsub] Error sending clawdbot approval notification:', err);
-    });
+    if (session) {
+      void notificationDispatcher.notifyApproval(approval, session, actionable).catch((error) => {
+        console.error('[pubsub] Failed to send approval notification:', error);
+      });
+    }
   }
 
   // Publish approval updated
@@ -701,9 +682,34 @@ class PubSub {
       v: 1,
       type: 'events.appended',
       ts: new Date().toISOString(),
+      seq: event.id,
       payload: {
         session_id: sessionId,
         event,
+      },
+    });
+  }
+
+  publishAttentionChanged(
+    sessionId: string,
+    event: {
+      id: number;
+      payload: {
+        attention_reason: string | null;
+        question?: string;
+        confidence?: number;
+        capture_hash?: string;
+      };
+    }
+  ): void {
+    this.publishToUI({
+      v: 1,
+      type: 'attention.changed',
+      ts: new Date().toISOString(),
+      seq: event.id,
+      payload: {
+        session_id: sessionId,
+        ...event.payload,
       },
     });
   }
@@ -805,6 +811,9 @@ class PubSub {
       ts: new Date().toISOString(),
       payload: run,
     });
+    void notificationDispatcher.notifyRun(run).catch((error) => {
+      console.error('[pubsub] Failed to send automation run notification:', error);
+    });
   }
 
   publishAutomationRunEvent(event: AutomationRunEvent): void {
@@ -812,6 +821,7 @@ class PubSub {
       v: 1,
       type: 'automation.run.event',
       ts: new Date().toISOString(),
+      seq: event.seq,
       payload: event,
     });
   }
@@ -840,6 +850,9 @@ class PubSub {
       type: 'governance_approval.updated',
       ts: new Date().toISOString(),
       payload: approval,
+    });
+    void notificationDispatcher.notifyGovernance(approval).catch((error) => {
+      console.error('[pubsub] Failed to send governance notification:', error);
     });
   }
 

@@ -42,6 +42,10 @@ export const AlertEventSchema = z.enum([
   'snapshot_action',
   'usage_thresholds',
   'approval_decisions',
+  'governance_approval',
+  'run_failed',
+  'run_blocked',
+  'host_offline',
 ]);
 export type AlertEvent = z.infer<typeof AlertEventSchema>;
 
@@ -53,6 +57,10 @@ export const AlertEventTogglesSchema = z.object({
   snapshot_action: z.boolean(),
   usage_thresholds: z.boolean(),
   approval_decisions: z.boolean(),
+  governance_approval: z.boolean().optional(),
+  run_failed: z.boolean().optional(),
+  run_blocked: z.boolean().optional(),
+  host_offline: z.boolean().optional(),
 });
 export type AlertEventToggles = z.infer<typeof AlertEventTogglesSchema>;
 
