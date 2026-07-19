@@ -4,12 +4,12 @@ Program: `tasks/2026-07-19-massive-refactor-master-plan.md` · Findings: `tasks/
 AI Lead: Claude (Fable 5) on homelinux, session in agent-command repo. Human Owner: Chris.
 Integration branch: `refactor/tmux-command-center`. Builders: codex lanes in tmux panes, isolated worktrees.
 
-## Current wave: 1 — Connection resilience
+## Current wave: 1 — CLOSED 2026-07-19T17:15Z (all 4 lanes integrated, full gate green) → Wave 2 launching
 
 | Lane | Machine | Worktree | Branch | Pane | State | Last checked |
 |---|---|---|---|---|---|---|
 | W1-AGENTD | heavisidelinux | ~/dev/wt/ac-w1-agentd | refactor/wave1-agentd | (done) | INTEGRATED @ 3d67682 | 2026-07-19T16:35Z |
-| W1-CP-CORE | homelinux | ~/dev/wt/ac-w1-cp | refactor/wave1-cp | agent-command:w1-cp | active | 2026-07-19T15:40Z |
+| W1-CP-CORE | homelinux | ~/dev/wt/ac-w1-cp | refactor/wave1-cp | (done) | INTEGRATED @ 2c1a332 | 2026-07-19T17:15Z |
 | W1-AUTOMATION | homelinux | ~/dev/wt/ac-w1-auto | refactor/wave1-automation | (done) | INTEGRATED @ 6de9cef | 2026-07-19T16:20Z |
 | W1-DASHBOARD | homelinux | ~/dev/wt/ac-w1-dash | refactor/wave1-dashboard | (done) | INTEGRATED @ f65adea | 2026-07-19T16:35Z |
 

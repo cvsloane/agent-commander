@@ -11,6 +11,7 @@ vi.mock('../src/config.js', () => ({ config: {} }));
 vi.mock('../src/db/index.js', () => ({
   getHostById: mocks.getHostById,
   getHosts: mocks.getHosts,
+  pool: { query: vi.fn(), connect: vi.fn() },
 }));
 vi.mock('../src/db/automationMemory.js', () => ({
   countActiveAutomationRunsByHost: mocks.countActiveAutomationRunsByHost,
