@@ -1053,6 +1053,25 @@ export async function updateAutomationRun(
   return result.rows[0] || null;
 }
 
+export async function attachAutomationRunSession(input: {
+  id: string;
+  session_id: string;
+  log_ref_json: JsonObject;
+}): Promise<AutomationRun | null> {
+  const result = await pool.query(
+    `UPDATE automation_runs
+     SET session_id = $2,
+         status = 'running',
+         log_ref_json = $3
+     WHERE id = $1
+       AND status = 'starting'
+       AND session_id IS NULL
+     RETURNING *`,
+    [input.id, input.session_id, JSON.stringify(input.log_ref_json)]
+  );
+  return result.rows[0] || null;
+}
+
 export async function getAutomationRunById(
   userId: string,
   runId: string

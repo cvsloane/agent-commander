@@ -543,7 +543,7 @@ async function resolveRuntimeContext(input: {
 
   const session = await db.getSessionById(state.active_session_id);
   const hostId = state.active_host_id || session?.host_id || null;
-  const hostConnected = hostId ? pubsub.isAgentConnected(hostId) : false;
+  const hostConnected = hostId ? hostIsOnline(hostId) : false;
 
   if (!session || !hostConnected || session.provider !== input.provider) {
     const next = await replaceRuntimeState({
@@ -1119,6 +1119,19 @@ export async function processAutomationWakeup(
     const currentWorkItemText = workItemText(workItem);
 
     if (runtime.reusableSession && preflight.host) {
+      const runningRun = await automationDb.attachAutomationRunSession({
+        id: initialRun.id,
+        session_id: runtime.reusableSession.id,
+        log_ref_json: buildRunLogRefs({
+          runId: initialRun.id,
+          sessionId: runtime.reusableSession.id,
+        }),
+      });
+      if (!runningRun) {
+        logger.warn({ automationRunId: initialRun.id }, 'Automation run was no longer startable');
+        return;
+      }
+      await publishAutomationRun(runningRun, wakeup.agent_provider);
       await appendRunEvent({
         automation_run_id: initialRun.id,
         event_type: 'session.reused',
@@ -1139,8 +1152,6 @@ export async function processAutomationWakeup(
       });
 
       const updatedRun = await automationDb.updateAutomationRun(initialRun.id, {
-        session_id: runtime.reusableSession.id,
-        status: 'running',
         memory_snapshot_json: {
           repo: bootstrapped.repoEntryIds,
           global: bootstrapped.globalEntryIds,
@@ -1211,14 +1222,19 @@ export async function processAutomationWakeup(
       failureAuditAction: 'automation.run.spawn_failed',
     });
 
-    const runningRun = await automationDb.updateAutomationRun(initialRun.id, {
+    const runningRun = await automationDb.attachAutomationRunSession({
+      id: initialRun.id,
       session_id: spawned.session.id,
-      status: 'running',
       log_ref_json: buildRunLogRefs({ runId: initialRun.id, sessionId: spawned.session.id }),
     });
-    if (runningRun) {
-      await publishAutomationRun(runningRun, wakeup.agent_provider);
+    if (!runningRun) {
+      logger.warn({
+        automationRunId: initialRun.id,
+        sessionId: spawned.session.id,
+      }, 'Automation run was no longer startable after session spawn');
+      return;
     }
+    await publishAutomationRun(runningRun, wakeup.agent_provider);
 
     await appendRunEvent({
       automation_run_id: initialRun.id,
@@ -1322,15 +1338,17 @@ export function createAutomationWakeupTaskPool(
   } = {}
 ): {
   readonly activeCount: number;
+  isProcessing: (wakeupId: string) => boolean;
   fill: () => Promise<void>;
   drain: () => Promise<void>;
 } {
-  const concurrency = Math.max(
-    1,
-    Math.min(20, Math.floor(options.concurrency ?? DEFAULT_WAKEUP_PROCESSING_CONCURRENCY))
-  );
+  const requestedConcurrency = options.concurrency ?? DEFAULT_WAKEUP_PROCESSING_CONCURRENCY;
+  const concurrency = Number.isFinite(requestedConcurrency)
+    ? Math.max(1, Math.min(20, Math.floor(requestedConcurrency)))
+    : DEFAULT_WAKEUP_PROCESSING_CONCURRENCY;
   const processor = options.processor ?? processAutomationWakeup;
   const inFlight = new Set<Promise<void>>();
+  const activeWakeupIds = new Set<string>();
   let filling: Promise<void> | null = null;
 
   const launch = (wakeup: automationDb.ClaimedAutomationWakeup): void => {
@@ -1341,8 +1359,10 @@ export function createAutomationWakeupTaskPool(
       })
       .finally(() => {
         inFlight.delete(task);
+        activeWakeupIds.delete(wakeup.id);
       });
     inFlight.add(task);
+    activeWakeupIds.add(wakeup.id);
   };
 
   const fillOnce = async (): Promise<void> => {
@@ -1368,6 +1388,7 @@ export function createAutomationWakeupTaskPool(
     get activeCount(): number {
       return inFlight.size;
     },
+    isProcessing: (wakeupId) => activeWakeupIds.has(wakeupId),
     fill,
     drain: async () => {
       await Promise.allSettled([...inFlight]);
@@ -1377,11 +1398,15 @@ export function createAutomationWakeupTaskPool(
 
 export async function reapStaleAutomationState(
   logger: FastifyBaseLogger,
-  nowMs = Date.now()
+  nowMs = Date.now(),
+  options: {
+    isWakeupProcessing?: (wakeupId: string) => boolean;
+  } = {}
 ): Promise<void> {
   const staleRunBefore = new Date(nowMs - STALE_STARTING_RUN_MS).toISOString();
   const staleRuns = await automationDb.listStaleStartingAutomationRuns(staleRunBefore);
   for (const run of staleRuns) {
+    if (options.isWakeupProcessing?.(run.wakeup_id)) continue;
     try {
       const summary = 'Session was not assigned before the automation start timeout.';
       const failedRun = await automationDb.failStaleStartingAutomationRun({
@@ -1428,6 +1453,7 @@ export async function reapStaleAutomationState(
   const staleWakeupBefore = new Date(nowMs - STALE_RUNNING_WAKEUP_MS).toISOString();
   const staleWakeups = await automationDb.listStaleRunningAutomationWakeups(staleWakeupBefore);
   for (const wakeup of staleWakeups) {
+    if (options.isWakeupProcessing?.(wakeup.id)) continue;
     try {
       const context = asObject(wakeup.context_json);
       const priorRetries = asPositiveInt(context.crash_reaper_retry_count) ?? 0;
@@ -1633,7 +1659,7 @@ async function reconcileRuntimeStates(logger: FastifyBaseLogger): Promise<void> 
     if (!state.active_session_id) continue;
     const session = await db.getSessionById(state.active_session_id);
     const hostId = state.active_host_id || session?.host_id || null;
-    const hostConnected = hostId ? pubsub.isAgentConnected(hostId) : false;
+    const hostConnected = hostId ? hostIsOnline(hostId) : false;
     if (!session || !hostConnected || session.status === 'DONE' || session.status === 'ERROR') {
       try {
         await replaceRuntimeState({
@@ -1672,7 +1698,9 @@ export function startAutomationService(logger: FastifyBaseLogger): { stop: () =>
     try {
       await enqueueDueScheduledWakeups(logger);
       await reconcileRuntimeStates(logger);
-      await reapStaleAutomationState(logger);
+      await reapStaleAutomationState(logger, Date.now(), {
+        isWakeupProcessing: wakeupTasks.isProcessing,
+      });
       await wakeupTasks.fill();
       await syncActiveRuns(logger);
       await syncFinishedSessionsToMemory(logger);

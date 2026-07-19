@@ -179,4 +179,17 @@ describe('automation crash reapers', () => {
       }));
     }
   );
+
+  it('does not reap wakeups that this service is still processing', async () => {
+    mocks.listStaleStartingAutomationRuns.mockResolvedValue([staleRun(0)]);
+    mocks.listStaleRunningAutomationWakeups.mockResolvedValue([staleWakeup(0)]);
+
+    await reapStaleAutomationState(logger as never, now.getTime(), {
+      isWakeupProcessing: (id) => id === wakeupId,
+    });
+
+    expect(mocks.failStaleStartingAutomationRun).not.toHaveBeenCalled();
+    expect(mocks.recoverRunningAutomationWakeup).not.toHaveBeenCalled();
+    expect(mocks.appendAutomationRunEvent).not.toHaveBeenCalled();
+  });
 });
