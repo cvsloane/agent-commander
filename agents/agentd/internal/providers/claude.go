@@ -35,10 +35,11 @@ type ApprovalDecision struct {
 type ClaudeHookHandler func(payload ClaudeHookPayload) (*ApprovalDecision, error)
 
 type ClaudeProvider struct {
-	cfg          *config.ClaudeConfig
-	server       *http.Server
-	handler      ClaudeHookHandler
-	codexHandler ClaudeHookHandler
+	cfg                 *config.ClaudeConfig
+	server              *http.Server
+	handler             ClaudeHookHandler
+	codexHandler        ClaudeHookHandler
+	orchestratorHandler http.Handler
 
 	// Pending approval requests waiting for decisions
 	pendingApprovals map[string]chan *ApprovalDecision
@@ -60,10 +61,17 @@ func (p *ClaudeProvider) SetCodexHookHandler(handler ClaudeHookHandler) {
 	p.codexHandler = handler
 }
 
+func (p *ClaudeProvider) SetOrchestratorHandler(handler http.Handler) {
+	p.orchestratorHandler = handler
+}
+
 func (p *ClaudeProvider) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/hooks/claude", p.handleHook)
 	mux.HandleFunc("/v1/hooks/codex", p.handleCodexHook)
+	if p.orchestratorHandler != nil {
+		mux.Handle("/v1/agent/", p.orchestratorHandler)
+	}
 	mux.Handle("/metrics", metrics.Handler())
 
 	p.server = &http.Server{

@@ -38,9 +38,10 @@ type TmuxConfig struct {
 }
 
 type SpawnConfig struct {
-	TmuxSessionName string `yaml:"tmux_session_name"`
-	DefaultShell    string `yaml:"default_shell"`
-	WorktreesRoot   string `yaml:"worktrees_root"`
+	TmuxSessionName      string `yaml:"tmux_session_name"`
+	DefaultShell         string `yaml:"default_shell"`
+	WorktreesRoot        string `yaml:"worktrees_root"`
+	MaxChildrenPerParent int    `yaml:"max_children_per_parent"`
 }
 
 type SecurityConfig struct {
@@ -51,10 +52,18 @@ type SecurityConfig struct {
 }
 
 type ProvidersConfig struct {
-	Claude   ClaudeConfig   `yaml:"claude"`
-	Codex    CodexConfig    `yaml:"codex"`
-	Gemini   GeminiConfig   `yaml:"gemini"`
-	OpenCode OpenCodeConfig `yaml:"opencode"`
+	Claude          ClaudeConfig                      `yaml:"claude"`
+	Codex           CodexConfig                       `yaml:"codex"`
+	Gemini          GeminiConfig                      `yaml:"gemini"`
+	OpenCode        OpenCodeConfig                    `yaml:"opencode"`
+	LaunchTemplates map[string]ProviderLaunchTemplate `yaml:"launch_templates"`
+}
+
+type ProviderLaunchTemplate struct {
+	Argv         []string          `yaml:"argv"`
+	Env          map[string]string `yaml:"env"`
+	HeadlessArgv []string          `yaml:"headless_argv"`
+	HeadlessEnv  map[string]string `yaml:"headless_env"`
 }
 
 type ClaudeConfig struct {
@@ -135,6 +144,9 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if cfg.Spawn.DefaultShell == "" {
 		cfg.Spawn.DefaultShell = "/bin/bash"
+	}
+	if cfg.Spawn.MaxChildrenPerParent == 0 {
+		cfg.Spawn.MaxChildrenPerParent = 8
 	}
 	if cfg.Storage.StateDir == "" {
 		cfg.Storage.StateDir = "/var/lib/agentd"
