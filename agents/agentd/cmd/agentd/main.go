@@ -123,8 +123,8 @@ func main() {
 	runDaemon()
 }
 
-// Version information
-const Version = "0.1.0"
+// Version is overridden at build time with -ldflags "-X main.Version=<version>".
+var Version = "0.1.0"
 
 func printHelp() {
 	fmt.Println(`agentd - Agent Command daemon for tmux management
@@ -376,9 +376,12 @@ func (a *Agent) Run() error {
 	)
 	a.wsClient.SetMessageHandler(a.handleMessage)
 	a.wsClient.SetOnConnect(func() {
-		a.wsClient.ResendQueued()
 		if err := a.sendHello(); err != nil {
 			log.Printf("Failed to send hello: %v", err)
+			return
+		}
+		if err := a.wsClient.ResendQueued(); err != nil {
+			log.Printf("Failed to replay outbound queue: %v", err)
 		}
 	})
 
@@ -388,6 +391,9 @@ func (a *Agent) Run() error {
 		a.wsClient.SetQueue(outboundQueue, a.cfg.Storage.StateDir)
 		if lastAcked, err := queue.LoadAckedSeq(a.cfg.Storage.StateDir); err == nil {
 			_ = outboundQueue.PruneAcked(lastAcked)
+			if _, err := outboundQueue.RebaseAbove(max(lastAcked, 1)); err != nil {
+				return fmt.Errorf("failed to reserve hello sequence: %w", err)
+			}
 			a.wsClient.SetLastAckedSeq(lastAcked)
 		}
 	}
@@ -1662,7 +1668,7 @@ func (a *Agent) sendHello() error {
 		"host": map[string]any{
 			"id":            a.cfg.Host.ID,
 			"name":          a.cfg.Host.Name,
-			"agent_version": "0.1.0",
+			"agent_version": Version,
 			"capabilities": map[string]any{
 				"tmux":            true,
 				"spawn":           a.cfg.Security.AllowSpawn,
@@ -1679,7 +1685,7 @@ func (a *Agent) sendHello() error {
 		},
 	}
 
-	return a.wsClient.Send("agent.hello", payload)
+	return a.wsClient.SendHello(payload)
 }
 
 func (a *Agent) providerAvailabilityMap() map[string]bool {
@@ -2561,12 +2567,12 @@ func (a *Agent) executeSpawnSession(sessionID string, payload json.RawMessage) e
 
 func (a *Agent) executeSpawnSessionWorktree(sessionID string, payload json.RawMessage) error {
 	var p struct {
-		Provider    string `json:"provider"`
-		RepoRoot    string `json:"repo_root"`
-		BaseBranch  string `json:"base_branch"`
-		BranchName  string `json:"branch_name"`
-		WorktreeDir string `json:"worktree_dir"`
-		Title       string `json:"title"`
+		Provider    string           `json:"provider"`
+		RepoRoot    string           `json:"repo_root"`
+		BaseBranch  string           `json:"base_branch"`
+		BranchName  string           `json:"branch_name"`
+		WorktreeDir string           `json:"worktree_dir"`
+		Title       string           `json:"title"`
 		MemoryFiles []memoryFileSpec `json:"memory_files"`
 		Tmux        struct {
 			TargetSession string `json:"target_session"`
@@ -2696,12 +2702,12 @@ func deriveSpawnTmuxSessionName(configured, repoRoot, cwd string) string {
 
 func (a *Agent) executeSpawnSessionInteractive(sessionID string, payload json.RawMessage) error {
 	var p struct {
-		Provider         string   `json:"provider"`
-		WorkingDirectory string   `json:"working_directory"`
-		Title            string   `json:"title"`
-		Flags            []string `json:"flags"`
+		Provider         string           `json:"provider"`
+		WorkingDirectory string           `json:"working_directory"`
+		Title            string           `json:"title"`
+		Flags            []string         `json:"flags"`
 		MemoryFiles      []memoryFileSpec `json:"memory_files"`
-		GroupID          string   `json:"group_id"`
+		GroupID          string           `json:"group_id"`
 		Tmux             struct {
 			TargetSession string `json:"target_session"`
 			WindowName    string `json:"window_name"`
