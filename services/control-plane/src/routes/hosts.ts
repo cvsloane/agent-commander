@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { ulid } from 'ulid';
+import { randomUUID } from 'node:crypto';
 import path from 'path';
 import { DirectoryEntrySchema } from '@agent-command/schema';
 import * as db from '../db/index.js';
@@ -335,7 +335,7 @@ export function registerHostRoutes(app: FastifyInstance): void {
         return reply.status(503).send({ error: 'Host is offline' });
       }
 
-      const cmdId = ulid();
+      const cmdId = randomUUID();
 
       try {
         const result = await commandRouter.dispatchHostAndWait(

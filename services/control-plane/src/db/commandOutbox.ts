@@ -143,6 +143,7 @@ export class CommandOutboxRepository {
     const result = await this.database.query<CommandRecord>(
       `SELECT * FROM commands
        WHERE host_id = $1
+         AND class = 'durable'
          AND status IN ('queued', 'sent')
          AND expires_at > NOW()
        ORDER BY created_at ASC, cmd_id ASC`,

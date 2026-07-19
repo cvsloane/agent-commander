@@ -16,6 +16,7 @@ import {
   waitForSessionOpenable,
 } from '../services/sessionSpawn.js';
 import { bootstrapSessionMemory, prepareSessionMemoryForSpawn } from '../services/sessionMemory.js';
+import { getIdempotencyKey, InvalidIdempotencyKeyError } from '../services/idempotency.js';
 
 function getHostAlias(host: Host): string {
   return host.tailscale_name || host.name;
@@ -118,6 +119,16 @@ export function registerLaunchRoutes(app: FastifyInstance): void {
       return reply.status(403).send({ error: 'Forbidden' });
     }
 
+    let idempotencyKey: string | undefined;
+    try {
+      idempotencyKey = getIdempotencyKey(request.headers['idempotency-key']);
+    } catch (error) {
+      if (error instanceof InvalidIdempotencyKeyError) {
+        return reply.status(400).send({ error: error.message });
+      }
+      throw error;
+    }
+
     const body = LaunchRequestSchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(400).send({ error: 'Invalid request body', details: body.error });
@@ -127,9 +138,6 @@ export function registerLaunchRoutes(app: FastifyInstance): void {
     const host = await resolveLaunchHost(launch.host_id, launch.host_alias);
     if (!host) {
       return reply.status(404).send({ error: 'Host not found' });
-    }
-    if (!isHostOnline(host.id)) {
-      return reply.status(503).send({ error: 'Host is offline' });
     }
     if (host.capabilities?.spawn === false) {
       return reply.status(403).send({ error: 'Host does not allow remote session spawning' });
@@ -165,24 +173,27 @@ export function registerLaunchRoutes(app: FastifyInstance): void {
         tmux,
         auditAction: 'launch.spawn',
         failureAuditAction: 'launch.spawn_failed',
+        idempotencyKey,
       });
 
-      void bootstrapSessionMemory({
-        host_id: host.id,
-        session_id: spawned.session.id,
-        source: 'automatic',
-      }).catch((error) => {
-        request.log.warn({ error, sessionId: spawned.session.id }, 'Failed to bootstrap launch session memory');
-      });
+      if (!spawned.queued && !spawned.replayed) {
+        void bootstrapSessionMemory({
+          host_id: host.id,
+          session_id: spawned.session.id,
+          source: 'automatic',
+        }).catch((error) => {
+          request.log.warn({ error, sessionId: spawned.session.id }, 'Failed to bootstrap launch session memory');
+        });
+      }
 
-      const session = launch.wait
+      const session = launch.wait && !spawned.queued
         ? await waitForSessionOpenable(spawned.session.id, launch.wait_timeout_ms)
         : spawned.session;
       const finalSession = session || spawned.session;
       const openable = Boolean(finalSession.tmux_pane_id);
       let promptCmdId: string | undefined;
 
-      if (openable && launch.prompt?.trim()) {
+      if (!spawned.replayed && openable && launch.prompt?.trim()) {
         promptCmdId = await sendInputToSession({
           host_id: host.id,
           session_id: finalSession.id,
@@ -191,15 +202,17 @@ export function registerLaunchRoutes(app: FastifyInstance): void {
         });
       }
 
-      await db.recordRecentLaunch({
-        user_id: request.user.id,
-        host_id: host.id,
-        provider: launch.provider,
-        working_directory: launch.working_directory,
-        tmux_target: tmux.target_session || null,
-        title,
-        prompt: launch.prompt,
-      });
+      if (!spawned.replayed) {
+        await db.recordRecentLaunch({
+          user_id: request.user.id,
+          host_id: host.id,
+          provider: launch.provider,
+          working_directory: launch.working_directory,
+          tmux_target: tmux.target_session || null,
+          title,
+          prompt: launch.prompt,
+        });
+      }
 
       const status = openable
         ? 'ready'

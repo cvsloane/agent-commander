@@ -83,6 +83,7 @@ describe('CommandOutboxRepository', () => {
 
     await expect(repository.listDeliverable(hostId)).resolves.toEqual([queued, sent]);
     await expect(repository.expireStale(hostId)).resolves.toEqual([expired]);
+    expect(String(query.mock.calls[0]?.[0])).toContain("class = 'durable'");
     expect(String(query.mock.calls[0]?.[0])).toContain('ORDER BY created_at ASC, cmd_id ASC');
   });
 

@@ -14,8 +14,11 @@ import {
 } from '@agent-command/schema';
 import { ulid } from 'ulid';
 import { pubsub } from '../services/pubsub.js';
-import { handleMCPResponse } from '../routes/mcp.js';
-import { handleCommandResultForPending, HOST_COMMAND_SESSION_ID } from '../services/commandRouter.js';
+import {
+  commandRouter,
+  handleCommandResultForPending,
+  HOST_COMMAND_SESSION_ID,
+} from '../services/commandRouter.js';
 import { handleTerminalOutput, handleTerminalStatus } from '../routes/terminal.js';
 import * as db from '../db/index.js';
 import { consoleSubscriptions } from '../services/consoleSubscriptions.js';
@@ -224,7 +227,7 @@ async function processAgentMessage(
     case 'mcp.update_result': {
       const payload = message.payload as { cmd_id?: string };
       if (payload.cmd_id) {
-        handleMCPResponse(payload.cmd_id, message.payload);
+        await commandRouter.handleResponse(payload.cmd_id, message.payload);
       }
       sendAck(socket, seq, 'ok');
       break;
@@ -337,6 +340,12 @@ async function handleAgentHello(
 
   // Register connection
   pubsub.addAgentConnection(host.id, socket, state.lastProcessedSeq);
+
+  // Deliver durable commands in creation order before reconnect-only volatile work.
+  const delivery = await commandRouter.deliverPending(host.id);
+  if (delivery.delivered > 0 || delivery.expired > 0) {
+    app.log.info({ hostId: host.id, ...delivery }, 'Processed command outbox on agent hello');
+  }
 
   app.log.info({ hostId: host.id, name: host.name }, 'Agent registered');
 
@@ -520,7 +529,7 @@ async function handleCommandResult(
   app.log.info({ cmdId: payload.cmd_id, ok: payload.ok }, 'Command result received');
 
   // Resolve any caller waiting on this command id, including host-level commands.
-  handleCommandResultForPending(payload.cmd_id, {
+  await handleCommandResultForPending(payload.cmd_id, {
     ok: payload.ok,
     result: payload.result,
     error: payload.error,

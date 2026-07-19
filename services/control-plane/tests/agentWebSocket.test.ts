@@ -20,14 +20,42 @@ function waitForMessage(socket: WebSocket): Promise<Record<string, unknown>> {
   });
 }
 
-async function buildServer(insertEvent: ReturnType<typeof vi.fn>): Promise<{
+function waitForMessages(socket: WebSocket, count: number): Promise<Record<string, unknown>[]> {
+  return new Promise((resolve, reject) => {
+    const messages: Record<string, unknown>[] = [];
+    const timeout = setTimeout(() => reject(new Error('Timed out waiting for messages')), 1_000);
+    socket.on('message', (raw) => {
+      messages.push(JSON.parse(String(raw)));
+      if (messages.length === count) {
+        clearTimeout(timeout);
+        resolve(messages);
+      }
+    });
+  });
+}
+
+async function buildServer(
+  insertEvent: ReturnType<typeof vi.fn>,
+  deliverable: Record<string, unknown>[] = []
+): Promise<{
   app: FastifyInstance;
   url: string;
   upsertSession: ReturnType<typeof vi.fn>;
 }> {
   vi.resetModules();
   const upsertSession = vi.fn(async () => ({ id: sessionId }));
+  const pool = {
+    query: vi.fn(async (text: string, values?: unknown[]) => {
+      if (text.includes('SELECT * FROM commands')) return { rows: deliverable };
+      if (text.includes("SET status = 'sent'")) {
+        const row = deliverable.find((candidate) => candidate.cmd_id === values?.[0]);
+        return { rows: row ? [row] : [] };
+      }
+      return { rows: [] };
+    }),
+  };
   vi.doMock('../src/db/index.js', () => ({
+    pool,
     validateAgentToken: vi.fn(async () => hostId),
     upsertHost: vi.fn(async () => ({ last_acked_seq: 0 })),
     updateHostLastSeen: vi.fn(async () => undefined),
@@ -114,6 +142,44 @@ describe('agent websocket ingest', () => {
     expect(receivedAfterHello).toEqual([]);
     expect(insertEvent).toHaveBeenCalledOnce();
     expect(upsertSession).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('delivers queued commands in order before acknowledging agent hello', async () => {
+    const queued = {
+      cmd_id: '55555555-5555-4555-8555-555555555555',
+      host_id: hostId,
+      session_id: sessionId,
+      type: 'commands.dispatch',
+      payload: {
+        v: 1,
+        type: 'commands.dispatch',
+        ts: new Date().toISOString(),
+        payload: {
+          cmd_id: '55555555-5555-4555-8555-555555555555',
+          session_id: sessionId,
+          command: { type: 'kill_session', payload: {} },
+        },
+      },
+      class: 'durable',
+      status: 'queued',
+    };
+    const { app, url } = await buildServer(vi.fn(async () => undefined), [queued]);
+    const socket = new WebSocket(`${url}/v1/agent/connect`, {
+      headers: { Authorization: 'Bearer test-agent-token' },
+    });
+    await new Promise<void>((resolve) => socket.once('open', resolve));
+
+    const messages = waitForMessages(socket, 2);
+    socket.send(JSON.stringify(hello()));
+    const [delivered, helloAck] = await messages;
+
+    expect(delivered).toMatchObject({
+      type: 'commands.dispatch',
+      payload: { command: { type: 'kill_session' } },
+    });
+    expect(helloAck).toMatchObject({ type: 'agent.ack', payload: { ack_seq: 1 } });
+    socket.close();
     await app.close();
   });
 });

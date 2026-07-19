@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
   ApprovalDecideRequestSchema,
@@ -7,6 +8,10 @@ import {
 import * as db from '../db/index.js';
 import { pubsub } from '../services/pubsub.js';
 import { hasRole } from '../auth/rbac.js';
+import { commandRouter } from '../services/commandRouter.js';
+import { getIdempotencyKey, InvalidIdempotencyKeyError } from '../services/idempotency.js';
+
+const APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
 
 // Query schema
 const ApprovalsQuerySchema = z.object({
@@ -51,6 +56,16 @@ export function registerApprovalRoutes(app: FastifyInstance): void {
       }
       const { id } = request.params;
 
+      let idempotencyKey: string | undefined;
+      try {
+        idempotencyKey = getIdempotencyKey(request.headers['idempotency-key']);
+      } catch (error) {
+        if (error instanceof InvalidIdempotencyKeyError) {
+          return reply.status(400).send({ error: error.message });
+        }
+        throw error;
+      }
+
       if (!z.string().uuid().safeParse(id).success) {
         return reply.status(400).send({ error: 'Invalid approval ID' });
       }
@@ -68,19 +83,43 @@ export function registerApprovalRoutes(app: FastifyInstance): void {
         return reply.status(404).send({ error: 'Approval not found' });
       }
 
+      const session = await db.getSessionById(approval.session_id);
+      if (!session) {
+        return reply.status(404).send({ error: 'Session not found' });
+      }
+
+      if (idempotencyKey) {
+        const existing = await commandRouter.getByIdempotencyKey(
+          session.host_id,
+          idempotencyKey
+        );
+        if (existing) {
+          const wirePayload = existing.payload.payload;
+          const originalApprovalId = wirePayload && typeof wirePayload === 'object'
+            ? (wirePayload as Record<string, unknown>).approval_id
+            : null;
+          if (typeof originalApprovalId !== 'string') {
+            return reply.status(409).send({ error: 'Idempotency-Key was used for another request' });
+          }
+          const originalApproval = await db.getApprovalById(originalApprovalId);
+          if (!originalApproval) {
+            return reply.status(409).send({ error: 'Original idempotent result is unavailable' });
+          }
+          return { approval: originalApproval };
+        }
+      }
+
       if (approval.decision) {
         return reply.status(409).send({ error: 'Approval already decided' });
       }
       if (approval.timed_out_at) {
         return reply.status(409).send({ error: 'Approval is no longer active' });
       }
-
-      const session = await db.getSessionById(approval.session_id);
-      if (!session) {
-        return reply.status(404).send({ error: 'Session not found' });
-      }
-      if (!pubsub.isAgentConnected(session.host_id)) {
-        return reply.status(503).send({ error: 'Host agent not connected' });
+      const expiresAt = new Date(
+        new Date(approval.ts_requested).getTime() + APPROVAL_TIMEOUT_MS
+      );
+      if (expiresAt.getTime() <= Date.now()) {
+        return reply.status(409).send({ error: 'Approval is no longer active' });
       }
 
       // Update approval in database
@@ -110,8 +149,19 @@ export function registerApprovalRoutes(app: FastifyInstance): void {
         },
       });
 
-      // Send to agent
-      pubsub.sendToAgent(session.host_id, decisionMessage);
+      // Persist before delivery. Offline hosts retain the decision until the
+      // agent's approval wait deadline and receive it on their next hello.
+      await commandRouter.dispatchMessageDetailed(
+        session.host_id,
+        randomUUID(),
+        decisionMessage,
+        {
+          class: 'durable',
+          sessionId: approval.session_id,
+          expiresAt,
+          idempotencyKey,
+        }
+      );
 
       // Clear session metadata (approval and status_detail)
       const updatedSession = await db.clearSessionApprovalMetadata(approval.session_id);

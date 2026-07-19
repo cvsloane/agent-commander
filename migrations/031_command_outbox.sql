@@ -25,7 +25,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_commands_host_idempotency
 
 CREATE INDEX IF NOT EXISTS idx_commands_host_deliverable
   ON commands(host_id, created_at, cmd_id)
-  WHERE status IN ('queued', 'sent');
+  WHERE class = 'durable' AND status IN ('queued', 'sent');
 
 CREATE INDEX IF NOT EXISTS idx_commands_expires_at
   ON commands(expires_at)
