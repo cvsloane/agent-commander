@@ -43,6 +43,9 @@ class WebSocketClient {
       window.addEventListener('online', this.handleOnline);
       window.addEventListener('offline', this.handleOffline);
       window.addEventListener('pageshow', this.handlePageShow);
+      if (!navigator.onLine) {
+        useConnectionStore.getState().setEventStatus('offline');
+      }
     }
   }
 
