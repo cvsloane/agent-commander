@@ -29,6 +29,7 @@ import { registerAutomationRoutes } from './routes/automation.js';
 import { registerIntegrationRoutes } from './routes/integrations.js';
 import { registerGovernanceApprovalRoutes } from './routes/governanceApprovals.js';
 import { registerWorkItemRoutes } from './routes/workItems.js';
+import { registerOrchestratorRoutes } from './routes/orchestrator.js';
 import { pubsub } from './services/pubsub.js';
 import { startAutomationService } from './services/automation.js';
 import { verifyRequestToken } from './auth/verify.js';
@@ -51,6 +52,13 @@ const userCache = new Map<
   string,
   { email?: string; name?: string; role?: string }
 >();
+
+function isSessionTokenRoute(url: string): boolean {
+  const path = url.split('?', 1)[0] || url;
+  return path === '/v1/orchestrator'
+    || path.startsWith('/v1/orchestrator/')
+    || /^\/v1\/automation-runs\/[0-9a-f-]+\/report$/i.test(path);
+}
 
 async function start(): Promise<void> {
   db.setPoolErrorReporter((error) => {
@@ -86,14 +94,19 @@ async function start(): Promise<void> {
     if (!user) {
       return reply.status(401).send({ error: 'Unauthorized' });
     }
-    const cached = userCache.get(user.id);
-    const next = { email: user.email, name: user.name, role: user.role };
-    if (!cached || cached.email !== next.email || cached.name !== next.name || cached.role !== next.role) {
-      try {
-        await db.upsertUser({ id: user.id, ...next });
-        userCache.set(user.id, next);
-      } catch (error) {
-        app.log.warn({ error, userId: user.id }, 'Failed to upsert user');
+    if (user.auth_type === 'session' && !isSessionTokenRoute(url)) {
+      return reply.status(403).send({ error: 'Session token is not valid for this route' });
+    }
+    if (user.auth_type !== 'session') {
+      const cached = userCache.get(user.id);
+      const next = { email: user.email, name: user.name, role: user.role };
+      if (!cached || cached.email !== next.email || cached.name !== next.name || cached.role !== next.role) {
+        try {
+          await db.upsertUser({ id: user.id, ...next });
+          userCache.set(user.id, next);
+        } catch (error) {
+          app.log.warn({ error, userId: user.id }, 'Failed to upsert user');
+        }
       }
     }
     request.user = user;
@@ -128,6 +141,7 @@ async function start(): Promise<void> {
   registerIntegrationRoutes(app);
   registerGovernanceApprovalRoutes(app);
   registerWorkItemRoutes(app);
+  registerOrchestratorRoutes(app);
 
   // Health check endpoint
   app.get('/health', async () => {

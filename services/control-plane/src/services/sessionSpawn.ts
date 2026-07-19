@@ -42,6 +42,11 @@ type SendInputOptions = {
   enter?: boolean;
 };
 
+type QueueInputOptions = Omit<SendInputOptions, 'host_id'> & {
+  idempotencyKey?: string;
+  idempotencyFingerprint?: string;
+};
+
 export async function spawnSessionOnHost(
   options: SpawnSessionOptions
 ): Promise<{ session: Session; cmd_id: string; replayed: boolean; queued: boolean }> {
@@ -296,6 +301,43 @@ export async function sendInputToSession(
   }
 
   return cmdId;
+}
+
+export async function queueInputToSession(
+  options: QueueInputOptions
+): Promise<{ cmd_id: string; queued: boolean }> {
+  const session = await db.getSessionById(options.session_id);
+  if (!session) {
+    throw new Error('Session not found');
+  }
+
+  const cmdId = randomUUID();
+  const receipt = await commandRouter.dispatchDetailed(
+    session.host_id,
+    session.id,
+    cmdId,
+    {
+      type: 'send_input',
+      payload: {
+        text: options.text,
+        enter: options.enter ?? true,
+      },
+    },
+    {
+      class: 'durable',
+      idempotencyKey: options.idempotencyKey,
+      idempotencyFingerprint: options.idempotencyFingerprint,
+    }
+  );
+  assertIdempotencyFingerprint(
+    receipt.record.idempotency_fingerprint,
+    options.idempotencyFingerprint
+  );
+
+  return {
+    cmd_id: receipt.record.cmd_id,
+    queued: receipt.record.status === 'queued',
+  };
 }
 
 export async function waitForSessionReady(

@@ -3,6 +3,7 @@ import type { WebSocket } from '@fastify/websocket';
 import {
   AgentMessageSchema,
   AgentAckMessageSchema,
+  AutomationRunReportRequestSchema,
   CommandsDispatchMessageSchema,
   ToolEventStartSchema,
   ToolEventCompleteSchema,
@@ -28,6 +29,7 @@ import { hostProgress } from '../services/hostProgress.js';
 import { recordAgentMessageHandlerFailure } from '../metrics.js';
 import { agentTasks, agentTaskUpdateFromEvent } from '../db/agentTasks.js';
 import { sessionGraph } from '../db/sessionGraph.js';
+import { reportAutomationRunForSession } from '../services/automation.js';
 
 interface AgentState {
   hostId: string | null;
@@ -216,7 +218,7 @@ async function processAgentMessage(
       break;
 
     case 'events.append':
-      await handleEventsAppend(app, message.payload);
+      await handleEventsAppend(app, state, message.payload);
       sendAck(socket, seq, 'ok');
       break;
 
@@ -508,6 +510,7 @@ async function handleSessionSnapshot(
 
 async function handleEventsAppend(
   app: FastifyInstance,
+  state: AgentState,
   payload: {
     session_id: string;
     event_id?: string;
@@ -515,6 +518,13 @@ async function handleEventsAppend(
     payload: Record<string, unknown>;
   }
 ): Promise<void> {
+  if (!state.hostId) {
+    throw new Error('Agent host identity is unavailable');
+  }
+  const sourceSession = await db.getSessionById(payload.session_id);
+  if (!sourceSession || sourceSession.host_id !== state.hostId) {
+    throw new Error('Event session does not belong to the authenticated host');
+  }
   const event = await db.insertEvent(
     payload.session_id,
     payload.event_type,
@@ -530,6 +540,17 @@ async function handleEventsAppend(
   if (agentTaskUpdate) {
     const agentTask = await agentTasks.upsert(agentTaskUpdate);
     pubsub.publishAgentTasksChanged(payload.session_id, [agentTask]);
+  }
+
+  if (payload.event_type === 'orchestrator.report') {
+    const report = AutomationRunReportRequestSchema.parse(payload.payload);
+    const finalized = await reportAutomationRunForSession(payload.session_id, report);
+    if (!finalized) {
+      app.log.warn(
+        { sessionId: payload.session_id },
+        'Received orchestrator report without a matching automation run'
+      );
+    }
   }
 
   if (event) {

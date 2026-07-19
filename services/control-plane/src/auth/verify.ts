@@ -1,10 +1,13 @@
-import { jwtVerify } from 'jose';
+import { jwtVerify, SignJWT } from 'jose';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
 import { config } from '../config.js';
 import type { AuthUser } from './types.js';
 
 const USER_ID_NAMESPACE = '6e2b1c4a-0d0c-4f6c-9c37-5d1f6d2b3f28';
+const SESSION_TOKEN_USE = 'orchestrator_session';
+const SESSION_TOKEN_TTL_SECONDS = 8 * 60 * 60;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function uuidToBytes(uuid: string): Uint8Array {
   const hex = uuid.replace(/-/g, '');
@@ -135,6 +138,19 @@ export async function verifyTokenString(token: string): Promise<AuthUser | null>
     const { payload } = await jwtVerify(token, secret);
     if (!payload.sub || typeof payload.sub !== 'string') return null;
 
+    if (payload.token_use === SESSION_TOKEN_USE) {
+      const sessionId = typeof payload.session_id === 'string' ? payload.session_id : '';
+      const userId = typeof payload.user_id === 'string' ? payload.user_id : '';
+      if (!UUID_PATTERN.test(sessionId) || !UUID_PATTERN.test(userId)) return null;
+      return {
+        id: userId,
+        sub: payload.sub,
+        role: 'viewer',
+        auth_type: 'session',
+        session_id: sessionId,
+      };
+    }
+
     const role = (payload.role as AuthUser['role']) || 'viewer';
     const id = buildUserId(payload.sub, typeof payload.iss === 'string' ? payload.iss : null);
 
@@ -149,6 +165,30 @@ export async function verifyTokenString(token: string): Promise<AuthUser | null>
   } catch {
     return null;
   }
+}
+
+export async function mintSessionToken(input: {
+  session_id: string;
+  user_id: string;
+}): Promise<{ token: string; expires_at: string }> {
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const expiresAt = issuedAt + SESSION_TOKEN_TTL_SECONDS;
+  const secret = new TextEncoder().encode(config.JWT_SECRET);
+  const token = await new SignJWT({
+    token_use: SESSION_TOKEN_USE,
+    session_id: input.session_id,
+    user_id: input.user_id,
+  })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setSubject(`session:${input.session_id}`)
+    .setIssuedAt(issuedAt)
+    .setExpirationTime(expiresAt)
+    .sign(secret);
+
+  return {
+    token,
+    expires_at: new Date(expiresAt * 1000).toISOString(),
+  };
 }
 
 export async function verifyRequestToken(request: FastifyRequest): Promise<AuthUser | null> {
