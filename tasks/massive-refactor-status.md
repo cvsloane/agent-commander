@@ -1,0 +1,38 @@
+# Massive Refactor — Status Board (compact, updated in place)
+
+Program: `tasks/2026-07-19-massive-refactor-master-plan.md` · Findings: `tasks/2026-07-19-subsystem-study-findings.md`
+AI Lead: Claude (Fable 5) on homelinux, session in agent-command repo. Human Owner: Chris.
+Integration branch: `refactor/tmux-command-center`. Builders: codex lanes in tmux panes, isolated worktrees.
+
+## Current wave: 1 — Connection resilience
+
+| Lane | Machine | Worktree | Branch | Pane | State | Last checked |
+|---|---|---|---|---|---|---|
+| W1-AGENTD | heavisidelinux | ~/dev/wt/ac-w1-agentd | refactor/wave1-agentd | agent-command:wave1-agentd | launching | 2026-07-19 |
+| W1-CP-CORE | homelinux | ~/dev/wt/ac-w1-cp | refactor/wave1-cp | agent-command:w1-cp | launching | 2026-07-19 |
+| W1-AUTOMATION | homelinux | ~/dev/wt/ac-w1-auto | refactor/wave1-automation | agent-command:w1-auto | launching | 2026-07-19 |
+| W1-DASHBOARD | homelinux | ~/dev/wt/ac-w1-dash | refactor/wave1-dashboard | agent-command:w1-dash | launching | 2026-07-19 |
+
+## Ownership firewall (Wave 1)
+- W1-AGENTD: `agents/**` + NEW files under `tests/fixtures/protocol/` only. Pushes branch to origin.
+- W1-CP-CORE: `services/control-plane/**` (except automation.ts/automationMemory.ts), `migrations/031_command_outbox.sql`, `packages/ac-schema` additive. Local branch only.
+- W1-AUTOMATION: `services/control-plane/src/services/automation.ts`, `src/db/automationMemory.ts`, new `tests/automation*.test.ts`. Local branch only.
+- W1-DASHBOARD: `apps/dashboard/**`. Local branch only.
+- AI Lead: `tasks/**`, integration, shared-file reconciliation (hostPresence call-sites), commits/pushes on integration branch.
+- Migration numbers: 031 = CP-CORE outbox. Next free: 032 (claim here before use).
+
+## Completion tokens
+`W1-AGENTD FROZEN <sha>` · `W1-CP-CORE FROZEN <sha>` · `W1-AUTOMATION FROZEN <sha>` · `W1-DASHBOARD FROZEN <sha>`
+Handoffs land in `tasks/massive-refactor-handoffs/` on each lane branch.
+
+## Gates
+- Lane gates: per brief. Wave gate (AI Lead, post-integration): `pnpm lint && pnpm typecheck && pnpm test:ci && pnpm test:smoke:dashboard` + `go build ./... && go vet ./... && go test ./...` in agents/agentd.
+- Review: AI Lead mechanical review of every lane diff vs ownership + brief; fresh independent reviewer for the integrated wave before commit to integration branch.
+
+## Stop conditions
+- 3 attempts reproducing the same failure without new evidence/strategy ⇒ hold lane, escalate in report.
+- A lane editing outside its firewall ⇒ objective correction (revert + re-task).
+- Baseline (2026-07-19): typecheck + test:ci green at 9e26344.
+
+## Decisions pending Human Owner
+(none — wave 1 fully authorized)
