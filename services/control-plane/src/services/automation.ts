@@ -32,6 +32,11 @@ const RUN_IDLE_COMPLETION_GRACE_MS = 15_000;
 const DEFAULT_HOST_OFFLINE_TTL_MINUTES = 15;
 const DEFAULT_HOST_OFFLINE_BACKOFF_SECONDS = 5;
 const MAX_HOST_OFFLINE_BACKOFF_MS = 60_000;
+const STALE_RUNNING_WAKEUP_MS = 2 * 60_000;
+const STALE_STARTING_RUN_MS = 2 * 60_000;
+const MAX_STALE_WAKEUP_RETRIES = 3;
+const MAX_STARTING_RUN_REQUEUES = 1;
+const DEFAULT_WAKEUP_PROCESSING_CONCURRENCY = 3;
 
 type JsonObject = Record<string, unknown>;
 
@@ -1110,13 +1115,6 @@ export async function processAutomationWakeup(
     return;
   }
 
-  const currentRun = await automationDb.updateAutomationRun(initialRun.id, {
-    status: 'running',
-  });
-  if (currentRun) {
-    await publishAutomationRun(currentRun, wakeup.agent_provider);
-  }
-
   try {
     const currentWorkItemText = workItemText(workItem);
 
@@ -1142,6 +1140,7 @@ export async function processAutomationWakeup(
 
       const updatedRun = await automationDb.updateAutomationRun(initialRun.id, {
         session_id: runtime.reusableSession.id,
+        status: 'running',
         memory_snapshot_json: {
           repo: bootstrapped.repoEntryIds,
           global: bootstrapped.globalEntryIds,
@@ -1310,12 +1309,163 @@ export async function processAutomationWakeup(
   }
 }
 
-async function processQueuedWakeups(logger: FastifyBaseLogger): Promise<void> {
-  for (let i = 0; i < 3; i += 1) {
-    const wakeup = await automationDb.claimNextAutomationWakeup();
-    if (!wakeup) return;
-    publishAutomationWakeup(wakeup);
-    await processAutomationWakeup(logger, wakeup);
+type AutomationWakeupProcessor = (
+  logger: FastifyBaseLogger,
+  wakeup: automationDb.ClaimedAutomationWakeup
+) => Promise<void>;
+
+export function createAutomationWakeupTaskPool(
+  logger: FastifyBaseLogger,
+  options: {
+    concurrency?: number;
+    processor?: AutomationWakeupProcessor;
+  } = {}
+): {
+  readonly activeCount: number;
+  fill: () => Promise<void>;
+  drain: () => Promise<void>;
+} {
+  const concurrency = Math.max(
+    1,
+    Math.min(20, Math.floor(options.concurrency ?? DEFAULT_WAKEUP_PROCESSING_CONCURRENCY))
+  );
+  const processor = options.processor ?? processAutomationWakeup;
+  const inFlight = new Set<Promise<void>>();
+  let filling: Promise<void> | null = null;
+
+  const launch = (wakeup: automationDb.ClaimedAutomationWakeup): void => {
+    const task = Promise.resolve()
+      .then(() => processor(logger, wakeup))
+      .catch((error) => {
+        logger.error({ error, wakeupId: wakeup.id }, 'Unhandled automation wakeup task failure');
+      })
+      .finally(() => {
+        inFlight.delete(task);
+      });
+    inFlight.add(task);
+  };
+
+  const fillOnce = async (): Promise<void> => {
+    const availableSlots = concurrency - inFlight.size;
+    for (let index = 0; index < availableSlots; index += 1) {
+      const wakeup = await automationDb.claimNextAutomationWakeup();
+      if (!wakeup) return;
+      publishAutomationWakeup(wakeup);
+      launch(wakeup);
+    }
+  };
+
+  const fill = (): Promise<void> => {
+    if (!filling) {
+      filling = fillOnce().finally(() => {
+        filling = null;
+      });
+    }
+    return filling;
+  };
+
+  return {
+    get activeCount(): number {
+      return inFlight.size;
+    },
+    fill,
+    drain: async () => {
+      await Promise.allSettled([...inFlight]);
+    },
+  };
+}
+
+export async function reapStaleAutomationState(
+  logger: FastifyBaseLogger,
+  nowMs = Date.now()
+): Promise<void> {
+  const staleRunBefore = new Date(nowMs - STALE_STARTING_RUN_MS).toISOString();
+  const staleRuns = await automationDb.listStaleStartingAutomationRuns(staleRunBefore);
+  for (const run of staleRuns) {
+    try {
+      const summary = 'Session was not assigned before the automation start timeout.';
+      const failedRun = await automationDb.failStaleStartingAutomationRun({
+        id: run.id,
+        started_before: staleRunBefore,
+        summary,
+      });
+      if (!failedRun) continue;
+
+      const context = asObject(run.wakeup_context_json);
+      const priorRequeues = asPositiveInt(context.starting_run_requeue_count) ?? 0;
+      const shouldRequeue = priorRequeues < MAX_STARTING_RUN_REQUEUES;
+      const recoveredWakeup = await automationDb.recoverRunningAutomationWakeup({
+        id: run.wakeup_id,
+        status: shouldRequeue ? 'queued' : 'failed',
+        contextPatch: {
+          reason: shouldRequeue ? 'starting_run_stalled' : 'starting_run_retry_exhausted',
+          starting_run_requeue_count: Math.min(
+            priorRequeues + 1,
+            MAX_STARTING_RUN_REQUEUES
+          ),
+          automation_deferred_until_ms: null,
+        },
+      });
+      publishAutomationWakeup(recoveredWakeup);
+      await publishAutomationRun(failedRun, 'unknown');
+      await appendRunEvent({
+        automation_run_id: failedRun.id,
+        event_type: 'run.start_timeout',
+        level: 'error',
+        message: shouldRequeue
+          ? `${summary} The wakeup was requeued once.`
+          : `${summary} The wakeup retry was exhausted.`,
+        payload: {
+          wakeup_id: run.wakeup_id,
+          wakeup_status: shouldRequeue ? 'queued' : 'failed',
+        },
+      });
+    } catch (error) {
+      logger.error({ error, automationRunId: run.id }, 'Failed to reap stale starting automation run');
+    }
+  }
+
+  const staleWakeupBefore = new Date(nowMs - STALE_RUNNING_WAKEUP_MS).toISOString();
+  const staleWakeups = await automationDb.listStaleRunningAutomationWakeups(staleWakeupBefore);
+  for (const wakeup of staleWakeups) {
+    try {
+      const context = asObject(wakeup.context_json);
+      const priorRetries = asPositiveInt(context.crash_reaper_retry_count) ?? 0;
+      const shouldRequeue = priorRetries < MAX_STALE_WAKEUP_RETRIES;
+      const nextRetryCount = shouldRequeue
+        ? priorRetries + 1
+        : MAX_STALE_WAKEUP_RETRIES;
+      const recoveredWakeup = await automationDb.recoverRunningAutomationWakeup({
+        id: wakeup.id,
+        status: shouldRequeue ? 'queued' : 'failed',
+        claimed_before: staleWakeupBefore,
+        contextPatch: {
+          reason: shouldRequeue ? 'running_wakeup_stalled' : 'running_wakeup_retry_exhausted',
+          crash_reaper_retry_count: nextRetryCount,
+          automation_deferred_until_ms: null,
+        },
+      });
+      if (!recoveredWakeup) continue;
+      publishAutomationWakeup(recoveredWakeup);
+      if (wakeup.automation_run_id) {
+        await appendRunEvent({
+          automation_run_id: wakeup.automation_run_id,
+          event_type: shouldRequeue
+            ? 'wakeup.requeued_after_stall'
+            : 'wakeup.failed_after_stall',
+          level: shouldRequeue ? 'warn' : 'error',
+          message: shouldRequeue
+            ? `Requeued stale wakeup after recovery attempt ${nextRetryCount}.`
+            : `Failed stale wakeup after ${MAX_STALE_WAKEUP_RETRIES} recovery attempts.`,
+          payload: {
+            wakeup_id: wakeup.id,
+            retry_count: nextRetryCount,
+          },
+        });
+      }
+    } catch (error) {
+      logger.error({ error, automationWakeupId: wakeup.id }, 'Failed to reap stale automation wakeup');
+    }
   }
 }
 
@@ -1514,6 +1664,7 @@ export function startAutomationService(logger: FastifyBaseLogger): { stop: () =>
   let stopped = false;
   let running = false;
   let lastDistillationAt = 0;
+  const wakeupTasks = createAutomationWakeupTaskPool(logger);
 
   const tick = async (): Promise<void> => {
     if (stopped || running) return;
@@ -1521,7 +1672,8 @@ export function startAutomationService(logger: FastifyBaseLogger): { stop: () =>
     try {
       await enqueueDueScheduledWakeups(logger);
       await reconcileRuntimeStates(logger);
-      await processQueuedWakeups(logger);
+      await reapStaleAutomationState(logger);
+      await wakeupTasks.fill();
       await syncActiveRuns(logger);
       await syncFinishedSessionsToMemory(logger);
 
