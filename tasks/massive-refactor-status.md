@@ -10,7 +10,7 @@ Integration branch: `refactor/tmux-command-center`. Builders: codex lanes in tmu
 |---|---|---|---|---|---|---|
 | W1-AGENTD | heavisidelinux | ~/dev/wt/ac-w1-agentd | refactor/wave1-agentd | agent-command:wave1-agentd | active | 2026-07-19T15:40Z |
 | W1-CP-CORE | homelinux | ~/dev/wt/ac-w1-cp | refactor/wave1-cp | agent-command:w1-cp | active | 2026-07-19T15:40Z |
-| W1-AUTOMATION | homelinux | ~/dev/wt/ac-w1-auto | refactor/wave1-automation | agent-command:w1-auto | active | 2026-07-19T15:40Z |
+| W1-AUTOMATION | homelinux | ~/dev/wt/ac-w1-auto | refactor/wave1-automation | (done) | INTEGRATED @ 6de9cef | 2026-07-19T16:20Z |
 | W1-DASHBOARD | homelinux | ~/dev/wt/ac-w1-dash | refactor/wave1-dashboard | agent-command:w1-dash | active | 2026-07-19T15:40Z |
 
 ## Ownership firewall (Wave 1)
