@@ -8,10 +8,10 @@ Integration branch: `refactor/tmux-command-center`. Builders: codex lanes in tmu
 
 | Lane | Machine | Worktree | Branch | Pane | State | Last checked |
 |---|---|---|---|---|---|---|
-| W1-AGENTD | heavisidelinux | ~/dev/wt/ac-w1-agentd | refactor/wave1-agentd | agent-command:wave1-agentd | active | 2026-07-19T15:40Z |
+| W1-AGENTD | heavisidelinux | ~/dev/wt/ac-w1-agentd | refactor/wave1-agentd | (done) | INTEGRATED @ 3d67682 | 2026-07-19T16:35Z |
 | W1-CP-CORE | homelinux | ~/dev/wt/ac-w1-cp | refactor/wave1-cp | agent-command:w1-cp | active | 2026-07-19T15:40Z |
 | W1-AUTOMATION | homelinux | ~/dev/wt/ac-w1-auto | refactor/wave1-automation | (done) | INTEGRATED @ 6de9cef | 2026-07-19T16:20Z |
-| W1-DASHBOARD | homelinux | ~/dev/wt/ac-w1-dash | refactor/wave1-dashboard | agent-command:w1-dash | active | 2026-07-19T15:40Z |
+| W1-DASHBOARD | homelinux | ~/dev/wt/ac-w1-dash | refactor/wave1-dashboard | (done) | INTEGRATED @ f65adea | 2026-07-19T16:35Z |
 
 ## Ownership firewall (Wave 1)
 - W1-AGENTD: `agents/**` + NEW files under `tests/fixtures/protocol/` only. Pushes branch to origin.
