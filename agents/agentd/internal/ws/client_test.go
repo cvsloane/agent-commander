@@ -64,6 +64,29 @@ func TestDisconnectedDurableAndVolatileLanes(t *testing.T) {
 	}
 }
 
+func TestSequenceResumesAboveReloadedQueueMaximum(t *testing.T) {
+	dir := t.TempDir()
+	q, err := queue.NewQueue(dir, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	if err := q.Push(queue.Message{Seq: 17, Type: "events.append", Payload: json.RawMessage(`{"old":true}`)}); err != nil {
+		t.Fatal(err)
+	}
+
+	client := NewClient("ws://127.0.0.1:1", "token", "host", []int{1})
+	client.SetQueue(q, dir)
+	client.SetLastAckedSeq(8)
+	if err := client.Send("commands.result", map[string]any{"new": true}); err != nil {
+		t.Fatal(err)
+	}
+	messages := q.GetUnacked()
+	if got := messages[len(messages)-1].Seq; got != 18 {
+		t.Fatalf("new sequence=%d, want 18 above reloaded max", got)
+	}
+}
+
 func TestReplayOccursAfterHelloInSequenceOrder(t *testing.T) {
 	messages := make(chan receivedEnvelope, 8)
 	upgrader := websocket.Upgrader{}
@@ -121,6 +144,16 @@ func TestReplayOccursAfterHelloInSequenceOrder(t *testing.T) {
 		if message.Type != expected.typ || message.Seq != expected.seq {
 			t.Fatalf("message=(%s,%d), want=(%s,%d)", message.Type, message.Seq, expected.typ, expected.seq)
 		}
+	}
+	if err := client.Send("terminal.output", map[string]any{"data": "live"}); err != nil {
+		t.Fatalf("connected volatile send: %v", err)
+	}
+	message := waitEnvelope(t, messages)
+	if message.Type != "terminal.output" || message.Seq != 5 {
+		t.Fatalf("volatile message=(%s,%d), want=(terminal.output,5)", message.Type, message.Seq)
+	}
+	if q.Len() != 3 {
+		t.Fatalf("connected volatile message entered queue: %+v", q.GetUnacked())
 	}
 }
 

@@ -29,7 +29,25 @@ Branch: `refactor/wave1-agentd`
 - The single build-stampable `Version` variable is used by CLI/status/hello and supports `-ldflags "-X main.Version=..."`.
 - Added command executor, hook buffering, and tmux pane parsing tests.
 - Focused checkpoints passed: `go test ./...` and `go test -race ./internal/commands ./internal/queue ./internal/ws ./cmd/agentd`.
+- Build stamping proof: `go run -ldflags "-X main.Version=wave1-test" ./cmd/agentd version` returned `agentd version wave1-test`.
 
 ## Final gate
 
-Pending.
+Passed from `agents/agentd` with `~/.local/go/bin` first on `PATH`:
+
+```text
+$ go build ./... && go vet ./... && go test ./...
+?   github.com/agent-command/agentd/internal/config       [no test files]
+?   github.com/agent-command/agentd/internal/console      [no test files]
+?   github.com/agent-command/agentd/internal/metrics      [no test files]
+?   github.com/agent-command/agentd/internal/proc         [no test files]
+?   github.com/agent-command/agentd/internal/providers    [no test files]
+ok  github.com/agent-command/agentd/cmd/agentd            (cached)
+?   github.com/agent-command/agentd/internal/usage        [no test files]
+ok  github.com/agent-command/agentd/internal/commands     (cached)
+ok  github.com/agent-command/agentd/internal/queue        (cached)
+ok  github.com/agent-command/agentd/internal/tmux         (cached)
+ok  github.com/agent-command/agentd/internal/ws           (cached)
+```
+
+No environment-limited verification remains.
