@@ -298,7 +298,10 @@ export async function updateHostLastSeen(hostId: string): Promise<void> {
 }
 
 export async function updateHostAckedSeq(hostId: string, seq: number): Promise<void> {
-  await pool.query('UPDATE hosts SET last_acked_seq = $2 WHERE id = $1', [hostId, seq]);
+  await pool.query(
+    'UPDATE hosts SET last_acked_seq = GREATEST(COALESCE(last_acked_seq, 0), $2) WHERE id = $1',
+    [hostId, seq]
+  );
 }
 
 export async function getHosts(): Promise<Host[]> {
@@ -2397,6 +2400,7 @@ export async function insertToolEventStart(payload: ToolEventStart): Promise<Too
   const result = await pool.query(
     `INSERT INTO tool_events (id, session_id, provider, tool_name, tool_input, started_at)
      VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
      RETURNING *`,
     [
       payload.event_id,

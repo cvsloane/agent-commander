@@ -9,20 +9,13 @@ import {
 } from '@agent-command/schema';
 import * as db from '../db/index.js';
 import { hasRole } from '../auth/rbac.js';
-import { pubsub } from '../services/pubsub.js';
+import { isHostOnline } from '../services/hostPresence.js';
 import {
   sendInputToSession,
   spawnSessionOnHost,
   waitForSessionOpenable,
 } from '../services/sessionSpawn.js';
 import { bootstrapSessionMemory, prepareSessionMemoryForSpawn } from '../services/sessionMemory.js';
-
-const HOST_ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
-
-function isHostOnline(lastSeenAt?: string | null, now = Date.now()): boolean {
-  if (!lastSeenAt) return false;
-  return now - new Date(lastSeenAt).getTime() < HOST_ONLINE_THRESHOLD_MS;
-}
 
 function getHostAlias(host: Host): string {
   return host.tailscale_name || host.name;
@@ -105,7 +98,7 @@ export function registerLaunchRoutes(app: FastifyInstance): void {
         host_id: host.id,
         alias: getHostAlias(host),
         display_name: host.name,
-        online: isHostOnline(host.last_seen_at),
+        online: isHostOnline(host.id),
         supports_terminal: host.capabilities?.terminal === true,
         supports_spawn: host.capabilities?.spawn !== false,
         supports_directory_listing: host.capabilities?.list_directory === true,
@@ -135,7 +128,7 @@ export function registerLaunchRoutes(app: FastifyInstance): void {
     if (!host) {
       return reply.status(404).send({ error: 'Host not found' });
     }
-    if (!isHostOnline(host.last_seen_at) || !pubsub.isAgentConnected(host.id)) {
+    if (!isHostOnline(host.id)) {
       return reply.status(503).send({ error: 'Host is offline' });
     }
     if (host.capabilities?.spawn === false) {

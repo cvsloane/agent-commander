@@ -12,6 +12,7 @@ import type {
   WorkItem,
 } from '@agent-command/schema';
 import { clawdbotNotifier } from './clawdbot.js';
+import { WS_HEARTBEAT_TIMEOUT_MS } from './webSocketHeartbeat.js';
 
 // Tools that don't block workflow - user can respond async
 const NON_BLOCKING_APPROVAL_TOOLS = new Set([
@@ -61,7 +62,8 @@ type TopicType =
   | 'automation_run_events'
   | 'automation_wakeups'
   | 'governance_approvals'
-  | 'work_items';
+  | 'work_items'
+  | 'hosts';
 
 interface Subscription {
   type: TopicType;
@@ -73,10 +75,11 @@ interface UIClient {
   subscriptions: Subscription[];
 }
 
-interface AgentConnection {
+export interface AgentConnection {
   ws: WebSocket;
   hostId: string;
   lastAckedSeq: number;
+  lastHeartbeatAt: number;
 }
 
 class PubSub {
@@ -108,15 +111,54 @@ class PubSub {
 
   // Agent connection management
   addAgentConnection(hostId: string, ws: WebSocket, lastAckedSeq = 0): void {
-    this.agentConnections.set(hostId, { ws, hostId, lastAckedSeq });
+    const previous = this.agentConnections.get(hostId);
+    const wasOnline = Boolean(
+      previous && Date.now() - previous.lastHeartbeatAt <= WS_HEARTBEAT_TIMEOUT_MS
+    );
+    const connection = { ws, hostId, lastAckedSeq, lastHeartbeatAt: Date.now() };
+    this.agentConnections.set(hostId, connection);
+    if (!wasOnline) {
+      this.publishHostPresence(connection, true);
+    }
   }
 
-  removeAgentConnection(hostId: string): void {
+  removeAgentConnection(hostId: string, ws?: WebSocket): boolean {
+    const connection = this.agentConnections.get(hostId);
+    if (!connection || (ws && connection.ws !== ws)) return false;
+
     this.agentConnections.delete(hostId);
+    this.publishHostPresence(connection, false);
+    return true;
   }
 
   getAgentConnection(hostId: string): AgentConnection | undefined {
     return this.agentConnections.get(hostId);
+  }
+
+  getAgentConnections(): AgentConnection[] {
+    return Array.from(this.agentConnections.values());
+  }
+
+  markAgentHeartbeat(hostId: string, ws: WebSocket, at = Date.now()): boolean {
+    const connection = this.agentConnections.get(hostId);
+    if (!connection || connection.ws !== ws) return false;
+    connection.lastHeartbeatAt = at;
+    return true;
+  }
+
+  private publishHostPresence(connection: AgentConnection, online: boolean): void {
+    this.publishToUI({
+      v: 1,
+      type: 'hosts.changed',
+      ts: new Date().toISOString(),
+      payload: {
+        hosts: [{
+          host_id: connection.hostId,
+          online,
+          last_heartbeat_at: new Date(connection.lastHeartbeatAt).toISOString(),
+        }],
+      },
+    });
   }
 
   updateAgentAckedSeq(hostId: string, seq: number): void {
@@ -160,6 +202,7 @@ class PubSub {
       'automation.wakeup.updated': 'automation_wakeups',
       'governance_approval.updated': 'governance_approvals',
       'work_item.updated': 'work_items',
+      'hosts.changed': 'hosts',
     };
 
     const topic = topicMap[message.type];
@@ -749,7 +792,10 @@ class PubSub {
 
   // Check if agent is connected
   isAgentConnected(hostId: string): boolean {
-    return this.agentConnections.has(hostId);
+    const connection = this.agentConnections.get(hostId);
+    return Boolean(
+      connection && Date.now() - connection.lastHeartbeatAt <= WS_HEARTBEAT_TIMEOUT_MS
+    );
   }
 
   // Get stats

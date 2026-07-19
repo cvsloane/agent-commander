@@ -7,6 +7,7 @@ import { pubsub } from '../services/pubsub.js';
 import { verifyRequestToken } from '../auth/verify.js';
 import { canAttachTerminal, canControlTerminal, hostSupportsTerminal } from '../services/terminalPolicy.js';
 import type { AuthUser } from '../auth/types.js';
+import { installWebSocketHeartbeat } from '../services/webSocketHeartbeat.js';
 
 // Track active terminal channels
 const activeChannels = new Map<
@@ -121,6 +122,9 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
     { websocket: true },
     async (socket: WebSocket, request: FastifyRequest<{ Params: { sessionId: string } }>) => {
       const { sessionId } = request.params;
+      const heartbeat = installWebSocketHeartbeat(socket, {
+        onStale: () => app.log.warn({ sessionId }, 'Terminating stale terminal WebSocket'),
+      });
 
       // Validate session ID
       if (!z.string().uuid().safeParse(sessionId).success) {
@@ -214,6 +218,7 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
 
       // Handle messages from UI
       socket.on('message', (data: Buffer) => {
+        heartbeat.markAlive();
         try {
           const raw = JSON.parse(data.toString());
           const parseResult = TerminalInputSchema.safeParse(raw);

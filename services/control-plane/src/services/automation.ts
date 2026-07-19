@@ -18,6 +18,7 @@ import * as db from '../db/index.js';
 import * as automationDb from '../db/automationMemory.js';
 import { pubsub } from './pubsub.js';
 import { spawnSessionOnHost } from './sessionSpawn.js';
+import { isHostOnline } from './hostPresence.js';
 import { bootstrapSessionMemory, prepareSessionMemoryForSpawn } from './sessionMemory.js';
 import {
   recordAutomationRun,
@@ -126,7 +127,7 @@ function getBudgetPolicy(value: unknown): BudgetPolicy {
 
 function hostAllowsSpawn(host: Host | null | undefined): boolean {
   const capabilities = asObject(host?.capabilities);
-  return Boolean(host) && capabilities.spawn !== false && pubsub.isAgentConnected(host!.id);
+  return Boolean(host) && capabilities.spawn !== false && isHostOnline(host!.id);
 }
 
 function providerSupport(host: Host, provider: SessionProvider): 'supported' | 'unsupported' | 'unknown' {
