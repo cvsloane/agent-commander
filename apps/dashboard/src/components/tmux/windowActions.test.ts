@@ -42,6 +42,7 @@ describe('tmux window actions', () => {
       windowSource: 'topology',
       action,
       dispatch,
+      confirm: () => true,
     });
 
     expect(dispatch).toHaveBeenCalledWith('22222222-2222-4222-8222-222222222222', command);

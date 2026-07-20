@@ -50,7 +50,7 @@ export function UsageOverview() {
     const sessions = sessionsQuery.data?.sessions;
     const hosts = hostsQuery.data?.hosts;
     return {
-      active: sessions ? sessions.filter((session) => ['RUNNING', 'STARTING'].includes(session.status)).length : null,
+      active: sessions ? sessions.filter((session) => ['RUNNING', 'STARTING'].includes(session.status) && !session.idled_at).length : null,
       attention: sessions ? sessions.filter((session) => ['WAITING_FOR_INPUT', 'WAITING_FOR_APPROVAL', 'ERROR'].includes(session.status)).length : null,
       idle: sessions ? sessions.filter((session) => session.status === 'IDLE' || session.idled_at).length : null,
       onlineHosts: hosts ? hosts.filter((host) => isHostOnline(host.last_seen_at || null)).length : null,

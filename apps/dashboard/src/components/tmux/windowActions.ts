@@ -52,7 +52,7 @@ export async function runTmuxWindowAction({
       windowSource === 'topology'
         ? windowCount === 1
           ? 'This ends the whole tmux session'
-          : null
+          : 'Close this window?'
         : 'Close this window?';
     if (confirmation && !confirm(confirmation)) return 'cancelled';
   }

@@ -84,7 +84,7 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
     if (path === '/') {
       return pathname === '/';
     }
-    return pathname.startsWith(path);
+    return pathname === path || pathname.startsWith(`${path}/`);
   };
 
   if (collapsed) {
