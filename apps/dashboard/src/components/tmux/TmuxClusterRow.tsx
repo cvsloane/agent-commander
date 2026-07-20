@@ -9,6 +9,7 @@ import { TmuxWindowRow } from './TmuxWindowRow';
 interface TmuxClusterRowProps {
   cluster: TmuxSessionCluster;
   hostLabel?: string;
+  hostOnline?: boolean;
   expanded: boolean;
   active: boolean;
   hydrated: boolean;
@@ -22,6 +23,7 @@ interface TmuxClusterRowProps {
 export function TmuxClusterRow({
   cluster,
   hostLabel,
+  hostOnline,
   expanded,
   active,
   hydrated,
@@ -98,6 +100,7 @@ export function TmuxClusterRow({
                 hydrated={hydrated}
                 onSelectSession={onSelectSession}
                 onOpenActions={onOpenActions}
+                hostOnline={hostOnline}
               />
             ))}
           </div>

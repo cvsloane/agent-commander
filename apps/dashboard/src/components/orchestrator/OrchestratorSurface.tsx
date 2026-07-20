@@ -242,6 +242,7 @@ export function OrchestratorSurface({
                 key={card.session.id}
                 {...card}
                 attentionItems={attentionByOrchestrator[card.session.id] ?? []}
+                hostOnlineById={fleet.hostOnlineById}
                 onRefresh={() => void refreshAll()}
               />
             ))}

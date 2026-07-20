@@ -4,12 +4,16 @@ import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ServerToUIMessage, SessionWithSnapshot } from '@agent-command/schema';
 import { getTmuxRoster } from '@/lib/api';
-import { useTmuxTopologyStore } from '@/stores/tmuxTopology';
+import {
+  TMUX_TOPOLOGY_STALE_AFTER_MS,
+  useTmuxTopologyStore,
+} from '@/stores/tmuxTopology';
 import { useWebSocket } from './useWebSocket';
 
 export function useTmuxTopologyFeed(hostIds: string[], rosterSessions: SessionWithSnapshot[]) {
   const setRoster = useTmuxTopologyStore((state) => state.setRoster);
   const receiveTopology = useTmuxTopologyStore((state) => state.receiveTopology);
+  const expireStaleTopologies = useTmuxTopologyStore((state) => state.expireStaleTopologies);
   const hostIdsKey = [...hostIds].sort().join(',');
   const stableHostIds = useMemo(() => (hostIdsKey ? hostIdsKey.split(',') : []), [hostIdsKey]);
 
@@ -23,6 +27,15 @@ export function useTmuxTopologyFeed(hostIds: string[], rosterSessions: SessionWi
     }
     for (const [hostId, sessions] of grouped) setRoster(hostId, sessions);
   }, [rosterSessions, setRoster, stableHostIds]);
+
+  useEffect(() => {
+    if (stableHostIds.length === 0) return;
+    const interval = window.setInterval(
+      expireStaleTopologies,
+      Math.min(TMUX_TOPOLOGY_STALE_AFTER_MS, 1_000)
+    );
+    return () => window.clearInterval(interval);
+  }, [expireStaleTopologies, stableHostIds.length]);
 
   useWebSocket(
     [{ type: 'tmux.topology' }],

@@ -314,6 +314,50 @@ function apiBody(pathname: string): unknown {
       groups: [],
     };
   }
+  if (pathname === '/v1/orchestrator/fleet') {
+    return {
+      orchestrators: [{
+        session: orchestratorSessions[0],
+        children: [orchestratorSessions[1]],
+        edges: [{
+          parent_session_id: orchestratorSessions[0].id,
+          child_session_id: orchestratorSessions[1].id,
+          edge_type: 'orchestrates',
+          created_at: '2026-05-19T17:00:00.000Z',
+        }],
+        agent_tasks: [{
+          id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+          session_id: orchestratorSessions[0].id,
+          tool_use_id: 'task-smoke',
+          description: 'Audit mobile release flow',
+          status: 'running',
+          started_at: '2026-05-19T17:50:00.000Z',
+          ended_at: null,
+          metadata: {},
+        }],
+        rollup: {
+          session_id: orchestratorSessions[0].id,
+          child_sessions: { total: 1, by_status: { RUNNING: 1 } },
+          agent_tasks: { total: 1, running: 1, completed: 0, failed: 0 },
+        },
+        work_item_counts: {
+          total: 0,
+          by_status: { queued: 0, in_progress: 0, blocked: 0, done: 0, cancelled: 0 },
+        },
+        automation_agent: automationAgent,
+        latest_run: structuredRun,
+        latest_report: {
+          run_id: structuredRun.id,
+          status: structuredRun.status,
+          summary: 'All release checks passed on both machines.',
+          reported_at: structuredRun.ended_at,
+        },
+        budget_policy: automationAgent.budget_policy_json,
+        budget_usage: { daily_cents: 42, monthly_cents: 42 },
+        usage_rollup: structuredRun.usage_json,
+      }],
+    };
+  }
   if (pathname === '/v1/launch/targets') {
     return {
       targets: [
@@ -778,7 +822,48 @@ test('renders tmux roster with windows and panes, supports selection and filteri
   await expect(page.getByText('ops')).toBeVisible();
 });
 
-test('keeps the tmux roster usable on mobile viewport', async ({ page }) => {
+test('opens the terminal composer from attention and submits one newline-safe prompt', async ({ page }, testInfo) => {
+  await signIn(page);
+  await page.goto('/tmux');
+  await page.getByText('agents', { exact: true }).click();
+  await page.getByText('Mobile UX review', { exact: true }).click();
+
+  const overlay = page.getByTestId('terminal-attention-overlay');
+  await expect(overlay).toBeVisible();
+  await expect(overlay).toContainText('Needs attention');
+  await overlay.getByRole('button', { name: 'Respond' }).click();
+
+  const composer = page.getByTestId('prompt-composer');
+  const input = composer.getByLabel('Prompt Mobile UX review');
+  await expect(composer).toBeVisible();
+  await expect(input).toBeFocused();
+  await input.fill('Inspect the mobile terminal state.');
+
+  const commandRequest = page.waitForRequest((request) => (
+    request.method() === 'POST'
+    && request.url().includes(`/v1/sessions/${tmuxSessions[1].id}/commands`)
+  ));
+  await input.press('Control+Enter');
+  expect((await commandRequest).postDataJSON()).toEqual({
+    type: 'send_input',
+    payload: { text: 'Inspect the mobile terminal state.\n', enter: false },
+  });
+  await expect(composer.getByRole('status')).toHaveText('Prompt sent.');
+
+  const workspaceBox = await page.getByTestId('tmux-terminal-workspace').boundingBox();
+  const composerBox = await composer.boundingBox();
+  expect(workspaceBox).not.toBeNull();
+  expect(composerBox).not.toBeNull();
+  expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(
+    workspaceBox!.y + workspaceBox!.height + 1
+  );
+
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.screenshot({ path: testInfo.outputPath('terminal-attention-composer-desktop.png') });
+  }
+});
+
+test('keeps the tmux roster usable on mobile viewport', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await signIn(page);
 
@@ -805,6 +890,17 @@ test('keeps the tmux roster usable on mobile viewport', async ({ page }) => {
   await terminalSegment.click();
   await expect(page.getByText('agents:0.1').first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Actions', exact: true })).toBeEnabled();
+
+  const overlay = page.getByTestId('terminal-attention-overlay');
+  await expect(overlay).toBeVisible();
+  await overlay.getByRole('button', { name: 'Respond' }).click();
+  const composer = page.getByTestId('prompt-composer');
+  await expect(composer).toBeVisible();
+  await expect(composer.getByLabel('Prompt Mobile UX review')).toBeFocused();
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.screenshot({ path: testInfo.outputPath('terminal-attention-composer-mobile.png') });
+  }
+  await composer.getByRole('button', { name: 'Collapse prompt composer' }).click();
 
   await page.getByRole('button', { name: 'Actions', exact: true }).click();
   const dialog = page.getByRole('dialog');

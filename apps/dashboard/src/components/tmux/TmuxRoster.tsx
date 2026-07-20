@@ -2,21 +2,26 @@
 
 import { Search } from 'lucide-react';
 import type { Host, SessionWithSnapshot } from '@agent-command/schema';
-import { TMUX_ROSTER_FILTERS, type TmuxRosterFilter } from '@/lib/tmuxRoster';
 import type { FleetRosterGroup } from '@/lib/fleetRoster';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { cn, formatRelativeTime } from '@/lib/utils';
+import { cn, formatRelativeTime, isHostOnline } from '@/lib/utils';
 import { TmuxClusterRow } from './TmuxClusterRow';
 import { TmuxOrchestratorRow } from './TmuxOrchestratorRow';
+import {
+  FLEET_ROSTER_FILTERS,
+  type FleetRosterFilter,
+} from '@/hooks/useTmuxRosterData';
 
-const FILTER_LABELS: Record<TmuxRosterFilter, string> = {
+const FILTER_LABELS: Record<FleetRosterFilter, string> = {
   all: 'All',
   waiting: 'Waiting',
   errors: 'Errors',
   active: 'Active',
   dirty: 'Dirty',
   untracked: 'Untracked',
+  this_host: 'This host',
+  recent: 'Recent',
 };
 
 interface TmuxRosterProps {
@@ -26,8 +31,8 @@ interface TmuxRosterProps {
   partialHostFailureCount?: number;
   query: string;
   onQueryChange: (query: string) => void;
-  activeFilter: TmuxRosterFilter;
-  onFilterChange: (filter: TmuxRosterFilter) => void;
+  activeFilter: FleetRosterFilter;
+  onFilterChange: (filter: FleetRosterFilter) => void;
   groups: FleetRosterGroup[];
   filteredSessions: SessionWithSnapshot[];
   sessionsLoading: boolean;
@@ -90,7 +95,7 @@ export function TmuxRoster({
         </div>
 
         <div className="flex gap-1 overflow-x-auto pb-1" role="toolbar" aria-label="tmux roster filters">
-          {TMUX_ROSTER_FILTERS.map((filter) => (
+          {FLEET_ROSTER_FILTERS.map((filter) => (
             <button
               key={filter}
               type="button"
@@ -160,6 +165,9 @@ export function TmuxRoster({
                 hostLabel={allHostsSelected
                   ? hosts.find((host) => host.id === group.cluster.hostId)?.name
                   : undefined}
+                hostOnline={isHostOnline(
+                  hosts.find((host) => host.id === group.cluster.hostId)?.last_seen_at ?? null
+                )}
                 expanded={expandedClusterKey === group.key}
                 active={group.key === selectedClusterKey}
                 hydrated={hydrated}

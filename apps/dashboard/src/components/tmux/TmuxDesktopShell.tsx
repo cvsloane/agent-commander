@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import type { Host, SessionWithSnapshot } from '@agent-command/schema';
-import type { TmuxRosterFilter } from '@/lib/tmuxRoster';
+import type { FleetRosterFilter } from '@/hooks/useTmuxRosterData';
 import type { FleetRosterGroup } from '@/lib/fleetRoster';
 import { TmuxHostPicker } from './TmuxHostPicker';
 import { TmuxRoster } from './TmuxRoster';
@@ -16,8 +16,8 @@ interface TmuxDesktopShellProps {
   onSelectHost: (hostId: string) => void;
   query: string;
   onQueryChange: (query: string) => void;
-  activeFilter: TmuxRosterFilter;
-  onFilterChange: (filter: TmuxRosterFilter) => void;
+  activeFilter: FleetRosterFilter;
+  onFilterChange: (filter: FleetRosterFilter) => void;
   groups: FleetRosterGroup[];
   filteredSessions: SessionWithSnapshot[];
   sessionsLoading: boolean;

@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, type MutableRefObject } from 'react';
+import { useEffect, useMemo, useRef, type MutableRefObject } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Columns2, X } from 'lucide-react';
 import type { Session } from '@agent-command/schema';
 import { TerminalView, type TerminalController } from '@/components/TerminalView';
 import { PersistentTerminalSlot } from '@/components/terminal/PersistentTerminalHost';
+import { TerminalAttentionOverlay } from '@/components/orchestrator/TerminalAttentionOverlay';
 import { Button } from '@/components/ui/button';
 import { useHydrated } from '@/hooks/useHydrated';
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -15,11 +16,15 @@ import { useSettingsStore } from '@/stores/settings';
 import { useTmuxTopologyStore } from '@/stores/tmuxTopology';
 import { TmuxPaneControls } from './TmuxPaneControls';
 import { TmuxWindowStrip } from './TmuxWindowStrip';
+import type { OrchestratorItem } from '@/stores/orchestrator';
+import { PromptComposer, type PromptComposerHandle } from './PromptComposer';
 
 interface TmuxTerminalWorkspaceProps {
   primarySession: Session;
   autoAttachPrimary?: boolean;
   primaryControllerRef?: MutableRefObject<TerminalController | null>;
+  onAttentionRespond?: (item: OrchestratorItem) => void;
+  onSendToOtherSession?: (targetSessionId: string) => void;
 }
 
 function TerminalLabel({
@@ -59,7 +64,10 @@ export function TmuxTerminalWorkspace({
   primarySession,
   autoAttachPrimary = false,
   primaryControllerRef,
+  onAttentionRespond,
+  onSendToOtherSession,
 }: TmuxTerminalWorkspaceProps) {
+  const promptComposerRef = useRef<PromptComposerHandle>(null);
   const hydrated = useHydrated();
   const belowDesktop = useIsMobile(1024);
   const rememberedSecondaryId = useSettingsStore(
@@ -141,13 +149,22 @@ export function TmuxTerminalWorkspace({
           {showSecondary && <TerminalLabel label="Primary" session={primarySession} />}
           <TmuxWindowStrip session={primarySession} />
           <TmuxPaneControls session={primarySession} />
-          <PersistentTerminalSlot
-            sessionId={primarySession.id}
-            paneId={primarySession.tmux_pane_id || undefined}
-            autoAttach={autoAttachPrimary || showSecondary}
-            controllerRef={primaryControllerRef}
-            className="flex-1"
-          />
+          <div className="relative min-h-0 flex-1">
+            <PersistentTerminalSlot
+              sessionId={primarySession.id}
+              paneId={primarySession.tmux_pane_id || undefined}
+              autoAttach={autoAttachPrimary || showSecondary}
+              controllerRef={primaryControllerRef}
+              className="h-full"
+            />
+            <TerminalAttentionOverlay
+              sessionId={primarySession.id}
+              onRespond={(item) => {
+                promptComposerRef.current?.openAndFocus();
+                onAttentionRespond?.(item);
+              }}
+            />
+          </div>
         </section>
 
         {showSecondary && (
@@ -183,6 +200,11 @@ export function TmuxTerminalWorkspace({
           </section>
         )}
       </div>
+      <PromptComposer
+        ref={promptComposerRef}
+        session={primarySession}
+        onSendToOtherSession={onSendToOtherSession}
+      />
     </div>
   );
 }
