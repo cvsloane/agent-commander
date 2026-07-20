@@ -1,0 +1,1 @@
+{"v":1,"type":"commands.dispatch","ts":"2026-07-20T14:00:08Z","payload":{"cmd_id":"cmd-zoom-pane","session_id":"22222222-2222-4222-8222-222222222222","command":{"type":"zoom_pane","payload":{"pane_id":"%14"}}}}

@@ -1,0 +1,1 @@
+{"v":1,"type":"commands.dispatch","ts":"2026-07-20T14:00:04Z","payload":{"cmd_id":"cmd-split-pane","session_id":"22222222-2222-4222-8222-222222222222","command":{"type":"split_pane","payload":{"direction":"vertical","percent":50,"cwd":"/home/cvsloane/dev/agent-command"}}}}
