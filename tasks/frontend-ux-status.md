@@ -10,9 +10,9 @@ Baseline: typecheck + test:ci green at `70fa53e` (2026-07-20). Deploy cadence: p
 | Lane | Machine | Worktree | Branch | tmux | State | Last checked |
 |---|---|---|---|---|---|---|
 | FW1-MODERN | homelinux | ~/dev/wt/ac-fw1-modern | refactor/fw1-modern | (done) | INTEGRATED @ 6f8ce3c (frozen 76d3c5e, gate re-verified by AI Lead) | 2026-07-20 |
-| FW1-TMUX-GO | heavisidelinux | ~/dev/wt/ac-fw1-tmux-go | refactor/fw1-tmux-go | agent-command:fw1-tmux-go | R2 corrections (frozen eaadfe9 integrated @ 504d7d3, then reviewer HOLD: C1 topology default-off, W3 hooks, W4 sweep — brief `2026-07-20-fw1-tmux-go-corrections-brief.md`) | 2026-07-20 |
+| FW1-TMUX-GO | heavisidelinux | ~/dev/wt/ac-fw1-tmux-go | refactor/fw1-tmux-go | (done) | INTEGRATED @ 76d7a12 (R1 eaadfe9 + R2 7a8e6ee; reviewer re-verdict SHIP) | 2026-07-20 |
 
-**WAVE 1 HELD** pending FW1-TMUX-GO-R2: independent reviewer verdict HOLD (C1 critical: CP terminates agent socket on unknown envelope; topology emission must ship default-off). Wave PR to main opens after R2 integration + gate. Carried to FW2-CONTRACTS scope: register `tmux.topology` + 8 command schemas in CP, CP log-and-drop on unknown agent envelopes. Carried to Wave 3: split-pane `-l N%` needs tmux ≥3.1; kill_window last-window confirmation.
+**WAVE 1 COMPLETE** — final gate (TS+Go) green on integrated tree; independent reviewer verdict SHIP after R2 closed C1/W3/W4 with end-to-end tests. **Held for owner: merge Wave-1 PR to main + production deploy.** Deploy notes: safe for the mixed-version window — topology emission ships default-off; **agentd binary rollout stays HELD until Wave 2** (CP schema registration + unknown-envelope tolerance land in FW2-CONTRACTS). Carried to FW2-CONTRACTS: register `tmux.topology` + 8 command schemas, CP log-and-drop on unknown agent envelopes. Carried to Wave 3: split-pane `-l N%` needs tmux ≥3.1; kill_window last-window confirmation; doc note on the reserved `ac-agentd-` hook namespace. No migrations in this wave.
 
 ## Ownership firewall (Wave 1)
 - FW1-MODERN: package manifests + lockfile, tsconfig/eslint/turbo configs, and **mechanical** TS/TSX fixes anywhere outside `agents/**`. NO feature/behavior edits, NO Zod changes, NO visualizer/R3F dep changes, NO `agents/**`.
