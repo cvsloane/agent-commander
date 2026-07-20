@@ -1768,6 +1768,8 @@ func (a *Agent) send(msgType string, payload any) error {
 	var err error
 	if a.sendMessage != nil {
 		err = a.sendMessage(msgType, payload)
+	} else if msgType == protocol.TypeTmuxTopology {
+		err = a.wsClient.SendUnsequenced(msgType, payload)
 	} else {
 		err = a.wsClient.Send(msgType, payload)
 	}
