@@ -447,33 +447,89 @@ func (c *Client) NewWindow(session, windowName, startDir string) (string, error)
 	return created.PaneID, nil
 }
 
+func (c *Client) RenameWindow(target, name string) error {
+	args := []string{"rename-window", "-t", target, name}
+	if c.cfg.Socket != "" {
+		args = append([]string{"-S", c.cfg.Socket}, args...)
+	}
+	output, err := exec.Command(c.cfg.Bin, args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to rename window: %w", commandError(err, output))
+	}
+	return nil
+}
+
+func (c *Client) KillWindow(target string) error {
+	args := []string{"kill-window", "-t", target}
+	if c.cfg.Socket != "" {
+		args = append([]string{"-S", c.cfg.Socket}, args...)
+	}
+	output, err := exec.Command(c.cfg.Bin, args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to kill window: %w", commandError(err, output))
+	}
+	return nil
+}
+
+func (c *Client) SelectWindow(target string) error {
+	args := []string{"select-window", "-t", target}
+	if c.cfg.Socket != "" {
+		args = append([]string{"-S", c.cfg.Socket}, args...)
+	}
+	output, err := exec.Command(c.cfg.Bin, args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to select window: %w", commandError(err, output))
+	}
+	return nil
+}
+
+func (c *Client) SelectPane(paneID string) error {
+	args := []string{"select-pane", "-t", paneID}
+	if c.cfg.Socket != "" {
+		args = append([]string{"-S", c.cfg.Socket}, args...)
+	}
+	output, err := exec.Command(c.cfg.Bin, args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to select pane: %w", commandError(err, output))
+	}
+	return nil
+}
+
+func (c *Client) ZoomPane(paneID string) error {
+	args := []string{"resize-pane", "-Z", "-t", paneID}
+	if c.cfg.Socket != "" {
+		args = append([]string{"-S", c.cfg.Socket}, args...)
+	}
+	output, err := exec.Command(c.cfg.Bin, args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to toggle pane zoom: %w", commandError(err, output))
+	}
+	return nil
+}
+
 func (c *Client) CreateWindow(session, windowName, startDir string) (CreatedPane, error) {
-	args := []string{"new-window", "-t", session, "-n", windowName, "-c", startDir, "-P", "-F", "#{pane_id}\t#{session_name}:#{window_index}.#{pane_index}"}
+	args := []string{"new-window", "-t", session}
+	if windowName != "" {
+		args = append(args, "-n", windowName)
+	}
+	if startDir != "" {
+		args = append(args, "-c", startDir)
+	}
+	args = append(args, "-P", "-F", "#{pane_id}\t#{session_name}:#{window_index}.#{pane_index}")
 	if c.cfg.Socket != "" {
 		args = append([]string{"-S", c.cfg.Socket}, args...)
 	}
 
-	cmd := exec.Command(c.cfg.Bin, args...)
-	output, err := cmd.Output()
+	output, err := exec.Command(c.cfg.Bin, args...).CombinedOutput()
 	if err != nil {
-		return CreatedPane{}, fmt.Errorf("failed to create window: %w", err)
+		return CreatedPane{}, fmt.Errorf("failed to create window: %w", commandError(err, output))
 	}
 
 	return parseCreatedPane(output)
 }
 
 func (c *Client) SplitPane(target, paneName, startDir string) (CreatedPane, error) {
-	args := []string{"split-window", "-t", target, "-c", startDir, "-P", "-F", "#{pane_id}\t#{session_name}:#{window_index}.#{pane_index}"}
-	if c.cfg.Socket != "" {
-		args = append([]string{"-S", c.cfg.Socket}, args...)
-	}
-
-	cmd := exec.Command(c.cfg.Bin, args...)
-	output, err := cmd.Output()
-	if err != nil {
-		return CreatedPane{}, fmt.Errorf("failed to split pane: %w", err)
-	}
-	created, err := parseCreatedPane(output)
+	created, err := c.SplitPaneWithOptions(target, "vertical", nil, startDir)
 	if err != nil {
 		return CreatedPane{}, err
 	}
@@ -492,6 +548,34 @@ func (c *Client) SplitPane(target, paneName, startDir string) (CreatedPane, erro
 		}
 	}
 	return created, nil
+}
+
+func (c *Client) SplitPaneWithOptions(target, direction string, percent *int, startDir string) (CreatedPane, error) {
+	args := []string{"split-window", "-t", target}
+	switch direction {
+	case "horizontal":
+		args = append(args, "-h")
+	case "vertical":
+		args = append(args, "-v")
+	default:
+		return CreatedPane{}, fmt.Errorf("direction must be horizontal or vertical")
+	}
+	if percent != nil {
+		args = append(args, "-l", fmt.Sprintf("%d%%", *percent))
+	}
+	if startDir != "" {
+		args = append(args, "-c", startDir)
+	}
+	args = append(args, "-P", "-F", "#{pane_id}\t#{session_name}:#{window_index}.#{pane_index}")
+	if c.cfg.Socket != "" {
+		args = append([]string{"-S", c.cfg.Socket}, args...)
+	}
+
+	output, err := exec.Command(c.cfg.Bin, args...).CombinedOutput()
+	if err != nil {
+		return CreatedPane{}, fmt.Errorf("failed to split pane: %w", commandError(err, output))
+	}
+	return parseCreatedPane(output)
 }
 
 func parseCreatedPane(output []byte) (CreatedPane, error) {

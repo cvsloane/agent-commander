@@ -1044,21 +1044,26 @@ func (c *Client) StartPipePaneCmd(paneID, cmd string) error {
 
 // ResizePane resizes a tmux pane
 func (c *Client) ResizePane(paneID string, cols, rows int) error {
-	// First set the width
-	argsX := []string{"resize-pane", "-t", paneID, "-x", fmt.Sprintf("%d", cols)}
-	if c.cfg.Socket != "" {
-		argsX = append([]string{"-S", c.cfg.Socket}, argsX...)
+	if cols <= 0 && rows <= 0 {
+		return fmt.Errorf("at least one pane dimension must be positive")
 	}
-	if err := runTmuxCommand(c.cfg.Bin, argsX); err != nil {
-		return err
+	for _, dimension := range []struct {
+		flag  string
+		value int
+	}{{flag: "-x", value: cols}, {flag: "-y", value: rows}} {
+		if dimension.value <= 0 {
+			continue
+		}
+		args := []string{"resize-pane", "-t", paneID, dimension.flag, fmt.Sprintf("%d", dimension.value)}
+		if c.cfg.Socket != "" {
+			args = append([]string{"-S", c.cfg.Socket}, args...)
+		}
+		output, err := exec.Command(c.cfg.Bin, args...).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to resize pane: %w", commandError(err, output))
+		}
 	}
-
-	// Then set the height
-	argsY := []string{"resize-pane", "-t", paneID, "-y", fmt.Sprintf("%d", rows)}
-	if c.cfg.Socket != "" {
-		argsY = append([]string{"-S", c.cfg.Socket}, argsY...)
-	}
-	return runTmuxCommand(c.cfg.Bin, argsY)
+	return nil
 }
 
 func runTmuxCommand(bin string, args []string) error {

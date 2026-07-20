@@ -46,6 +46,44 @@ type RenameSessionPayload struct {
 	Title string `json:"title"`
 }
 
+type NewWindowPayload struct {
+	WindowName string `json:"window_name,omitempty"`
+	CWD        string `json:"cwd,omitempty"`
+}
+
+type RenameWindowPayload struct {
+	WindowIndex *int   `json:"window_index"`
+	Name        string `json:"name"`
+}
+
+type KillWindowPayload struct {
+	WindowIndex *int `json:"window_index"`
+}
+
+type SelectWindowPayload struct {
+	WindowIndex *int `json:"window_index"`
+}
+
+type SplitPanePayload struct {
+	Direction string `json:"direction"`
+	Percent   *int   `json:"percent,omitempty"`
+	CWD       string `json:"cwd,omitempty"`
+}
+
+type SelectPanePayload struct {
+	PaneID string `json:"pane_id"`
+}
+
+type ResizePanePayload struct {
+	PaneID string `json:"pane_id"`
+	Width  *int   `json:"width,omitempty"`
+	Height *int   `json:"height,omitempty"`
+}
+
+type ZoomPanePayload struct {
+	PaneID string `json:"pane_id"`
+}
+
 type SpawnSessionMemoryFile struct {
 	BaseDir      string `json:"base_dir"`
 	RelativePath string `json:"relative_path"`
