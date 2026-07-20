@@ -46,6 +46,7 @@ async function buildServer(
   publishSessionEdgesChanged: ReturnType<typeof vi.fn>;
   publishToUI: ReturnType<typeof vi.fn>;
   subscribeToTmuxTopology: (send: ReturnType<typeof vi.fn>) => () => void;
+  publishTmuxTopology: (authenticatedHostId: string, message: Record<string, unknown>) => void;
   handleTerminalStatus: ReturnType<typeof vi.fn>;
   createAuditLog: ReturnType<typeof vi.fn>;
 }> {
@@ -117,6 +118,10 @@ async function buildServer(
     pubsub.setUISubscriptions(clientId, [{ type: 'tmux.topology' }]);
     return () => pubsub.removeUIClient(clientId);
   };
+  const publishTmuxTopology = (
+    authenticatedHostId: string,
+    message: Record<string, unknown>
+  ) => pubsub.publishTmuxTopology(authenticatedHostId, message as never);
   const app = Fastify({ logger: false });
   await app.register(websocket);
   registerAgentWebSocket(app);
@@ -129,6 +134,7 @@ async function buildServer(
     publishSessionEdgesChanged,
     publishToUI,
     subscribeToTmuxTopology,
+    publishTmuxTopology,
     handleTerminalStatus,
     createAuditLog,
   };
@@ -262,7 +268,7 @@ describe('agent websocket ingest', () => {
         v: 1,
         type: 'tmux.topology',
         ts,
-        payload: { host_id: hostId, ...payload },
+        payload: { ...payload, host_id: hostId },
       };
       expect(publishToUI).toHaveBeenCalledWith(relayed);
       expect(uiSend).toHaveBeenCalledWith(JSON.stringify(relayed));
@@ -271,6 +277,31 @@ describe('agent websocket ingest', () => {
 
     unsubscribe();
     socket.close();
+    await app.close();
+  });
+
+  it('keeps the authenticated topology host authoritative over agent payload fields', async () => {
+    const { app, subscribeToTmuxTopology, publishTmuxTopology } = await buildServer(
+      vi.fn(async () => undefined)
+    );
+    const uiSend = vi.fn();
+    const unsubscribe = subscribeToTmuxTopology(uiSend);
+    const forgedHostId = '99999999-9999-4999-8999-999999999999';
+
+    publishTmuxTopology(hostId, {
+      v: 1,
+      type: 'tmux.topology',
+      ts: '2026-07-20T14:00:00Z',
+      payload: {
+        reason: 'hook:window-renamed',
+        tmux_sessions: [],
+        host_id: forgedHostId,
+      },
+    });
+
+    expect(uiSend).toHaveBeenCalledWith(expect.stringContaining(`"host_id":"${hostId}"`));
+    expect(uiSend).not.toHaveBeenCalledWith(expect.stringContaining(forgedHostId));
+    unsubscribe();
     await app.close();
   });
 
@@ -314,6 +345,28 @@ describe('agent websocket ingest', () => {
     expect(socket.readyState).toBe(WebSocket.OPEN);
 
     socket.close();
+    await app.close();
+  });
+
+  it('terminates for a known message type whose payload violates its schema', async () => {
+    const { app, url } = await buildServer(vi.fn(async () => undefined));
+    const socket = new WebSocket(`${url}/v1/agent/connect`, {
+      headers: { Authorization: 'Bearer test-agent-token' },
+    });
+    await new Promise<void>((resolve) => socket.once('open', resolve));
+    socket.send(JSON.stringify(hello()));
+    await waitForMessage(socket);
+
+    const closed = waitForClose(socket);
+    socket.send(JSON.stringify({
+      v: 1,
+      type: 'sessions.upsert',
+      ts: new Date().toISOString(),
+      seq: 2,
+      payload: { sessions: 'garbage' },
+    }));
+
+    await expect(closed).resolves.toBeTypeOf('number');
     await app.close();
   });
 

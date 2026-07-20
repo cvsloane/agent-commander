@@ -10,6 +10,7 @@ const automationAgentId = '55555555-5555-4555-8555-555555555555';
 const runId = '66666666-6666-4666-8666-666666666666';
 const wakeupId = '77777777-7777-4777-8777-777777777777';
 const taskId = '88888888-8888-4888-8888-888888888888';
+const unrelatedId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const now = '2026-07-20T18:00:00.000Z';
 
 const orchestrator = {
@@ -46,6 +47,14 @@ const child = {
   tmux_pane_id: '%2',
   tmux_target: 'frontend:0.1',
 };
+const unrelated = {
+  ...orchestrator,
+  id: unrelatedId,
+  role: 'standalone',
+  title: 'Unrelated session',
+  tmux_pane_id: '%9',
+  tmux_target: 'other:0.0',
+};
 const edge = {
   parent_session_id: orchestratorId,
   child_session_id: childId,
@@ -59,7 +68,7 @@ const rollup = {
 };
 const agentTask = {
   id: taskId,
-  session_id: childId,
+  session_id: orchestratorId,
   tool_use_id: 'tool-1',
   description: 'Implement contracts',
   status: 'running',
@@ -116,32 +125,52 @@ const latestRun = {
   ended_at: now,
 };
 
-async function buildServer(): Promise<{
+async function buildServer(options: { role?: AuthUser['role'] } = {}): Promise<{
   app: FastifyInstance;
   listFleetWorkItemCounts: ReturnType<typeof vi.fn>;
+  getSessions: ReturnType<typeof vi.fn>;
+  getSessionsPage: ReturnType<typeof vi.fn>;
+  getSessionsByIds: ReturnType<typeof vi.fn>;
+  getLatestSnapshots: ReturnType<typeof vi.fn>;
+  listGraphs: ReturnType<typeof vi.fn>;
+  listTasks: ReturnType<typeof vi.fn>;
+  listLatestAutomationRunsForAgents: ReturnType<typeof vi.fn>;
+  computeAutomationBudgetUsageForAgents: ReturnType<typeof vi.fn>;
 }> {
   vi.resetModules();
+  const getSessions = vi.fn(async () => [orchestrator, child, unrelated]);
+  const getSessionsPage = vi.fn(async () => ({ sessions: [orchestrator], total: 1 }));
+  const getSessionsByIds = vi.fn(async () => [child]);
+  const getLatestSnapshots = vi.fn(async () => [{
+    id: 1,
+    session_id: orchestratorId,
+    created_at: now,
+    capture_text: 'coordinating',
+    capture_hash: 'snapshot-hash',
+  }]);
   vi.doMock('../src/db/index.js', () => ({
-    getSessions: vi.fn(async () => [orchestrator, child]),
-    getLatestSnapshots: vi.fn(async () => [{
-      id: 1,
-      session_id: orchestratorId,
-      created_at: now,
-      capture_text: 'coordinating',
-      capture_hash: 'snapshot-hash',
-    }]),
-    getSessionsByIds: vi.fn(async () => [child]),
+    getSessions,
+    getSessionsPage,
+    getLatestSnapshots,
+    getSessionsByIds,
     getSessionById: vi.fn(async () => null),
     createAuditLog: vi.fn(async () => undefined),
   }));
+  const listGraphs = vi.fn(async () => [edge]);
   vi.doMock('../src/db/sessionGraph.js', () => ({
     sessionGraph: {
       list: vi.fn(async () => [edge]),
+      listMany: listGraphs,
       rollup: vi.fn(async () => rollup),
+      rollupMany: vi.fn(async () => new Map([[orchestratorId, rollup]])),
     },
   }));
+  const listTasks = vi.fn(async () => [agentTask]);
   vi.doMock('../src/db/agentTasks.js', () => ({
-    agentTasks: { list: vi.fn(async () => [agentTask]) },
+    agentTasks: {
+      list: vi.fn(async () => [agentTask]),
+      listMany: listTasks,
+    },
   }));
   const listFleetWorkItemCounts = vi.fn(async () => [
     {
@@ -157,12 +186,18 @@ async function buildServer(): Promise<{
       count: 2,
     },
   ]);
+  const listLatestAutomationRunsForAgents = vi.fn(async () => [latestRun]);
+  const computeAutomationBudgetUsageForAgents = vi.fn(async () => new Map([
+    [automationAgentId, { daily_cents: 250, monthly_cents: 900 }],
+  ]));
   vi.doMock('../src/db/automationMemory.js', () => ({
     listAutomationRuns: vi.fn(async () => [latestRun]),
+    listLatestAutomationRunsForAgents,
     computeAutomationBudgetUsage: vi.fn(async () => ({
       daily_cents: 250,
       monthly_cents: 900,
     })),
+    computeAutomationBudgetUsageForAgents,
     listFleetWorkItemCounts,
   }));
   vi.doMock('../src/services/automation.js', () => ({
@@ -190,12 +225,23 @@ async function buildServer(): Promise<{
       id: userId,
       sub: userId,
       email: 'operator@example.com',
-      role: 'operator',
+      role: options.role ?? 'operator',
       auth_type: 'jwt',
     } satisfies AuthUser;
   });
   registerOrchestratorRoutes(app);
-  return { app, listFleetWorkItemCounts };
+  return {
+    app,
+    listFleetWorkItemCounts,
+    getSessions,
+    getSessionsPage,
+    getSessionsByIds,
+    getLatestSnapshots,
+    listGraphs,
+    listTasks,
+    listLatestAutomationRunsForAgents,
+    computeAutomationBudgetUsageForAgents,
+  };
 }
 
 describe('GET /v1/orchestrator/fleet', () => {
@@ -209,7 +255,10 @@ describe('GET /v1/orchestrator/fleet', () => {
     const response = await app.inject({ method: 'GET', url: '/v1/orchestrator/fleet' });
 
     expect(response.statusCode, response.body).toBe(200);
-    expect(listFleetWorkItemCounts).toHaveBeenCalledWith(userId);
+    expect(listFleetWorkItemCounts).toHaveBeenCalledWith(userId, {
+      session_ids: [orchestratorId, childId],
+      automation_agent_ids: [automationAgentId],
+    });
     expect(response.json()).toEqual({
       orchestrators: [{
         session: {
@@ -247,6 +296,62 @@ describe('GET /v1/orchestrator/fleet', () => {
         usage_rollup: { total_tokens: 1234 },
       }],
     });
+    await app.close();
+  });
+
+  it('rejects viewers before loading snapshot, budget, or work-item data', async () => {
+    const {
+      app,
+      listFleetWorkItemCounts,
+      getSessionsPage,
+      getLatestSnapshots,
+      computeAutomationBudgetUsageForAgents,
+    } = await buildServer({ role: 'viewer' });
+
+    const response = await app.inject({ method: 'GET', url: '/v1/orchestrator/fleet' });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({ error: 'Forbidden' });
+    expect(getSessionsPage).not.toHaveBeenCalled();
+    expect(getLatestSnapshots).not.toHaveBeenCalled();
+    expect(computeAutomationBudgetUsageForAgents).not.toHaveBeenCalled();
+    expect(listFleetWorkItemCounts).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('pages orchestrators, then loads only their direct session family through batched queries', async () => {
+    const {
+      app,
+      getSessions,
+      getSessionsPage,
+      getSessionsByIds,
+      getLatestSnapshots,
+      listGraphs,
+      listTasks,
+      listLatestAutomationRunsForAgents,
+      computeAutomationBudgetUsageForAgents,
+    } = await buildServer();
+
+    const response = await app.inject({ method: 'GET', url: '/v1/orchestrator/fleet' });
+
+    expect(response.statusCode, response.body).toBe(200);
+    expect(getSessions).not.toHaveBeenCalled();
+    expect(getSessionsPage).toHaveBeenCalledWith({
+      role: 'orchestrator',
+      include_archived: false,
+      limit: 100,
+      offset: 0,
+    });
+    expect(listGraphs).toHaveBeenCalledWith([orchestratorId]);
+    expect(getSessionsByIds).toHaveBeenCalledWith([childId]);
+    expect(getLatestSnapshots).toHaveBeenCalledWith([orchestratorId, childId]);
+    expect(listTasks).toHaveBeenCalledWith([orchestratorId]);
+    expect(listLatestAutomationRunsForAgents).toHaveBeenCalledWith(
+      userId,
+      [automationAgentId]
+    );
+    expect(computeAutomationBudgetUsageForAgents).toHaveBeenCalledWith([automationAgentId]);
+    expect(response.json().orchestrators).toHaveLength(1);
     await app.close();
   });
 });

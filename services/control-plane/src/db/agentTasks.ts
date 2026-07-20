@@ -168,6 +168,25 @@ export class AgentTasksRepository {
     return result.rows;
   }
 
+  async listMany(sessionIds: string[], pageSize = 1000): Promise<AgentTask[]> {
+    if (sessionIds.length === 0) return [];
+    const tasks: AgentTask[] = [];
+    let offset = 0;
+    while (true) {
+      const result = await this.database.query<AgentTask>(
+        `SELECT *
+         FROM agent_tasks
+         WHERE session_id = ANY($1::uuid[])
+         ORDER BY started_at ASC, id ASC
+         LIMIT $2 OFFSET $3`,
+        [sessionIds, pageSize, offset]
+      );
+      tasks.push(...result.rows);
+      if (result.rows.length < pageSize) return tasks;
+      offset += result.rows.length;
+    }
+  }
+
   async delete(sessionId: string, toolUseId: string): Promise<boolean> {
     const result = await this.database.query<AgentTask>(
       `DELETE FROM agent_tasks

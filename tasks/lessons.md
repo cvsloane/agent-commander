@@ -31,3 +31,7 @@
 - Date: 2026-07-19
   Correction: AI Lead directed Next build/Playwright smoke verification to use polling when concurrent agent sessions exhaust the host's 128 inotify-instance limit, without stopping other tmux sessions.
   Rule: On this host, run the Next build and dashboard smoke gate with `CHOKIDAR_USEPOLLING=1 WATCHPACK_POLLING=true`; track raising `fs.inotify.max_user_instances` to 1024 as the durable ops fix.
+
+- Date: 2026-07-20
+  Correction: Independent review found that the fleet aggregate over-fetched all sessions, exposed snapshot and budget data below operator role, and lacked regression locks for known-invalid agent envelopes and trusted topology host identity.
+  Rule: Scope aggregate queries to their actual entity graph, page or concurrency-bound every fan-out, require operator role for snapshot/cost aggregates, test both tolerant and terminating protocol paths, and spread trusted server identity fields after untrusted agent payloads.

@@ -44,6 +44,19 @@ describe('AgentTasksRepository', () => {
     expect(upsertSql).toContain("EXCLUDED.status = 'running'");
     expect(query.mock.calls[2]?.[1]).toEqual([sessionId, 'toolu_01']);
   });
+
+  it('loads fleet tasks in bounded pages', async () => {
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rows: [task] })
+      .mockResolvedValueOnce({ rows: [] });
+    const repository = new AgentTasksRepository({ query } as Queryer);
+
+    await expect(repository.listMany([sessionId], 1)).resolves.toEqual([task]);
+
+    expect(query.mock.calls[0]?.[1]).toEqual([[sessionId], 1, 0]);
+    expect(query.mock.calls[1]?.[1]).toEqual([[sessionId], 1, 1]);
+    expect(String(query.mock.calls[0]?.[0])).toContain('session_id = ANY($1::uuid[])');
+  });
 });
 
 describe('agentTaskUpdateFromEvent', () => {

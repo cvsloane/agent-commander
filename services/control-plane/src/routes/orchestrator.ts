@@ -20,6 +20,7 @@ import * as automationDb from '../db/automationMemory.js';
 import { sessionGraph } from '../db/sessionGraph.js';
 import { agentTasks } from '../db/agentTasks.js';
 import { mintSessionToken } from '../auth/verify.js';
+import { hasRole } from '../auth/rbac.js';
 import { pubsub } from '../services/pubsub.js';
 import {
   prepareSessionMemoryForSpawn,
@@ -38,6 +39,57 @@ import {
 } from '../services/idempotency.js';
 
 type CallerSession = Session & { user_id?: string | null; repo_id?: string | null };
+
+const FLEET_PAGE_SIZE = 100;
+const FLEET_QUERY_CONCURRENCY = 4;
+
+function batches<T>(items: T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    result.push(items.slice(index, index + size));
+  }
+  return result;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>
+): Promise<R[]> {
+  const result: R[] = [];
+  for (let index = 0; index < items.length; index += concurrency) {
+    result.push(...await Promise.all(items.slice(index, index + concurrency).map(mapper)));
+  }
+  return result;
+}
+
+async function loadFleetRows<T>(
+  ids: string[],
+  loader: (batchIds: string[]) => Promise<T[]>
+): Promise<T[]> {
+  const rows = await mapWithConcurrency(
+    batches(ids, FLEET_PAGE_SIZE),
+    FLEET_QUERY_CONCURRENCY,
+    loader
+  );
+  return rows.flat();
+}
+
+async function loadOrchestratorSessions(): Promise<Session[]> {
+  const sessions: Session[] = [];
+  let offset = 0;
+  while (true) {
+    const page = await db.getSessionsPage({
+      role: 'orchestrator',
+      include_archived: false,
+      limit: FLEET_PAGE_SIZE,
+      offset,
+    });
+    sessions.push(...page.sessions);
+    offset += page.sessions.length;
+    if (page.sessions.length === 0 || offset >= page.total) return sessions;
+  }
+}
 
 function serviceSessionId(request: FastifyRequest): string | null {
   const value = String(request.headers['x-ac-session-id'] || '').trim();
@@ -153,22 +205,64 @@ async function requireChild(
 
 export function registerOrchestratorRoutes(app: FastifyInstance): void {
   app.get('/v1/orchestrator/fleet', async (request, reply) => {
-    if (!request.user) {
-      return reply.status(401).send({ error: 'Authentication required' });
+    if (!request.user || !hasRole(request.user, 'operator')) {
+      return reply.status(403).send({ error: 'Forbidden' });
     }
 
     const userId = request.user.id;
-    const sessions = await db.getSessions({ include_archived: false });
-    const [snapshots, automationAgents, recentRuns, workItemCountRows] = await Promise.all([
-      db.getLatestSnapshots(sessions.map((session) => session.id)),
+    const orchestratorSessions = await loadOrchestratorSessions();
+    if (orchestratorSessions.length === 0) {
+      return OrchestratorFleetResponseSchema.parse({ orchestrators: [] });
+    }
+    const orchestratorIds = orchestratorSessions.map((session) => session.id);
+    const [edges, tasks, rollupMaps, automationAgents, recentRuns] = await Promise.all([
+      loadFleetRows(orchestratorIds, (ids) => sessionGraph.listMany(ids)),
+      loadFleetRows(orchestratorIds, (ids) => agentTasks.listMany(ids)),
+      mapWithConcurrency(
+        batches(orchestratorIds, FLEET_PAGE_SIZE),
+        FLEET_QUERY_CONCURRENCY,
+        (ids) => sessionGraph.rollupMany(ids)
+      ),
       listAutomationAgentViews(userId),
       automationDb.listAutomationRuns(userId, { limit: 100 }),
-      automationDb.listFleetWorkItemCounts(userId),
     ]);
+    const uniqueEdges = [...new Map(edges.map((edge) => [
+      `${edge.parent_session_id}:${edge.child_session_id}:${edge.edge_type}`,
+      edge,
+    ])).values()];
+    const orchestratorIdSet = new Set(orchestratorIds);
+    const edgesBySession = new Map(orchestratorIds.map((id) => [id, [] as typeof uniqueEdges]));
+    const directChildIdsByParent = new Map(orchestratorIds.map((id) => [id, new Set<string>()]));
+    for (const edge of uniqueEdges) {
+      if (orchestratorIdSet.has(edge.parent_session_id)) {
+        edgesBySession.get(edge.parent_session_id)!.push(edge);
+        directChildIdsByParent.get(edge.parent_session_id)!.add(edge.child_session_id);
+      }
+      if (
+        edge.child_session_id !== edge.parent_session_id
+        && orchestratorIdSet.has(edge.child_session_id)
+      ) {
+        edgesBySession.get(edge.child_session_id)!.push(edge);
+      }
+    }
+    const directChildIds = [...new Set(
+      [...directChildIdsByParent.values()].flatMap((ids) => [...ids])
+    )];
+    const childIdsToFetch = directChildIds.filter((id) => !orchestratorIdSet.has(id));
+    const childSessions = (await loadFleetRows(
+      childIdsToFetch,
+      (ids) => db.getSessionsByIds(ids)
+    )).filter((session) => !session.archived_at);
+    const scopedSessions = [...orchestratorSessions, ...childSessions];
+    const scopedSessionIds = scopedSessions.map((session) => session.id);
+    const snapshots = await loadFleetRows(
+      scopedSessionIds,
+      (ids) => db.getLatestSnapshots(ids)
+    );
     const snapshotBySessionId = new Map(
       snapshots.map((snapshot) => [snapshot.session_id, snapshot])
     );
-    const sessionsWithSnapshots = sessions.map((session): SessionWithSnapshot => {
+    const sessionsWithSnapshots = scopedSessions.map((session): SessionWithSnapshot => {
       const snapshot = snapshotBySessionId.get(session.id);
       return {
         ...session,
@@ -182,22 +276,18 @@ export function registerOrchestratorRoutes(app: FastifyInstance): void {
       };
     });
     const sessionById = new Map(sessionsWithSnapshots.map((session) => [session.id, session]));
-    const orchestratorSessions = sessionsWithSnapshots.filter(
-      (session) => session.role === 'orchestrator'
-    );
-
-    const orchestrators = await Promise.all(orchestratorSessions.map(async (session) => {
-      const [edges, rollup, tasks] = await Promise.all([
-        sessionGraph.list(session.id),
-        sessionGraph.rollup(session.id),
-        agentTasks.list(session.id),
-      ]);
-      const children = edges
-        .filter((edge) => edge.parent_session_id === session.id)
-        .map((edge) => sessionById.get(edge.child_session_id))
+    const tasksBySession = new Map(orchestratorIds.map((id) => [id, [] as typeof tasks]));
+    for (const task of tasks) {
+      tasksBySession.get(task.session_id)?.push(task);
+    }
+    const rollupBySession = new Map(rollupMaps.flatMap((rollups) => [...rollups.entries()]));
+    const fleetFamilies = orchestratorIds.map((orchestratorId) => {
+      const session = sessionById.get(orchestratorId)!;
+      const graphEdges = edgesBySession.get(orchestratorId) ?? [];
+      const children = [...(directChildIdsByParent.get(orchestratorId) ?? [])]
+        .map((childId) => sessionById.get(childId))
         .filter((child): child is SessionWithSnapshot => Boolean(child));
-      const uniqueChildren = [...new Map(children.map((child) => [child.id, child])).values()];
-      const familySessionIds = new Set([session.id, ...uniqueChildren.map((child) => child.id)]);
+      const familySessionIds = new Set([orchestratorId, ...children.map((child) => child.id)]);
       const automationAgent = automationAgents.find((agent: AutomationAgent) => {
         const runtime = agent.runtime_state;
         return Boolean(
@@ -205,27 +295,50 @@ export function registerOrchestratorRoutes(app: FastifyInstance): void {
           || (runtime?.last_session_id && familySessionIds.has(runtime.last_session_id))
         );
       }) ?? null;
+      return { session, graphEdges, children, familySessionIds, automationAgent };
+    });
+    const automationAgentIds = [...new Set(
+      fleetFamilies.flatMap(({ automationAgent }) => automationAgent ? [automationAgent.id] : [])
+    )];
+    const [latestRuns, budgetMaps, workItemCountRows] = await Promise.all([
+      loadFleetRows(
+        automationAgentIds,
+        (ids) => automationDb.listLatestAutomationRunsForAgents(userId, ids)
+      ),
+      mapWithConcurrency(
+        batches(automationAgentIds, FLEET_PAGE_SIZE),
+        FLEET_QUERY_CONCURRENCY,
+        (ids) => automationDb.computeAutomationBudgetUsageForAgents(ids)
+      ),
+      automationDb.listFleetWorkItemCounts(userId, {
+        session_ids: scopedSessionIds,
+        automation_agent_ids: automationAgentIds,
+      }),
+    ]);
+    const latestRunByAgent = new Map(latestRuns.map((run) => [run.automation_agent_id, run]));
+    const budgetByAgent = new Map(budgetMaps.flatMap((usage) => [...usage.entries()]));
 
-      const [agentRuns, budgetUsage] = automationAgent
-        ? await Promise.all([
-            automationDb.listAutomationRuns(userId, {
-              automation_agent_id: automationAgent.id,
-              limit: 1,
-            }),
-            automationDb.computeAutomationBudgetUsage(automationAgent.id),
-          ])
-        : [[], null] as const;
+    const orchestrators = fleetFamilies.map(({
+      session,
+      graphEdges,
+      children,
+      familySessionIds,
+      automationAgent,
+    }) => {
+      const agentRun = automationAgent ? latestRunByAgent.get(automationAgent.id) : undefined;
       const recentFamilyRun = recentRuns
         .filter((run) => run.session_id && familySessionIds.has(run.session_id))
         .sort((left, right) => runTimestamp(right) - runTimestamp(left))[0];
-      const latestRun = agentRuns[0] ?? recentFamilyRun ?? null;
+      const latestRun = agentRun ?? recentFamilyRun ?? null;
       const reportSummary = latestReportSummary(latestRun);
+      const rollup = rollupBySession.get(session.id);
+      if (!rollup) throw new Error(`Missing fleet rollup for orchestrator ${session.id}`);
 
       return {
         session,
-        children: uniqueChildren,
-        edges,
-        agent_tasks: tasks,
+        children,
+        edges: graphEdges,
+        agent_tasks: tasksBySession.get(session.id) ?? [],
         rollup,
         work_item_counts: workItemCounts(
           workItemCountRows,
@@ -243,10 +356,12 @@ export function registerOrchestratorRoutes(app: FastifyInstance): void {
             }
           : null,
         budget_policy: automationAgent?.budget_policy_json ?? {},
-        budget_usage: budgetUsage,
+        budget_usage: automationAgent
+          ? budgetByAgent.get(automationAgent.id) ?? { daily_cents: 0, monthly_cents: 0 }
+          : null,
         usage_rollup: automationAgent?.runtime_state?.usage_rollup_json ?? {},
       };
-    }));
+    });
 
     return OrchestratorFleetResponseSchema.parse({ orchestrators });
   });

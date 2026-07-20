@@ -89,6 +89,38 @@ describe('SessionGraphRepository', () => {
     expect(query.mock.calls[0]?.[1]).toEqual([parentSessionId]);
   });
 
+  it('loads connected edges in bounded pages and batches rollups for fleet sessions', async () => {
+    const rollupRow = {
+      session_id: parentSessionId,
+      child_session_total: '1',
+      child_sessions_by_status: { RUNNING: 1 },
+      agent_task_total: '2',
+      agent_task_running: '1',
+      agent_task_completed: '1',
+      agent_task_failed: '0',
+    };
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rows: [edge] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [rollupRow] });
+    const repository = new SessionGraphRepository({ query } as Queryer);
+
+    await expect(repository.listMany([parentSessionId], 1)).resolves.toEqual([edge]);
+    await expect(repository.rollupMany([parentSessionId])).resolves.toEqual(new Map([[
+      parentSessionId,
+      {
+        session_id: parentSessionId,
+        child_sessions: { total: 1, by_status: { RUNNING: 1 } },
+        agent_tasks: { total: 2, running: 1, completed: 1, failed: 0 },
+      },
+    ]]));
+
+    expect(query.mock.calls[0]?.[1]).toEqual([[parentSessionId], 1, 0]);
+    expect(query.mock.calls[1]?.[1]).toEqual([[parentSessionId], 1, 1]);
+    expect(String(query.mock.calls[2]?.[0])).toContain('SELECT unnest($1::uuid[])');
+    expect(query.mock.calls[2]?.[1]).toEqual([[parentSessionId]]);
+  });
+
   it('sets session roles and backfills fork edges from existing lineage', async () => {
     const roleSession = { id: childSessionId, role: 'worker' };
     const forkEdge = { ...edge, edge_type: 'forked' as const };

@@ -549,6 +549,7 @@ export async function pruneHostSessions(hostId: string, activeSessionIds: string
 
 type SessionFilters = {
   host_id?: string;
+  role?: NonNullable<Session['role']>;
   status?: string | string[];
   provider?: string;
   needs_attention?: boolean;
@@ -568,6 +569,10 @@ function buildSessionsFilter(filters?: SessionFilters): { where: string; params:
   if (filters?.host_id) {
     query += ` AND host_id = $${paramIndex++}`;
     params.push(filters.host_id);
+  }
+  if (filters?.role) {
+    query += ` AND role = $${paramIndex++}`;
+    params.push(filters.role);
   }
   if (filters?.status) {
     const statuses = Array.isArray(filters.status)

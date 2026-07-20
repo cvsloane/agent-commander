@@ -552,8 +552,8 @@ class PubSub {
     this.publishToUI({
       ...message,
       payload: {
-        host_id: hostId,
         ...message.payload,
+        host_id: hostId,
       },
     });
   }
