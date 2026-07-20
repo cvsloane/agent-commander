@@ -29,6 +29,15 @@ This is the git-tracked backlog for this workstream. Keep local next steps here;
 - [x] Add schema/agent protocol drift fixtures for tmux session upserts, terminal messages, command dispatch/results, and host capabilities.
 - [x] Bring release workflow closer to CI parity by running package tests, dashboard smoke, and Docker image validation before tagged releases.
 
+## Future / New Features
+
+- [ ] **Deep open-agents/Hermes integration** (owner-requested 2026-07-19). Today Hermes can wake automation agents (service-auth + HMAC webhook) and poll three JSON summaries; nothing pushes to Hermes. Build on the 2026-07 refactor surfaces:
+  - Push run lifecycle to Hermes: structured completion reports (`worker_report_json`), run blocked/failed, governance approvals — outbound webhooks with retry, mirroring the notifications_log pattern.
+  - Let Hermes dispatch work as a first-class client: create work_items with `session_id` claims, wake orchestrators with objectives via the nudge endpoint, and consume session-graph rollups for its own dashboards/digests.
+  - Expose the `ac` CLI / MCP server contract to Hermes relay tasks so Hermes jobs can spawn/steer agent-command sessions cross-host (coding-dispatch skill alignment).
+  - Bridge memory: share repo-scoped memory entries with Hermes' knowledge stores (dedupe direction TBD), and let Hermes trigger memory distillation review.
+  - Unify identity: map Hermes agent slugs ↔ automation_agents.slug (already exists) and reconcile scheduler_mode=external semantics with the new queued-until-host-online behavior.
+
 ## Ideas
 
 - Mobile `/tmux` should support a thumb-friendly "roster / terminal / actions" mode switch, with roster search always one tap away and terminal controls pinned above the mobile virtual key row.
