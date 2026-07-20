@@ -4755,14 +4755,22 @@ func (a *Agent) syncPanes(panes []tmux.Pane, procSnap *proc.Snapshot) {
 			session.Metadata = map[string]any{}
 		}
 		session.Metadata["tmux"] = map[string]any{
-			"pane_id":         pane.PaneID,
-			"target":          pane.GetTmuxTarget(),
-			"pane_pid":        pane.PanePID,
-			"current_command": pane.CurrentCommand,
-			"session_name":    pane.SessionName,
-			"window_name":     pane.WindowName,
-			"window_index":    pane.WindowIndex,
-			"pane_index":      pane.PaneIndex,
+			"pane_id":              pane.PaneID,
+			"target":               pane.GetTmuxTarget(),
+			"pane_pid":             pane.PanePID,
+			"current_command":      pane.CurrentCommand,
+			"session_name":         pane.SessionName,
+			"window_name":          pane.WindowName,
+			"window_index":         pane.WindowIndex,
+			"pane_index":           pane.PaneIndex,
+			"pane_active":          pane.PaneActive,
+			"window_active":        pane.WindowActive,
+			"window_zoomed_flag":   pane.WindowZoomed,
+			"window_layout":        pane.WindowLayout,
+			"pane_width":           pane.PaneWidth,
+			"pane_height":          pane.PaneHeight,
+			"window_bell_flag":     pane.WindowBell,
+			"window_activity_flag": pane.WindowActivity,
 		}
 		session.Metadata["unmanaged"] = session.Unmanaged
 
