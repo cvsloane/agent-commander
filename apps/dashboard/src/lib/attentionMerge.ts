@@ -120,3 +120,33 @@ export function mergeAttentionItems<T extends MergeableAttentionItem>(
     return right.createdAt - left.createdAt;
   });
 }
+
+export interface OrchestratorAttentionFamily {
+  orchestratorId: string;
+  sessionIds: string[];
+}
+
+/** Assign attention to the orchestrator that owns the affected session or run. */
+export function assignAttentionToOrchestrators<T extends MergeableAttentionItem>(
+  items: T[],
+  families: OrchestratorAttentionFamily[],
+  runSessionById: Record<string, string | null | undefined> = {}
+): Record<string, T[]> {
+  const ownerBySessionId = new Map<string, string>();
+  for (const family of families) {
+    ownerBySessionId.set(family.orchestratorId, family.orchestratorId);
+    family.sessionIds.forEach((sessionId) => ownerBySessionId.set(sessionId, family.orchestratorId));
+  }
+
+  const assigned: Record<string, T[]> = Object.fromEntries(
+    families.map((family) => [family.orchestratorId, []])
+  );
+  for (const item of items) {
+    const runId = item.automationRunId || item.governanceRunId || undefined;
+    const targetSessionId = item.sessionId || (runId ? runSessionById[runId] : null);
+    if (!targetSessionId) continue;
+    const ownerId = ownerBySessionId.get(targetSessionId);
+    if (ownerId) assigned[ownerId]?.push(item);
+  }
+  return assigned;
+}

@@ -8,6 +8,7 @@ import { TmuxWindowRow } from './TmuxWindowRow';
 
 interface TmuxClusterRowProps {
   cluster: TmuxSessionCluster;
+  hostLabel?: string;
   expanded: boolean;
   active: boolean;
   hydrated: boolean;
@@ -20,6 +21,7 @@ interface TmuxClusterRowProps {
 
 export function TmuxClusterRow({
   cluster,
+  hostLabel,
   expanded,
   active,
   hydrated,
@@ -49,6 +51,9 @@ export function TmuxClusterRow({
           <div className="flex items-center gap-2">
             <Monitor className="h-4 w-4 text-primary" />
             <span className="truncate font-medium">{cluster.tmuxSessionName}</span>
+            {hostLabel && (
+              <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{hostLabel}</Badge>
+            )}
             {cluster.hasUnmanaged && (
               <Badge variant="outline" className="text-[10px]">
                 Untracked
@@ -56,10 +61,10 @@ export function TmuxClusterRow({
             )}
           </div>
           <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-            <span>{cluster.windowCount} windows</span>
-            <span>•</span>
-            <span>{cluster.paneCount} panes</span>
-            <span>•</span>
+            <span className="shrink-0 whitespace-nowrap">{cluster.windowCount} window{cluster.windowCount === 1 ? '' : 's'}</span>
+            <span className="shrink-0">•</span>
+            <span className="shrink-0 whitespace-nowrap">{cluster.paneCount} pane{cluster.paneCount === 1 ? '' : 's'}</span>
+            <span className="shrink-0">•</span>
             <span className="truncate">{cluster.providerSummary || 'Unknown provider'}</span>
             {cluster.branch && (
               <>

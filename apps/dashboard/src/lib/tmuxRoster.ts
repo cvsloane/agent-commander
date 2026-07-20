@@ -28,6 +28,7 @@ export interface TmuxWindowView {
 
 export interface TmuxSessionCluster {
   key: string;
+  hostId: string;
   tmuxSessionName: string;
   windows: TmuxWindowView[];
   paneCount: number;
@@ -96,12 +97,17 @@ function compareByNewest(a: { lastActivityAt: string }, b: { lastActivityAt: str
   return new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime();
 }
 
-export function buildTmuxClusters(sessions: SessionWithSnapshot[]): TmuxSessionCluster[] {
+export function buildTmuxClusters(
+  sessions: SessionWithSnapshot[],
+  options: { scopeByHost?: boolean } = {}
+): TmuxSessionCluster[] {
   const sessionMap = new Map<string, Map<string, TmuxPaneView[]>>();
 
   for (const session of sessions) {
     const pane = getPaneData(session);
-    const clusterKey = pane.tmuxSessionName;
+    const clusterKey = options.scopeByHost
+      ? `${session.host_id}:${pane.tmuxSessionName}`
+      : pane.tmuxSessionName;
     const windowKey = `${pane.windowIndex}:${pane.windowName}`;
     if (!sessionMap.has(clusterKey)) {
       sessionMap.set(clusterKey, new Map());
@@ -114,10 +120,14 @@ export function buildTmuxClusters(sessions: SessionWithSnapshot[]): TmuxSessionC
   }
 
   return Array.from(sessionMap.entries())
-    .map(([tmuxSessionName, windowMap]) => ({
-      key: tmuxSessionName,
-      tmuxSessionName,
-      windows: Array.from(windowMap.entries())
+    .map(([clusterKey, windowMap]) => {
+      const allPanes = Array.from(windowMap.values()).flat();
+      const tmuxSessionName = allPanes[0]?.tmuxSessionName ?? 'tmux';
+      return {
+        key: clusterKey,
+        hostId: allPanes[0]?.session.host_id ?? '',
+        tmuxSessionName,
+        windows: Array.from(windowMap.entries())
         .map(([windowKey, panes]) => {
           const sortedPanes = [...panes].sort((a, b) => a.paneIndex - b.paneIndex);
           const selectedPane = [...panes].sort(compareByNewest)[0] ?? panes[0]!;
@@ -139,28 +149,29 @@ export function buildTmuxClusters(sessions: SessionWithSnapshot[]): TmuxSessionC
           } satisfies TmuxWindowView;
         })
         .sort((a, b) => a.windowIndex - b.windowIndex || a.windowName.localeCompare(b.windowName)),
-      paneCount: Array.from(windowMap.values()).reduce((count, panes) => count + panes.length, 0),
-      windowCount: windowMap.size,
-      lastActivityAt: Array.from(windowMap.values())
-        .flat()
-        .sort(compareByNewest)[0]?.lastActivityAt ?? new Date(0).toISOString(),
-      providerSummary: Array.from(
-        new Set(
+        paneCount: Array.from(windowMap.values()).reduce((count, panes) => count + panes.length, 0),
+        windowCount: windowMap.size,
+        lastActivityAt: Array.from(windowMap.values())
+          .flat()
+          .sort(compareByNewest)[0]?.lastActivityAt ?? new Date(0).toISOString(),
+        providerSummary: Array.from(
+          new Set(
+            Array.from(windowMap.values())
+              .flat()
+              .map((pane) => getProviderDisplayName(pane.session.provider))
+          )
+        ).join(', '),
+        repoOrCwd:
           Array.from(windowMap.values())
             .flat()
-            .map((pane) => getProviderDisplayName(pane.session.provider))
-        )
-      ).join(', '),
-      repoOrCwd:
-        Array.from(windowMap.values())
+            .sort(compareByNewest)[0]?.session.cwd || 'No working directory',
+        branch:
+          Array.from(windowMap.values())
           .flat()
-          .sort(compareByNewest)[0]?.session.cwd || 'No working directory',
-      branch:
-        Array.from(windowMap.values())
-          .flat()
-          .sort(compareByNewest)[0]?.session.git_branch || null,
-      hasUnmanaged: Array.from(windowMap.values()).some((panes) => panes.some((pane) => pane.isUnmanaged)),
-    }))
+            .sort(compareByNewest)[0]?.session.git_branch || null,
+        hasUnmanaged: Array.from(windowMap.values()).some((panes) => panes.some((pane) => pane.isUnmanaged)),
+      };
+    })
     .sort((a, b) => a.tmuxSessionName.localeCompare(b.tmuxSessionName));
 }
 

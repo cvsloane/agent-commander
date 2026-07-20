@@ -2,7 +2,8 @@
 
 import type { ReactNode } from 'react';
 import type { Host, SessionWithSnapshot } from '@agent-command/schema';
-import type { TmuxRosterFilter, TmuxSessionCluster } from '@/lib/tmuxRoster';
+import type { TmuxRosterFilter } from '@/lib/tmuxRoster';
+import type { FleetRosterGroup } from '@/lib/fleetRoster';
 import { TmuxHostPicker } from './TmuxHostPicker';
 import { TmuxRoster } from './TmuxRoster';
 
@@ -10,12 +11,14 @@ interface TmuxDesktopShellProps {
   hosts: Host[];
   selectedHostId: string;
   selectedHost?: Host;
+  allHostsSelected: boolean;
+  partialHostFailureCount: number;
   onSelectHost: (hostId: string) => void;
   query: string;
   onQueryChange: (query: string) => void;
   activeFilter: TmuxRosterFilter;
   onFilterChange: (filter: TmuxRosterFilter) => void;
-  clusters: TmuxSessionCluster[];
+  groups: FleetRosterGroup[];
   filteredSessions: SessionWithSnapshot[];
   sessionsLoading: boolean;
   sessionsError: unknown;
@@ -33,12 +36,14 @@ export function TmuxDesktopShell({
   hosts,
   selectedHostId,
   selectedHost,
+  allHostsSelected,
+  partialHostFailureCount,
   onSelectHost,
   query,
   onQueryChange,
   activeFilter,
   onFilterChange,
-  clusters,
+  groups,
   filteredSessions,
   sessionsLoading,
   sessionsError,
@@ -63,11 +68,14 @@ export function TmuxDesktopShell({
         <div className="lg:sticky lg:top-6 lg:max-h-[calc(100dvh-8rem)] lg:overflow-y-auto">
           <TmuxRoster
             selectedHost={selectedHost}
+            hosts={hosts}
+            allHostsSelected={allHostsSelected}
+            partialHostFailureCount={partialHostFailureCount}
             query={query}
             onQueryChange={onQueryChange}
             activeFilter={activeFilter}
             onFilterChange={onFilterChange}
-            clusters={clusters}
+            groups={groups}
             filteredSessions={filteredSessions}
             sessionsLoading={sessionsLoading}
             sessionsError={sessionsError}

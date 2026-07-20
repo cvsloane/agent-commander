@@ -22,10 +22,18 @@ const tmuxHost = {
     providers: { claude_code: true, codex: true, shell: true },
   },
   agent_version: 'test',
-  last_seen_at: '2026-05-19T18:00:00.000Z',
+  last_seen_at: new Date().toISOString(),
   last_acked_seq: 10,
   created_at: '2026-05-19T17:00:00.000Z',
   updated_at: '2026-05-19T18:00:00.000Z',
+};
+
+const secondTmuxHost = {
+  ...tmuxHost,
+  id: '12121212-1212-4121-8121-121212121212',
+  name: 'homelinux',
+  tailscale_name: 'homelinux',
+  tailscale_ip: '100.64.0.11',
 };
 
 const tmuxSessions = [
@@ -140,8 +148,134 @@ const tmuxSessions = [
   },
 ];
 
+const orchestratorSessions = [
+  {
+    ...tmuxSessions[0],
+    id: '77777777-7777-4777-8777-777777777777',
+    role: 'orchestrator',
+    title: 'Release orchestrator',
+    status: 'WAITING_FOR_APPROVAL',
+    tmux_pane_id: '%7',
+    tmux_target: 'orchestrators:0.0',
+    metadata: {
+      tmux: {
+        session_name: 'orchestrators',
+        window_name: 'release-lead',
+        window_index: 0,
+        pane_index: 0,
+      },
+    },
+    latest_snapshot: {
+      created_at: '2026-05-19T18:00:00.000Z',
+      capture_text: 'Approve the production verification command?',
+    },
+  },
+  {
+    ...tmuxSessions[1],
+    id: '88888888-8888-4888-8888-888888888888',
+    role: 'worker',
+    title: 'Verification worker',
+    status: 'RUNNING',
+    tmux_pane_id: '%8',
+    tmux_target: 'workers:4.0',
+    metadata: {
+      tmux: {
+        session_name: 'workers',
+        window_name: 'verification',
+        window_index: 4,
+        pane_index: 0,
+      },
+    },
+  },
+];
+
+const remoteTmuxSession = {
+  ...tmuxSessions[2],
+  id: '13131313-1313-4131-8131-131313131313',
+  host_id: secondTmuxHost.id,
+  title: 'Remote deploy watch',
+  status: 'WAITING_FOR_INPUT',
+  tmux_pane_id: '%13',
+  tmux_target: 'remote:0.0',
+  metadata: {
+    tmux: {
+      session_name: 'remote',
+      window_name: 'deploy-watch',
+      window_index: 0,
+      pane_index: 0,
+    },
+  },
+};
+
+const pendingApproval = {
+  id: '99999999-9999-4999-8999-999999999999',
+  session_id: orchestratorSessions[0].id,
+  provider: 'codex',
+  ts_requested: '2026-05-19T18:00:00.000Z',
+  requested_payload: {
+    reason: 'Run production verification?',
+    command: 'pnpm test:smoke:dashboard',
+  },
+  decision: null,
+  ts_decided: null,
+};
+
+const structuredRun = {
+  id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  automation_agent_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  wakeup_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+  repo_id: null,
+  session_id: orchestratorSessions[0].id,
+  status: 'succeeded',
+  objective: 'Verify the release',
+  memory_snapshot_json: {},
+  pending_followups_json: [],
+  result_summary: 'Release checks passed.',
+  usage_json: { estimated_cost_cents: 42 },
+  worker_report_json: {
+    summary: 'All release checks passed on both machines.',
+    evidence_refs: [],
+    suggested_followups: [],
+    candidate_memory_promotions: [],
+  },
+  log_ref_json: {},
+  started_at: '2026-05-19T17:30:00.000Z',
+  ended_at: '2026-05-19T17:45:00.000Z',
+};
+
+const automationAgent = {
+  id: structuredRun.automation_agent_id,
+  user_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+  role: 'orchestrator',
+  name: 'Release automation',
+  slug: 'release-automation',
+  status: 'active',
+  reports_to_automation_agent_id: null,
+  provider: 'codex',
+  default_cwd: '/home/cvsloane/dev/agent-command',
+  fixed_host_id: tmuxHost.id,
+  wake_policy_json: { interval_minutes: 60, scheduler_mode: 'native' },
+  memory_policy_json: {},
+  budget_policy_json: { daily_limit_cents: 1000, warn_percent: 80 },
+  worker_pool_json: {},
+  max_parallel_runs: 1,
+  runtime_state: {
+    id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+    automation_agent_id: structuredRun.automation_agent_id,
+    repo_id: null,
+    active_session_id: orchestratorSessions[0].id,
+    active_host_id: tmuxHost.id,
+    last_session_id: orchestratorSessions[0].id,
+    last_run_id: structuredRun.id,
+    runtime_status: 'attached',
+    state_json: {},
+    usage_rollup_json: structuredRun.usage_json,
+  },
+  preflight: { status: 'ok', issues: [] },
+};
+
 function sessionDetail(id: string): unknown {
-  const session = tmuxSessions.find((candidate) => candidate.id === id);
+  const session = [...tmuxSessions, ...orchestratorSessions].find((candidate) => candidate.id === id);
   if (!session) return {};
   return {
     session,
@@ -163,8 +297,8 @@ function apiBody(pathname: string): unknown {
   if (pathname === '/v1/sessions/usage-latest') return { usage: [] };
   if (pathname === '/v1/sessions') {
     return {
-      sessions: tmuxSessions,
-      total: tmuxSessions.length,
+      sessions: [...tmuxSessions, ...orchestratorSessions],
+      total: tmuxSessions.length + orchestratorSessions.length,
       limit: 200,
       offset: 0,
     };
@@ -244,18 +378,56 @@ function apiBody(pathname: string): unknown {
   if (/^\/v1\/sessions\/[^/]+\/events$/.test(pathname)) return { events: [] };
   if (/^\/v1\/sessions\/[^/]+\/tool-events$/.test(pathname)) return { events: [] };
   if (/^\/v1\/sessions\/[^/]+\/tool-stats$/.test(pathname)) return { stats: [] };
+  if (/^\/v1\/sessions\/[^/]+\/graph$/.test(pathname)) {
+    const [, , , id] = pathname.split('/');
+    return {
+      session_id: id,
+      edges: id === orchestratorSessions[0].id ? [
+        {
+          parent_session_id: orchestratorSessions[0].id,
+          child_session_id: orchestratorSessions[1].id,
+          edge_type: 'orchestrates',
+          created_at: '2026-05-19T17:00:00.000Z',
+        },
+      ] : [],
+      rollup: {
+        session_id: id,
+        child_sessions: { total: id === orchestratorSessions[0].id ? 1 : 0, by_status: { RUNNING: 1 } },
+        agent_tasks: { total: 1, running: 1, completed: 0, failed: 0 },
+      },
+    };
+  }
+  if (/^\/v1\/sessions\/[^/]+\/agent-tasks$/.test(pathname)) {
+    const [, , , id] = pathname.split('/');
+    return {
+      session_id: id,
+      agent_tasks: id === orchestratorSessions[0].id ? [
+        {
+          id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+          session_id: id,
+          tool_use_id: 'task-smoke',
+          description: 'Audit mobile release flow',
+          status: 'running',
+          started_at: '2026-05-19T17:50:00.000Z',
+          ended_at: null,
+          metadata: {},
+        },
+      ] : [],
+    };
+  }
   if (pathname.startsWith('/v1/sessions/')) {
     const [, , , id] = pathname.split('/');
     return sessionDetail(id || '');
   }
   if (pathname === '/v1/groups') return { groups: [], flat: [] };
-  if (pathname === '/v1/hosts') return { hosts: [tmuxHost] };
+  if (pathname === '/v1/hosts') return { hosts: [tmuxHost, secondTmuxHost] };
   if (pathname === '/v1/projects') return { projects: [] };
   if (pathname === '/v1/repos') return { repos: [] };
   if (pathname === '/v1/settings') return { settings: null };
-  if (pathname === '/v1/approvals') return { approvals: [] };
-  if (pathname === '/v1/automation-agents') return { agents: [] };
-  if (pathname === '/v1/automation-runs') return { runs: [] };
+  if (pathname === '/v1/approvals') return { approvals: [pendingApproval] };
+  if (pathname === '/v1/automation-agents') return { agents: [automationAgent] };
+  if (pathname === '/v1/automation-runs') return { runs: [structuredRun] };
+  if (/^\/v1\/automation-runs\/[^/]+\/events$/.test(pathname)) return { events: [] };
   if (pathname === '/v1/automation-wakeups') return { wakeups: [] };
   if (pathname === '/v1/governance-approvals') return { approvals: [] };
   if (pathname === '/v1/work-items') return { work_items: [] };
@@ -270,7 +442,7 @@ function apiBody(pathname: string): unknown {
       by_provider: {},
     };
   }
-  return {};
+  return undefined;
 }
 
 async function fulfillJson(route: Route, body: unknown): Promise<void> {
@@ -291,6 +463,13 @@ async function mockControlPlane(page: Page): Promise<void> {
 
   await page.route('**/{v1,health}{,/**}', async (route) => {
     const url = new URL(route.request().url());
+    if (route.request().method() === 'GET' && url.pathname === '/v1/tmux/roster') {
+      const sessions = url.searchParams.get('host_id') === secondTmuxHost.id
+        ? [remoteTmuxSession]
+        : tmuxSessions;
+      await fulfillJson(route, { sessions, total: sessions.length });
+      return;
+    }
     if (route.request().method() === 'POST' && url.pathname === '/v1/launch') {
       await fulfillJson(route, {
         session_id: tmuxSessions[0].id,
@@ -318,7 +497,81 @@ async function mockControlPlane(page: Page): Promise<void> {
       });
       return;
     }
-    await fulfillJson(route, apiBody(url.pathname));
+    if (
+      route.request().method() === 'POST'
+      && /^\/v1\/sessions\/[^/]+\/commands$/.test(url.pathname)
+    ) {
+      await fulfillJson(route, { cmd_id: '01JCOMMANDSMOKE000000000000' });
+      return;
+    }
+    if (
+      route.request().method() === 'POST'
+      && /^\/v1\/approvals\/[^/]+\/decide$/.test(url.pathname)
+    ) {
+      await fulfillJson(route, { approval: { ...pendingApproval, status: 'decided' } });
+      return;
+    }
+    if (
+      route.request().method() === 'POST'
+      && /^\/v1\/automation-agents\/[^/]+\/message$/.test(url.pathname)
+    ) {
+      await fulfillJson(route, {
+        automation_agent_id: automationAgent.id,
+        session_id: automationAgent.runtime_state?.active_session_id,
+        cmd_id: '01JNUDGESMOKE00000000000000',
+      });
+      return;
+    }
+    if (
+      route.request().method() === 'POST'
+      && /^\/v1\/automation-agents\/[^/]+\/wake$/.test(url.pathname)
+    ) {
+      await fulfillJson(route, { wakeup: { id: 'mock-wakeup', status: 'queued' } });
+      return;
+    }
+    if (route.request().method() === 'POST' && url.pathname === '/v1/automation-agents') {
+      await fulfillJson(route, { agent: automationAgent });
+      return;
+    }
+    if (
+      route.request().method() === 'PATCH'
+      && /^\/v1\/automation-agents\/[^/]+$/.test(url.pathname)
+    ) {
+      await fulfillJson(route, { agent: automationAgent });
+      return;
+    }
+    if (
+      route.request().method() === 'POST'
+      && /^\/v1\/governance-approvals\/[^/]+\/decide$/.test(url.pathname)
+    ) {
+      await fulfillJson(route, { approval: { id: 'mock-governance-approval', status: 'approved' } });
+      return;
+    }
+    if (route.request().method() === 'POST' && url.pathname === '/v1/work-items') {
+      await fulfillJson(route, { work_item: { id: 'mock-work-item', status: 'queued' } });
+      return;
+    }
+    if (
+      route.request().method() === 'PATCH'
+      && /^\/v1\/work-items\/[^/]+$/.test(url.pathname)
+    ) {
+      await fulfillJson(route, { work_item: { id: 'mock-work-item', status: 'done' } });
+      return;
+    }
+    if (route.request().method() === 'GET') {
+      const body = apiBody(url.pathname);
+      if (body !== undefined) {
+        await fulfillJson(route, body);
+        return;
+      }
+    }
+    await route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: `Unhandled smoke API request: ${route.request().method()} ${url.pathname}`,
+      }),
+    });
   });
 }
 
@@ -413,7 +666,7 @@ test('keeps the tmux roster usable on mobile viewport', async ({ page }) => {
 
   await page.getByText('Mobile UX review').click();
   await expect(page).toHaveURL(/session_id=33333333-3333-4333-8333-333333333333/);
-  await expect(page.getByText('agents:0.1')).toBeVisible();
+  await expect(page.getByText('agents:0.1').first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Actions', exact: true })).toBeEnabled();
 
   await page.getByRole('button', { name: 'Actions', exact: true }).click();
@@ -492,4 +745,114 @@ test('opens an existing tmux target from the mobile launch sheet', async ({ page
 
   await expect(page).toHaveURL(/session_id=33333333-3333-4333-8333-333333333333/);
   await expect(page).toHaveURL(/mode=terminal/);
+});
+
+test('uses bottom navigation to steer an orchestrator card on mobile', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page);
+
+  const mobileNav = page.getByRole('navigation', { name: 'Primary mobile navigation' });
+  await expect(mobileNav.getByRole('link', { name: 'tmux' })).toBeVisible();
+  await expect(mobileNav.getByRole('link', { name: 'Orchestrator' })).toBeVisible();
+  await expect(mobileNav.getByRole('link', { name: 'Sessions' })).toBeVisible();
+  await expect(mobileNav.getByRole('button', { name: 'More' })).toBeVisible();
+
+  await mobileNav.getByRole('link', { name: 'Orchestrator' }).click();
+  await expect(page).toHaveURL(/\/orchestrator/);
+  const card = page.getByTestId('orchestrator-card');
+  await expect(card).toContainText('Release orchestrator');
+  await expect(card).toContainText('Verification worker');
+  await expect(card).toContainText('Audit mobile release flow');
+  await expect(card).toContainText('All release checks passed on both machines.');
+  await expect(card.getByRole('button', { name: 'Approve' })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Deny' })).toBeVisible();
+  await expect(card.getByRole('link', { name: 'Open terminal' })).toBeVisible();
+
+  const approvalRequest = page.waitForRequest((request) => (
+    request.method() === 'POST'
+    && request.url().includes(`/v1/approvals/${pendingApproval.id}/decide`)
+  ));
+  await card.getByRole('button', { name: 'Approve' }).click();
+  expect((await approvalRequest).postDataJSON()).toEqual({ decision: 'allow', mode: 'both' });
+
+  const commandRequest = page.waitForRequest((request) => (
+    request.method() === 'POST'
+    && request.url().includes(`/v1/sessions/${orchestratorSessions[0].id}/commands`)
+  ));
+  await card.getByPlaceholder('Steer this orchestrator without opening its terminal…').fill('Summarize remaining release risk.');
+  await card.getByRole('button', { name: 'Send prompt' }).click();
+  const request = await commandRequest;
+  expect(request.postDataJSON()).toMatchObject({
+    type: 'send_input',
+    payload: { text: 'Summarize remaining release risk.', enter: true },
+  });
+  await expect(card).toContainText('Prompt sent to orchestrator.');
+
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.getByRole('main').evaluate((element) => { element.scrollTop = 0; });
+    await page.screenshot({ path: testInfo.outputPath('orchestrator-mobile-top.png') });
+    await card.getByPlaceholder('Steer this orchestrator without opening its terminal…').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath('orchestrator-mobile.png'), fullPage: true });
+  }
+
+  const moreButton = mobileNav.getByRole('button', { name: 'More' });
+  await moreButton.click();
+  await expect(page.getByRole('dialog', { name: 'Navigation' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Navigation' })).not.toBeVisible();
+  await expect(moreButton).toBeFocused();
+});
+
+test('aggregates every online tmux machine and sorts waiting work first', async ({ page }, testInfo) => {
+  await signIn(page);
+  await page.goto('/tmux');
+
+  await page.getByRole('button', { name: /All machines 2 online/ }).click();
+  await expect(page).toHaveURL(/host_id=all/);
+  await expect(page.getByText('Every online tmux machine · waiting work first')).toBeVisible();
+  await expect(page.getByText('Remote deploy watch')).not.toBeVisible();
+  await page.getByText('remote').click();
+  await expect(page.getByText('Remote deploy watch')).toBeVisible();
+  await expect(page.getByText('homelinux').last()).toBeVisible();
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.screenshot({ path: testInfo.outputPath('tmux-all-machines-desktop.png'), fullPage: true });
+  }
+});
+
+test('keeps URL tabs, sheets, and budget context usable at tablet width', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await signIn(page);
+  await page.goto(`/automation?run=${structuredRun.id}`);
+
+  await expect(page.getByRole('tab', { name: 'Runs' })).toHaveAttribute('data-state', 'active');
+  await expect(page.getByRole('button', { name: 'Hide timeline' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Agents' }).click();
+  await expect(page).toHaveURL(/\/automation$/);
+  await expect(page.getByRole('progressbar', { name: 'Release automation daily budget' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Nudge' })).toBeEnabled();
+
+  const nudgeRequest = page.waitForRequest((request) => (
+    request.method() === 'POST'
+    && request.url().includes(`/v1/automation-agents/${automationAgent.slug}/message`)
+  ));
+  await page.getByRole('button', { name: 'Nudge' }).click();
+  const nudgeSheet = page.getByRole('dialog', { name: `Nudge ${automationAgent.name}` });
+  await nudgeSheet.getByLabel('Message').fill('Summarize the release queue.');
+  await nudgeSheet.getByRole('button', { name: 'Send nudge' }).click();
+  expect((await nudgeRequest).postDataJSON()).toEqual({
+    message: 'Summarize the release queue.',
+    enter: true,
+  });
+  await expect(nudgeSheet).not.toBeVisible();
+
+  await page.getByRole('button', { name: 'New agent' }).click();
+  const sheet = page.getByRole('dialog', { name: 'New automation agent' });
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByLabel('Name')).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Create agent' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.screenshot({ path: testInfo.outputPath('automation-tablet-sheet.png'), fullPage: true });
+  }
+  await sheet.getByRole('button', { name: 'Close New automation agent' }).click();
 });
