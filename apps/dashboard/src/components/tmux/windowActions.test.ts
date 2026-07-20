@@ -8,6 +8,7 @@ describe('tmux window actions', () => {
     const result = await runTmuxWindowAction({
       sessionId: '22222222-2222-4222-8222-222222222222',
       windowCount: 2,
+      windowSource: 'topology',
       action: { type: 'select', windowIndex: 3 },
       dispatch,
     });
@@ -38,6 +39,7 @@ describe('tmux window actions', () => {
     await runTmuxWindowAction({
       sessionId: '22222222-2222-4222-8222-222222222222',
       windowCount: 2,
+      windowSource: 'topology',
       action,
       dispatch,
     });
@@ -52,6 +54,7 @@ describe('tmux window actions', () => {
     const cancelled = await runTmuxWindowAction({
       sessionId: '22222222-2222-4222-8222-222222222222',
       windowCount: 1,
+      windowSource: 'topology',
       action: { type: 'close', windowIndex: 0 },
       dispatch,
       confirm,
@@ -65,6 +68,41 @@ describe('tmux window actions', () => {
     const dispatched = await runTmuxWindowAction({
       sessionId: '22222222-2222-4222-8222-222222222222',
       windowCount: 1,
+      windowSource: 'topology',
+      action: { type: 'close', windowIndex: 0 },
+      dispatch,
+      confirm,
+    });
+
+    expect(dispatched).toBe('dispatched');
+    expect(dispatch).toHaveBeenCalledWith('22222222-2222-4222-8222-222222222222', {
+      type: 'kill_window',
+      payload: { window_index: 0 },
+    });
+  });
+
+  it('uses a softer confirmation when roster fallback cannot prove the last window', async () => {
+    const dispatch = vi.fn().mockResolvedValue({ cmd_id: 'command-1' });
+    const confirm = vi.fn().mockReturnValue(false);
+
+    const cancelled = await runTmuxWindowAction({
+      sessionId: '22222222-2222-4222-8222-222222222222',
+      windowCount: 1,
+      windowSource: 'roster',
+      action: { type: 'close', windowIndex: 0 },
+      dispatch,
+      confirm,
+    });
+
+    expect(cancelled).toBe('cancelled');
+    expect(confirm).toHaveBeenCalledWith('Close this window?');
+    expect(dispatch).not.toHaveBeenCalled();
+
+    confirm.mockReturnValue(true);
+    const dispatched = await runTmuxWindowAction({
+      sessionId: '22222222-2222-4222-8222-222222222222',
+      windowCount: 1,
+      windowSource: 'roster',
       action: { type: 'close', windowIndex: 0 },
       dispatch,
       confirm,
@@ -86,6 +124,7 @@ describe('tmux window actions', () => {
       runTmuxWindowAction({
         sessionId: '22222222-2222-4222-8222-222222222222',
         windowCount: 2,
+        windowSource: 'topology',
         action: { type: 'rename', windowIndex: 1, name: 'review' },
         dispatch: vi.fn().mockRejectedValue(error),
         optimistic,

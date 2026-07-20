@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionWithSnapshot, TmuxTopologyPayload } from '@agent-command/schema';
 import { useTmuxTopologyStore } from './tmuxTopology';
 
@@ -36,6 +36,7 @@ function rosterSession(overrides: Partial<SessionWithSnapshot> = {}): SessionWit
 
 describe('tmux topology store', () => {
   beforeEach(() => useTmuxTopologyStore.getState().reset());
+  afterEach(() => vi.useRealTimers());
 
   it('uses a host topology snapshot and joins its panes to roster sessions', () => {
     const payload: TmuxTopologyPayload = {
@@ -143,13 +144,55 @@ describe('tmux topology store', () => {
     });
   });
 
-  it('does not publish a new snapshot when a feed repeats the same roster session objects', () => {
+  it('returns to roster fallback after a host topology snapshot goes stale', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-07-20T14:00:00.000Z');
+    const session = rosterSession();
+    useTmuxTopologyStore.getState().setRoster(hostId, [session]);
+    useTmuxTopologyStore.getState().receiveTopology(
+      hostId,
+      {
+        reason: 'poll',
+        tmux_sessions: [
+          {
+            session_name: 'agents',
+            attached: true,
+            windows: [
+              {
+                window_index: 1,
+                window_name: 'live-name',
+                active: true,
+                zoomed: false,
+                layout: 'tiled',
+                bell: false,
+                activity: false,
+                panes: [],
+              },
+            ],
+          },
+        ],
+      },
+      '2026-07-20T14:00:00.000Z'
+    );
+
+    vi.advanceTimersByTime(30_001);
+    useTmuxTopologyStore.getState().setRoster(hostId, [session]);
+
+    const state = useTmuxTopologyStore.getState();
+    expect(state.hosts[hostId]).toMatchObject({
+      source: 'roster',
+      sessions: [{ windows: [{ windowName: 'fallback-name' }] }],
+    });
+    expect(state.liveByHost[hostId]).toBeUndefined();
+  });
+
+  it('does not publish a new snapshot when a feed repeats the same roster identity', () => {
     const session = rosterSession();
     useTmuxTopologyStore.getState().setRoster(hostId, [session]);
     const firstHosts = useTmuxTopologyStore.getState().hosts;
     const firstRoster = useTmuxTopologyStore.getState().rosterByHost;
 
-    useTmuxTopologyStore.getState().setRoster(hostId, [session]);
+    useTmuxTopologyStore.getState().setRoster(hostId, [rosterSession()]);
 
     expect(useTmuxTopologyStore.getState().hosts).toBe(firstHosts);
     expect(useTmuxTopologyStore.getState().rosterByHost).toBe(firstRoster);

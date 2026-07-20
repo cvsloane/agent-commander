@@ -10,6 +10,7 @@ export type TmuxWindowAction =
 interface RunTmuxWindowActionOptions {
   sessionId: string;
   windowCount: number;
+  windowSource: 'topology' | 'roster';
   action: TmuxWindowAction;
   dispatch?: typeof sendCommand;
   confirm?: (message: string) => boolean;
@@ -39,18 +40,21 @@ function commandForAction(action: TmuxWindowAction): CommandRequest {
 export async function runTmuxWindowAction({
   sessionId,
   windowCount,
+  windowSource,
   action,
   dispatch = sendCommand,
   confirm = (message) => window.confirm(message),
   optimistic,
   rollback,
 }: RunTmuxWindowActionOptions): Promise<'dispatched' | 'cancelled'> {
-  if (
-    action.type === 'close' &&
-    windowCount === 1 &&
-    !confirm('This ends the whole tmux session')
-  ) {
-    return 'cancelled';
+  if (action.type === 'close') {
+    const confirmation =
+      windowSource === 'topology'
+        ? windowCount === 1
+          ? 'This ends the whole tmux session'
+          : null
+        : 'Close this window?';
+    if (confirmation && !confirm(confirmation)) return 'cancelled';
   }
   optimistic?.();
   try {

@@ -48,6 +48,8 @@ interface LiveSnapshot {
   receivedAt: string;
 }
 
+export const TMUX_TOPOLOGY_STALE_AFTER_MS = 30_000;
+
 interface TmuxTopologyStore {
   hosts: Record<string, TmuxHostTopologyView>;
   rosterByHost: Record<string, SessionWithSnapshot[]>;
@@ -193,24 +195,58 @@ const initialState = {
   liveByHost: {} as Record<string, LiveSnapshot>,
 };
 
+function liveSnapshotIsFresh(snapshot: LiveSnapshot): boolean {
+  const receivedAt = Date.parse(snapshot.receivedAt);
+  return Number.isFinite(receivedAt) && Date.now() - receivedAt <= TMUX_TOPOLOGY_STALE_AFTER_MS;
+}
+
+function sameRosterSession(
+  left: SessionWithSnapshot,
+  right: SessionWithSnapshot
+): boolean {
+  if (left === right) return true;
+  const leftIdentity = rosterIdentity(left);
+  const rightIdentity = rosterIdentity(right);
+  return (
+    left.id === right.id &&
+    left.host_id === right.host_id &&
+    left.status === right.status &&
+    left.title === right.title &&
+    left.cwd === right.cwd &&
+    left.archived_at === right.archived_at &&
+    left.metadata?.tmux?.current_command === right.metadata?.tmux?.current_command &&
+    leftIdentity.paneId === rightIdentity.paneId &&
+    leftIdentity.paneIndex === rightIdentity.paneIndex &&
+    leftIdentity.sessionName === rightIdentity.sessionName &&
+    leftIdentity.windowIndex === rightIdentity.windowIndex &&
+    leftIdentity.windowName === rightIdentity.windowName
+  );
+}
+
 export const useTmuxTopologyStore = create<TmuxTopologyStore>((set) => ({
   ...initialState,
   setRoster: (hostId, sessions) =>
     set((state) => {
       const currentRoster = state.rosterByHost[hostId];
-      if (
+      const sameRoster =
         currentRoster &&
         currentRoster.length === sessions.length &&
-        currentRoster.every((session, index) => session === sessions[index])
-      ) {
+        currentRoster.every((session, index) => sameRosterSession(session, sessions[index]));
+      const live = state.liveByHost[hostId];
+      const staleLive = live && !liveSnapshotIsFresh(live);
+      if (sameRoster && !staleLive) {
         return state;
       }
-      const live = state.liveByHost[hostId];
+      const nextLiveByHost = staleLive ? { ...state.liveByHost } : state.liveByHost;
+      if (staleLive) delete nextLiveByHost[hostId];
       return {
-        rosterByHost: { ...state.rosterByHost, [hostId]: sessions },
+        rosterByHost: sameRoster
+          ? state.rosterByHost
+          : { ...state.rosterByHost, [hostId]: sessions },
+        liveByHost: nextLiveByHost,
         hosts: {
           ...state.hosts,
-          [hostId]: live
+          [hostId]: live && !staleLive
             ? buildLiveTopology(hostId, live.payload, sessions, live.receivedAt)
             : buildRosterTopology(hostId, sessions),
         },

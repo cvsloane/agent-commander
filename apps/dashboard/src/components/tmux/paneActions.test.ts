@@ -35,7 +35,7 @@ describe('tmux pane actions', () => {
     });
     expect(buildSplitPaneCommand({ ...baseHost, agent_version: '3.1.2' }, 'vertical')).toEqual({
       type: 'split_pane',
-      payload: { direction: 'vertical', percent: 50 },
+      payload: { direction: 'vertical' },
     });
   });
 });

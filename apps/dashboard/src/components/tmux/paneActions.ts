@@ -10,7 +10,6 @@ function reportedTmuxVersion(host?: Host | null): string | undefined {
     capabilities.tmux_version,
     capabilities.tmuxVersion,
     extendedHost.tmux_version,
-    host.agent_version,
   ];
   return candidates.find((candidate): candidate is string => typeof candidate === 'string');
 }

@@ -146,6 +146,7 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
       await runTmuxWindowAction({
         sessionId: session.id,
         windowCount: windows.length,
+        windowSource: hostTopology?.source ?? 'roster',
         action,
         optimistic: () => setWindows(optimisticWindows(windows, action)),
         rollback: () => setWindows(previous),

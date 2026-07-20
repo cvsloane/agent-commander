@@ -9,9 +9,10 @@ import { PersistentTerminalSlot } from '@/components/terminal/PersistentTerminal
 import { Button } from '@/components/ui/button';
 import { useHydrated } from '@/hooks/useHydrated';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import { getSession, getTmuxRoster } from '@/lib/api';
+import { getSession } from '@/lib/api';
 import { getSessionDisplayName } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
+import { useTmuxTopologyStore } from '@/stores/tmuxTopology';
 import { TmuxPaneControls } from './TmuxPaneControls';
 import { TmuxWindowStrip } from './TmuxWindowStrip';
 
@@ -65,18 +66,16 @@ export function TmuxTerminalWorkspace({
     (state) => state.tmuxSecondaryByPrimary[primarySession.id] ?? ''
   );
   const setSecondary = useSettingsStore((state) => state.setTmuxSecondary);
-  const { data: rosterData } = useQuery({
-    queryKey: ['sessions', 'tmux', primarySession.host_id, 'two-up-options'],
-    queryFn: () => getTmuxRoster({ host_id: primarySession.host_id }),
-    staleTime: 30_000,
-  });
+  const rosterSessions = useTmuxTopologyStore(
+    (state) => state.rosterByHost[primarySession.host_id]
+  );
   const options = useMemo(
     () =>
-      (rosterData?.sessions ?? []).filter(
+      (rosterSessions ?? []).filter(
         (session) =>
           session.id !== primarySession.id && Boolean(session.tmux_pane_id) && !session.archived_at
       ),
-    [primarySession.id, rosterData?.sessions]
+    [primarySession.id, rosterSessions]
   );
   const secondaryId = hydrated && !belowDesktop ? rememberedSecondaryId : '';
   const {
@@ -91,10 +90,10 @@ export function TmuxTerminalWorkspace({
   const secondarySession = secondaryDetail?.session;
 
   useEffect(() => {
-    if (!rosterData || !rememberedSecondaryId) return;
+    if (!rosterSessions || !rememberedSecondaryId) return;
     if (options.some((session) => session.id === rememberedSecondaryId)) return;
     setSecondary(primarySession.id, null);
-  }, [options, primarySession.id, rememberedSecondaryId, rosterData, setSecondary]);
+  }, [options, primarySession.id, rememberedSecondaryId, rosterSessions, setSecondary]);
 
   const showSecondary = Boolean(secondaryId);
 

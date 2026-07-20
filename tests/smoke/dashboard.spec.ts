@@ -744,6 +744,13 @@ test('renders tmux roster with windows and panes, supports selection and filteri
   await expect(page.getByText('agents', { exact: true })).toBeVisible();
   await expect(page.getByText('ops')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Waiting', exact: true })).toBeVisible();
+  let duplicateRosterRequests = 0;
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (request.method() === 'GET' && url.pathname === '/v1/tmux/roster') {
+      duplicateRosterRequests += 1;
+    }
+  });
 
   await page.getByText('agents', { exact: true }).click();
   await expect(page.getByText('0 · agent-command')).toBeVisible();
@@ -755,6 +762,7 @@ test('renders tmux roster with windows and panes, supports selection and filteri
   await expect(page.getByRole('heading', { name: 'Mobile UX review' })).toBeVisible();
   await expect(page.getByTestId('tmux-window-strip')).toBeVisible();
   await expect(page.getByLabel('Secondary terminal')).toBeVisible();
+  await expect.poll(() => duplicateRosterRequests).toBe(0);
   if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
     await page.screenshot({ path: testInfo.outputPath('tmux-terminal-desktop.png'), fullPage: true });
   }

@@ -40,7 +40,7 @@ export function useTmuxHostTopology(hostId: string, seedSessions?: SessionWithSn
   const { data } = useQuery({
     queryKey: ['sessions', 'tmux', hostId, 'topology-fallback'],
     queryFn: () => getTmuxRoster({ host_id: hostId }),
-    enabled: Boolean(hostId && !seedSessions),
+    enabled: Boolean(hostId && !seedSessions && !storedRoster),
     staleTime: 30_000,
   });
   const fallbackSessions = useMemo(
