@@ -22,3 +22,4 @@
 {"ts":"2026-07-21T04:40:00Z","event":"wave_complete","wave":4,"reviewer_verdict":"SHIP-WITH-NOTES","notes_closed_in":"FW4-FLEET-R2 + FW4-SURFACES-R2","gate":"green"}
 {"ts":"2026-07-21T05:20:00Z","event":"wave_merged","wave":4,"main_sha":"fa0ba72","pr":89}
 {"ts":"2026-07-21T05:25:00Z","event":"wave_launched","wave":5,"lanes":["FW5-POLISH","FW5-QA"]}
+{"ts":"2026-07-21T05:40:00Z","event":"wave_deployed","wave":4,"sha":"fa0ba72"}
