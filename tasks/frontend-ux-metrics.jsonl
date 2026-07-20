@@ -15,3 +15,4 @@
 {"ts":"2026-07-21T00:05:00Z","event":"wave_complete","wave":3,"reviewer_verdict":"SHIP-WITH-NOTES","notes_closed_in":"FW3-TMUX-UI-R2 + AI Lead","gate":"green"}
 {"ts":"2026-07-21T00:40:00Z","event":"wave_merged","wave":3,"main_sha":"f3df15d","pr":88}
 {"ts":"2026-07-21T00:45:00Z","event":"wave_launched","wave":4,"lanes":["FW4-FLEET","FW4-SURFACES"]}
+{"ts":"2026-07-21T00:55:00Z","event":"wave_deployed","wave":3,"sha":"f3df15d"}
