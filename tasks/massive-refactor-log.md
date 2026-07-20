@@ -16,3 +16,4 @@
 - 2026-07-19T20:15Z [AI Lead] W4-AGENTD-TERM PASS (go gate re-run clean; firewall clean; per-viewer PTY flag-gated) => merged. W3 lanes still building.
 - 2026-07-19T20:45Z [AI Lead] W3-PUSH-BACKEND PASS (132/132 re-run; live-PG migration proof 001-036; firewall clean) => merged. W3-PWA outstanding.
 - 2026-07-19T21:10Z [AI Lead] W3-PWA PASS (54 tests + smoke re-run clean; firewall clean) => merged. WAVE 3 CLOSED. Waves 1-3 + W4-AGENTD-TERM all integrated.
+- 2026-07-19T21:30Z [AI Lead] W4-TERM-CLIENT + W4-FLEET-UI + W5-GO-CONTRACTS launched and verified active at c2500da.
