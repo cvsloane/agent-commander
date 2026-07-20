@@ -454,6 +454,9 @@ export function registerSessionRoutes(app: FastifyInstance): void {
           { cmd_id: cmdId, request: body.data },
           request.user.id
         );
+        if (!response.ok) {
+          return reply.status(502).send({ error: response.error ?? 'Scrollback capture failed', cmd_id: cmdId });
+        }
         return response;
       } catch (error) {
         return reply.status(503).send({ error: (error as Error).message });

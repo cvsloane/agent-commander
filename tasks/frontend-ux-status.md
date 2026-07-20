@@ -3,7 +3,7 @@
 Program: `tasks/2026-07-20-frontend-tmux-ux-master-plan.md` · Findings: `tasks/2026-07-20-frontend-ux-study-findings.md` · Acceptance: `tasks/frontend-ux-acceptance-checklist.md`
 AI Lead: Claude (Fable 5) on homelinux, session in agent-command repo. Human Owner: Chris.
 Integration branch: `refactor/frontend-command-center`. Builders: codex (gpt-5.6-sol, xhigh) lanes in tmux, isolated worktrees.
-Baseline: typecheck + test:ci green at `70fa53e` (2026-07-20). Deploy cadence: per-wave PR to main + production deploy (owner merges/authorizes).
+Baseline: typecheck + test:ci green at `70fa53e` (2026-07-20). Deploy cadence: per-wave PR to main + production deploy, autonomous-with-receipt per owner directive 2026-07-20 (owner reviews at program end).
 
 ## Wave 1 lanes (launched 2026-07-20)
 
