@@ -17,3 +17,4 @@
 - 2026-07-19T20:45Z [AI Lead] W3-PUSH-BACKEND PASS (132/132 re-run; live-PG migration proof 001-036; firewall clean) => merged. W3-PWA outstanding.
 - 2026-07-19T21:10Z [AI Lead] W3-PWA PASS (54 tests + smoke re-run clean; firewall clean) => merged. WAVE 3 CLOSED. Waves 1-3 + W4-AGENTD-TERM all integrated.
 - 2026-07-19T21:30Z [AI Lead] W4-TERM-CLIENT + W4-FLEET-UI + W5-GO-CONTRACTS launched and verified active at c2500da.
+- 2026-07-19T22:05Z [AI Lead] W5-GO-CONTRACTS PASS (go gate re-run clean; firewall clean) => merged in 28min. Typed Go protocol + fixture matrix + goreleaser/install tooling landed.
