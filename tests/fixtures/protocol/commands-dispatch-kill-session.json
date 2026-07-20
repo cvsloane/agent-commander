@@ -1,0 +1,1 @@
+{"v":1,"type":"commands.dispatch","ts":"2026-07-19T20:01:03Z","payload":{"cmd_id":"cmd-kill","session_id":"22222222-2222-4222-8222-222222222222","command":{"type":"kill_session","payload":{}}}}

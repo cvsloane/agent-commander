@@ -1,0 +1,1 @@
+{"v":1,"type":"commands.dispatch","ts":"2026-07-19T20:01:12Z","payload":{"cmd_id":"cmd-capture","session_id":"22222222-2222-4222-8222-222222222222","command":{"type":"capture_pane","payload":{"mode":"last_n","last_n_lines":200,"strip_ansi":true}}}}

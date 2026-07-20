@@ -13,6 +13,7 @@ import (
 
 	"github.com/agent-command/agentd/internal/config"
 	"github.com/agent-command/agentd/internal/orchestrator"
+	"github.com/agent-command/agentd/internal/protocol"
 	"github.com/agent-command/agentd/internal/tmux"
 )
 
@@ -223,13 +224,13 @@ func TestOrchestratorKillTreeKillsDescendantsBeforeParent(t *testing.T) {
 
 func TestOrchestratorReportEmitsCallerTaggedDurableEvent(t *testing.T) {
 	var gotType string
-	var gotPayload map[string]any
+	var gotPayload protocol.EventsAppendPayload
 	agent := &Agent{
 		cfg:      &config.Config{},
 		sessions: map[string]*SessionState{"caller": {ID: "caller", PaneID: "%1", Status: "RUNNING"}},
 		sendMessage: func(messageType string, payload any) error {
 			gotType = messageType
-			gotPayload = payload.(map[string]any)
+			gotPayload = payload.(protocol.EventsAppendPayload)
 			return nil
 		},
 	}
@@ -244,11 +245,11 @@ func TestOrchestratorReportEmitsCallerTaggedDurableEvent(t *testing.T) {
 	if res.Code != http.StatusAccepted {
 		t.Fatalf("status=%d, body=%s", res.Code, res.Body.String())
 	}
-	if gotType != "events.append" || gotPayload["session_id"] != "caller" || gotPayload["event_type"] != "orchestrator.report" {
+	if gotType != "events.append" || gotPayload.SessionID != "caller" || gotPayload.EventType != "orchestrator.report" {
 		t.Fatalf("message type=%q payload=%v", gotType, gotPayload)
 	}
-	event, ok := gotPayload["payload"].(map[string]any)
-	if !ok || event["outcome"] != "succeeded" || event["summary"] != "finished" || event["detail"] != "all green" || event["reported_at"] == "" {
+	event := gotPayload.Payload
+	if event["outcome"] != "succeeded" || event["summary"] != "finished" || event["detail"] != "all green" || event["reported_at"] == "" {
 		t.Fatalf("event payload=%v", event)
 	}
 }
@@ -318,10 +319,10 @@ func TestHierarchyMetadataIncludesParentAndChildStatusRollup(t *testing.T) {
 }
 
 func TestSubagentHooksPreserveToolUseDescriptionAndTimestamps(t *testing.T) {
-	var events []map[string]any
+	var events []protocol.EventsAppendPayload
 	agent := &Agent{sendMessage: func(messageType string, payload any) error {
 		if messageType == "events.append" {
-			events = append(events, payload.(map[string]any))
+			events = append(events, payload.(protocol.EventsAppendPayload))
 		}
 		return nil
 	}}
@@ -334,24 +335,24 @@ func TestSubagentHooksPreserveToolUseDescriptionAndTimestamps(t *testing.T) {
 		"agent_id":   "agent-456",
 		"agent_type": "Explore",
 	}, "/tmp")
-	if len(events) != 3 || events[0]["event_type"] != "workshop.subagent_start" || events[1]["event_type"] != "workshop.pre_tool_use" || events[2]["event_type"] != "workshop.subagent_stop" {
+	if len(events) != 3 || events[0].EventType != "workshop.subagent_start" || events[1].EventType != "workshop.pre_tool_use" || events[2].EventType != "workshop.subagent_stop" {
 		t.Fatalf("events=%v", events)
 	}
-	start := events[0]["payload"].(map[string]any)
+	start := events[0].Payload
 	if start["tool_use_id"] != "tool-123" || start["description"] != "inspect the API" || start["started_at"] == "" {
 		t.Fatalf("subagent start payload=%v", start)
 	}
-	stop := events[2]["payload"].(map[string]any)
+	stop := events[2].Payload
 	if stop["agent_id"] != "agent-456" || stop["subagent_id"] != "agent-456" || stop["agent_type"] != "Explore" || stop["description"] != "Explore" || stop["stopped_at"] == "" || stop["timestamp"] == nil || stop["occurred_at"] == "" {
 		t.Fatalf("subagent stop payload=%v", stop)
 	}
 }
 
 func TestLegacyTaskHooksEmitCorrelatedSyntheticStartAndStop(t *testing.T) {
-	var events []map[string]any
+	var events []protocol.EventsAppendPayload
 	agent := &Agent{sendMessage: func(messageType string, payload any) error {
 		if messageType == "events.append" {
-			events = append(events, payload.(map[string]any))
+			events = append(events, payload.(protocol.EventsAppendPayload))
 		}
 		return nil
 	}}
@@ -370,12 +371,12 @@ func TestLegacyTaskHooksEmitCorrelatedSyntheticStartAndStop(t *testing.T) {
 		t.Fatalf("events=%v", events)
 	}
 	for i, want := range wantTypes {
-		if events[i]["event_type"] != want {
+		if events[i].EventType != want {
 			t.Fatalf("event types=%v", events)
 		}
 	}
-	start := events[0]["payload"].(map[string]any)
-	stop := events[2]["payload"].(map[string]any)
+	start := events[0].Payload
+	stop := events[2].Payload
 	if start["tool_use_id"] != "tool-legacy" || stop["tool_use_id"] != "tool-legacy" || start["description"] != "inspect legacy flow" || stop["description"] != "inspect legacy flow" {
 		t.Fatalf("start=%v stop=%v", start, stop)
 	}
@@ -385,10 +386,10 @@ func TestLegacyTaskHooksEmitCorrelatedSyntheticStartAndStop(t *testing.T) {
 }
 
 func TestModernAgentToolDoesNotDuplicateNativeSubagentStart(t *testing.T) {
-	var events []map[string]any
+	var events []protocol.EventsAppendPayload
 	agent := &Agent{sendMessage: func(messageType string, payload any) error {
 		if messageType == "events.append" {
-			events = append(events, payload.(map[string]any))
+			events = append(events, payload.(protocol.EventsAppendPayload))
 		}
 		return nil
 	}}
@@ -396,7 +397,7 @@ func TestModernAgentToolDoesNotDuplicateNativeSubagentStart(t *testing.T) {
 		"tool_name":   "Agent",
 		"tool_use_id": "tool-modern",
 	}, "/tmp")
-	if len(events) != 1 || events[0]["event_type"] != "workshop.pre_tool_use" {
+	if len(events) != 1 || events[0].EventType != "workshop.pre_tool_use" {
 		t.Fatalf("events=%v", events)
 	}
 }

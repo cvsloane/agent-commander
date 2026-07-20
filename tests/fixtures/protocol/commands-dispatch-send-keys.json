@@ -1,0 +1,1 @@
+{"v":1,"type":"commands.dispatch","ts":"2026-07-19T20:01:01Z","payload":{"cmd_id":"cmd-send-keys","session_id":"22222222-2222-4222-8222-222222222222","command":{"type":"send_keys","payload":{"keys":["C-c","Enter"]}}}}

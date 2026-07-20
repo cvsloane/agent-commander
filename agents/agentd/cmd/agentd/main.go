@@ -29,6 +29,7 @@ import (
 	"github.com/agent-command/agentd/internal/metrics"
 	"github.com/agent-command/agentd/internal/orchestrator"
 	"github.com/agent-command/agentd/internal/proc"
+	"github.com/agent-command/agentd/internal/protocol"
 	"github.com/agent-command/agentd/internal/providers"
 	"github.com/agent-command/agentd/internal/queue"
 	"github.com/agent-command/agentd/internal/tmux"
@@ -86,12 +87,7 @@ type bufferedHook struct {
 	BufferedAt time.Time
 }
 
-type memoryFileSpec struct {
-	BaseDir      string `json:"base_dir"`
-	RelativePath string `json:"relative_path"`
-	Content      string `json:"content"`
-	Scope        string `json:"scope"`
-}
+type memoryFileSpec = protocol.SpawnSessionMemoryFile
 
 type SessionState struct {
 	ID              string
@@ -158,7 +154,7 @@ func main() {
 }
 
 // Version is overridden at build time with -ldflags "-X main.Version=<version>".
-var Version = "0.1.0"
+var Version = "dev"
 
 func printHelp() {
 	fmt.Println(`agentd - Agent Command daemon for tmux management
@@ -439,7 +435,7 @@ func (a *Agent) Run() error {
 	a.wsClient.SetLastAckedSeq(lastAcked)
 
 	a.commandExecutor = commands.NewExecutor(4, a.executeCommand, func(result commands.Result) {
-		a.send("commands.result", result)
+		a.send(protocol.TypeCommandsResult, result)
 	})
 	a.launchTemplates = providers.NewLaunchTemplates(a.cfg)
 
@@ -789,12 +785,12 @@ func (a *Agent) reportProviderUsage(provider, command string, parseJSON bool) {
 	fields := extractUsageFields(rawJSON, cleanedText)
 	scope := "account"
 
-	payload := map[string]any{
-		"provider":    provider,
-		"scope":       scope,
-		"host_id":     a.cfg.Host.ID,
-		"reported_at": time.Now().UTC().Format(time.RFC3339),
-		"raw_text":    raw,
+	payload := protocol.ProviderUsagePayload{
+		Provider:   provider,
+		Scope:      scope,
+		HostID:     a.cfg.Host.ID,
+		ReportedAt: time.Now().UTC().Format(time.RFC3339),
+		RawText:    raw,
 	}
 	parsed := parseProviderUsageText(provider, cleanedText)
 	if len(parsed) > 0 {
@@ -811,13 +807,15 @@ func (a *Agent) reportProviderUsage(provider, command string, parseJSON bool) {
 		}
 	}
 	if rawJSON != nil {
-		payload["raw_json"] = rawJSON
+		payload.RawJSON = rawJSON
 	}
-	for k, v := range fields {
-		payload[k] = v
+	if data, marshalErr := json.Marshal(fields); marshalErr == nil {
+		if unmarshalErr := json.Unmarshal(data, &payload); unmarshalErr != nil {
+			log.Printf("Failed to apply provider usage fields (%s): %v", provider, unmarshalErr)
+		}
 	}
 
-	_ = a.send("provider.usage", payload)
+	_ = a.send(protocol.TypeProviderUsage, payload)
 }
 
 func runUsageCommand(command string) ([]byte, error) {
@@ -1716,25 +1714,23 @@ func applyParsedUsageEntries(fields map[string]any, rawJSON map[string]any) {
 func (a *Agent) sendHello() error {
 	providers := a.providerAvailabilityMap()
 
-	payload := map[string]any{
-		"host": map[string]any{
-			"id":            a.cfg.Host.ID,
-			"name":          a.cfg.Host.Name,
-			"agent_version": Version,
-			"capabilities": map[string]any{
-				"tmux":            true,
-				"spawn":           a.cfg.Security.AllowSpawn,
-				"kill":            a.cfg.Security.AllowKill,
-				"console_stream":  a.cfg.Security.AllowConsoleStream,
-				"terminal":        true,
-				"claude_hooks":    true,
-				"codex_exec_json": true,
-				"providers":       providers,
+	payload := protocol.AgentHelloPayload{
+		Host: protocol.AgentHostInfo{
+			ID:           a.cfg.Host.ID,
+			Name:         a.cfg.Host.Name,
+			AgentVersion: Version,
+			Capabilities: protocol.HostCapabilities{
+				Tmux:          true,
+				Spawn:         a.cfg.Security.AllowSpawn,
+				Kill:          a.cfg.Security.AllowKill,
+				ConsoleStream: a.cfg.Security.AllowConsoleStream,
+				Terminal:      true,
+				ClaudeHooks:   true,
+				CodexExecJSON: true,
+				Providers:     providers,
 			},
 		},
-		"resume": map[string]any{
-			"last_acked_seq": a.wsClient.GetLastAckedSeq(),
-		},
+		Resume: &protocol.AgentResume{LastAckedSeq: a.wsClient.GetLastAckedSeq()},
 	}
 
 	return a.wsClient.SendHello(payload)
@@ -1988,95 +1984,70 @@ func (a *Agent) executeCommand(cmd commands.Dispatch) (map[string]any, error) {
 }
 
 func (a *Agent) handleMCPList(payload json.RawMessage) {
-	var req struct {
-		CmdID  string `json:"cmd_id"`
-		HostID string `json:"host_id"`
-	}
+	var req protocol.MCPListServersPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse mcp.list_servers: %v", err)
 		return
 	}
 
-	a.send("mcp.servers", map[string]any{
-		"cmd_id":  req.CmdID,
-		"servers": []any{},
-		"pool_config": map[string]any{
-			"enabled":  false,
-			"pool_all": false,
-		},
+	a.send(protocol.TypeMCPServers, protocol.MCPServersPayload{
+		CmdID:      req.CmdID,
+		Servers:    []protocol.MCPServer{},
+		PoolConfig: protocol.MCPPoolConfig{},
 	})
 }
 
 func (a *Agent) handleMCPGetConfig(payload json.RawMessage) {
-	var req struct {
-		CmdID     string `json:"cmd_id"`
-		SessionID string `json:"session_id"`
-	}
+	var req protocol.MCPGetConfigPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse mcp.get_config: %v", err)
 		return
 	}
 
-	a.send("mcp.config", map[string]any{
-		"cmd_id":           req.CmdID,
-		"session_id":       req.SessionID,
-		"servers":          []any{},
-		"enablement":       map[string]any{},
-		"restart_required": false,
+	a.send(protocol.TypeMCPConfig, protocol.MCPConfigPayload{
+		CmdID:      req.CmdID,
+		SessionID:  req.SessionID,
+		Servers:    []protocol.MCPServer{},
+		Enablement: map[string]protocol.MCPEnablement{},
 	})
 }
 
 func (a *Agent) handleMCPUpdateConfig(payload json.RawMessage) {
-	var req struct {
-		CmdID      string         `json:"cmd_id"`
-		SessionID  string         `json:"session_id"`
-		Enablement map[string]any `json:"enablement"`
-	}
+	var req protocol.MCPUpdateConfigPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse mcp.update_config: %v", err)
 		return
 	}
 
-	a.send("mcp.update_result", map[string]any{
-		"cmd_id":           req.CmdID,
-		"success":          false,
-		"restart_required": false,
-		"error":            "MCP configuration not supported on this agent",
+	a.send(protocol.TypeMCPUpdateResult, protocol.MCPUpdateResultPayload{
+		CmdID: req.CmdID,
+		Error: "MCP configuration not supported on this agent",
 	})
 }
 
 func (a *Agent) handleMCPGetProjectConfig(payload json.RawMessage) {
-	var req struct {
-		CmdID    string `json:"cmd_id"`
-		RepoRoot string `json:"repo_root"`
-	}
+	var req protocol.MCPGetProjectConfigPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse mcp.get_project_config: %v", err)
 		return
 	}
 
-	a.send("mcp.project_config", map[string]any{
-		"cmd_id":     req.CmdID,
-		"enablement": map[string]any{},
+	a.send(protocol.TypeMCPProjectConfig, protocol.MCPProjectConfigPayload{
+		CmdID:      req.CmdID,
+		Enablement: map[string]protocol.MCPEnablement{},
 	})
 }
 
 func (a *Agent) handleMCPUpdateProjectConfig(payload json.RawMessage) {
-	var req struct {
-		CmdID      string         `json:"cmd_id"`
-		RepoRoot   string         `json:"repo_root"`
-		Enablement map[string]any `json:"enablement"`
-	}
+	var req protocol.MCPUpdateProjectConfigPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse mcp.update_project_config: %v", err)
 		return
 	}
 
-	a.send("mcp.update_result", map[string]any{
-		"cmd_id":           req.CmdID,
-		"success":          false,
-		"restart_required": false,
-		"error":            "MCP configuration not supported on this agent",
+	a.send(protocol.TypeMCPUpdateResult, protocol.MCPUpdateResultPayload{
+		CmdID: req.CmdID,
+		Error: "MCP configuration not supported on this agent",
 	})
 }
 
@@ -2085,10 +2056,7 @@ func (a *Agent) executeSendInput(session *SessionState, payload json.RawMessage)
 		return fmt.Errorf("send_input not allowed by policy")
 	}
 
-	var p struct {
-		Text  string `json:"text"`
-		Enter bool   `json:"enter"`
-	}
+	var p protocol.SendInputPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
@@ -2101,9 +2069,7 @@ func (a *Agent) executeSendKeys(session *SessionState, payload json.RawMessage) 
 		return fmt.Errorf("send_keys not allowed by policy")
 	}
 
-	var p struct {
-		Keys []string `json:"keys"`
-	}
+	var p protocol.SendKeysPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
@@ -2137,7 +2103,7 @@ func (a *Agent) executeKillSession(session *SessionState) error {
 
 	now := time.Now().UTC()
 	a.sessionsMu.Lock()
-	updates := make([]map[string]any, 0, 2)
+	updates := make([]protocol.SessionUpsert, 0, 2)
 	if current = a.sessions[session.ID]; current != nil {
 		current.Status = "DONE"
 		current.PaneID = ""
@@ -2145,7 +2111,7 @@ func (a *Agent) executeKillSession(session *SessionState) error {
 		current.LastActivity = now
 		a.refreshHierarchyMetadataLocked()
 		update := sessionUpsert(current)
-		update["archived_at"] = now.Format(time.RFC3339)
+		update.ArchivedAt = protocol.String(now.Format(time.RFC3339))
 		updates = append(updates, update)
 		if parent := a.sessions[current.ParentSessionID]; parent != nil {
 			updates = append(updates, sessionUpsert(parent))
@@ -2154,7 +2120,7 @@ func (a *Agent) executeKillSession(session *SessionState) error {
 	a.sessionsMu.Unlock()
 	a.topologyMu.Unlock()
 	if len(updates) > 0 {
-		a.send("sessions.upsert", map[string]any{"sessions": updates})
+		a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: updates})
 	}
 	return nil
 }
@@ -2164,10 +2130,7 @@ func (a *Agent) executeConsoleSubscribe(session *SessionState, payload json.RawM
 		return fmt.Errorf("console_stream not allowed by policy")
 	}
 
-	var p struct {
-		SubscriptionID string `json:"subscription_id"`
-		PaneID         string `json:"pane_id"`
-	}
+	var p protocol.ConsoleSubscribePayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
@@ -2189,9 +2152,7 @@ func (a *Agent) executeConsoleSubscribe(session *SessionState, payload json.RawM
 }
 
 func (a *Agent) executeConsoleUnsubscribe(payload json.RawMessage) error {
-	var p struct {
-		SubscriptionID string `json:"subscription_id"`
-	}
+	var p protocol.ConsoleUnsubscribePayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
@@ -2206,13 +2167,7 @@ func (a *Agent) executeConsoleUnsubscribe(payload json.RawMessage) error {
 }
 
 func (a *Agent) executeCapturePaneCommand(session *SessionState, payload json.RawMessage) (map[string]any, error) {
-	var p struct {
-		Mode       string `json:"mode"`
-		LineStart  int    `json:"line_start"`
-		LineEnd    int    `json:"line_end"`
-		LastNLines int    `json:"last_n_lines"`
-		StripANSI  bool   `json:"strip_ansi"`
-	}
+	var p protocol.CapturePanePayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return nil, err
 	}
@@ -2251,16 +2206,7 @@ func (a *Agent) executeCapturePaneCommand(session *SessionState, payload json.Ra
 }
 
 func (a *Agent) executeCopyToSession(sourceSession *SessionState, payload json.RawMessage) error {
-	var p struct {
-		TargetSessionID string `json:"target_session_id"`
-		Mode            string `json:"mode"`
-		LineStart       int    `json:"line_start"`
-		LineEnd         int    `json:"line_end"`
-		LastNLines      int    `json:"last_n_lines"`
-		PrependText     string `json:"prepend_text"`
-		AppendText      string `json:"append_text"`
-		StripANSI       bool   `json:"strip_ansi"`
-	}
+	var p protocol.CopyToSessionPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
@@ -2330,10 +2276,7 @@ func (a *Agent) executeCopyToSession(sourceSession *SessionState, payload json.R
 }
 
 func (a *Agent) executeListDirectory(payload json.RawMessage) (map[string]any, error) {
-	var p struct {
-		Path       string `json:"path"`
-		ShowHidden bool   `json:"show_hidden"`
-	}
+	var p protocol.ListDirectoryPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return nil, err
 	}
@@ -2516,10 +2459,7 @@ func (a *Agent) executeAdoptPane(payload json.RawMessage) error {
 		return fmt.Errorf("adopt_pane not allowed by policy")
 	}
 
-	var p struct {
-		TmuxPaneID string `json:"tmux_pane_id"`
-		Title      string `json:"title"`
-	}
+	var p protocol.AdoptPanePayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
@@ -2577,14 +2517,12 @@ func (a *Agent) executeAdoptPane(payload json.RawMessage) error {
 	update := sessionUpsert(session)
 	a.sessionsMu.Unlock()
 
-	a.send("sessions.upsert", map[string]any{"sessions": []map[string]any{update}})
+	a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: []protocol.SessionUpsert{update}})
 	return nil
 }
 
 func (a *Agent) executeRenameSession(session *SessionState, payload json.RawMessage) error {
-	var p struct {
-		Title string `json:"title"`
-	}
+	var p protocol.RenameSessionPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
@@ -2597,15 +2535,15 @@ func (a *Agent) executeRenameSession(session *SessionState, payload json.RawMess
 	session.LastActivity = time.Now().UTC()
 	a.sessionsMu.Unlock()
 
-	update := map[string]any{
-		"id":               session.ID,
-		"kind":             session.Kind,
-		"provider":         session.Provider,
-		"status":           session.Status,
-		"title":            session.Title,
-		"last_activity_at": session.LastActivity.UTC().Format(time.RFC3339),
+	update := protocol.SessionUpsert{
+		ID:             session.ID,
+		Kind:           session.Kind,
+		Provider:       session.Provider,
+		Status:         session.Status,
+		Title:          protocol.String(session.Title),
+		LastActivityAt: session.LastActivity.UTC().Format(time.RFC3339),
 	}
-	a.send("sessions.upsert", map[string]any{"sessions": []map[string]any{update}})
+	a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: []protocol.SessionUpsert{update}})
 	return nil
 }
 
@@ -2614,38 +2552,19 @@ func (a *Agent) executeSpawnSession(sessionID string, payload json.RawMessage) e
 		return fmt.Errorf("spawn_session not allowed by policy")
 	}
 
-	var raw map[string]any
-	if err := json.Unmarshal(payload, &raw); err != nil {
-		return err
-	}
-
-	if _, ok := raw["working_directory"]; ok {
-		return a.executeSpawnSessionInteractive(sessionID, payload)
-	}
-
-	return a.executeSpawnSessionWorktree(sessionID, payload)
-}
-
-func (a *Agent) executeSpawnSessionWorktree(sessionID string, payload json.RawMessage) error {
-	var p struct {
-		Provider        string           `json:"provider"`
-		ParentSessionID string           `json:"parent_session_id"`
-		RepoRoot        string           `json:"repo_root"`
-		BaseBranch      string           `json:"base_branch"`
-		BranchName      string           `json:"branch_name"`
-		WorktreeDir     string           `json:"worktree_dir"`
-		Title           string           `json:"title"`
-		MemoryFiles     []memoryFileSpec `json:"memory_files"`
-		Tmux            struct {
-			TargetSession string `json:"target_session"`
-			WindowName    string `json:"window_name"`
-			Command       string `json:"command"`
-		} `json:"tmux"`
-		Env map[string]string `json:"env"`
-	}
+	var p protocol.SpawnSessionPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
+
+	if p.WorkingDirectory != nil {
+		return a.executeSpawnSessionInteractive(sessionID, p)
+	}
+
+	return a.executeSpawnSessionWorktree(sessionID, p)
+}
+
+func (a *Agent) executeSpawnSessionWorktree(sessionID string, p protocol.SpawnSessionPayload) error {
 	if p.RepoRoot == "" || p.BranchName == "" || p.WorktreeDir == "" {
 		return fmt.Errorf("repo_root, branch_name, and worktree_dir are required")
 	}
@@ -2752,13 +2671,13 @@ func (a *Agent) executeSpawnSessionWorktree(sessionID string, payload json.RawMe
 	a.sessions[sessionID] = spawned
 	registered = true
 	a.refreshHierarchyMetadataLocked()
-	updates := []map[string]any{sessionUpsert(spawned)}
+	updates := []protocol.SessionUpsert{sessionUpsert(spawned)}
 	if parent := a.sessions[p.ParentSessionID]; parent != nil {
 		updates = append(updates, sessionUpsert(parent))
 	}
 	a.sessionsMu.Unlock()
 	committed = true
-	a.send("sessions.upsert", map[string]any{"sessions": updates})
+	a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: updates})
 
 	return nil
 }
@@ -2780,27 +2699,11 @@ func deriveSpawnTmuxSessionName(configured, repoRoot, cwd string) string {
 	return tmuxSession
 }
 
-func (a *Agent) executeSpawnSessionInteractive(sessionID string, payload json.RawMessage) error {
-	var p struct {
-		Provider         string           `json:"provider"`
-		ParentSessionID  string           `json:"parent_session_id"`
-		WorkingDirectory string           `json:"working_directory"`
-		Title            string           `json:"title"`
-		Flags            []string         `json:"flags"`
-		MemoryFiles      []memoryFileSpec `json:"memory_files"`
-		GroupID          string           `json:"group_id"`
-		Tmux             struct {
-			TargetSession string `json:"target_session"`
-			WindowName    string `json:"window_name"`
-		} `json:"tmux"`
-	}
-	if err := json.Unmarshal(payload, &p); err != nil {
-		return err
-	}
-	if p.WorkingDirectory == "" {
+func (a *Agent) executeSpawnSessionInteractive(sessionID string, p protocol.SpawnSessionPayload) error {
+	if p.WorkingDirectory == nil || *p.WorkingDirectory == "" {
 		return fmt.Errorf("working_directory is required")
 	}
-	_, resolvedWorkingDir, err := normalizeListDirectoryPath(p.WorkingDirectory)
+	_, resolvedWorkingDir, err := normalizeListDirectoryPath(*p.WorkingDirectory)
 	if err != nil {
 		return err
 	}
@@ -2920,13 +2823,13 @@ func (a *Agent) executeSpawnSessionInteractive(sessionID string, payload json.Ra
 	a.sessions[sessionID] = spawned
 	registered = true
 	a.refreshHierarchyMetadataLocked()
-	updates := []map[string]any{sessionUpsert(spawned)}
+	updates := []protocol.SessionUpsert{sessionUpsert(spawned)}
 	if parent := a.sessions[p.ParentSessionID]; parent != nil {
 		updates = append(updates, sessionUpsert(parent))
 	}
 	a.sessionsMu.Unlock()
 	committed = true
-	a.send("sessions.upsert", map[string]any{"sessions": updates})
+	a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: updates})
 
 	return nil
 }
@@ -2936,19 +2839,14 @@ func (a *Agent) executeSpawnJob(sessionID string, payload json.RawMessage) error
 		return fmt.Errorf("spawn_job not allowed by policy")
 	}
 
-	var p struct {
-		Provider string            `json:"provider"`
-		Cwd      string            `json:"cwd"`
-		Prompt   string            `json:"prompt"`
-		Env      map[string]string `json:"env"`
-	}
+	var p protocol.SpawnJobPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
 	if p.Provider == "" {
 		p.Provider = "codex"
 	}
-	if p.Cwd == "" || p.Prompt == "" {
+	if p.CWD == "" || p.Prompt == "" {
 		return fmt.Errorf("cwd and prompt are required")
 	}
 	if a.launchTemplates == nil {
@@ -2958,7 +2856,7 @@ func (a *Agent) executeSpawnJob(sessionID string, payload json.RawMessage) error
 	if err != nil {
 		return err
 	}
-	if _, err := headlessSpec.ExecCommand(p.Cwd); err != nil {
+	if _, err := headlessSpec.ExecCommand(p.CWD); err != nil {
 		return err
 	}
 
@@ -2974,26 +2872,24 @@ func (a *Agent) executeSpawnJob(sessionID string, payload json.RawMessage) error
 		Kind:         "job",
 		Provider:     p.Provider,
 		Status:       "STARTING",
-		CWD:          p.Cwd,
+		CWD:          p.CWD,
 		LastActivity: now,
 		LastOutput:   now,
 	}
 	a.sessionsMu.Unlock()
 
-	a.send("sessions.upsert", map[string]any{
-		"sessions": []map[string]any{
-			{
-				"id":               sessionID,
-				"kind":             "job",
-				"provider":         p.Provider,
-				"status":           "STARTING",
-				"cwd":              p.Cwd,
-				"last_activity_at": time.Now().UTC().Format(time.RFC3339),
-			},
-		},
+	a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{
+		Sessions: []protocol.SessionUpsert{{
+			ID:             sessionID,
+			Kind:           "job",
+			Provider:       p.Provider,
+			Status:         "STARTING",
+			CWD:            protocol.String(p.CWD),
+			LastActivityAt: time.Now().UTC().Format(time.RFC3339),
+		}},
 	})
 
-	go a.runHeadlessJob(sessionID, p.Provider, p.Cwd, p.Prompt, p.Env)
+	go a.runHeadlessJob(sessionID, p.Provider, p.CWD, p.Prompt, p.Env)
 	return nil
 }
 
@@ -3002,19 +2898,13 @@ func (a *Agent) executeFork(parentSession *SessionState, payload json.RawMessage
 		return fmt.Errorf("fork not allowed by policy")
 	}
 
-	var p struct {
-		Branch   string `json:"branch"`
-		Cwd      string `json:"cwd"`
-		Provider string `json:"provider"`
-		Note     string `json:"note"`
-		GroupID  string `json:"group_id"`
-	}
+	var p protocol.ForkPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
 
 	newSessionID := uuid.New().String()
-	newCwd := p.Cwd
+	newCwd := p.CWD
 	if newCwd == "" {
 		newCwd = parentSession.CWD
 	}
@@ -3173,13 +3063,13 @@ func (a *Agent) executeFork(parentSession *SessionState, payload json.RawMessage
 	a.sessions[newSessionID] = spawned
 	registered = true
 	a.refreshHierarchyMetadataLocked()
-	updates := []map[string]any{sessionUpsert(spawned)}
+	updates := []protocol.SessionUpsert{sessionUpsert(spawned)}
 	if parent := a.sessions[parentSession.ID]; parent != nil {
 		updates = append(updates, sessionUpsert(parent))
 	}
 	a.sessionsMu.Unlock()
 	committed = true
-	a.send("sessions.upsert", map[string]any{"sessions": updates})
+	a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: updates})
 
 	return nil
 }
@@ -3364,10 +3254,10 @@ func (a *Agent) runHeadlessJob(sessionID, provider, cwd, prompt string, env map[
 			continue
 		}
 
-		a.send("events.append", map[string]any{
-			"session_id": sessionID,
-			"event_type": providerEventType(provider),
-			"payload":    evt,
+		a.send(protocol.TypeEventsAppend, protocol.EventsAppendPayload{
+			SessionID: sessionID,
+			EventType: providerEventType(provider),
+			Payload:   evt,
 		})
 
 		eventName, _ := evt["event_type"].(string)
@@ -3416,27 +3306,19 @@ func (a *Agent) updateJobStatus(sessionID, status string) {
 	}
 	a.sessionsMu.Unlock()
 
-	a.send("sessions.upsert", map[string]any{
-		"sessions": []map[string]any{
-			{
-				"id":               sessionID,
-				"kind":             "job",
-				"provider":         provider,
-				"status":           status,
-				"last_activity_at": time.Now().UTC().Format(time.RFC3339),
-			},
-		},
+	a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{
+		Sessions: []protocol.SessionUpsert{{
+			ID:             sessionID,
+			Kind:           "job",
+			Provider:       provider,
+			Status:         status,
+			LastActivityAt: time.Now().UTC().Format(time.RFC3339),
+		}},
 	})
 }
 
 func (a *Agent) handleApprovalDecision(payload json.RawMessage) {
-	var decision struct {
-		ApprovalID   string `json:"approval_id"`
-		SessionID    string `json:"session_id"`
-		Decision     string `json:"decision"`
-		Mode         string `json:"mode"`
-		UpdatedInput any    `json:"updated_input"`
-	}
+	var decision protocol.ApprovalDecisionPayload
 	if err := json.Unmarshal(payload, &decision); err != nil {
 		log.Printf("Failed to parse approval decision: %v", err)
 		return
@@ -3541,21 +3423,21 @@ func (a *Agent) handleClaudeHook(payload providers.ClaudeHookPayload) (*provider
 	}
 	a.sessionsMu.RUnlock()
 	a.handleWorkshopHookEvent(sessionID, "claude_code", hookName, hookData, fallbackCwd)
-	eventPayload := map[string]any{
-		"session_id": sessionID,
-		"event_type": "claude.hook",
-		"payload": map[string]any{
-			"hook_name": hookName,
-			"hook_data": hookData,
-		},
+	hookPayload := map[string]any{
+		"hook_name": hookName,
+		"hook_data": hookData,
 	}
 	if toolName != "" {
-		eventPayload["payload"].(map[string]any)["tool_name"] = toolName
+		hookPayload["tool_name"] = toolName
 	}
 	if usage := extractUsageFromHook(hookData); usage != nil {
-		eventPayload["payload"].(map[string]any)["usage"] = usage
+		hookPayload["usage"] = usage
 	}
-	a.send("events.append", eventPayload)
+	a.send(protocol.TypeEventsAppend, protocol.EventsAppendPayload{
+		SessionID: sessionID,
+		EventType: "claude.hook",
+		Payload:   hookPayload,
+	})
 
 	var approvalID string
 	if approvalRequested {
@@ -3584,12 +3466,11 @@ func (a *Agent) handleClaudeHook(payload providers.ClaudeHookPayload) (*provider
 		if inputSchema != nil {
 			payloadData["input_schema"] = inputSchema
 		}
-		eventPayload := map[string]any{
-			"session_id": sessionID,
-			"event_type": "approval.requested",
-			"payload":    payloadData,
-		}
-		a.send("events.append", eventPayload)
+		a.send(protocol.TypeEventsAppend, protocol.EventsAppendPayload{
+			SessionID: sessionID,
+			EventType: "approval.requested",
+			Payload:   payloadData,
+		})
 	}
 
 	return nil, nil
@@ -3628,21 +3509,21 @@ func (a *Agent) handleCodexHook(payload providers.ClaudeHookPayload) (*providers
 	}
 	a.sessionsMu.RUnlock()
 	a.handleWorkshopHookEvent(sessionID, "codex", hookName, hookData, fallbackCwd)
-	eventPayload := map[string]any{
-		"session_id": sessionID,
-		"event_type": "codex.hook",
-		"payload": map[string]any{
-			"hook_name": hookName,
-			"hook_data": hookData,
-		},
+	hookPayload := map[string]any{
+		"hook_name": hookName,
+		"hook_data": hookData,
 	}
 	if toolName != "" {
-		eventPayload["payload"].(map[string]any)["tool_name"] = toolName
+		hookPayload["tool_name"] = toolName
 	}
 	if usage := extractUsageFromHook(hookData); usage != nil {
-		eventPayload["payload"].(map[string]any)["usage"] = usage
+		hookPayload["usage"] = usage
 	}
-	a.send("events.append", eventPayload)
+	a.send(protocol.TypeEventsAppend, protocol.EventsAppendPayload{
+		SessionID: sessionID,
+		EventType: "codex.hook",
+		Payload:   hookPayload,
+	})
 
 	var approvalID string
 	if approvalRequested {
@@ -3671,10 +3552,10 @@ func (a *Agent) handleCodexHook(payload providers.ClaudeHookPayload) (*providers
 		if inputSchema != nil {
 			codexPayload["input_schema"] = inputSchema
 		}
-		a.send("events.append", map[string]any{
-			"session_id": sessionID,
-			"event_type": "approval.requested",
-			"payload":    codexPayload,
+		a.send(protocol.TypeEventsAppend, protocol.EventsAppendPayload{
+			SessionID: sessionID,
+			EventType: "approval.requested",
+			Payload:   codexPayload,
 		})
 	}
 
@@ -4081,10 +3962,10 @@ func (a *Agent) emitWorkshopEvent(sessionID, eventType string, payload map[strin
 	if _, ok := payload["sessionId"]; !ok {
 		payload["sessionId"] = sessionID
 	}
-	a.send("events.append", map[string]any{
-		"session_id": sessionID,
-		"event_type": "workshop." + eventType,
-		"payload":    payload,
+	a.send(protocol.TypeEventsAppend, protocol.EventsAppendPayload{
+		SessionID: sessionID,
+		EventType: "workshop." + eventType,
+		Payload:   payload,
 	})
 }
 
@@ -4234,17 +4115,14 @@ func (a *Agent) recordToolEventStart(sessionID, provider, toolName string, toolI
 	})
 	a.toolEventsMu.Unlock()
 
-	payload := map[string]any{
-		"event_id":   eventID,
-		"session_id": sessionID,
-		"provider":   provider,
-		"tool_name":  toolName,
-		"started_at": startedAt.Format(time.RFC3339),
-	}
-	if toolInput != nil {
-		payload["tool_input"] = toolInput
-	}
-	a.send("tool.event.started", payload)
+	a.send(protocol.TypeToolEventStarted, protocol.ToolEventStartedPayload{
+		EventID:   eventID,
+		SessionID: sessionID,
+		Provider:  provider,
+		ToolName:  toolName,
+		ToolInput: toolInput,
+		StartedAt: startedAt.Format(time.RFC3339),
+	})
 }
 
 func (a *Agent) recordToolEventComplete(sessionID, provider, toolName string, toolOutput map[string]any, success bool) {
@@ -4269,14 +4147,13 @@ func (a *Agent) recordToolEventComplete(sessionID, provider, toolName string, to
 	if !ok {
 		// Create a synthetic start so the completion has a row to update
 		eventID := uuid.New().String()
-		payload := map[string]any{
-			"event_id":   eventID,
-			"session_id": sessionID,
-			"provider":   provider,
-			"tool_name":  toolName,
-			"started_at": completedAt.Format(time.RFC3339),
-		}
-		a.send("tool.event.started", payload)
+		a.send(protocol.TypeToolEventStarted, protocol.ToolEventStartedPayload{
+			EventID:   eventID,
+			SessionID: sessionID,
+			Provider:  provider,
+			ToolName:  toolName,
+			StartedAt: completedAt.Format(time.RFC3339),
+		})
 		pending = toolEventPending{ID: eventID, StartedAt: completedAt}
 	}
 
@@ -4285,16 +4162,13 @@ func (a *Agent) recordToolEventComplete(sessionID, provider, toolName string, to
 		durationMs = 0
 	}
 
-	payload := map[string]any{
-		"event_id":     pending.ID,
-		"completed_at": completedAt.Format(time.RFC3339),
-		"success":      success,
-		"duration_ms":  int(durationMs),
-	}
-	if toolOutput != nil {
-		payload["tool_output"] = toolOutput
-	}
-	a.send("tool.event.completed", payload)
+	a.send(protocol.TypeToolEventCompleted, protocol.ToolEventCompletedPayload{
+		EventID:     pending.ID,
+		ToolOutput:  toolOutput,
+		CompletedAt: completedAt.Format(time.RFC3339),
+		Success:     success,
+		DurationMS:  durationMs,
+	})
 }
 
 func extractUsageFromHook(hookData map[string]any) map[string]any {
@@ -4608,7 +4482,7 @@ func truncateSummary(value string) string {
 
 func (a *Agent) updateSessionFromHook(sessionID, status, statusDetail string, approvalMeta map[string]any) {
 	now := time.Now().UTC()
-	var updates []map[string]any
+	var updates []protocol.SessionUpsert
 
 	a.sessionsMu.Lock()
 	if session, ok := a.sessions[sessionID]; ok {
@@ -4639,9 +4513,7 @@ func (a *Agent) updateSessionFromHook(sessionID, status, statusDetail string, ap
 	a.sessionsMu.Unlock()
 
 	if len(updates) > 0 {
-		a.send("sessions.upsert", map[string]any{
-			"sessions": updates,
-		})
+		a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: updates})
 	}
 }
 
@@ -4701,19 +4573,17 @@ func (a *Agent) clearApprovalMetadata(sessionID string) {
 		session.LastActivity = now
 
 		// Send session upsert so control plane clears its copy too
-		update := map[string]any{
-			"id":               session.ID,
-			"kind":             session.Kind,
-			"provider":         session.Provider,
-			"status":           session.Status,
-			"metadata":         cloneJSONMap(session.Metadata),
-			"last_activity_at": now.Format(time.RFC3339),
+		update := protocol.SessionUpsert{
+			ID:             session.ID,
+			Kind:           session.Kind,
+			Provider:       session.Provider,
+			Status:         session.Status,
+			Metadata:       protocol.NewSessionMetadata(cloneJSONMap(session.Metadata)),
+			LastActivityAt: now.Format(time.RFC3339),
 		}
 		a.sessionsMu.Unlock()
 
-		a.send("sessions.upsert", map[string]any{
-			"sessions": []map[string]any{update},
-		})
+		a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: []protocol.SessionUpsert{update}})
 	} else {
 		a.sessionsMu.Unlock()
 	}
@@ -4740,13 +4610,12 @@ func mapCodexHookToStatus(hookName string, hookData map[string]any) string {
 }
 
 func (a *Agent) handleConsoleChunk(subscriptionID, sessionID string, data []byte, offset int64) {
-	payload := map[string]any{
-		"subscription_id": subscriptionID,
-		"session_id":      sessionID,
-		"data":            string(data),
-		"offset":          offset,
-	}
-	a.send("console.chunk", payload)
+	a.send(protocol.TypeConsoleChunk, protocol.ConsoleChunkPayload{
+		SubscriptionID: subscriptionID,
+		SessionID:      sessionID,
+		Data:           string(data),
+		Offset:         offset,
+	})
 }
 
 func (a *Agent) pollTmux() {
@@ -4842,7 +4711,7 @@ func (a *Agent) syncPanes(panes []tmux.Pane, procSnap *proc.Snapshot) {
 	}
 
 	seenPanes := make(map[string]bool, len(observations))
-	updatedSessions := make([]map[string]any, 0, len(observations))
+	updatedSessions := make([]protocol.SessionUpsert, 0, len(observations))
 	activeSessionIDs := make([]string, 0, len(observations))
 	var staleIDs []string
 	pruneNow := false
@@ -4886,6 +4755,8 @@ func (a *Agent) syncPanes(panes []tmux.Pane, procSnap *proc.Snapshot) {
 			session.Metadata = map[string]any{}
 		}
 		session.Metadata["tmux"] = map[string]any{
+			"pane_id":         pane.PaneID,
+			"target":          pane.GetTmuxTarget(),
 			"pane_pid":        pane.PanePID,
 			"current_command": pane.CurrentCommand,
 			"session_name":    pane.SessionName,
@@ -4922,31 +4793,31 @@ func (a *Agent) syncPanes(panes []tmux.Pane, procSnap *proc.Snapshot) {
 		}
 
 		session.Status = a.deriveStatus(session, pane)
-		update := map[string]any{
-			"id":           session.ID,
-			"kind":         session.Kind,
-			"provider":     session.Provider,
-			"status":       session.Status,
-			"cwd":          session.CWD,
-			"repo_root":    session.RepoRoot,
-			"git_branch":   session.GitBranch,
-			"git_remote":   session.GitRemote,
-			"tmux_pane_id": session.PaneID,
-			"tmux_target":  session.TmuxTarget,
-			"metadata":     cloneJSONMap(session.Metadata),
+		update := protocol.SessionUpsert{
+			ID:         session.ID,
+			Kind:       session.Kind,
+			Provider:   session.Provider,
+			Status:     session.Status,
+			CWD:        protocol.String(session.CWD),
+			RepoRoot:   protocol.String(session.RepoRoot),
+			GitBranch:  protocol.String(session.GitBranch),
+			GitRemote:  protocol.String(session.GitRemote),
+			TmuxPaneID: protocol.String(session.PaneID),
+			TmuxTarget: protocol.String(session.TmuxTarget),
+			Metadata:   protocol.NewSessionMetadata(cloneJSONMap(session.Metadata)),
 		}
 		if session.GroupID != "" {
-			update["group_id"] = session.GroupID
+			update.GroupID = protocol.String(session.GroupID)
 		}
 		if session.ForkedFrom != "" {
-			update["forked_from"] = session.ForkedFrom
-			update["fork_depth"] = session.ForkDepth
+			update.ForkedFrom = protocol.String(session.ForkedFrom)
+			update.ForkDepth = session.ForkDepth
 		}
 		if !session.LastActivity.IsZero() {
-			update["last_activity_at"] = session.LastActivity.UTC().Format(time.RFC3339)
+			update.LastActivityAt = session.LastActivity.UTC().Format(time.RFC3339)
 		}
 		if session.Title != "" {
-			update["title"] = session.Title
+			update.Title = protocol.String(session.Title)
 		}
 		updatedSessions = append(updatedSessions, update)
 	}
@@ -4957,15 +4828,15 @@ func (a *Agent) syncPanes(panes []tmux.Pane, procSnap *proc.Snapshot) {
 			session.LastActivity = time.Now().UTC()
 			session.PaneID = ""
 			session.TmuxTarget = ""
-			updatedSessions = append(updatedSessions, map[string]any{
-				"id":               id,
-				"status":           "DONE",
-				"kind":             session.Kind,
-				"provider":         session.Provider,
-				"tmux_pane_id":     nil,
-				"tmux_target":      nil,
-				"archived_at":      session.LastActivity.UTC().Format(time.RFC3339),
-				"last_activity_at": session.LastActivity.UTC().Format(time.RFC3339),
+			updatedSessions = append(updatedSessions, protocol.SessionUpsert{
+				ID:             id,
+				Status:         "DONE",
+				Kind:           session.Kind,
+				Provider:       session.Provider,
+				TmuxPaneID:     protocol.NullString(),
+				TmuxTarget:     protocol.NullString(),
+				ArchivedAt:     protocol.String(session.LastActivity.UTC().Format(time.RFC3339)),
+				LastActivityAt: session.LastActivity.UTC().Format(time.RFC3339),
 			})
 			staleIDs = append(staleIDs, id)
 		}
@@ -4976,10 +4847,9 @@ func (a *Agent) syncPanes(panes []tmux.Pane, procSnap *proc.Snapshot) {
 		delete(a.providerUsageHash, id)
 	}
 	a.refreshHierarchyMetadataLocked()
-	for _, update := range updatedSessions {
-		id, _ := update["id"].(string)
-		if session := a.sessions[id]; session != nil {
-			update["metadata"] = cloneJSONMap(session.Metadata)
+	for index := range updatedSessions {
+		if session := a.sessions[updatedSessions[index].ID]; session != nil {
+			updatedSessions[index].Metadata = protocol.NewSessionMetadata(cloneJSONMap(session.Metadata))
 		}
 	}
 	if time.Since(a.lastPruneAt) > 5*time.Minute {
@@ -4992,10 +4862,10 @@ func (a *Agent) syncPanes(panes []tmux.Pane, procSnap *proc.Snapshot) {
 		a.usageTracker.RemoveSession(id)
 	}
 	if len(updatedSessions) > 0 {
-		a.send("sessions.upsert", map[string]any{"sessions": updatedSessions})
+		a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: updatedSessions})
 	}
 	if pruneNow {
-		a.send("sessions.prune", map[string]any{"session_ids": activeSessionIDs})
+		a.send(protocol.TypeSessionsPrune, protocol.SessionsPrunePayload{SessionIDs: activeSessionIDs})
 	}
 }
 
@@ -5033,10 +4903,10 @@ func (a *Agent) captureSnapshots() {
 			a.sessionsMu.Unlock()
 
 			// Send snapshot
-			a.send("sessions.snapshot", map[string]any{
-				"session_id":   session.ID,
-				"capture_hash": hash,
-				"capture_text": text,
+			a.send(protocol.TypeSessionsSnapshot, protocol.SessionSnapshotPayload{
+				SessionID:   session.ID,
+				CaptureHash: hash,
+				CaptureText: text,
 			})
 
 			// Emit provider usage snapshots for Claude/Codex when /usage output appears.
@@ -5044,87 +4914,37 @@ func (a *Agent) captureSnapshots() {
 
 			// Parse and emit session usage if changed
 			if sessionUsage := a.usageTracker.ParseAndCheckChanged(session.ID, session.Provider, text); sessionUsage != nil {
-				payload := map[string]any{
-					"session_id":  session.ID,
-					"provider":    sessionUsage.Provider,
-					"reported_at": sessionUsage.ReportedAt.Format(time.RFC3339),
+				payload := protocol.SessionUsagePayload{
+					SessionID:                      session.ID,
+					Provider:                       sessionUsage.Provider,
+					InputTokens:                    sessionUsage.InputTokens,
+					OutputTokens:                   sessionUsage.OutputTokens,
+					TotalTokens:                    sessionUsage.TotalTokens,
+					CacheReadTokens:                sessionUsage.CacheReadTokens,
+					CacheWriteTokens:               sessionUsage.CacheWriteTokens,
+					EstimatedCostCents:             sessionUsage.CostCents,
+					SessionUtilizationPercent:      sessionUsage.SessionUtilizationPercent,
+					SessionLeftPercent:             sessionUsage.SessionLeftPercent,
+					SessionResetText:               sessionUsage.SessionResetText,
+					WeeklyUtilizationPercent:       sessionUsage.WeeklyUtilizationPercent,
+					WeeklyLeftPercent:              sessionUsage.WeeklyLeftPercent,
+					WeeklyResetText:                sessionUsage.WeeklyResetText,
+					WeeklySonnetUtilizationPercent: sessionUsage.WeeklySonnetUtilizationPercent,
+					WeeklySonnetResetText:          sessionUsage.WeeklySonnetResetText,
+					WeeklyOpusUtilizationPercent:   sessionUsage.WeeklyOpusUtilizationPercent,
+					WeeklyOpusResetText:            sessionUsage.WeeklyOpusResetText,
+					ContextUsedTokens:              sessionUsage.ContextUsedTokens,
+					ContextTotalTokens:             sessionUsage.ContextTotalTokens,
+					ContextLeftPercent:             sessionUsage.ContextLeftPercent,
+					FiveHourLeftPercent:            sessionUsage.FiveHourLeftPercent,
+					FiveHourResetText:              sessionUsage.FiveHourResetText,
+					DailyUtilizationPercent:        sessionUsage.DailyUtilizationPercent,
+					DailyLeftPercent:               sessionUsage.DailyLeftPercent,
+					DailyResetHours:                sessionUsage.DailyResetHours,
+					ReportedAt:                     sessionUsage.ReportedAt.Format(time.RFC3339),
+					RawUsageLine:                   sessionUsage.RawLine,
 				}
-				if sessionUsage.InputTokens != nil {
-					payload["input_tokens"] = *sessionUsage.InputTokens
-				}
-				if sessionUsage.OutputTokens != nil {
-					payload["output_tokens"] = *sessionUsage.OutputTokens
-				}
-				if sessionUsage.TotalTokens != nil {
-					payload["total_tokens"] = *sessionUsage.TotalTokens
-				}
-				if sessionUsage.CacheReadTokens != nil {
-					payload["cache_read_tokens"] = *sessionUsage.CacheReadTokens
-				}
-				if sessionUsage.CacheWriteTokens != nil {
-					payload["cache_write_tokens"] = *sessionUsage.CacheWriteTokens
-				}
-				if sessionUsage.CostCents != nil {
-					payload["estimated_cost_cents"] = *sessionUsage.CostCents
-				}
-				if sessionUsage.SessionUtilizationPercent != nil {
-					payload["session_utilization_percent"] = *sessionUsage.SessionUtilizationPercent
-				}
-				if sessionUsage.SessionLeftPercent != nil {
-					payload["session_left_percent"] = *sessionUsage.SessionLeftPercent
-				}
-				if sessionUsage.SessionResetText != nil {
-					payload["session_reset_text"] = *sessionUsage.SessionResetText
-				}
-				if sessionUsage.WeeklyUtilizationPercent != nil {
-					payload["weekly_utilization_percent"] = *sessionUsage.WeeklyUtilizationPercent
-				}
-				if sessionUsage.WeeklyLeftPercent != nil {
-					payload["weekly_left_percent"] = *sessionUsage.WeeklyLeftPercent
-				}
-				if sessionUsage.WeeklyResetText != nil {
-					payload["weekly_reset_text"] = *sessionUsage.WeeklyResetText
-				}
-				if sessionUsage.WeeklySonnetUtilizationPercent != nil {
-					payload["weekly_sonnet_utilization_percent"] = *sessionUsage.WeeklySonnetUtilizationPercent
-				}
-				if sessionUsage.WeeklySonnetResetText != nil {
-					payload["weekly_sonnet_reset_text"] = *sessionUsage.WeeklySonnetResetText
-				}
-				if sessionUsage.WeeklyOpusUtilizationPercent != nil {
-					payload["weekly_opus_utilization_percent"] = *sessionUsage.WeeklyOpusUtilizationPercent
-				}
-				if sessionUsage.WeeklyOpusResetText != nil {
-					payload["weekly_opus_reset_text"] = *sessionUsage.WeeklyOpusResetText
-				}
-				if sessionUsage.ContextUsedTokens != nil {
-					payload["context_used_tokens"] = *sessionUsage.ContextUsedTokens
-				}
-				if sessionUsage.ContextTotalTokens != nil {
-					payload["context_total_tokens"] = *sessionUsage.ContextTotalTokens
-				}
-				if sessionUsage.ContextLeftPercent != nil {
-					payload["context_left_percent"] = *sessionUsage.ContextLeftPercent
-				}
-				if sessionUsage.FiveHourLeftPercent != nil {
-					payload["five_hour_left_percent"] = *sessionUsage.FiveHourLeftPercent
-				}
-				if sessionUsage.FiveHourResetText != nil {
-					payload["five_hour_reset_text"] = *sessionUsage.FiveHourResetText
-				}
-				if sessionUsage.DailyUtilizationPercent != nil {
-					payload["daily_utilization_percent"] = *sessionUsage.DailyUtilizationPercent
-				}
-				if sessionUsage.DailyLeftPercent != nil {
-					payload["daily_left_percent"] = *sessionUsage.DailyLeftPercent
-				}
-				if sessionUsage.DailyResetHours != nil {
-					payload["daily_reset_hours"] = *sessionUsage.DailyResetHours
-				}
-				if sessionUsage.RawLine != "" {
-					payload["raw_usage_line"] = sessionUsage.RawLine
-				}
-				a.send("session.usage", payload)
+				a.send(protocol.TypeSessionUsage, payload)
 
 				// Gemini: also emit provider usage with model details (account scope).
 				if sessionUsage.Provider == "gemini_cli" {
@@ -5141,22 +4961,20 @@ func (a *Agent) captureSnapshots() {
 						}
 					}
 
-					providerPayload := map[string]any{
-						"provider":    sessionUsage.Provider,
-						"scope":       "account",
-						"host_id":     a.cfg.Host.ID,
-						"reported_at": sessionUsage.ReportedAt.Format(time.RFC3339),
+					providerPayload := protocol.ProviderUsagePayload{
+						Provider:   sessionUsage.Provider,
+						Scope:      "account",
+						HostID:     a.cfg.Host.ID,
+						ReportedAt: sessionUsage.ReportedAt.Format(time.RFC3339),
 					}
 
 					if len(modelPayload) > 0 {
-						providerPayload["raw_json"] = map[string]any{
+						providerPayload.RawJSON = map[string]any{
 							"models": modelPayload,
 						}
 					}
 
-					if sessionUsage.DailyUtilizationPercent != nil {
-						providerPayload["daily_utilization"] = *sessionUsage.DailyUtilizationPercent
-					}
+					providerPayload.DailyUtilization = sessionUsage.DailyUtilizationPercent
 
 					resetHours := minResetHours
 					if sessionUsage.DailyResetHours != nil {
@@ -5164,10 +4982,10 @@ func (a *Agent) captureSnapshots() {
 					}
 					if resetHours > 0 {
 						resetAt := sessionUsage.ReportedAt.Add(time.Duration(resetHours) * time.Hour).UTC().Format(time.RFC3339)
-						providerPayload["daily_reset_at"] = resetAt
+						providerPayload.DailyResetAt = resetAt
 					}
 
-					_ = a.send("provider.usage", providerPayload)
+					_ = a.send(protocol.TypeProviderUsage, providerPayload)
 				}
 			}
 		}
@@ -5194,24 +5012,26 @@ func (a *Agent) maybeEmitProviderUsageSnapshot(session *SessionState, text strin
 	}
 	a.providerUsageHash[session.ID] = usageHash
 
-	providerPayload := map[string]any{
-		"provider":    session.Provider,
-		"scope":       "account",
-		"host_id":     a.cfg.Host.ID,
-		"reported_at": time.Now().UTC().Format(time.RFC3339),
-		"raw_text":    normalized,
-		"raw_json": map[string]any{
+	providerPayload := protocol.ProviderUsagePayload{
+		Provider:   session.Provider,
+		Scope:      "account",
+		HostID:     a.cfg.Host.ID,
+		ReportedAt: time.Now().UTC().Format(time.RFC3339),
+		RawText:    normalized,
+		RawJSON: map[string]any{
 			"source":  "snapshot",
 			"entries": parsed,
 		},
 	}
 
 	fields := extractUsageFields(nil, normalized)
-	for k, v := range fields {
-		providerPayload[k] = v
+	if data, err := json.Marshal(fields); err == nil {
+		if err := json.Unmarshal(data, &providerPayload); err != nil {
+			log.Printf("Failed to apply snapshot usage fields (%s): %v", session.Provider, err)
+		}
 	}
 
-	_ = a.send("provider.usage", providerPayload)
+	_ = a.send(protocol.TypeProviderUsage, providerPayload)
 }
 
 func extractUsageSnapshot(text string) string {
@@ -5247,14 +5067,7 @@ func hashString(value string) string {
 // Terminal handlers
 
 func (a *Agent) handleTerminalAttach(payload json.RawMessage) {
-	var req struct {
-		ChannelID   string `json:"channel_id"`
-		PaneID      string `json:"pane_id"`
-		SessionID   string `json:"session_id"`
-		Cols        int    `json:"cols,omitempty"`
-		Rows        int    `json:"rows,omitempty"`
-		ResumeToken string `json:"resume_token,omitempty"`
-	}
+	var req protocol.TerminalAttachPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse terminal.attach: %v", err)
 		return
@@ -5268,9 +5081,9 @@ func (a *Agent) handleTerminalAttach(payload json.RawMessage) {
 	})
 	if err != nil {
 		log.Printf("Failed to attach terminal: %v", err)
-		a.send("terminal.error", map[string]any{
-			"channel_id": req.ChannelID,
-			"message":    err.Error(),
+		a.send(protocol.TypeTerminalError, protocol.TerminalStatusPayload{
+			ChannelID: req.ChannelID,
+			Message:   err.Error(),
 		})
 		return
 	}
@@ -5282,9 +5095,9 @@ func (a *Agent) handleTerminalAttach(payload json.RawMessage) {
 	if !isPTYMode && result.First {
 		if err := a.pipeMux.SetTerminal(req.PaneID, result.FIFOPath, true); err != nil {
 			log.Printf("Failed to enable terminal output: %v", err)
-			a.send("terminal.error", map[string]any{
-				"channel_id": req.ChannelID,
-				"message":    err.Error(),
+			a.send(protocol.TypeTerminalError, protocol.TerminalStatusPayload{
+				ChannelID: req.ChannelID,
+				Message:   err.Error(),
 			})
 			_, _ = a.terminalManager.Detach(req.ChannelID)
 			return
@@ -5302,15 +5115,14 @@ func (a *Agent) handleTerminalAttach(payload json.RawMessage) {
 			a.handleTerminalOutput(req.ChannelID, base64.StdEncoding.EncodeToString([]byte(text)))
 		}
 	}
-	attachedPayload := map[string]any{
-		"channel_id": req.ChannelID,
-		"readonly":   result.ReadOnly,
-		"resumed":    result.Resumed,
-	}
-	if result.ResumeToken != "" {
-		attachedPayload["resume_token"] = result.ResumeToken
-	}
-	a.send("terminal.attached", attachedPayload)
+	readOnly := result.ReadOnly
+	resumed := result.Resumed
+	a.send(protocol.TypeTerminalAttached, protocol.TerminalStatusPayload{
+		ChannelID:   req.ChannelID,
+		ReadOnly:    &readOnly,
+		ResumeToken: result.ResumeToken,
+		Resumed:     &resumed,
+	})
 	if result.ReadOnly {
 		a.handleTerminalStatus(req.ChannelID, "readonly", "Read-only: another viewer has control")
 	} else {
@@ -5321,10 +5133,7 @@ func (a *Agent) handleTerminalAttach(payload json.RawMessage) {
 }
 
 func (a *Agent) handleTerminalInput(payload json.RawMessage) {
-	var req struct {
-		ChannelID string `json:"channel_id"`
-		Data      string `json:"data"`
-	}
+	var req protocol.TerminalInputPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse terminal.input: %v", err)
 		return
@@ -5340,11 +5149,7 @@ func (a *Agent) handleTerminalInput(payload json.RawMessage) {
 }
 
 func (a *Agent) handleTerminalResize(payload json.RawMessage) {
-	var req struct {
-		ChannelID string `json:"channel_id"`
-		Cols      int    `json:"cols"`
-		Rows      int    `json:"rows"`
-	}
+	var req protocol.TerminalResizePayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse terminal.resize: %v", err)
 		return
@@ -5356,9 +5161,7 @@ func (a *Agent) handleTerminalResize(payload json.RawMessage) {
 }
 
 func (a *Agent) handleTerminalControl(payload json.RawMessage) {
-	var req struct {
-		ChannelID string `json:"channel_id"`
-	}
+	var req protocol.TerminalChannelPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse terminal.control: %v", err)
 		return
@@ -5371,9 +5174,7 @@ func (a *Agent) handleTerminalControl(payload json.RawMessage) {
 }
 
 func (a *Agent) handleTerminalDetach(payload json.RawMessage) {
-	var req struct {
-		ChannelID string `json:"channel_id"`
-	}
+	var req protocol.TerminalChannelPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse terminal.detach: %v", err)
 		return
@@ -5391,34 +5192,25 @@ func (a *Agent) handleTerminalDetach(payload json.RawMessage) {
 }
 
 func (a *Agent) handleTerminalOutput(channelID, encodedData string) {
-	a.send("terminal.output", map[string]any{
-		"channel_id": channelID,
-		"encoding":   "base64",
-		"data":       encodedData,
+	a.send(protocol.TypeTerminalOutput, protocol.TerminalOutputPayload{
+		ChannelID: channelID,
+		Encoding:  "base64",
+		Data:      encodedData,
 	})
 }
 
 func (a *Agent) handleTerminalStatus(channelID, status, message string) {
 	msgType := "terminal." + status
-	payload := map[string]any{
-		"channel_id": channelID,
-	}
-	if message != "" {
-		payload["message"] = message
-	}
-	a.send(msgType, payload)
+	a.send(msgType, protocol.TerminalStatusPayload{ChannelID: channelID, Message: message})
 }
 
 func (a *Agent) handleTerminalAudit(event tmux.TerminalAuditEvent) {
-	payload := map[string]any{
-		"event_type": "terminal.audit",
-		"action":     event.Action,
-		"channel_id": event.ChannelID,
-		"session_id": event.SessionID,
-		"pane_id":    event.PaneID,
-	}
-	if event.PreviousControllerChannelID != "" {
-		payload["previous_controller_channel_id"] = event.PreviousControllerChannelID
-	}
-	a.send("terminal.audit", payload)
+	a.send(protocol.TypeTerminalAudit, protocol.TerminalAuditPayload{
+		EventType:                   protocol.TypeTerminalAudit,
+		Action:                      event.Action,
+		ChannelID:                   event.ChannelID,
+		SessionID:                   event.SessionID,
+		PaneID:                      event.PaneID,
+		PreviousControllerChannelID: event.PreviousControllerChannelID,
+	})
 }

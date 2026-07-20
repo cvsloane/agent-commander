@@ -1,0 +1,1 @@
+{"v":1,"type":"commands.dispatch","ts":"2026-07-19T20:01:09Z","payload":{"cmd_id":"cmd-fork","session_id":"22222222-2222-4222-8222-222222222222","command":{"type":"fork","payload":{"branch":"review/protocol","cwd":"/home/cvsloane/dev/agent-command","provider":"codex","note":"Review contracts","group_id":"55555555-5555-4555-8555-555555555555"}}}}

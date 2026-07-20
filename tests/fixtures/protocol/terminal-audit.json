@@ -1,0 +1,1 @@
+{"v":1,"type":"terminal.audit","ts":"2026-07-19T20:00:30Z","seq":24,"payload":{"event_type":"terminal.audit","action":"control_transfer","channel_id":"33333333-3333-4333-8333-333333333333","session_id":"22222222-2222-4222-8222-222222222222","pane_id":"%1","previous_controller_channel_id":"99999999-9999-4999-8999-999999999999"}}

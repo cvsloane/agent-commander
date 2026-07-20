@@ -1,10 +1,11 @@
 package commands
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
+
+	"github.com/agent-command/agentd/internal/protocol"
 )
 
 var (
@@ -14,29 +15,10 @@ var (
 	ErrInvalidCommandType = errors.New("command type is required")
 )
 
-type Command struct {
-	Type    string          `json:"type"`
-	Payload json.RawMessage `json:"payload"`
-}
-
-type Dispatch struct {
-	CmdID     string  `json:"cmd_id"`
-	SessionID string  `json:"session_id"`
-	Command   Command `json:"command"`
-}
-
-type ResultError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
-
-type Result struct {
-	CmdID     string         `json:"cmd_id"`
-	SessionID string         `json:"session_id"`
-	OK        bool           `json:"ok"`
-	Result    map[string]any `json:"result,omitempty"`
-	Error     *ResultError   `json:"error,omitempty"`
-}
+type Command = protocol.Command
+type Dispatch = protocol.CommandDispatchPayload
+type ResultError = protocol.CommandResultError
+type Result = protocol.CommandResultPayload
 
 type Handler func(Dispatch) (map[string]any, error)
 type ResultHandler func(Result)

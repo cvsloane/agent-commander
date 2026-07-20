@@ -1,0 +1,1 @@
+{"v":1,"type":"mcp.config","ts":"2026-07-19T20:00:17Z","seq":15,"payload":{"cmd_id":"01JMCP000000000000000000002","session_id":"22222222-2222-4222-8222-222222222222","servers":[],"enablement":{"github":{"enabled":true,"scope":"session"}},"restart_required":false}}
