@@ -71,7 +71,7 @@ export function OrchestratorFleetCard({
   const [prompt, setPrompt] = useState('');
   const [sending, setSending] = useState(false);
   const [sendState, setSendState] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const terminalHref = `/tmux?host_id=${encodeURIComponent(session.host_id)}&session_id=${encodeURIComponent(session.id)}&mode=terminal&attach=1`;
+  const terminalHref = `/?host_id=${encodeURIComponent(session.host_id)}&session_id=${encodeURIComponent(session.id)}&mode=terminal&attach=1`;
   const pendingApprovals = attentionItems.filter((item) => (
     item.source === 'governance'
     || (
@@ -167,7 +167,7 @@ export function OrchestratorFleetCard({
               {children.map((child) => (
                 <Link
                   key={child.id}
-                  href={`/tmux?host_id=${encodeURIComponent(child.host_id)}&session_id=${encodeURIComponent(child.id)}&mode=terminal`}
+                  href={`/?host_id=${encodeURIComponent(child.host_id)}&session_id=${encodeURIComponent(child.id)}&mode=terminal`}
                   className="flex min-h-11 items-center justify-between gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <span className="min-w-0">

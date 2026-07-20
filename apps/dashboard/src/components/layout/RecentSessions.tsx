@@ -12,7 +12,7 @@ function getRecentSessionHref(session: RecentSession) {
     const params = new URLSearchParams();
     if (session.hostId) params.set('host_id', session.hostId);
     params.set('session_id', session.id);
-    return `/tmux?${params.toString()}`;
+    return `/?${params.toString()}`;
   }
 
   return `/sessions/${session.id}`;

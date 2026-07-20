@@ -134,7 +134,7 @@ export function AutomationAgentCard({
           </Button>
           {runtimeSessionId && (
             <Button asChild size="mobile-sm" variant="outline" className="gap-1.5">
-              <Link href={`/tmux?${runtimeHostId ? `host_id=${encodeURIComponent(runtimeHostId)}&` : ''}session_id=${encodeURIComponent(runtimeSessionId)}&mode=terminal&attach=1`}>
+              <Link href={`/?${runtimeHostId ? `host_id=${encodeURIComponent(runtimeHostId)}&` : ''}session_id=${encodeURIComponent(runtimeSessionId)}&mode=terminal&attach=1`}>
                 <Terminal className="h-4 w-4" /> Terminal
               </Link>
             </Button>
