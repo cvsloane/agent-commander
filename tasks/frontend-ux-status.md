@@ -24,8 +24,8 @@ Baseline: typecheck + test:ci green at `70fa53e` (2026-07-20). Deploy cadence: p
 
 | Lane | Worktree | Branch | tmux | State | Last checked |
 |---|---|---|---|---|---|
-| FW2-CONTRACTS | ~/dev/wt/ac-fw2-contracts | refactor/fw2-contracts | agent-command:fw2-contracts | pending launch | — |
-| FW2-TERM | ~/dev/wt/ac-fw2-term | refactor/fw2-term | agent-command:fw2-term | pending launch | — |
+| FW2-CONTRACTS | ~/dev/wt/ac-fw2-contracts | refactor/fw2-contracts | agent-command:fw2-contracts | active (verified) | 2026-07-20 |
+| FW2-TERM | ~/dev/wt/ac-fw2-term | refactor/fw2-term | agent-command:fw2-term | active (verified) | 2026-07-20 |
 
 ## Ownership firewall (Wave 2)
 - FW2-CONTRACTS: `packages/ac-schema/**`, `services/control-plane/**`, `packages/ac-cli/**`, TS fixture tests, migrations 039+ (claim here first; expected none), mechanical Zod call-site edits in `apps/dashboard` (listed in handoff). NOT terminal/tmux/session/mobile components or terminal hooks. Fixtures under `tests/fixtures/protocol/` are FROZEN.
