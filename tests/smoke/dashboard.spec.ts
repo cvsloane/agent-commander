@@ -71,6 +71,7 @@ const tmuxSessions = [
     latest_snapshot: {
       created_at: '2026-05-19T18:00:00.000Z',
       capture_text: 'pnpm test:ci',
+      capture_hash: 'capture-codex-implementation',
     },
   },
   {
@@ -107,6 +108,7 @@ const tmuxSessions = [
     latest_snapshot: {
       created_at: '2026-05-19T17:55:00.000Z',
       capture_text: 'Need input',
+      capture_hash: 'capture-mobile-ux-review',
     },
   },
   {
@@ -144,6 +146,7 @@ const tmuxSessions = [
     latest_snapshot: {
       created_at: '2026-05-19T17:00:00.000Z',
       capture_text: 'tail -f logs',
+      capture_hash: 'capture-deploy-logs',
     },
   },
 ];
@@ -168,6 +171,7 @@ const orchestratorSessions = [
     latest_snapshot: {
       created_at: '2026-05-19T18:00:00.000Z',
       capture_text: 'Approve the production verification command?',
+      capture_hash: 'capture-release-orchestrator',
     },
   },
   {
@@ -307,6 +311,7 @@ function apiBody(pathname: string): unknown {
     return {
       sessions: tmuxSessions,
       total: tmuxSessions.length,
+      groups: [],
     };
   }
   if (pathname === '/v1/launch/targets') {
@@ -478,7 +483,7 @@ async function mockControlPlane(page: Page): Promise<void> {
       const sessions = url.searchParams.get('host_id') === secondTmuxHost.id
         ? [remoteTmuxSession]
         : tmuxSessions;
-      await fulfillJson(route, { sessions, total: sessions.length });
+      await fulfillJson(route, { sessions, total: sessions.length, groups: [] });
       return;
     }
     if (route.request().method() === 'POST' && url.pathname === '/v1/launch') {
@@ -513,6 +518,21 @@ async function mockControlPlane(page: Page): Promise<void> {
       && /^\/v1\/sessions\/[^/]+\/commands$/.test(url.pathname)
     ) {
       await fulfillJson(route, { cmd_id: '01JCOMMANDSMOKE000000000000' });
+      return;
+    }
+    if (
+      route.request().method() === 'POST'
+      && /^\/v1\/sessions\/[^/]+\/scrollback$/.test(url.pathname)
+    ) {
+      await fulfillJson(route, {
+        cmd_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        ok: true,
+        result: {
+          content: 'older terminal line\npnpm test:ci passed\nwaiting for next command\n',
+          line_count: 3,
+          capture_mode: 'range',
+        },
+      });
       return;
     }
     if (
@@ -604,14 +624,14 @@ test('protects operator routes behind credentials sign-in', async ({ page }) => 
   await expect(page).toHaveURL(/\/signin/);
 
   await signIn(page);
-  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Command Center' })).toBeVisible();
 });
 
 test('renders key operator pages with mocked control-plane data', async ({ page }) => {
   await signIn(page);
 
   const pages = [
-    ['/', 'Dashboard'],
+    ['/', 'Command Center'],
     ['/sessions', 'Sessions'],
     ['/automation', 'Automation'],
     ['/memory', 'Memory'],
@@ -626,25 +646,126 @@ test('renders key operator pages with mocked control-plane data', async ({ page 
   }
 });
 
-test('renders tmux roster with windows and panes, supports selection and filtering', async ({ page }) => {
+test('renders Command Center at mobile and desktop widths and redirects legacy tmux links', async ({ page }, testInfo) => {
+  await signIn(page);
+
+  for (const viewport of [
+    { name: 'mobile', width: 390, height: 844 },
+    { name: 'tablet', width: 768, height: 1024 },
+    { name: 'desktop', width: 1280, height: 720 },
+  ]) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'Command Center' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'tmux', exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Launch' })).toBeVisible();
+    await expect(page.getByText('New in v0.2.0')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Open menu' })).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+    if (viewport.name === 'mobile') {
+      const mobileTargets = page.getByRole('navigation', { name: 'Primary mobile navigation' }).locator('a, button');
+      await expect(mobileTargets).toHaveCount(4);
+      const targetSizes = await mobileTargets.evaluateAll((targets) => (
+        targets.map((target) => {
+          const { width, height } = target.getBoundingClientRect();
+          return { width, height };
+        })
+      ));
+      expect(targetSizes.every(({ width, height }) => width >= 44 && height >= 44)).toBe(true);
+    }
+
+    if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+      await page.screenshot({ path: testInfo.outputPath(`command-center-${viewport.name}.png`), fullPage: true });
+    }
+  }
+
+  await page.goto('/tmux?filter=waiting&host_id=all');
+  await expect(page).toHaveURL(/\/\?filter=waiting&host_id=all$/);
+  await expect(page.getByRole('heading', { name: 'Command Center' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Waiting', exact: true })).toBeVisible();
+});
+
+test('opens the single launch sheet from Command Center and Sessions rails', async ({ page }) => {
+  await signIn(page);
+
+  const commandCenterRail = page.getByRole('region', { name: 'Launch' });
+  await commandCenterRail.getByRole('button', { name: 'New', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Launch agent' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close launch sheet' }).click();
+
+  await commandCenterRail.getByRole('button', { name: 'Recent', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Recent launches' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close launch sheet' }).click();
+
+  await commandCenterRail.getByRole('button', { name: /Open existing/ }).click();
+  await expect(page.getByRole('dialog', { name: 'Open existing' })).toBeVisible();
+  await expect(page.getByPlaceholder('agents:0.0 or %1')).toBeVisible();
+  await page.getByRole('button', { name: 'Close launch sheet' }).click();
+
+  await page.goto('/sessions');
+  await expect(page.getByRole('region', { name: 'Launch' })).toBeVisible();
+});
+
+test('uses the same attention surface for the mobile bell, tab, and desktop sheet', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page);
+
+  await page.getByRole('button', { name: /^Attention -/ }).click();
+  await expect(page).toHaveURL(/\/orchestrator\?tab=attention/);
+  await expect(page.getByTestId('attention-surface')).toHaveAttribute('data-presentation', 'page');
+  await expect(page.getByRole('tab', { name: /Attention/ })).toHaveAttribute('data-state', 'active');
+
+  await page.goto('/');
+  const mobileNav = page.getByRole('navigation', { name: 'Primary mobile navigation' });
+  await mobileNav.getByRole('link', { name: 'Attention' }).click();
+  await expect(page).toHaveURL(/\/orchestrator\?tab=attention/);
+  await expect(page.getByTestId('attention-surface')).toHaveAttribute('data-presentation', 'page');
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/');
+  const desktopBell = page.getByRole('button', { name: /^Attention -/ });
+  await desktopBell.click();
+  const sheet = page.getByRole('dialog', { name: 'Attention' });
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByTestId('attention-surface')).toHaveAttribute('data-presentation', 'sheet');
+  await page.keyboard.press('Escape');
+  await expect(sheet).not.toBeVisible();
+  await expect(desktopBell).toBeFocused();
+});
+
+test('renders tmux roster with windows and panes, supports selection and filtering', async ({ page }, testInfo) => {
   await signIn(page);
 
   await page.goto('/tmux');
 
   await expect(page.getByRole('heading', { name: 'tmux', exact: true })).toBeVisible();
   await expect(page.getByText('2 sessions · 3 panes')).toBeVisible();
-  await expect(page.getByText('agents')).toBeVisible();
+  await expect(page.getByText('agents', { exact: true })).toBeVisible();
   await expect(page.getByText('ops')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Waiting', exact: true })).toBeVisible();
+  let duplicateRosterRequests = 0;
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (request.method() === 'GET' && url.pathname === '/v1/tmux/roster') {
+      duplicateRosterRequests += 1;
+    }
+  });
 
-  await page.getByText('agents').click();
+  await page.getByText('agents', { exact: true }).click();
   await expect(page.getByText('0 · agent-command')).toBeVisible();
   await expect(page.getByText('Codex implementation')).toBeVisible();
-  await expect(page.getByText('Mobile UX review')).toBeVisible();
+  await expect(page.getByText('Mobile UX review', { exact: true })).toBeVisible();
 
-  await page.getByText('Mobile UX review').click();
+  await page.getByText('Mobile UX review', { exact: true }).click();
   await expect(page).toHaveURL(/session_id=33333333-3333-4333-8333-333333333333/);
   await expect(page.getByRole('heading', { name: 'Mobile UX review' })).toBeVisible();
+  await expect(page.getByTestId('tmux-window-strip')).toBeVisible();
+  await expect(page.getByLabel('Secondary terminal')).toBeVisible();
+  await expect.poll(() => duplicateRosterRequests).toBe(0);
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.screenshot({ path: testInfo.outputPath('tmux-terminal-desktop.png'), fullPage: true });
+  }
 
   await page.getByRole('button', { name: 'Waiting', exact: true }).click();
   await expect(page).toHaveURL(/filter=waiting/);
@@ -670,13 +791,18 @@ test('keeps the tmux roster usable on mobile viewport', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Untracked', exact: true })).toBeVisible();
   await expect(page.getByPlaceholder('Filter by tmux session, cwd, branch, repo, provider...')).toBeVisible();
   await expect(page.getByText('2 sessions · 3 panes')).toBeVisible();
-  await expect(page.getByText('agents')).toBeVisible();
+  await expect(page.getByText('agents', { exact: true })).toBeVisible();
 
-  await page.getByText('agents').click();
+  await page.getByText('agents', { exact: true }).click();
   await expect(page.getByText('Codex implementation')).toBeVisible();
 
-  await page.getByText('Mobile UX review').click();
+  await page.getByText('Mobile UX review', { exact: true }).click();
   await expect(page).toHaveURL(/session_id=33333333-3333-4333-8333-333333333333/);
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/');
+  const mobileSegments = page.getByRole('button', { name: 'Roster', exact: true }).locator('..');
+  const terminalSegment = mobileSegments.getByRole('button', { name: 'Terminal', exact: true });
+  await expect(terminalSegment).toBeEnabled();
+  await terminalSegment.click();
   await expect(page.getByText('agents:0.1').first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Actions', exact: true })).toBeEnabled();
 
@@ -691,8 +817,45 @@ test('keeps the tmux roster usable on mobile viewport', async ({ page }) => {
   await expect(dialog.getByRole('button', { name: 'Copy last 50' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Copy all' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Paste' })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Terminate pane session' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Kill pane', exact: true })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Close actions' })).toBeVisible();
+});
+
+test('renders the tmux window strip and opens range-paged history on mobile', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page);
+
+  await page.goto('/tmux');
+  await page.getByText('agents', { exact: true }).click();
+  await page.getByText('Mobile UX review', { exact: true }).click();
+
+  const windowStrip = page.getByTestId('tmux-window-strip').first();
+  await expect(windowStrip).toBeVisible();
+  await expect(windowStrip.getByRole('tab', { name: 'Window 0: agent-command' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Actions', exact: true }).click();
+  const actions = page.getByRole('dialog').filter({ hasText: 'Pane actions' });
+  const historyRequest = page.waitForRequest((request) => (
+    request.method() === 'POST'
+    && request.url().includes(`/v1/sessions/${tmuxSessions[1].id}/scrollback`)
+  ));
+  await actions.getByRole('button', { name: 'View history' }).click();
+
+  expect((await historyRequest).postDataJSON()).toEqual({
+    mode: 'range',
+    start_line: -500,
+    end_line: -1,
+    strip_ansi: true,
+  });
+  const pager = page.getByRole('dialog', { name: 'Terminal history' });
+  await expect(pager).toBeVisible();
+  await expect(pager.getByText('pnpm test:ci passed')).toBeVisible();
+  await pager.getByPlaceholder('Filter captured history…').fill('passed');
+  await expect(pager.getByText('1 matches')).toBeVisible();
+
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.screenshot({ path: testInfo.outputPath('tmux-history-mobile.png') });
+  }
 });
 
 test('opens mobile launch sheet and launches a coding agent from a recent project', async ({ page }) => {
@@ -758,18 +921,20 @@ test('opens an existing tmux target from the mobile launch sheet', async ({ page
   await expect(page).toHaveURL(/mode=terminal/);
 });
 
-test('uses bottom navigation to steer an orchestrator card on mobile', async ({ page }, testInfo) => {
+test('uses unified bottom navigation to steer an orchestrator card on mobile', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await signIn(page);
 
   const mobileNav = page.getByRole('navigation', { name: 'Primary mobile navigation' });
-  await expect(mobileNav.getByRole('link', { name: 'tmux' })).toBeVisible();
-  await expect(mobileNav.getByRole('link', { name: 'Orchestrator' })).toBeVisible();
+  await expect(mobileNav.getByRole('link', { name: 'Command Center' })).toBeVisible();
+  await expect(mobileNav.getByRole('link', { name: 'Attention' })).toBeVisible();
   await expect(mobileNav.getByRole('link', { name: 'Sessions' })).toBeVisible();
   await expect(mobileNav.getByRole('button', { name: 'More' })).toBeVisible();
 
-  await mobileNav.getByRole('link', { name: 'Orchestrator' }).click();
-  await expect(page).toHaveURL(/\/orchestrator/);
+  await mobileNav.getByRole('link', { name: 'Attention' }).click();
+  await expect(page).toHaveURL(/\/orchestrator\?tab=attention/);
+  await expect(page.getByRole('tab', { name: /Attention/ })).toHaveAttribute('data-state', 'active');
+  await page.getByRole('tab', { name: /Fleet/ }).click();
   const card = page.getByTestId('orchestrator-card');
   await expect(card).toContainText('Release orchestrator');
   await expect(card).toContainText('Verification worker');

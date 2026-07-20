@@ -70,7 +70,7 @@ export function GlobalSidebar({
                 Navigate to the rest of Agent Commander.
               </Dialog.Description>
               <Dialog.Close asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8" title="Close menu">
+                <Button variant="ghost" size="mobile-icon" title="Close menu">
                   <X className="h-4 w-4" />
                 </Button>
               </Dialog.Close>
@@ -121,7 +121,7 @@ export function GlobalSidebar({
         <Button
           variant="ghost"
           size="icon"
-          className={cn('h-8 w-8', sidebarCollapsed && 'mx-auto')}
+          className={cn('h-11 w-11', sidebarCollapsed && 'mx-auto')}
           onClick={toggleSidebar}
           title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >

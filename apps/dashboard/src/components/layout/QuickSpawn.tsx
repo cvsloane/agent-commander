@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { SessionGenerator } from '@/components/session-generator';
+import { MobileLaunchSheet } from '@/components/launch/MobileLaunchSheet';
 
 export function QuickSpawn() {
   const [showDialog, setShowDialog] = useState(false);
@@ -12,15 +12,15 @@ export function QuickSpawn() {
     <>
       <Button
         variant="default"
-        size="sm"
+        size="mobile"
         className="w-full gap-2"
         onClick={() => setShowDialog(true)}
       >
         <Plus className="h-4 w-4" />
         New Session
       </Button>
-      <SessionGenerator
-        isOpen={showDialog}
+      <MobileLaunchSheet
+        open={showDialog}
         onClose={() => setShowDialog(false)}
       />
     </>

@@ -1,5 +1,6 @@
 import { Settings } from 'lucide-react';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
+import { UsageOverview } from './UsageOverview';
 
 export default function SettingsPage() {
   return (
@@ -13,6 +14,7 @@ export default function SettingsPage() {
           </p>
         </div>
       </div>
+      <UsageOverview />
       <SettingsPanel />
     </div>
   );

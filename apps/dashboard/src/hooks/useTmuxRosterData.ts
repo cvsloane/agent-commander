@@ -19,8 +19,13 @@ import {
 } from '@/lib/fleetRoster';
 import { isHostOnline } from '@/lib/utils';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { useTmuxTopologyFeed } from '@/hooks/useTmuxTopology';
 
 export const ALL_TMUX_HOSTS_ID = 'all';
+
+export function buildCanonicalTmuxHref(search: string): string {
+  return `/${search ? `?${search}` : ''}`;
+}
 
 interface TmuxRosterQueryData {
   sessions: SessionWithSnapshot[];
@@ -65,9 +70,10 @@ export function useTmuxRosterData() {
     queryFn: getHosts,
   });
 
-  const tmuxHosts = useMemo(() => (
-    hostsData?.hosts?.filter((host) => host.capabilities.tmux) ?? []
-  ), [hostsData]);
+  const tmuxHosts = useMemo(
+    () => hostsData?.hosts?.filter((host) => host.capabilities.tmux) ?? [],
+    [hostsData]
+  );
   const onlineTmuxHosts = useMemo(
     () => tmuxHosts.filter((host) => isHostOnline(host.last_seen_at ?? null)),
     [tmuxHosts]
@@ -90,22 +96,27 @@ export function useTmuxRosterData() {
   const allHostsSelected = effectiveHostId === ALL_TMUX_HOSTS_ID && onlineTmuxHosts.length > 0;
   const selectedHostId = allHostsSelected
     ? ALL_TMUX_HOSTS_ID
-    : hostById.has(effectiveHostId) ? effectiveHostId : fallbackHostId;
+    : hostById.has(effectiveHostId)
+      ? effectiveHostId
+      : fallbackHostId;
   const selectedHost = selectedHostId ? hostById.get(selectedHostId) : undefined;
 
-  const updateTmuxParams = useCallback((updates: Record<string, string | null>) => {
-    const params = new URLSearchParams(pendingSearchRef.current);
-    for (const [key, value] of Object.entries(updates)) {
-      if (!value) {
-        params.delete(key);
-      } else {
-        params.set(key, value);
+  const updateTmuxParams = useCallback(
+    (updates: Record<string, string | null>) => {
+      const params = new URLSearchParams(pendingSearchRef.current);
+      for (const [key, value] of Object.entries(updates)) {
+        if (!value) {
+          params.delete(key);
+        } else {
+          params.set(key, value);
+        }
       }
-    }
-    const next = params.toString();
-    pendingSearchRef.current = next;
-    router.replace(`/tmux${next ? `?${next}` : ''}`);
-  }, [router]);
+      const next = params.toString();
+      pendingSearchRef.current = next;
+      router.replace(buildCanonicalTmuxHref(next));
+    },
+    [router]
+  );
 
   const {
     data: sessionsData,
@@ -129,14 +140,19 @@ export function useTmuxRosterData() {
         }))
       );
       const successful = results
-        .filter((result): result is PromiseFulfilledResult<{ hostId: string; roster: TmuxRosterQueryData }> => result.status === 'fulfilled')
+        .filter(
+          (
+            result
+          ): result is PromiseFulfilledResult<{ hostId: string; roster: TmuxRosterQueryData }> =>
+            result.status === 'fulfilled'
+        )
         .map((result) => result.value);
       if (successful.length === 0) {
         throw new Error('Could not load the tmux roster from any online machine.');
       }
-      const failedHostIds = results.flatMap((result, index) => (
+      const failedHostIds = results.flatMap((result, index) =>
         result.status === 'rejected' ? [onlineTmuxHosts[index]?.id ?? 'unknown'] : []
-      ));
+      );
       const sessions = successful.flatMap(({ roster }) => roster.sessions);
       return {
         sessions: [...new Map(sessions.map((session) => [session.id, session])).values()],
@@ -147,15 +163,19 @@ export function useTmuxRosterData() {
     enabled: Boolean(selectedHostId),
   });
 
-  const tmuxSessions = useMemo(() => (
-    sessionsData?.sessions ?? []
-  ), [sessionsData]);
+  const tmuxSessions = useMemo(() => sessionsData?.sessions ?? [], [sessionsData]);
+  useTmuxTopologyFeed(
+    allHostsSelected
+      ? onlineTmuxHosts.map((host) => host.id)
+      : selectedHostId
+        ? [selectedHostId]
+        : [],
+    tmuxSessions
+  );
 
   const matchesActiveFilter = useCallback(
-    (session: SessionWithSnapshot) => (
-      matchesTmuxRosterFilter(session, activeFilter)
-      && matchesTmuxFilter(session, query)
-    ),
+    (session: SessionWithSnapshot) =>
+      matchesTmuxRosterFilter(session, activeFilter) && matchesTmuxFilter(session, query),
     [activeFilter, query]
   );
 
@@ -170,19 +190,25 @@ export function useTmuxRosterData() {
     })),
   });
   const sessionEdges = useMemo(
-    () => [...new Map(
-      graphQueries
-        .flatMap((result) => result.data?.edges ?? [])
-        .map((edge) => [`${edge.parent_session_id}:${edge.child_session_id}:${edge.edge_type}`, edge])
-    ).values()],
+    () => [
+      ...new Map(
+        graphQueries
+          .flatMap((result) => result.data?.edges ?? [])
+          .map((edge) => [
+            `${edge.parent_session_id}:${edge.child_session_id}:${edge.edge_type}`,
+            edge,
+          ])
+      ).values(),
+    ],
     [graphQueries]
   );
 
   const rosterGroups = useMemo(
-    () => buildFleetRosterGroups(tmuxSessions, sessionEdges, {
-      allHosts: allHostsSelected,
-      waitingFirst: allHostsSelected,
-    }),
+    () =>
+      buildFleetRosterGroups(tmuxSessions, sessionEdges, {
+        allHosts: allHostsSelected,
+        waitingFirst: allHostsSelected,
+      }),
     [allHostsSelected, sessionEdges, tmuxSessions]
   );
   const groups = useMemo(
@@ -190,9 +216,9 @@ export function useTmuxRosterData() {
     [matchesActiveFilter, rosterGroups]
   );
   const filteredSessions = useMemo(
-    () => [...new Map(
-      groups.flatMap(groupSessions).map((session) => [session.id, session])
-    ).values()],
+    () => [
+      ...new Map(groups.flatMap(groupSessions).map((session) => [session.id, session])).values(),
+    ],
     [groups]
   );
 
@@ -217,7 +243,9 @@ export function useTmuxRosterData() {
   }, [groups]);
 
   const selectedSessionId = availableSessionIds.has(sessionIdParam) ? sessionIdParam : '';
-  const selectedClusterKey = selectedSessionId ? sessionToClusterKey.get(selectedSessionId) ?? null : null;
+  const selectedClusterKey = selectedSessionId
+    ? (sessionToClusterKey.get(selectedSessionId) ?? null)
+    : null;
 
   useEffect(() => {
     if (!selectedHostId) return;
@@ -227,9 +255,9 @@ export function useTmuxRosterData() {
   }, [availableSessionIds, selectedHostId, sessionIdParam, updateTmuxParams]);
 
   useEffect(() => {
-    setExpandedClusterKey((current) => (
+    setExpandedClusterKey((current) =>
       current && groups.some((group) => group.key === current) ? current : null
-    ));
+    );
   }, [groups]);
 
   useEffect(() => {
@@ -307,21 +335,27 @@ export function useTmuxRosterData() {
     }
   }, [refetchHosts, refetchSessions, selectedHostId]);
 
-  const selectHost = useCallback((hostId: string) => {
-    setRequestedHostId(hostId);
-    updateTmuxParams({
-      host_id: hostId,
-      session_id: null,
-    });
-  }, [updateTmuxParams]);
+  const selectHost = useCallback(
+    (hostId: string) => {
+      setRequestedHostId(hostId);
+      updateTmuxParams({
+        host_id: hostId,
+        session_id: null,
+      });
+    },
+    [updateTmuxParams]
+  );
 
-  const selectSession = useCallback((sessionId: string) => {
-    const clusterKey = sessionToClusterKey.get(sessionId);
-    if (clusterKey) {
-      setExpandedClusterKey(clusterKey);
-    }
-    updateTmuxParams({ session_id: sessionId });
-  }, [sessionToClusterKey, updateTmuxParams]);
+  const selectSession = useCallback(
+    (sessionId: string) => {
+      const clusterKey = sessionToClusterKey.get(sessionId);
+      if (clusterKey) {
+        setExpandedClusterKey(clusterKey);
+      }
+      updateTmuxParams({ session_id: sessionId });
+    },
+    [sessionToClusterKey, updateTmuxParams]
+  );
 
   return {
     query,

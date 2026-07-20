@@ -12,7 +12,7 @@ function getRecentSessionHref(session: RecentSession) {
     const params = new URLSearchParams();
     if (session.hostId) params.set('host_id', session.hostId);
     params.set('session_id', session.id);
-    return `/tmux?${params.toString()}`;
+    return `/?${params.toString()}`;
   }
 
   return `/sessions/${session.id}`;
@@ -52,7 +52,8 @@ function SessionList({
             key={session.id}
             href={getRecentSessionHref(session)}
             className={cn(
-              'flex items-center gap-2 px-2 py-1.5 rounded-md text-sm',
+              'flex min-h-11 items-center gap-2 rounded-md px-2 py-1.5 text-sm',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               'text-muted-foreground hover:bg-accent hover:text-foreground',
               'transition-colors group'
             )}

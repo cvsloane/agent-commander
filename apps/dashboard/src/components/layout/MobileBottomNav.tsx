@@ -2,23 +2,26 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Bot, Layers, Menu, Rows3 } from 'lucide-react';
+import { Bell, LayoutDashboard, Layers, Menu } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/ui';
 
 const primaryItems = [
-  { href: '/tmux', label: 'tmux', icon: Rows3 },
-  { href: '/orchestrator', label: 'Orchestrator', icon: Bot },
+  { href: '/', label: 'Command Center', icon: LayoutDashboard },
+  { href: '/orchestrator?tab=attention', label: 'Attention', icon: Bell },
   { href: '/sessions', label: 'Sessions', icon: Layers },
 ] as const;
+
+function isItemActive(pathname: string, href: string): boolean {
+  const path = href.split('?')[0];
+  return path === '/' ? pathname === '/' : pathname === path || pathname.startsWith(`${path}/`);
+}
 
 export function MobileBottomNav() {
   const pathname = usePathname();
   const mobileMenuOpen = useUIStore((state) => state.mobileMenuOpen);
   const setMobileMenuOpen = useUIStore((state) => state.setMobileMenuOpen);
-  const moreActive = mobileMenuOpen || !primaryItems.some((item) => (
-    pathname === item.href || pathname.startsWith(`${item.href}/`)
-  ));
+  const moreActive = mobileMenuOpen || !primaryItems.some((item) => isItemActive(pathname, item.href));
 
   return (
     <nav
@@ -27,7 +30,7 @@ export function MobileBottomNav() {
     >
       <div className="grid h-16 grid-cols-4 px-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
         {primaryItems.map((item) => {
-          const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const active = isItemActive(pathname, item.href);
           const Icon = item.icon;
           return (
             <Link

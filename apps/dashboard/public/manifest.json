@@ -3,7 +3,7 @@
   "name": "Agent Commander",
   "short_name": "Commander",
   "description": "Mission control for AI agent sessions",
-  "start_url": "/orchestrator",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#020617",

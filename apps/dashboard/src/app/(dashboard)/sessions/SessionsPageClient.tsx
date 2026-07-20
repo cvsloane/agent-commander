@@ -3,7 +3,7 @@
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Search, Keyboard, CheckSquare, Square, Archive, GripVertical, Download, Plus } from 'lucide-react';
+import { Search, Keyboard, CheckSquare, Square, Archive, GripVertical, Download } from 'lucide-react';
 import { DndContext, DragEndEvent, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import { SessionList } from '@/components/SessionList';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import { BulkActionToolbar } from '@/components/BulkActionToolbar';
 import { CommandPalette, useCommandPalette } from '@/components/search/CommandPalette';
 import { ShortcutsHelp, useShortcutsHelp } from '@/components/shortcuts/ShortcutsHelp';
 import { ImportOrphanPanesModal, useImportModal } from '@/components/import/ImportOrphanPanesModal';
-import { SessionGenerator } from '@/components/session-generator';
+import { LaunchRail } from '@/components/launch/LaunchRail';
 import { getHosts, assignSessionGroup } from '@/lib/api';
 import {
   setSessionsPerfEnabled,
@@ -89,9 +89,6 @@ export default function SessionsPageClient() {
       normalizedQuery,
     ]
   );
-
-  // Modal states
-  const [showSpawnDialog, setShowSpawnDialog] = useState(false);
 
   // Selection state
   const [selectionMode, setSelectionMode] = useState(false);
@@ -467,17 +464,13 @@ export default function SessionsPageClient() {
                     Archived
                   </a>
                 </Button>
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => setShowSpawnDialog(true)}
-                  className="gap-1.5"
-                >
-                  <Plus className="h-4 w-4" />
-                  New Session
-                </Button>
               </div>
             </div>
+
+            <LaunchRail
+              className="mb-6"
+              onLaunched={() => queryClient.invalidateQueries({ queryKey: ['sessions'] })}
+            />
 
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
               <input
@@ -638,11 +631,6 @@ export default function SessionsPageClient() {
         onClose={importModal.close}
         onSuccess={() => queryClient.invalidateQueries({ queryKey: ['sessions'] })}
       />
-      <SessionGenerator
-        isOpen={showSpawnDialog}
-        onClose={() => setShowSpawnDialog(false)}
-      />
-
       {/* Bulk Action Toolbar */}
       {selectionMode && (
         <BulkActionToolbar

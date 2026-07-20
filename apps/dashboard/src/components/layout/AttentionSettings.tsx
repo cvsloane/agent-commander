@@ -50,7 +50,8 @@ export function AttentionSettings({ compact = false }: AttentionSettingsProps) {
         type="button"
         onClick={handleToggleNotifications}
         className={cn(
-          'flex items-center justify-between w-full rounded-md border px-2 py-1 text-xs',
+          'flex min-h-11 w-full items-center justify-between rounded-md border px-2 py-1 text-xs',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           notificationsEnabled ? 'bg-primary/10 border-primary/40' : 'bg-background'
         )}
       >
@@ -66,7 +67,8 @@ export function AttentionSettings({ compact = false }: AttentionSettingsProps) {
         type="button"
         onClick={() => setAlertChannelEnabled('audio', !audioEnabled)}
         className={cn(
-          'flex items-center justify-between w-full rounded-md border px-2 py-1 text-xs',
+          'flex min-h-11 w-full items-center justify-between rounded-md border px-2 py-1 text-xs',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           audioEnabled ? 'bg-primary/10 border-primary/40' : 'bg-background'
         )}
       >

@@ -9,18 +9,19 @@ import { launchAgent, openTmuxTarget } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 import { Button } from '@/components/ui/button';
+import { MOBILE_LAUNCH_PROVIDERS, getLaunchProvider } from './definitions';
+import {
+  type RecentLaunch,
+  useRecentLaunch,
+  writeRecentLaunch,
+} from './recentLaunchStore';
 
 type LaunchMode = 'new' | 'existing';
-
-interface LastLaunch {
-  host_id: string;
-  provider: MobileLaunchProvider;
-  working_directory: string;
-  tmux_target?: string | null;
-}
+export type LaunchSheetView = LaunchMode | 'recent';
 
 interface MobileLaunchSheetProps {
   open: boolean;
+  initialView?: LaunchSheetView;
   selectedHostId?: string;
   onClose: () => void;
   onLaunched?: () => void;
@@ -31,14 +32,20 @@ function projectLabel(path: string): string {
 }
 
 function providerLabel(provider: MobileLaunchProvider): string {
-  return provider === 'claude_code' ? 'Claude' : 'Codex';
+  return getLaunchProvider(provider)?.shortName ?? provider;
 }
 
 function targetSupportsProvider(target: LaunchTarget | undefined, provider: MobileLaunchProvider): boolean {
   return Boolean(target?.providers[provider]);
 }
 
-export function MobileLaunchSheet({ open, selectedHostId, onClose, onLaunched }: MobileLaunchSheetProps) {
+export function MobileLaunchSheet({
+  open,
+  initialView = 'new',
+  selectedHostId,
+  onClose,
+  onLaunched,
+}: MobileLaunchSheetProps) {
   const router = useRouter();
   const defaultMobileLaunchProvider = useSettingsStore((state) => state.defaultMobileLaunchProvider);
   const defaultMobileLaunchHostId = useSettingsStore((state) => state.defaultMobileLaunchHostId);
@@ -56,7 +63,7 @@ export function MobileLaunchSheet({ open, selectedHostId, onClose, onLaunched }:
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [tmuxTarget, setTmuxTarget] = useState('');
   const [existingTarget, setExistingTarget] = useState('');
-  const [lastLaunch, setLastLaunch] = useState<LastLaunch | null>(null);
+  const lastLaunch = useRecentLaunch(open);
   const [openingExistingId, setOpeningExistingId] = useState<string | null>(null);
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
@@ -78,35 +85,10 @@ export function MobileLaunchSheet({ open, selectedHostId, onClose, onLaunched }:
 
   useEffect(() => {
     if (!open) return;
-    try {
-      const raw = window.localStorage.getItem('agent-command:last-launch');
-      if (!raw) {
-        setLastLaunch(null);
-        return;
-      }
-      const parsed = JSON.parse(raw) as Partial<LastLaunch>;
-      if (
-        typeof parsed.host_id === 'string' &&
-        (parsed.provider === 'codex' || parsed.provider === 'claude_code') &&
-        typeof parsed.working_directory === 'string'
-      ) {
-        setLastLaunch({
-          host_id: parsed.host_id,
-          provider: parsed.provider,
-          working_directory: parsed.working_directory,
-          tmux_target: typeof parsed.tmux_target === 'string' ? parsed.tmux_target : null,
-        });
-      }
-    } catch {
-      setLastLaunch(null);
-    }
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
+    setMode(initialView === 'existing' ? 'existing' : 'new');
     setProvider(defaultMobileLaunchProvider);
     setTmuxTarget(defaultMobileLaunchTmuxTarget || '');
-  }, [defaultMobileLaunchProvider, defaultMobileLaunchTmuxTarget, open]);
+  }, [defaultMobileLaunchProvider, defaultMobileLaunchTmuxTarget, initialView, open]);
 
   useEffect(() => {
     if (!selectedTarget) return;
@@ -150,12 +132,7 @@ export function MobileLaunchSheet({ open, selectedHostId, onClose, onLaunched }:
         working_directory: workingDirectory.trim(),
         tmux_target: tmuxTarget.trim() || null,
       };
-      try {
-        window.localStorage.setItem('agent-command:last-launch', JSON.stringify(nextLastLaunch));
-      } catch {
-        // localStorage can be unavailable in restricted browsers.
-      }
-      setLastLaunch(nextLastLaunch);
+      writeRecentLaunch(nextLastLaunch);
       setDefaultMobileLaunchProvider(provider);
       setDefaultMobileLaunchHostId(selectedTarget.host_id);
       setDefaultMobileLaunchTmuxTarget(tmuxTarget.trim() || null);
@@ -181,7 +158,7 @@ export function MobileLaunchSheet({ open, selectedHostId, onClose, onLaunched }:
     workingDirectory,
   ]);
 
-  const handleRepeatLaunch = useCallback(async (launch: LastLaunch) => {
+  const handleRepeatLaunch = useCallback(async (launch: RecentLaunch) => {
     const target = targets.find((candidate) => candidate.host_id === launch.host_id);
     if (!target) return;
     setLaunching(true);
@@ -195,6 +172,7 @@ export function MobileLaunchSheet({ open, selectedHostId, onClose, onLaunched }:
         wait: true,
         wait_timeout_ms: 10000,
       });
+      writeRecentLaunch(launch);
       onLaunched?.();
       setDefaultMobileLaunchProvider(launch.provider);
       setDefaultMobileLaunchHostId(target.host_id);
@@ -258,7 +236,9 @@ export function MobileLaunchSheet({ open, selectedHostId, onClose, onLaunched }:
           <div className="flex min-w-0 items-center gap-2">
             <Bot className="h-5 w-5 text-primary" />
             <div className="min-w-0">
-              <h2 id="mobile-launch-title" className="text-sm font-semibold">Launch agent</h2>
+              <h2 id="mobile-launch-title" className="text-sm font-semibold">
+                {initialView === 'existing' ? 'Open existing' : initialView === 'recent' ? 'Recent launches' : 'Launch agent'}
+              </h2>
               <div className="truncate text-xs text-muted-foreground">
                 {selectedTarget?.alias || 'Choose a machine'}
               </div>
@@ -488,7 +468,8 @@ export function MobileLaunchSheet({ open, selectedHostId, onClose, onLaunched }:
                   <section className="space-y-2">
                     <div className="text-xs font-medium uppercase text-muted-foreground">Agent</div>
                     <div className="grid grid-cols-2 gap-2">
-                      {(['codex', 'claude_code'] as const).map((candidate) => {
+                      {MOBILE_LAUNCH_PROVIDERS.map((providerOption) => {
+                        const candidate = providerOption.id;
                         const supported = targetSupportsProvider(selectedTarget, candidate);
                         return (
                           <button
@@ -501,7 +482,7 @@ export function MobileLaunchSheet({ open, selectedHostId, onClose, onLaunched }:
                               provider === candidate ? 'border-primary bg-primary text-primary-foreground' : 'bg-background'
                             )}
                           >
-                            {providerLabel(candidate)}
+                            {providerOption.shortName}
                           </button>
                         );
                       })}

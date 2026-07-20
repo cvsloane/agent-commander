@@ -207,7 +207,7 @@ export function OrchestratorItem({
         ? `host_id=${encodeURIComponent(item.sessionHostId)}&`
         : '';
       return (
-        <Link href={`/tmux?${hostParam}session_id=${encodeURIComponent(item.sessionId)}&mode=terminal&attach=1`}>
+        <Link href={`/?${hostParam}session_id=${encodeURIComponent(item.sessionId)}&mode=terminal&attach=1`}>
           <Button size="sm" variant="outline" className="w-full gap-1">
             <Terminal className="h-4 w-4" />
             {label}
