@@ -24,6 +24,7 @@ interface TerminalToolbarProps {
   status: ConnectionStatus;
   readOnly: boolean;
   errorMessage: string | null;
+  lagMessage: string | null;
   onConnect: () => void;
   onDisconnect: () => void;
   onTakeControl: () => void;
@@ -34,6 +35,7 @@ export function TerminalToolbar({
   status,
   readOnly,
   errorMessage,
+  lagMessage,
   onConnect,
   onDisconnect,
   onTakeControl,
@@ -72,6 +74,12 @@ export function TerminalToolbar({
       {errorMessage && (
         <span className="ml-2 min-w-0 truncate text-xs text-destructive" title={errorMessage}>
           {errorMessage}
+        </span>
+      )}
+
+      {!errorMessage && lagMessage && (
+        <span className="ml-2 min-w-0 truncate text-xs text-amber-600" title={lagMessage}>
+          {lagMessage}
         </span>
       )}
 

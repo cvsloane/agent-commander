@@ -95,7 +95,7 @@ export function TerminalSurface({
       )}
 
       {status === 'connected' && !readOnly && (
-        <>
+        <div className="sticky bottom-0 z-20 shrink-0 bg-background">
           {isMobile && paneId && (
             <TmuxKeyBar onInput={onVirtualInput} />
           )}
@@ -108,7 +108,7 @@ export function TerminalSurface({
             canPaste={!readOnly}
             autoShowOnMobile={isMobile}
           />
-        </>
+        </div>
       )}
     </>
   );

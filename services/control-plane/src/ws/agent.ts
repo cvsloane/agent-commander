@@ -256,14 +256,66 @@ async function processAgentMessage(
     case 'terminal.detached':
     case 'terminal.error':
     case 'terminal.readonly':
-    case 'terminal.control': {
-      const payload = message.payload as { channel_id: string; message?: string };
+    case 'terminal.control':
+    case 'terminal.lag': {
+      const payload = message.payload;
       const status = message.type === 'terminal.attached' ? 'attached'
         : message.type === 'terminal.detached' ? 'detached'
         : message.type === 'terminal.readonly' ? 'readonly'
         : message.type === 'terminal.control' ? 'control'
+        : message.type === 'terminal.lag' ? 'lag'
         : 'error';
-      handleTerminalStatus(payload.channel_id, status, payload.message);
+      handleTerminalStatus(payload.channel_id, status, payload.message, {
+        ...(payload.readonly !== undefined ? { readonly: payload.readonly } : {}),
+        ...(payload.resumed !== undefined ? { resumed: payload.resumed } : {}),
+        ...(payload.resume_token ? { resume_token: payload.resume_token } : {}),
+        ...(payload.dropped !== undefined ? { dropped: payload.dropped } : {}),
+      });
+      sendAck(socket, seq, 'ok');
+      break;
+    }
+
+    case 'terminal.audit': {
+      if (!state.hostId) {
+        throw new Error('Terminal audit received before agent authentication');
+      }
+      const session = await db.getSessionById(message.payload.session_id);
+      const auditPayload = {
+        host_id: state.hostId,
+        channel_id: message.payload.channel_id,
+        pane_id: message.payload.pane_id,
+        ...(message.payload.previous_controller_channel_id
+          ? { previous_controller_channel_id: message.payload.previous_controller_channel_id }
+          : {}),
+        source: 'agentd',
+      };
+      if (!session) {
+        app.log.warn(
+          { hostId: state.hostId, sessionId: message.payload.session_id },
+          'Recording terminal audit for a session that no longer exists'
+        );
+        await db.createAuditLog(
+          `terminal.${message.payload.action}`,
+          'host',
+          state.hostId,
+          {
+            ...auditPayload,
+            session_id: message.payload.session_id,
+            unresolved_session: true,
+          }
+        );
+        sendAck(socket, seq, 'ok');
+        break;
+      }
+      if (session.host_id !== state.hostId) {
+        throw new Error('Terminal audit session does not belong to authenticated host');
+      }
+      await db.createAuditLog(
+        `terminal.${message.payload.action}`,
+        'session',
+        message.payload.session_id,
+        auditPayload
+      );
       sendAck(socket, seq, 'ok');
       break;
     }

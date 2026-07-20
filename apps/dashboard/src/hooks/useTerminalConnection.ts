@@ -11,6 +11,12 @@ import {
 } from '@/lib/reconnect';
 import { resolveControlPlaneWebSocketUrl } from '@/lib/wsUrl';
 import type { ConnectionStatus, XTerminal } from '@/components/terminal/types';
+import {
+  buildTerminalHello,
+  buildTerminalWebSocketUrl,
+  decodeTerminalFrame,
+} from '@/components/terminal/protocol';
+import { calculateTerminalViewportHeight } from '@/components/terminal/viewport';
 
 export function useTerminalConnection({
   sessionId,
@@ -18,16 +24,20 @@ export function useTerminalConnection({
   autoAttach,
   wsRef,
   terminalRef,
+  containerRef,
   ensureTerminal,
   fitAndResize,
+  getDimensions,
 }: {
   sessionId: string;
   paneId?: string;
   autoAttach: boolean;
   wsRef: MutableRefObject<WebSocket | null>;
   terminalRef: MutableRefObject<XTerminal | null>;
+  containerRef: MutableRefObject<HTMLDivElement | null>;
   ensureTerminal: () => Promise<XTerminal | null>;
   fitAndResize: () => void;
+  getDimensions: () => { cols: number; rows: number } | undefined;
 }) {
   const dataDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const fitTimerRef = useRef<number | null>(null);
@@ -41,8 +51,10 @@ export function useTerminalConnection({
   const connectingRef = useRef(false);
   const connectionGenerationRef = useRef(0);
   const autoAttachedSessionRef = useRef<string | null>(null);
+  const resumeTokenRef = useRef<string | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [lagMessage, setLagMessage] = useState<string | null>(null);
   const [readOnly, setReadOnly] = useState(false);
 
   useEffect(() => {
@@ -115,11 +127,16 @@ export function useTerminalConnection({
         return;
       }
 
-      const ws = new WebSocket(resolveControlPlaneWebSocketUrl({
-        type: 'terminal',
-        sessionId,
-        token,
-      }));
+      const ws = new WebSocket(buildTerminalWebSocketUrl(
+        resolveControlPlaneWebSocketUrl({
+          type: 'terminal',
+          sessionId,
+          token,
+        }),
+        getDimensions(),
+        resumeTokenRef.current ?? undefined
+      ));
+      ws.binaryType = 'arraybuffer';
       wsRef.current = ws;
 
       const markConnected = () => {
@@ -130,31 +147,27 @@ export function useTerminalConnection({
 
       ws.onopen = () => {
         if (wsRef.current !== ws) return;
+        ws.send(JSON.stringify(buildTerminalHello()));
         fitAndResize();
       };
 
       ws.onmessage = (event) => {
         try {
-          const msg = JSON.parse(event.data);
+          const msg = decodeTerminalFrame(event.data as string | ArrayBuffer);
 
           switch (msg.type) {
             case 'output':
               markConnected();
-              if (msg.encoding === 'base64' && typeof msg.data === 'string') {
-                const decoded = atob(msg.data);
-                const bytes = new Uint8Array(decoded.length);
-                for (let i = 0; i < decoded.length; i += 1) {
-                  bytes[i] = decoded.charCodeAt(i);
-                }
-                terminalRef.current?.write(bytes);
-              } else {
-                terminalRef.current?.write(msg.data);
-              }
+              terminalRef.current?.write(msg.data);
               terminalRef.current?.scrollToBottom();
               break;
             case 'attached':
               markConnected();
-              setReadOnly(false);
+              if (msg.resume_token) {
+                resumeTokenRef.current = msg.resume_token;
+              }
+              setReadOnly(msg.readonly ?? false);
+              setLagMessage(null);
               fitAndResize();
               terminalRef.current?.focus();
               window.setTimeout(() => terminalRef.current?.focus(), 0);
@@ -170,6 +183,7 @@ export function useTerminalConnection({
             case 'detached':
               reconnectEnabledRef.current = false;
               terminalEndedRef.current = true;
+              resumeTokenRef.current = null;
               setStatus('disconnected');
               setReadOnly(false);
               setErrorMessage(null);
@@ -179,6 +193,7 @@ export function useTerminalConnection({
             case 'error':
               reconnectEnabledRef.current = false;
               terminalEndedRef.current = true;
+              resumeTokenRef.current = null;
               setStatus('error');
               setReadOnly(false);
               setErrorMessage(msg.message || 'Terminal error');
@@ -188,12 +203,19 @@ export function useTerminalConnection({
             case 'idle_timeout':
               reconnectEnabledRef.current = false;
               idleTimedOutRef.current = true;
+              resumeTokenRef.current = null;
               setStatus('disconnected');
               setReadOnly(false);
               setErrorMessage(null);
               terminalRef.current?.writeln('\r\n\x1b[33m[Session timed out due to inactivity]\x1b[0m');
               ws.close(1000, 'idle timeout');
               break;
+            case 'lag': {
+              const warning = msg.message || 'Terminal output was dropped while this viewer lagged';
+              setLagMessage(warning);
+              terminalRef.current?.writeln(`\r\n\x1b[33m[Terminal lag: ${warning}]\x1b[0m`);
+              break;
+            }
           }
         } catch (error) {
           console.error('Failed to parse terminal message:', error);
@@ -253,6 +275,7 @@ export function useTerminalConnection({
     clearReconnectTimer,
     ensureTerminal,
     fitAndResize,
+    getDimensions,
     paneId,
     sessionId,
     terminalRef,
@@ -292,9 +315,11 @@ export function useTerminalConnection({
     }
     dataDisposableRef.current?.dispose();
     dataDisposableRef.current = null;
+    resumeTokenRef.current = null;
     setStatus('disconnected');
     setReadOnly(false);
     setErrorMessage(null);
+    setLagMessage(null);
   }, [clearReconnectTimer, wsRef]);
 
   const takeControl = useCallback(() => {
@@ -310,14 +335,27 @@ export function useTerminalConnection({
     }
   }, [wsRef]);
 
+  const updateViewportHeight = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const viewport = window.visualViewport;
+    if (!viewport) {
+      container.style.removeProperty('--terminal-viewport-height');
+      return;
+    }
+    const height = calculateTerminalViewportHeight(viewport, container.getBoundingClientRect().top);
+    container.style.setProperty('--terminal-viewport-height', `${height}px`);
+  }, [containerRef]);
+
   const handleViewportResize = useCallback(() => {
+    updateViewportHeight();
     if (fitTimerRef.current) {
       window.clearTimeout(fitTimerRef.current);
     }
     fitTimerRef.current = window.setTimeout(() => {
       fitAndResize();
     }, 100);
-  }, [fitAndResize]);
+  }, [fitAndResize, updateViewportHeight]);
 
   const handleOnline = useCallback(() => {
     reconnectImmediately({ type: 'online' });
@@ -338,38 +376,51 @@ export function useTerminalConnection({
   }, [autoAttach, connect, paneId, sessionId, status]);
 
   useEffect(() => {
+    const resizeObserver = typeof ResizeObserver !== 'undefined' && containerRef.current
+      ? new ResizeObserver(handleViewportResize)
+      : null;
     if (typeof window !== 'undefined') {
+      updateViewportHeight();
+      if (containerRef.current) {
+        resizeObserver?.observe(containerRef.current);
+      }
       window.visualViewport?.addEventListener('resize', handleViewportResize);
+      window.visualViewport?.addEventListener('scroll', handleViewportResize);
       window.addEventListener('orientationchange', handleViewportResize);
       window.addEventListener('online', handleOnline);
       document.addEventListener('visibilitychange', handleVisibilityChange);
     }
 
     return () => {
+      resizeObserver?.disconnect();
       disconnect();
       if (fitTimerRef.current) {
         window.clearTimeout(fitTimerRef.current);
       }
       if (typeof window !== 'undefined') {
         window.visualViewport?.removeEventListener('resize', handleViewportResize);
+        window.visualViewport?.removeEventListener('scroll', handleViewportResize);
         window.removeEventListener('orientationchange', handleViewportResize);
         window.removeEventListener('online', handleOnline);
         document.removeEventListener('visibilitychange', handleVisibilityChange);
       }
     };
   }, [
+    containerRef,
     disconnect,
     handleOnline,
     handleViewportResize,
     handleVisibilityChange,
     paneId,
     sessionId,
+    updateViewportHeight,
   ]);
 
   return {
     readOnlyRef,
     status,
     errorMessage,
+    lagMessage,
     readOnly,
     connect,
     disconnect,

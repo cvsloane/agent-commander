@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, type MutableRefObject, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useState, type MutableRefObject, type ReactNode } from 'react';
 import { ListTree, MoreHorizontal, Plus, RefreshCw, Rows3, TerminalSquare } from 'lucide-react';
 import type { Host, Session, SessionWithSnapshot } from '@agent-command/schema';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -13,6 +13,30 @@ import { TmuxActionSheet } from './TmuxActionSheet';
 import { TmuxRoster } from './TmuxRoster';
 
 type TmuxMobileMode = 'roster' | 'terminal' | 'actions';
+
+export function PersistentTerminalRegion({
+  visible,
+  children,
+}: {
+  visible: boolean;
+  children?: ReactNode;
+}) {
+  return (
+    <div hidden={!visible} aria-hidden={!visible} className={cn('space-y-3', !visible && 'hidden')}>
+      {children}
+    </div>
+  );
+}
+
+export function PersistentSessionTerminal({
+  sessionId,
+  children,
+}: {
+  sessionId: string;
+  children: ReactNode;
+}) {
+  return <Fragment key={sessionId}>{children}</Fragment>;
+}
 
 interface TmuxMobileShellProps {
   hosts: Host[];
@@ -113,6 +137,7 @@ export function TmuxMobileShell({
   }, [onSelectSession]);
 
   const actionSheetOpen = mode === 'actions';
+  const terminalVisible = mode === 'terminal' || mode === 'actions';
   const hostForStatus = selectedSessionHost || selectedHost;
   const selectedTitle = selectedSession ? getSessionDisplayName(selectedSession) : 'No pane selected';
 
@@ -248,9 +273,8 @@ export function TmuxMobileShell({
         </div>
       )}
 
-      {(mode === 'terminal' || mode === 'actions') && (
-        <div className="space-y-3">
-          {selectedSession && (
+      <PersistentTerminalRegion visible={terminalVisible}>
+          {terminalVisible && selectedSession && (
             <div className="rounded-lg border bg-card px-3 py-2">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -268,9 +292,12 @@ export function TmuxMobileShell({
             </div>
           )}
 
-          {selectedSessionId ? terminal : emptyTerminal}
-        </div>
-      )}
+          {selectedSessionId ? (
+            <PersistentSessionTerminal sessionId={selectedSessionId}>
+              {terminal}
+            </PersistentSessionTerminal>
+          ) : emptyTerminal}
+      </PersistentTerminalRegion>
 
       <TmuxActionSheet
         open={actionSheetOpen}
