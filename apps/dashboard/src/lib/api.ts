@@ -90,7 +90,10 @@ import type { GroupWithChildren } from '@/lib/groupTypes';
 import { getControlPlaneToken } from '@/lib/wsToken';
 import { getRuntimeConfig } from '@/lib/runtimeConfig';
 
-type RuntimeSchema<T> = { parse(input: unknown): T };
+type RuntimeSchema<T> = {
+  parse(input: unknown): T;
+  safeParse(input: unknown): { success: true; data: T } | { success: false; error: unknown };
+};
 
 function resolveApiBase(): string {
   const runtime = typeof window !== 'undefined' ? getRuntimeConfig() : {};
@@ -159,7 +162,12 @@ async function fetchAPI<T>(
     }
 
     const payload: unknown = await res.json();
-    return responseSchema ? responseSchema.parse(payload) : payload as T;
+    if (responseSchema) {
+      const result = responseSchema.safeParse(payload);
+      if (result.success) return result.data;
+      console.warn(`API response validation failed for ${path}; using raw payload`, result.error);
+    }
+    return payload as T;
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw new Error('Request timed out');

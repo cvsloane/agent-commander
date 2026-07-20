@@ -9,12 +9,16 @@ import { getSessions, getTmuxRoster } from './api';
 describe('hot endpoint runtime validation', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('rejects malformed session responses instead of trusting JSON casts', async () => {
+  it('warns and passes through malformed session responses instead of breaking the UI', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       sessions: [{ id: 'not-a-uuid' }],
     }), { status: 200 })));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await expect(getSessions()).rejects.toThrow();
+    const result = await getSessions();
+    expect(result.sessions[0]?.id).toBe('not-a-uuid');
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it('accepts a database-shaped session after fork depth normalization', async () => {
