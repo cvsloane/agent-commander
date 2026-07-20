@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { forwardRef, useState, useEffect, useCallback, useImperativeHandle, useRef } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -14,8 +14,15 @@ interface SelectionPopupProps {
   selectionText?: string;
   /** Optional anchor position when using external selection */
   anchorPosition?: { x: number; y: number };
+  /** Selection is supplied through the imperative handle instead of DOM events. */
+  imperative?: boolean;
   /** Additional class names */
   className?: string;
+}
+
+export interface SelectionPopupHandle {
+  showSelection: (text: string, anchorPosition?: { x: number; y: number }) => void;
+  hide: () => void;
 }
 
 interface Position {
@@ -27,19 +34,64 @@ interface Position {
  * Floating copy button that appears when text is selected.
  * Position is clamped to viewport bounds.
  */
-export function SelectionPopup({
+export const SelectionPopup = forwardRef<SelectionPopupHandle, SelectionPopupProps>(function SelectionPopup({
   containerRef,
   onCopy,
   selectionText,
   anchorPosition,
+  imperative = false,
   className,
-}: SelectionPopupProps) {
+}, forwardedRef) {
   const [visible, setVisible] = useState(false);
   const [copied, setCopied] = useState(false);
   const [position, setPosition] = useState<Position>({ x: 0, y: 0 });
   const [selectedText, setSelectedText] = useState('');
   const popupRef = useRef<HTMLDivElement>(null);
-  const usesExternalSelection = selectionText !== undefined;
+  const usesExternalSelection = imperative || selectionText !== undefined;
+
+  const hide = useCallback(() => {
+    setVisible(false);
+    setSelectedText('');
+  }, []);
+
+  const showSelection = useCallback((text: string, anchor?: { x: number; y: number }) => {
+    if (!text.trim()) {
+      hide();
+      return;
+    }
+
+    const container = containerRef.current;
+    if (!container) return;
+
+    setSelectedText(text);
+    setCopied(false);
+
+    const containerRect = container.getBoundingClientRect();
+    const fallback = {
+      x: containerRect.left + containerRect.width / 2,
+      y: containerRect.top + 16,
+    };
+    const nextAnchor = anchor || fallback;
+    const popupWidth = 44;
+    const popupHeight = 40;
+
+    const x = Math.max(
+      popupWidth / 2 + 8,
+      Math.min(nextAnchor.x, window.innerWidth - popupWidth / 2 - 8)
+    );
+    let y = nextAnchor.y - 8;
+    if (y < popupHeight + 8) {
+      y = nextAnchor.y + 8;
+    }
+
+    setPosition({ x, y });
+    setVisible(true);
+  }, [containerRef, hide]);
+
+  useImperativeHandle(forwardedRef, () => ({
+    showSelection,
+    hide,
+  }), [hide, showSelection]);
 
   const handleSelectionChange = useCallback(() => {
     if (usesExternalSelection) return;
@@ -121,41 +173,9 @@ export function SelectionPopup({
 
   // External selection support (e.g., xterm)
   useEffect(() => {
-    if (!usesExternalSelection) return;
-    const text = selectionText || '';
-
-    if (!text.trim()) {
-      setVisible(false);
-      setSelectedText('');
-      return;
-    }
-
-    const container = containerRef.current;
-    if (!container) return;
-
-    setSelectedText(text);
-    setCopied(false);
-
-    const containerRect = container.getBoundingClientRect();
-    const fallback = {
-      x: containerRect.left + containerRect.width / 2,
-      y: containerRect.top + 16,
-    };
-    const anchor = anchorPosition || fallback;
-
-    // Position popup near anchor, clamp to viewport bounds
-    const popupWidth = 44;
-    const popupHeight = 40;
-
-    let x = Math.max(popupWidth / 2 + 8, Math.min(anchor.x, window.innerWidth - popupWidth / 2 - 8));
-    let y = anchor.y - 8;
-    if (y < popupHeight + 8) {
-      y = anchor.y + 8;
-    }
-
-    setPosition({ x, y });
-    setVisible(true);
-  }, [selectionText, anchorPosition, containerRef, usesExternalSelection]);
+    if (!usesExternalSelection || imperative) return;
+    showSelection(selectionText || '', anchorPosition);
+  }, [anchorPosition, imperative, selectionText, showSelection, usesExternalSelection]);
 
   // Hide popup when clicking outside
   useEffect(() => {
@@ -235,4 +255,4 @@ export function SelectionPopup({
       </Button>
     </div>
   );
-}
+});

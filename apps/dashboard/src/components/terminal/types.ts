@@ -1,5 +1,7 @@
 export type XTerminal = import('@xterm/xterm').Terminal;
 export type XFitAddon = import('@xterm/addon-fit').FitAddon;
+export type XSearchAddon = import('@xterm/addon-search').SearchAddon;
+export type XSearchResult = import('@xterm/addon-search').ISearchResultChangeEvent;
 
 export type ConnectionStatus =
   | 'disconnected'
@@ -11,6 +13,7 @@ export type ConnectionStatus =
 export interface TerminalController {
   attach: () => void;
   detach: () => void;
+  suspend: () => boolean;
   takeControl: () => void;
   focus: () => void;
   copySelection: () => void;

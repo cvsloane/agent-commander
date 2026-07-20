@@ -17,6 +17,7 @@ import {
   decodeTerminalFrame,
 } from '@/components/terminal/protocol';
 import { calculateTerminalViewportHeight } from '@/components/terminal/viewport';
+import { handleTerminalOutputFrame } from '@/components/terminal/terminalFrameRouter';
 
 export function useTerminalConnection({
   sessionId,
@@ -28,6 +29,7 @@ export function useTerminalConnection({
   ensureTerminal,
   fitAndResize,
   getDimensions,
+  onOutputWritten,
 }: {
   sessionId: string;
   paneId?: string;
@@ -38,8 +40,8 @@ export function useTerminalConnection({
   ensureTerminal: () => Promise<XTerminal | null>;
   fitAndResize: () => void;
   getDimensions: () => { cols: number; rows: number } | undefined;
+  onOutputWritten: (terminal: XTerminal) => void;
 }) {
-  const dataDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const fitTimerRef = useRef<number | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectStateRef = useRef<ReconnectState>(initialReconnectState);
@@ -56,10 +58,33 @@ export function useTerminalConnection({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lagMessage, setLagMessage] = useState<string | null>(null);
   const [readOnly, setReadOnly] = useState(false);
+  const statusRef = useRef<ConnectionStatus>('disconnected');
+  const errorMessageRef = useRef<string | null>(null);
+  const lagMessageRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    readOnlyRef.current = readOnly;
-  }, [readOnly]);
+  const updateStatus = useCallback((nextStatus: ConnectionStatus) => {
+    if (statusRef.current === nextStatus) return;
+    statusRef.current = nextStatus;
+    setStatus(nextStatus);
+  }, []);
+
+  const updateErrorMessage = useCallback((nextMessage: string | null) => {
+    if (errorMessageRef.current === nextMessage) return;
+    errorMessageRef.current = nextMessage;
+    setErrorMessage(nextMessage);
+  }, []);
+
+  const updateLagMessage = useCallback((nextMessage: string | null) => {
+    if (lagMessageRef.current === nextMessage) return;
+    lagMessageRef.current = nextMessage;
+    setLagMessage(nextMessage);
+  }, []);
+
+  const updateReadOnly = useCallback((nextReadOnly: boolean) => {
+    if (readOnlyRef.current === nextReadOnly) return;
+    readOnlyRef.current = nextReadOnly;
+    setReadOnly(nextReadOnly);
+  }, []);
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current !== null) {
@@ -103,13 +128,13 @@ export function useTerminalConnection({
     idleTimedOutRef.current = false;
 
     if (!navigator.onLine) {
-      setStatus('reconnecting');
-      setErrorMessage(null);
+      updateStatus('reconnecting');
+      updateErrorMessage(null);
       return;
     }
 
-    setStatus(reconnectStateRef.current.attempt > 0 ? 'reconnecting' : 'connecting');
-    setErrorMessage(null);
+    updateStatus(reconnectStateRef.current.attempt > 0 ? 'reconnecting' : 'connecting');
+    updateErrorMessage(null);
     connectingRef.current = true;
     const generation = ++connectionGenerationRef.current;
 
@@ -122,8 +147,8 @@ export function useTerminalConnection({
       if (!ticket) {
         reconnectEnabledRef.current = false;
         reconnectStateRef.current = initialReconnectState;
-        setStatus('error');
-        setErrorMessage('Authentication token not found');
+        updateStatus('error');
+        updateErrorMessage('Authentication token not found');
         return;
       }
 
@@ -140,9 +165,11 @@ export function useTerminalConnection({
       wsRef.current = ws;
 
       const markConnected = () => {
-        applyReconnectEvent({ type: 'opened' }, () => undefined);
-        setStatus('connected');
-        setErrorMessage(null);
+        if (statusRef.current !== 'connected') {
+          applyReconnectEvent({ type: 'opened' }, () => undefined);
+          updateStatus('connected');
+        }
+        updateErrorMessage(null);
       };
 
       ws.onopen = () => {
@@ -155,38 +182,41 @@ export function useTerminalConnection({
         try {
           const msg = decodeTerminalFrame(event.data as string | ArrayBuffer);
 
+          if (handleTerminalOutputFrame(msg, (data) => {
+            if (!terminalRef.current) return;
+            const terminal = terminalRef.current;
+            terminal.write(data, () => onOutputWritten(terminal));
+          })) {
+            return;
+          }
+
           switch (msg.type) {
-            case 'output':
-              markConnected();
-              terminalRef.current?.write(msg.data);
-              terminalRef.current?.scrollToBottom();
-              break;
             case 'attached':
               markConnected();
               if (msg.resume_token) {
                 resumeTokenRef.current = msg.resume_token;
               }
-              setReadOnly(msg.readonly ?? false);
-              setLagMessage(null);
+              updateReadOnly(msg.readonly ?? false);
+              updateLagMessage(null);
               fitAndResize();
               terminalRef.current?.focus();
               window.setTimeout(() => terminalRef.current?.focus(), 0);
               break;
             case 'readonly':
               markConnected();
-              setReadOnly(true);
+              updateReadOnly(true);
               break;
             case 'control':
               markConnected();
-              setReadOnly(false);
+              updateReadOnly(false);
               break;
             case 'detached':
               reconnectEnabledRef.current = false;
               terminalEndedRef.current = true;
               resumeTokenRef.current = null;
-              setStatus('disconnected');
-              setReadOnly(false);
-              setErrorMessage(null);
+              updateStatus('disconnected');
+              updateReadOnly(false);
+              updateErrorMessage(null);
               terminalRef.current?.writeln('\r\n\x1b[33m[Terminal detached]\x1b[0m');
               ws.close(1000, 'terminal detached');
               break;
@@ -194,9 +224,9 @@ export function useTerminalConnection({
               reconnectEnabledRef.current = false;
               terminalEndedRef.current = true;
               resumeTokenRef.current = null;
-              setStatus('error');
-              setReadOnly(false);
-              setErrorMessage(msg.message || 'Terminal error');
+              updateStatus('error');
+              updateReadOnly(false);
+              updateErrorMessage(msg.message || 'Terminal error');
               terminalRef.current?.writeln(`\r\n\x1b[31m[Error: ${msg.message || 'Unknown error'}]\x1b[0m`);
               ws.close(1000, 'terminal error');
               break;
@@ -204,15 +234,15 @@ export function useTerminalConnection({
               reconnectEnabledRef.current = false;
               idleTimedOutRef.current = true;
               resumeTokenRef.current = null;
-              setStatus('disconnected');
-              setReadOnly(false);
-              setErrorMessage(null);
+              updateStatus('disconnected');
+              updateReadOnly(false);
+              updateErrorMessage(null);
               terminalRef.current?.writeln('\r\n\x1b[33m[Session timed out due to inactivity]\x1b[0m');
               ws.close(1000, 'idle timeout');
               break;
             case 'lag': {
               const warning = msg.message || 'Terminal output was dropped while this viewer lagged';
-              setLagMessage(warning);
+              updateLagMessage(warning);
               terminalRef.current?.writeln(`\r\n\x1b[33m[Terminal lag: ${warning}]\x1b[0m`);
               break;
             }
@@ -236,8 +266,8 @@ export function useTerminalConnection({
           reconnectEnabledRef.current &&
           shouldReconnectTerminal({ code: event.code, deliberate, idleTimedOut })
         ) {
-          setStatus('reconnecting');
-          setErrorMessage(null);
+          updateStatus('reconnecting');
+          updateErrorMessage(null);
           applyReconnectEvent({ type: 'closed' }, () => void connectTerminal());
           return;
         }
@@ -245,19 +275,13 @@ export function useTerminalConnection({
         reconnectEnabledRef.current = false;
         reconnectStateRef.current = initialReconnectState;
         clearReconnectTimer();
-        setStatus((current) => (current === 'error' ? current : 'disconnected'));
+        if (statusRef.current !== 'error') {
+          updateStatus('disconnected');
+        }
         if (!deliberate && !idleTimedOut && event.code !== 1000) {
-          setErrorMessage(`Connection closed: ${event.reason || `code ${event.code}`}`);
+          updateErrorMessage(`Connection closed: ${event.reason || `code ${event.code}`}`);
         }
       };
-
-      dataDisposableRef.current?.dispose();
-      dataDisposableRef.current = terminalRef.current?.onData((data) => {
-        if (readOnlyRef.current) return;
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'input', data }));
-        }
-      }) || null;
 
       if (fitTimerRef.current) {
         window.clearTimeout(fitTimerRef.current);
@@ -276,9 +300,14 @@ export function useTerminalConnection({
     ensureTerminal,
     fitAndResize,
     getDimensions,
+    onOutputWritten,
     paneId,
     sessionId,
     terminalRef,
+    updateErrorMessage,
+    updateLagMessage,
+    updateReadOnly,
+    updateStatus,
     wsRef,
   ]);
 
@@ -292,10 +321,10 @@ export function useTerminalConnection({
       wsRef.current?.readyState === WebSocket.CONNECTING
     ) return;
 
-    setStatus('reconnecting');
-    setErrorMessage(null);
+    updateStatus('reconnecting');
+    updateErrorMessage(null);
     applyReconnectEvent(event, () => void connect());
-  }, [applyReconnectEvent, connect, paneId, wsRef]);
+  }, [applyReconnectEvent, connect, paneId, updateErrorMessage, updateStatus, wsRef]);
 
   const disconnect = useCallback(() => {
     reconnectEnabledRef.current = false;
@@ -313,14 +342,38 @@ export function useTerminalConnection({
       }
       ws.close();
     }
-    dataDisposableRef.current?.dispose();
-    dataDisposableRef.current = null;
     resumeTokenRef.current = null;
-    setStatus('disconnected');
-    setReadOnly(false);
-    setErrorMessage(null);
-    setLagMessage(null);
-  }, [clearReconnectTimer, wsRef]);
+    updateStatus('disconnected');
+    updateReadOnly(false);
+    updateErrorMessage(null);
+    updateLagMessage(null);
+  }, [clearReconnectTimer, updateErrorMessage, updateLagMessage, updateReadOnly, updateStatus, wsRef]);
+
+  const suspend = useCallback(() => {
+    const ws = wsRef.current;
+    const wasActive = reconnectEnabledRef.current
+      || connectingRef.current
+      || ws?.readyState === WebSocket.OPEN
+      || ws?.readyState === WebSocket.CONNECTING;
+    if (!wasActive) return false;
+
+    reconnectEnabledRef.current = false;
+    reconnectStateRef.current = initialReconnectState;
+    connectingRef.current = false;
+    connectionGenerationRef.current += 1;
+    clearReconnectTimer();
+
+    wsRef.current = null;
+    if (ws) {
+      intentionalCloseRef.current = true;
+      ws.close(1000, 'terminal background timeout');
+    }
+    updateStatus('disconnected');
+    updateReadOnly(false);
+    updateErrorMessage(null);
+    updateLagMessage(null);
+    return true;
+  }, [clearReconnectTimer, updateErrorMessage, updateLagMessage, updateReadOnly, updateStatus, wsRef]);
 
   const takeControl = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -417,13 +470,13 @@ export function useTerminalConnection({
   ]);
 
   return {
-    readOnlyRef,
     status,
     errorMessage,
     lagMessage,
     readOnly,
     connect,
     disconnect,
+    suspend,
     takeControl,
     sendInput,
   };

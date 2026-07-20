@@ -1,20 +1,31 @@
 'use client';
 
 import { useCallback, useRef, type MutableRefObject } from 'react';
-import type { XFitAddon, XTerminal } from '@/components/terminal/types';
+import type { XFitAddon, XSearchAddon, XSearchResult, XTerminal } from '@/components/terminal/types';
 import { canFitTerminalElement } from '@/components/terminal/viewport';
 
 export function useXtermTerminal({
   termRef,
   wsRef,
+  sendInputRef,
   onSelectionChange,
+  onViewportScroll,
+  onTerminalInstanceChange,
+  onSearchRequested,
+  onSearchResultsChange,
 }: {
   termRef: MutableRefObject<HTMLDivElement | null>;
   wsRef: MutableRefObject<WebSocket | null>;
+  sendInputRef: MutableRefObject<(data: string) => void>;
   onSelectionChange: (selection: string) => void;
+  onViewportScroll: (terminal: XTerminal) => void;
+  onTerminalInstanceChange: (terminal: XTerminal | null) => void;
+  onSearchRequested: () => void;
+  onSearchResultsChange: (results: XSearchResult) => void;
 }) {
   const terminalRef = useRef<XTerminal | null>(null);
   const fitAddonRef = useRef<XFitAddon | null>(null);
+  const searchAddonRef = useRef<XSearchAddon | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
   const fitAndResize = useCallback(() => {
@@ -45,15 +56,17 @@ export function useXtermTerminal({
 
     const { Terminal } = await import('@xterm/xterm');
     const { FitAddon } = await import('@xterm/addon-fit');
+    const { SearchAddon } = await import('@xterm/addon-search');
     const { WebLinksAddon } = await import('@xterm/addon-web-links');
     const fontSize = window.matchMedia('(max-width: 767px)').matches ? 11 : 14;
 
     const terminal = new Terminal({
+      allowProposedApi: true,
       cursorBlink: true,
       fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
       fontSize,
       lineHeight: 1.25,
-      scrollback: 4000,
+      scrollback: 10000,
       convertEol: true,
       theme: {
         background: '#0a0a0a',
@@ -81,8 +94,11 @@ export function useXtermTerminal({
     });
 
     const fitAddon = new FitAddon();
+    const searchAddon = new SearchAddon();
     terminal.loadAddon(fitAddon);
+    terminal.loadAddon(searchAddon);
     terminal.loadAddon(new WebLinksAddon());
+    searchAddon.onDidChangeResults(onSearchResultsChange);
 
     terminal.open(termRef.current);
     try {
@@ -97,15 +113,18 @@ export function useXtermTerminal({
       fitAddon.fit();
     }
     terminal.attachCustomKeyEventHandler((event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        onSearchRequested();
+        return false;
+      }
       if (event.key === 'Tab') {
         event.preventDefault();
         return true;
       }
       if (event.key === 'Enter' && event.shiftKey) {
         event.preventDefault();
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ type: 'input', data: '\x1b[13;2u' }));
-        }
+        sendInputRef.current('\x1b[13;2u');
         return false;
       }
       return true;
@@ -114,9 +133,17 @@ export function useXtermTerminal({
     terminal.onSelectionChange(() => {
       onSelectionChange(terminal.getSelection());
     });
+    terminal.onData((data) => {
+      sendInputRef.current(data);
+    });
+    terminal.onScroll(() => {
+      onViewportScroll(terminal);
+    });
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+    searchAddonRef.current = searchAddon;
+    onTerminalInstanceChange(terminal);
 
     const resizeObserver = new ResizeObserver(() => {
       fitAndResize();
@@ -125,7 +152,45 @@ export function useXtermTerminal({
     resizeObserverRef.current = resizeObserver;
 
     return terminal;
-  }, [fitAndResize, onSelectionChange, termRef, wsRef]);
+  }, [
+    fitAndResize,
+    onSearchRequested,
+    onSearchResultsChange,
+    onSelectionChange,
+    onTerminalInstanceChange,
+    onViewportScroll,
+    sendInputRef,
+    termRef,
+  ]);
+
+  const findNext = useCallback((query: string, incremental = false) => {
+    if (!query || !searchAddonRef.current) return false;
+    return searchAddonRef.current.findNext(query, {
+      incremental,
+      decorations: {
+        matchBackground: '#665c20',
+        matchOverviewRuler: '#facc15',
+        activeMatchBackground: '#2563eb',
+        activeMatchColorOverviewRuler: '#60a5fa',
+      },
+    });
+  }, []);
+
+  const findPrevious = useCallback((query: string) => {
+    if (!query || !searchAddonRef.current) return false;
+    return searchAddonRef.current.findPrevious(query, {
+      decorations: {
+        matchBackground: '#665c20',
+        matchOverviewRuler: '#facc15',
+        activeMatchBackground: '#2563eb',
+        activeMatchColorOverviewRuler: '#60a5fa',
+      },
+    });
+  }, []);
+
+  const clearSearch = useCallback(() => {
+    searchAddonRef.current?.clearDecorations();
+  }, []);
 
   const disposeTerminal = useCallback(() => {
     resizeObserverRef.current?.disconnect();
@@ -133,13 +198,18 @@ export function useXtermTerminal({
     terminalRef.current?.dispose();
     terminalRef.current = null;
     fitAddonRef.current = null;
-  }, []);
+    searchAddonRef.current = null;
+    onTerminalInstanceChange(null);
+  }, [onTerminalInstanceChange]);
 
   return {
     terminalRef,
     ensureTerminal,
     fitAndResize,
     getDimensions,
+    findNext,
+    findPrevious,
+    clearSearch,
     disposeTerminal,
   };
 }

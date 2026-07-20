@@ -6,12 +6,10 @@ import type { XTerminal } from '@/components/terminal/types';
 
 export function useTerminalClipboard({
   terminalRef,
-  readOnlyRef,
-  wsRef,
+  sendInput,
 }: {
   terminalRef: MutableRefObject<XTerminal | null>;
-  readOnlyRef: MutableRefObject<boolean>;
-  wsRef: MutableRefObject<WebSocket | null>;
+  sendInput: (data: string) => void;
 }) {
   const { copyToClipboard, readFromClipboard } = useClipboard();
 
@@ -59,19 +57,15 @@ export function useTerminalClipboard({
   }, [copyToClipboard, terminalRef]);
 
   const paste = useCallback(async (text?: string) => {
-    if (readOnlyRef.current) return;
-
     const pasteText = text || await readFromClipboard();
-    if (pasteText && wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'input', data: pasteText }));
+    if (pasteText) {
+      sendInput(pasteText);
     }
-  }, [readFromClipboard, readOnlyRef, wsRef]);
+  }, [readFromClipboard, sendInput]);
 
   const clear = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'input', data: '\x0c' }));
-    }
-  }, [wsRef]);
+    sendInput('\x0c');
+  }, [sendInput]);
 
   const copyText = useCallback((text: string) => {
     copyToClipboard(text);

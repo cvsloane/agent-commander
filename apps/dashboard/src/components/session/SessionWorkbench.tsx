@@ -8,7 +8,8 @@ import { ActivityTimeline } from '@/components/ActivityTimeline';
 import { ConsoleView } from '@/components/ConsoleView';
 import { LinkedSessionsPanel } from '@/components/LinkedSessionsPanel';
 import { SessionAnalytics } from '@/components/analytics/SessionAnalytics';
-import { TerminalView, type TerminalController } from '@/components/TerminalView';
+import type { TerminalController } from '@/components/TerminalView';
+import { PersistentTerminalSlot } from '@/components/terminal/PersistentTerminalHost';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useHydrated } from '@/hooks/useHydrated';
@@ -186,7 +187,7 @@ export function SessionWorkbench({
               provider={session.provider}
             />
           ) : (
-            <TerminalView
+            <PersistentTerminalSlot
               sessionId={session.id}
               paneId={session.tmux_pane_id || undefined}
               autoAttach={autoAttachTerminal}
