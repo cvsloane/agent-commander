@@ -14,15 +14,15 @@ describe('browser terminal protocol', () => {
     expect(Array.from(frame.data as Uint8Array)).toEqual(Array.from(source));
   });
 
-  it('carries fitted dimensions and the prior viewer token into reconnect URLs', () => {
+  it('carries a one-time ticket, fitted dimensions, and the prior viewer resume token', () => {
     const url = buildTerminalWebSocketUrl(
-      'wss://control.example/v1/ui/terminal/session-id?token=jwt',
+      'wss://control.example/v1/ui/terminal/session-id?ticket=one-time-ticket',
       { cols: 118, rows: 37 },
       'resume/token+1'
     );
     const parsed = new URL(url);
 
-    expect(parsed.searchParams.get('token')).toBe('jwt');
+    expect(parsed.searchParams.get('ticket')).toBe('one-time-ticket');
     expect(parsed.searchParams.get('cols')).toBe('118');
     expect(parsed.searchParams.get('rows')).toBe('37');
     expect(parsed.searchParams.get('resume_token')).toBe('resume/token+1');

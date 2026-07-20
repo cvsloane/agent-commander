@@ -1,6 +1,7 @@
 import type { NextAuthOptions } from 'next-auth';
 import GitHubProvider from 'next-auth/providers/github';
 import CredentialsProvider from 'next-auth/providers/credentials';
+import { createHash, timingSafeEqual } from 'node:crypto';
 
 function parseList(value?: string): string[] {
   if (!value) return [];
@@ -15,10 +16,62 @@ const allowedEmails = parseList(process.env.ALLOWED_EMAILS);
 const sessionDaysRaw = Number.parseInt(process.env.AUTH_SESSION_DAYS || '30', 10);
 const sessionDays = Number.isFinite(sessionDaysRaw) && sessionDaysRaw > 0 ? sessionDaysRaw : 30;
 const sessionMaxAge = sessionDays * 24 * 60 * 60;
+const accessCodeMaxAttemptsRaw = Number.parseInt(process.env.ACCESS_CODE_MAX_ATTEMPTS || '5', 10);
+const accessCodeMaxAttempts = Number.isFinite(accessCodeMaxAttemptsRaw) && accessCodeMaxAttemptsRaw > 0
+  ? accessCodeMaxAttemptsRaw
+  : 5;
+const accessCodeWindowSecondsRaw = Number.parseInt(process.env.ACCESS_CODE_WINDOW_SECONDS || '300', 10);
+const accessCodeWindowMs = (
+  Number.isFinite(accessCodeWindowSecondsRaw) && accessCodeWindowSecondsRaw > 0
+    ? accessCodeWindowSecondsRaw
+    : 300
+) * 1000;
+const maxTrackedAccessCodeSources = 10_000;
+const accessCodeAttempts = new Map<string, { failures: number; resetAt: number }>();
 
 function resolveRole(email?: string | null): 'admin' | 'operator' | 'viewer' {
   if (email && adminEmails.includes(email)) return 'admin';
-  return 'operator';
+  return 'viewer';
+}
+
+function secureSecretMatch(provided: string, expected: string): boolean {
+  const providedDigest = createHash('sha256').update(provided).digest();
+  const expectedDigest = createHash('sha256').update(expected).digest();
+  return timingSafeEqual(providedDigest, expectedDigest);
+}
+
+function accessCodeAttemptKey(headers: Record<string, string | string[] | undefined>): string {
+  const forwarded = headers['x-forwarded-for'];
+  const forwardedValue = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+  if (forwardedValue) return forwardedValue.split(',', 1)[0]?.trim() || 'unknown';
+  const realIp = headers['x-real-ip'];
+  return (Array.isArray(realIp) ? realIp[0] : realIp)?.trim() || 'unknown';
+}
+
+function accessCodeAttemptAllowed(key: string, now: number): boolean {
+  const attempt = accessCodeAttempts.get(key);
+  if (!attempt) return true;
+  if (attempt.resetAt <= now) {
+    accessCodeAttempts.delete(key);
+    return true;
+  }
+  return attempt.failures < accessCodeMaxAttempts;
+}
+
+function recordAccessCodeFailure(key: string, now: number): void {
+  for (const [candidateKey, attempt] of accessCodeAttempts) {
+    if (attempt.resetAt <= now) accessCodeAttempts.delete(candidateKey);
+  }
+  if (!accessCodeAttempts.has(key) && accessCodeAttempts.size >= maxTrackedAccessCodeSources) {
+    const oldestKey = accessCodeAttempts.keys().next().value;
+    if (oldestKey) accessCodeAttempts.delete(oldestKey);
+  }
+  const current = accessCodeAttempts.get(key);
+  if (!current || current.resetAt <= now) {
+    accessCodeAttempts.set(key, { failures: 1, resetAt: now + accessCodeWindowMs });
+    return;
+  }
+  current.failures += 1;
 }
 
 // Build providers list dynamically based on env vars
@@ -32,14 +85,24 @@ if (process.env.ACCESS_SECRET) {
       credentials: {
         code: { label: 'Access Code', type: 'password', placeholder: 'Enter access code' },
       },
-      async authorize(credentials) {
-        if (credentials?.code === process.env.ACCESS_SECRET) {
+      async authorize(credentials, request) {
+        const attemptKey = accessCodeAttemptKey(request.headers || {});
+        const now = Date.now();
+        if (!accessCodeAttemptAllowed(attemptKey, now)) {
+          return null;
+        }
+
+        const submittedCode = credentials?.code || '';
+        const expectedCode = process.env.ACCESS_SECRET || '';
+        if (submittedCode && expectedCode && secureSecretMatch(submittedCode, expectedCode)) {
+          accessCodeAttempts.delete(attemptKey);
           return {
             id: 'admin',
             name: 'Admin',
             email: adminEmails[0] || 'admin@local',
           };
         }
+        recordAccessCodeFailure(attemptKey, now);
         return null;
       },
     })
@@ -78,7 +141,7 @@ export const authOptions: NextAuthOptions = {
       }
       // OAuth providers - check allowed emails
       const email = (profile as { email?: string | null })?.email || user?.email || null;
-      if (allowedEmails.length > 0 && (!email || !allowedEmails.includes(email))) {
+      if (allowedEmails.length === 0 || !email || !allowedEmails.includes(email)) {
         return false;
       }
       return true;
@@ -100,9 +163,7 @@ export const authOptions: NextAuthOptions = {
           token.sub = String((profile as { id?: string }).id);
         }
       }
-      if (!token.role) {
-        token.role = resolveRole(token.email as string | undefined);
-      }
+      token.role = resolveRole(token.email as string | undefined);
       return token;
     },
     async session({ session, token }) {

@@ -1028,6 +1028,50 @@ export async function createAuditLog(
   );
 }
 
+export interface AuditLogRow {
+  id: string;
+  ts: string;
+  user_id: string | null;
+  user_email: string | null;
+  user_name: string | null;
+  user_role: string | null;
+  action: string;
+  object_type: string;
+  object_id: string | null;
+  payload: Record<string, unknown>;
+}
+
+export async function listAuditLogs(filters: {
+  limit: number;
+  offset: number;
+  action?: string;
+  object_type?: string;
+}): Promise<AuditLogRow[]> {
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+  if (filters.action) {
+    values.push(filters.action);
+    conditions.push(`a.action = $${values.length}`);
+  }
+  if (filters.object_type) {
+    values.push(filters.object_type);
+    conditions.push(`a.object_type = $${values.length}`);
+  }
+  values.push(filters.limit, filters.offset);
+  const limitIndex = values.length - 1;
+  const offsetIndex = values.length;
+  const result = await pool.query<AuditLogRow>(
+    `SELECT a.*, u.email AS user_email, u.name AS user_name, u.role AS user_role
+     FROM audit_log a
+     LEFT JOIN users u ON u.id = a.user_id
+     ${conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''}
+     ORDER BY a.ts DESC, a.id DESC
+     LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
+    values
+  );
+  return result.rows;
+}
+
 // Session Group queries
 export async function getGroups(): Promise<SessionGroupWithCount[]> {
   const result = await pool.query(

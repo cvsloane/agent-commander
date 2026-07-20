@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
-import { getControlPlaneToken } from '@/lib/wsToken';
+import { getWebSocketTicket } from '@/lib/wsToken';
 import {
   initialReconnectState,
   shouldReconnectTerminal,
@@ -117,9 +117,9 @@ export function useTerminalConnection({
       await ensureTerminal();
       if (generation !== connectionGenerationRef.current || !reconnectEnabledRef.current) return;
 
-      const token = await getControlPlaneToken();
+      const ticket = await getWebSocketTicket();
       if (generation !== connectionGenerationRef.current || !reconnectEnabledRef.current) return;
-      if (!token) {
+      if (!ticket) {
         reconnectEnabledRef.current = false;
         reconnectStateRef.current = initialReconnectState;
         setStatus('error');
@@ -131,7 +131,7 @@ export function useTerminalConnection({
         resolveControlPlaneWebSocketUrl({
           type: 'terminal',
           sessionId,
-          token,
+          ticket,
         }),
         getDimensions(),
         resumeTokenRef.current ?? undefined

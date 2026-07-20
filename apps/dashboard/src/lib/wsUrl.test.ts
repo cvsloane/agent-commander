@@ -26,9 +26,12 @@ describe('resolveControlPlaneWebSocketUrl', () => {
     expect(resolveControlPlaneWebSocketUrl({
       type: 'terminal',
       sessionId: '11111111-1111-4111-8111-111111111111',
-      token: 'signed token',
+      ticket: 'one-time ticket',
     }, sources)).toBe(
-      'wss://control.example.com/proxy/v1/ui/terminal/11111111-1111-4111-8111-111111111111?token=signed+token'
+      'wss://control.example.com/proxy/v1/ui/terminal/11111111-1111-4111-8111-111111111111?ticket=one-time+ticket'
+    );
+    expect(resolveControlPlaneWebSocketUrl({ type: 'voice', ticket: 'voice-ticket' }, sources)).toBe(
+      'wss://control.example.com/proxy/v1/voice/transcribe?ticket=voice-ticket'
     );
   });
 
@@ -45,9 +48,9 @@ describe('resolveControlPlaneWebSocketUrl', () => {
     expect(resolveControlPlaneWebSocketUrl({
       type: 'terminal',
       sessionId: '11111111-1111-4111-8111-111111111111',
-      token: 'token',
+      ticket: 'ticket',
     }, sources)).toBe(
-      'wss://control.example.com/proxy/v1/ui/terminal/11111111-1111-4111-8111-111111111111?token=token'
+      'wss://control.example.com/proxy/v1/ui/terminal/11111111-1111-4111-8111-111111111111?ticket=ticket'
     );
   });
 

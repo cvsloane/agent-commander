@@ -150,6 +150,19 @@ describe('agent websocket ingest', () => {
     vi.doUnmock('../src/routes/terminal.js');
   });
 
+  it('rejects agent upgrades that send an untrusted browser Origin', async () => {
+    const { app, url } = await buildServer(vi.fn(async () => undefined));
+    const socket = new WebSocket(`${url}/v1/agent/connect`, {
+      headers: {
+        Authorization: 'Bearer test-agent-token',
+        Origin: 'https://evil.example.test',
+      },
+    });
+
+    await expect(waitForClose(socket)).resolves.toBe(4403);
+    await app.close();
+  });
+
   it('acknowledges terminal lag and surfaces it to the browser channel', async () => {
     const { app, url, handleTerminalStatus } = await buildServer(vi.fn(async () => undefined));
     const socket = new WebSocket(`${url}/v1/agent/connect`, {

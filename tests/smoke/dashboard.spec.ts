@@ -454,6 +454,10 @@ async function fulfillJson(route: Route, body: unknown): Promise<void> {
 }
 
 async function mockControlPlane(page: Page): Promise<void> {
+  await page.routeWebSocket(/\/v1\/ui\/stream\?ticket=/, () => {
+    // Keep the mocked event stream open; REST fixtures drive these smoke tests.
+  });
+
   await page.route('**/api/control-plane-token', async (route) => {
     await fulfillJson(route, {
       token: 'dashboard-smoke-token',
@@ -463,6 +467,13 @@ async function mockControlPlane(page: Page): Promise<void> {
 
   await page.route('**/{v1,health}{,/**}', async (route) => {
     const url = new URL(route.request().url());
+    if (route.request().method() === 'POST' && url.pathname === '/v1/auth/ws-ticket') {
+      await fulfillJson(route, {
+        ticket: 'dashboard-smoke-ws-ticket',
+        expires_at: new Date(Date.now() + 30_000).toISOString(),
+      });
+      return;
+    }
     if (route.request().method() === 'GET' && url.pathname === '/v1/tmux/roster') {
       const sessions = url.searchParams.get('host_id') === secondTmuxHost.id
         ? [remoteTmuxSession]

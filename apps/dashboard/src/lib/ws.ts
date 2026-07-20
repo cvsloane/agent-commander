@@ -32,8 +32,8 @@ class WebSocketClient {
   private subscriptions: Array<{ type: string; filter?: Record<string, unknown> }> = [];
   private subscriptionMap: Map<string, Array<{ type: string; filter?: Record<string, unknown> }>> =
     new Map();
-  private authToken: string | null = null;
-  private tokenProvider: (() => Promise<string | null>) | null = null;
+  private ticket: string | null = null;
+  private ticketProvider: (() => Promise<string | null>) | null = null;
   private reconnectState: ReconnectState = initialReconnectState;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
@@ -58,12 +58,8 @@ class WebSocketClient {
     }
   }
 
-  setToken(token: string | null): void {
-    this.authToken = token;
-  }
-
-  setTokenProvider(provider: (() => Promise<string | null>) | null): void {
-    this.tokenProvider = provider;
+  setTicketProvider(provider: (() => Promise<string | null>) | null): void {
+    this.ticketProvider = provider;
   }
 
   connect(): Promise<void> {
@@ -93,23 +89,26 @@ class WebSocketClient {
       this.reconnectState.attempt > 0 ? 'reconnecting' : 'connecting'
     );
 
-    if (this.tokenProvider) {
+    if (this.ticketProvider) {
       try {
-        const token = await this.tokenProvider();
-        this.authToken = token || null;
-        if (!token) {
-          console.warn('No auth token available for WebSocket connection');
+        const ticket = await this.ticketProvider();
+        this.ticket = ticket || null;
+        if (!ticket) {
+          console.warn('No one-time ticket available for WebSocket connection');
           this.scheduleReconnect();
           return;
         }
       } catch (error) {
-        console.warn('Failed to refresh WebSocket token', error);
+        console.warn('Failed to mint WebSocket ticket', error);
+        this.ticket = null;
+        this.scheduleReconnect();
+        return;
       }
     }
 
     const wsUrl = new URL(resolveControlPlaneWebSocketUrl({ type: 'events' }));
-    if (this.authToken) {
-      wsUrl.searchParams.set('token', this.authToken);
+    if (this.ticket) {
+      wsUrl.searchParams.set('ticket', this.ticket);
     }
 
     const socket = new WebSocket(wsUrl.toString());

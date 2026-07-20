@@ -83,6 +83,12 @@ async function waitForSocketClose(socket: WebSocket): Promise<{ code: number; re
   });
 }
 
+function browserWebSocket(url: string): WebSocket {
+  const origin = new URL(url);
+  origin.protocol = origin.protocol === 'wss:' ? 'https:' : 'http:';
+  return new WebSocket(url, { headers: { Origin: origin.origin } });
+}
+
 async function waitForOpen(socket: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
     socket.once('open', () => resolve());
@@ -121,6 +127,7 @@ async function buildServer(options: {
   app: FastifyInstance;
   baseWsUrl: string;
   agentSend: ReturnType<typeof vi.fn>;
+  createAuditLog: ReturnType<typeof vi.fn>;
   handleTerminalOutput: (channelId: string, data: string, encoding?: 'base64' | 'utf8') => boolean;
   handleTerminalStatus: (
     channelId: string,
@@ -133,6 +140,7 @@ async function buildServer(options: {
   vi.stubEnv('JWT_SECRET', jwtSecret);
   vi.stubEnv('DATABASE_URL', 'postgres://agent-command:test@localhost:5432/agent_command_test');
 
+  const createAuditLog = vi.fn(async () => undefined);
   vi.doMock('../src/db/index.js', () => ({
     getSessionById: vi.fn(async () => {
       if (options.sessionDelayMs) {
@@ -141,6 +149,7 @@ async function buildServer(options: {
       return session();
     }),
     getHostById: vi.fn(async () => host(options.hostTerminal ?? true)),
+    createAuditLog,
   }));
   vi.doMock('../src/services/terminalPolicy.js', () => ({
     canAttachTerminal: (user: { role: string }) => user.role === 'operator' || user.role === 'admin',
@@ -166,6 +175,7 @@ async function buildServer(options: {
     app,
     baseWsUrl: address.replace(/^http/, 'ws'),
     agentSend,
+    createAuditLog,
     handleTerminalOutput,
     handleTerminalStatus: handleTerminalStatus as never,
   };
@@ -185,8 +195,8 @@ describe('terminal websocket route', () => {
   it('negotiates compressed binary output while preserving the JSON fallback', async () => {
     const { app, baseWsUrl, agentSend, handleTerminalOutput } = await buildServer();
     const token = await sign('operator');
-    const binarySocket = new WebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
-    const jsonSocket = new WebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
+    const binarySocket = browserWebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
+    const jsonSocket = browserWebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
 
     await Promise.all([waitForOpen(binarySocket), waitForOpen(jsonSocket)]);
     expect(binarySocket.extensions).toContain('permessage-deflate');
@@ -230,7 +240,7 @@ describe('terminal websocket route', () => {
       sessionDelayMs: 75,
     });
     const token = await sign('operator');
-    const socket = new WebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
+    const socket = browserWebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
 
     await waitForOpen(socket);
     socket.send(JSON.stringify({ type: 'hello', binary: true }));
@@ -254,7 +264,7 @@ describe('terminal websocket route', () => {
   it('bounds frames buffered while terminal authorization is still initializing', async () => {
     const { app, baseWsUrl, agentSend } = await buildServer({ sessionDelayMs: 75 });
     const token = await sign('operator');
-    const socket = new WebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
+    const socket = browserWebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
 
     await waitForOpen(socket);
     const closed = waitForSocketClose(socket);
@@ -274,7 +284,7 @@ describe('terminal websocket route', () => {
     const { app, baseWsUrl, agentSend, handleTerminalStatus } = await buildServer();
     const token = await sign('operator');
     const resumeToken = 'viewer-resume-token';
-    const socket = new WebSocket(
+    const socket = browserWebSocket(
       `${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}&cols=132&rows=41&resume_token=${resumeToken}`
     );
 
@@ -321,7 +331,7 @@ describe('terminal websocket route', () => {
   it('retires a stale browser channel before reattaching its resume token', async () => {
     const { app, baseWsUrl, agentSend, handleTerminalStatus } = await buildServer();
     const token = await sign('operator');
-    const first = new WebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
+    const first = browserWebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
     await waitForOpen(first);
     await eventually(() => {
       expect(agentSend).toHaveBeenCalledWith(expect.stringContaining('terminal.attach'));
@@ -337,7 +347,7 @@ describe('terminal websocket route', () => {
     await attached;
 
     const firstClosed = waitForSocketClose(first);
-    const second = new WebSocket(
+    const second = browserWebSocket(
       `${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}&resume_token=${resumeToken}`
     );
     await waitForOpen(second);
@@ -365,7 +375,7 @@ describe('terminal websocket route', () => {
   it('refuses resize when the authenticated role cannot control the terminal', async () => {
     const { app, baseWsUrl, agentSend } = await buildServer({ canControlTerminal: false });
     const token = await sign('operator');
-    const socket = new WebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
+    const socket = browserWebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
 
     await waitForOpen(socket);
     await eventually(() => {
@@ -390,7 +400,7 @@ describe('terminal websocket route', () => {
   it('rejects viewers before sending terminal.attach', async () => {
     const { app, baseWsUrl, agentSend } = await buildServer();
     const token = await sign('viewer');
-    const socket = new WebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
+    const socket = browserWebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
 
     await expect(waitForSocketClose(socket)).resolves.toMatchObject({
       code: 4008,
@@ -403,7 +413,7 @@ describe('terminal websocket route', () => {
   it('rejects hosts without terminal capability before attach', async () => {
     const { app, baseWsUrl, agentSend } = await buildServer({ hostTerminal: false });
     const token = await sign('operator');
-    const socket = new WebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
+    const socket = browserWebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
 
     await expect(waitForSocketClose(socket)).resolves.toMatchObject({
       code: 4009,
@@ -414,9 +424,9 @@ describe('terminal websocket route', () => {
   });
 
   it('attaches operator terminals and forwards resize, input, control, and detach', async () => {
-    const { app, baseWsUrl, agentSend } = await buildServer();
+    const { app, baseWsUrl, agentSend, createAuditLog, handleTerminalStatus } = await buildServer();
     const token = await sign('operator');
-    const socket = new WebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
+    const socket = browserWebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
 
     await waitForOpen(socket);
     await eventually(() => {
@@ -426,7 +436,6 @@ describe('terminal websocket route', () => {
     socket.send(JSON.stringify({ type: 'resize', cols: 120, rows: 32 }));
     socket.send(JSON.stringify({ type: 'input', data: 'ls\n' }));
     socket.send(JSON.stringify({ type: 'control' }));
-    socket.send(JSON.stringify({ type: 'detach' }));
 
     await eventually(() => {
       const messages = agentSend.mock.calls.map(([raw]) => JSON.parse(String(raw)) as { type: string; payload: Record<string, unknown> });
@@ -435,10 +444,52 @@ describe('terminal websocket route', () => {
         'terminal.resize',
         'terminal.input',
         'terminal.control',
-        'terminal.detach',
       ]));
       expect(messages.find((message) => message.type === 'terminal.input')?.payload.data).toBe('ls\n');
       expect(messages.find((message) => message.type === 'terminal.resize')?.payload).toMatchObject({ cols: 120, rows: 32 });
+    });
+    expect(createAuditLog.mock.calls.some(([action]) => action === 'terminal.control_grant')).toBe(false);
+    const attach = agentSend.mock.calls
+      .map(([raw]) => JSON.parse(String(raw)) as { type: string; payload: { channel_id: string } })
+      .find((message) => message.type === 'terminal.attach');
+    handleTerminalStatus(String(attach?.payload.channel_id), 'control');
+    socket.send(JSON.stringify({ type: 'detach' }));
+    await eventually(() => {
+      const messageTypes = agentSend.mock.calls.map(([raw]) => JSON.parse(String(raw)).type);
+      expect(messageTypes).toContain('terminal.detach');
+    });
+    await eventually(() => {
+      expect(createAuditLog).toHaveBeenCalledWith(
+        'terminal.attach',
+        'session',
+        sessionId,
+        expect.objectContaining({
+          session_id: sessionId,
+          host_id: hostId,
+          pane_id: '%1',
+          source: 'control_plane',
+          user_email: 'operator@example.test',
+        }),
+        expect.any(String)
+      );
+      expect(createAuditLog).toHaveBeenCalledWith(
+        'terminal.control_grant',
+        'session',
+        sessionId,
+        expect.objectContaining({ host_id: hostId, duration_ms: expect.any(Number) }),
+        expect.any(String)
+      );
+      expect(createAuditLog).toHaveBeenCalledWith(
+        'terminal.detach',
+        'session',
+        sessionId,
+        expect.objectContaining({
+          host_id: hostId,
+          duration_ms: expect.any(Number),
+          reason: 'client_request',
+        }),
+        expect.any(String)
+      );
     });
 
     socket.close();
@@ -448,8 +499,8 @@ describe('terminal websocket route', () => {
   it('allows multiple browser viewers for the same session without evicting the first viewer', async () => {
     const { app, baseWsUrl, agentSend } = await buildServer();
     const token = await sign('operator');
-    const first = new WebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
-    const second = new WebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
+    const first = browserWebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
+    const second = browserWebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
 
     await Promise.all([waitForOpen(first), waitForOpen(second)]);
 

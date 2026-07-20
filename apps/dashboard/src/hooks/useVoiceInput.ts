@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { getControlPlaneToken } from '@/lib/wsToken';
+import { getWebSocketTicket } from '@/lib/wsToken';
+import { resolveControlPlaneWebSocketUrl } from '@/lib/wsUrl';
 
 interface TranscriptResult {
   text: string;
@@ -152,15 +153,14 @@ export function useVoiceInput({
       });
       streamRef.current = stream;
 
-      // Get auth token
-      const token = await getControlPlaneToken();
-      if (!token) {
+      // Mint a one-time WebSocket ticket.
+      const ticket = await getWebSocketTicket();
+      if (!ticket) {
         throw new Error('Not authenticated');
       }
 
       // Connect to WebSocket
-      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${wsProtocol}//${window.location.host}/v1/voice/transcribe?token=${encodeURIComponent(token)}`;
+      const wsUrl = resolveControlPlaneWebSocketUrl({ type: 'voice', ticket });
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
