@@ -11,7 +11,7 @@ import (
 
 func TestPtyBridgeCreatesGroupedReadOnlyViewerAtRequestedSize(t *testing.T) {
 	runner := newFakeTmuxRunner()
-	runner.outputs["display-message -p -t %7 #{session_name}\\t#{window_index}\\t#{pane_index}"] = []byte("agents\t2\t1\n")
+	runner.outputs["display-message -p -t %7 #{session_name}\t#{window_index}\t#{pane_index}"] = []byte("agents\t2\t1\n")
 
 	bridge, err := newViewerPTYBridge(runner, viewerPTYOptions{
 		ChannelID:   "channel-1",
@@ -56,7 +56,7 @@ func TestViewerSessionNameAvoidsSanitizationCollisions(t *testing.T) {
 
 func TestTerminalManagerEnforcesReadOnlyAtPTYAndReattachesOnControlTransfer(t *testing.T) {
 	runner := newFakeTmuxRunner()
-	targetKey := "display-message -p -t %7 #{session_name}\\t#{window_index}\\t#{pane_index}"
+	targetKey := "display-message -p -t %7 #{session_name}\t#{window_index}\t#{pane_index}"
 	runner.outputs[targetKey] = []byte("agents\t2\t1\n")
 	manager := newTerminalManagerWithRunner(nil, runner, t.TempDir())
 	manager.SetPerViewerPTY(true)
@@ -102,7 +102,7 @@ func TestTerminalManagerEnforcesReadOnlyAtPTYAndReattachesOnControlTransfer(t *t
 
 func TestViewerPTYBridgeCoalescesReadsBeforeFanout(t *testing.T) {
 	runner := newFakeTmuxRunner()
-	runner.outputs["display-message -p -t %7 #{session_name}\\t#{window_index}\\t#{pane_index}"] = []byte("agents\t2\t1\n")
+	runner.outputs["display-message -p -t %7 #{session_name}\t#{window_index}\t#{pane_index}"] = []byte("agents\t2\t1\n")
 	outputs := make(chan string, 2)
 	bridge, err := newViewerPTYBridge(runner, viewerPTYOptions{
 		ChannelID:     "channel-1",
@@ -145,7 +145,7 @@ func TestViewerPTYBridgeCoalescesReadsBeforeFanout(t *testing.T) {
 
 func TestTerminalResumeTokenSurvivesManagerRestartAndSeedsCapture(t *testing.T) {
 	runner := newFakeTmuxRunner()
-	targetKey := "display-message -p -t %7 #{session_name}\\t#{window_index}\\t#{pane_index}"
+	targetKey := "display-message -p -t %7 #{session_name}\t#{window_index}\t#{pane_index}"
 	runner.outputs[targetKey] = []byte("agents\t2\t1\n")
 	runner.outputs["capture-pane -p -e -t %7"] = []byte("restored screen")
 
@@ -191,7 +191,7 @@ func TestTerminalResumeTokenSurvivesManagerRestartAndSeedsCapture(t *testing.T) 
 
 func TestTerminalResumeTokenReattachesAfterWebSocketDetach(t *testing.T) {
 	runner := newFakeTmuxRunner()
-	runner.outputs["display-message -p -t %7 #{session_name}\\t#{window_index}\\t#{pane_index}"] = []byte("agents\t2\t1\n")
+	runner.outputs["display-message -p -t %7 #{session_name}\t#{window_index}\t#{pane_index}"] = []byte("agents\t2\t1\n")
 	runner.outputs["capture-pane -p -e -t %7"] = []byte("current screen")
 	manager := newTerminalManagerWithRunner(nil, runner, t.TempDir())
 	defer manager.Close()
@@ -214,9 +214,58 @@ func TestTerminalResumeTokenReattachesAfterWebSocketDetach(t *testing.T) {
 	}
 }
 
+func TestTerminalResumeSupersedesStaleAttachedChannel(t *testing.T) {
+	runner := newFakeTmuxRunner()
+	runner.outputs["display-message -p -t %7 #{session_name}\t#{window_index}\t#{pane_index}"] = []byte("agents\t2\t1\n")
+	runner.outputs["capture-pane -p -e -t %7"] = []byte("current screen")
+	manager := newTerminalManagerWithRunner(nil, runner, t.TempDir())
+	defer manager.Close()
+
+	attached, err := manager.AttachWithOptions("channel-old", "%7", AttachOptions{SessionID: "session-1"})
+	if err != nil {
+		t.Fatalf("initial attach: %v", err)
+	}
+	manager.MarkChannelsStale()
+
+	resumed, err := manager.AttachWithOptions("channel-new", "%7", AttachOptions{
+		SessionID:   "session-1",
+		ResumeToken: attached.ResumeToken,
+	})
+	if err != nil {
+		t.Fatalf("resume stale channel: %v", err)
+	}
+	if !resumed.Resumed || resumed.ResumeToken != attached.ResumeToken || resumed.ReadOnly {
+		t.Fatalf("resume result=%+v", resumed)
+	}
+	if _, exists := manager.channelToPane["channel-old"]; exists {
+		t.Fatal("stale channel remains attached")
+	}
+	if viewer := manager.viewerByChannel["channel-new"]; viewer == nil || viewer.channelID != "channel-new" {
+		t.Fatalf("new channel viewer=%+v", viewer)
+	}
+}
+
+func TestTerminalResumeDoesNotSupersedeActiveChannel(t *testing.T) {
+	runner := newFakeTmuxRunner()
+	runner.outputs["display-message -p -t %7 #{session_name}\t#{window_index}\t#{pane_index}"] = []byte("agents\t2\t1\n")
+	manager := newTerminalManagerWithRunner(nil, runner, t.TempDir())
+	defer manager.Close()
+
+	attached, err := manager.AttachWithOptions("channel-active", "%7", AttachOptions{SessionID: "session-1"})
+	if err != nil {
+		t.Fatalf("initial attach: %v", err)
+	}
+	if _, err := manager.AttachWithOptions("channel-new", "%7", AttachOptions{
+		SessionID:   "session-1",
+		ResumeToken: attached.ResumeToken,
+	}); err == nil || err.Error() != "resume token is already attached" {
+		t.Fatalf("active resume error=%v", err)
+	}
+}
+
 func TestTerminalSweeperReapsDetachedViewerAndOrphanGroup(t *testing.T) {
 	runner := newFakeTmuxRunner()
-	runner.outputs["display-message -p -t %7 #{session_name}\\t#{window_index}\\t#{pane_index}"] = []byte("agents\t2\t1\n")
+	runner.outputs["display-message -p -t %7 #{session_name}\t#{window_index}\t#{pane_index}"] = []byte("agents\t2\t1\n")
 	manager := newTerminalManagerWithRunner(nil, runner, t.TempDir())
 	defer manager.Close()
 
@@ -249,7 +298,7 @@ func TestTerminalSweeperReapsDetachedViewerAndOrphanGroup(t *testing.T) {
 
 func TestTerminalManagerEmitsAttachDetachAndControlAuditEvents(t *testing.T) {
 	runner := newFakeTmuxRunner()
-	runner.outputs["display-message -p -t %7 #{session_name}\\t#{window_index}\\t#{pane_index}"] = []byte("agents\t2\t1\n")
+	runner.outputs["display-message -p -t %7 #{session_name}\t#{window_index}\t#{pane_index}"] = []byte("agents\t2\t1\n")
 	manager := newTerminalManagerWithRunner(nil, runner, t.TempDir())
 	defer manager.Close()
 	var events []TerminalAuditEvent

@@ -414,6 +414,11 @@ func (a *Agent) Run() error {
 		a.cfg.ControlPlane.ReconnectBackoffMs,
 	)
 	a.wsClient.SetMessageHandler(a.handleMessage)
+	a.wsClient.SetOnDisconnect(func() {
+		if a.terminalManager != nil {
+			a.terminalManager.MarkChannelsStale()
+		}
+	})
 	a.wsClient.SetOnConnect(func() {
 		if err := a.sendHello(); err != nil {
 			log.Printf("Failed to send hello: %v", err)

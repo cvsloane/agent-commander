@@ -49,6 +49,7 @@ type Client struct {
 	queue        *queue.Queue
 	stateDir     string
 	onConnect    func()
+	onDisconnect func()
 	dialer       *websocket.Dialer
 	jitter       func(time.Duration) time.Duration
 	closeOnce    sync.Once
@@ -111,6 +112,10 @@ func (c *Client) SetOnConnect(handler func()) {
 	c.onConnect = handler
 }
 
+func (c *Client) SetOnDisconnect(handler func()) {
+	c.onDisconnect = handler
+}
+
 func (c *Client) Connect() error {
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+c.token)
@@ -147,15 +152,23 @@ func (c *Client) Connect() error {
 
 func (c *Client) reader(conn *websocket.Conn) {
 	defer func() {
+		disconnected := false
 		c.mu.Lock()
 		if c.conn == conn {
 			c.conn.Close()
 			c.conn = nil
 			c.ready = false
+			disconnected = true
 		}
 		c.mu.Unlock()
+		if !disconnected {
+			return
+		}
 
 		metrics.SetWSConnected(false)
+		if c.onDisconnect != nil {
+			c.onDisconnect()
+		}
 
 		// Attempt reconnection
 		c.reconnect()

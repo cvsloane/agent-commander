@@ -143,7 +143,7 @@ func newViewerPTYBridge(runner TmuxRunner, opts viewerPTYOptions) (*viewerPTYBri
 		opts.CoalesceDelay = defaultPTYCoalesceDelay
 	}
 
-	target, err := runner.Output("display-message", "-p", "-t", opts.PaneID, "#{session_name}\\t#{window_index}\\t#{pane_index}")
+	target, err := runner.Output("display-message", "-p", "-t", opts.PaneID, "#{session_name}\t#{window_index}\t#{pane_index}")
 	if err != nil {
 		return nil, fmt.Errorf("describe pane %s: %w", opts.PaneID, err)
 	}
