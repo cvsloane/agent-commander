@@ -36,6 +36,15 @@ const secondTmuxHost = {
   tailscale_ip: '100.64.0.11',
 };
 
+const enrolledHost = {
+  ...tmuxHost,
+  id: '15151515-1515-4151-8151-151515151515',
+  name: 'buildbox',
+  tailscale_name: 'buildbox.tailnet-name.ts.net',
+  tailscale_ip: null,
+  last_seen_at: null,
+};
+
 const tmuxSessions = [
   {
     id: '22222222-2222-4222-8222-222222222222',
@@ -523,6 +532,17 @@ async function mockControlPlane(page: Page): Promise<void> {
       });
       return;
     }
+    if (route.request().method() === 'POST' && url.pathname === '/v1/hosts') {
+      await fulfillJson(route, { host: enrolledHost, token: 'ac_agent_created_once' });
+      return;
+    }
+    if (
+      route.request().method() === 'POST'
+      && /^\/v1\/hosts\/[^/]+\/token$/.test(url.pathname)
+    ) {
+      await fulfillJson(route, { token: 'ac_agent_rotated_once' });
+      return;
+    }
     if (route.request().method() === 'GET' && url.pathname === '/v1/tmux/roster') {
       const sessions = url.searchParams.get('host_id') === secondTmuxHost.id
         ? [remoteTmuxSession]
@@ -671,7 +691,7 @@ test('protects operator routes behind credentials sign-in', async ({ page }) => 
   await expect(page.getByRole('heading', { name: 'Command Center' })).toBeVisible();
 });
 
-test('renders key operator pages with mocked control-plane data', async ({ page }) => {
+test('renders key operator pages with mocked control-plane data', async ({ page }, testInfo) => {
   await signIn(page);
 
   const pages = [
@@ -687,7 +707,144 @@ test('renders key operator pages with mocked control-plane data', async ({ page 
   for (const [path, text] of pages) {
     await page.goto(path);
     await expect(page.locator('body')).toContainText(text);
+    if (
+      process.env.PLAYWRIGHT_CAPTURE_UI === '1'
+      && ['/sessions', '/automation', '/memory', '/hosts', '/settings'].includes(path)
+    ) {
+      await page.screenshot({
+        path: testInfo.outputPath(`${path.slice(1)}-desktop.png`),
+        fullPage: true,
+      });
+    }
   }
+});
+
+test('opens the global command palette and navigates to a fuzzy session result', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/sessions');
+
+  const searchButton = page
+    .getByTestId('sessions-desktop-toolbar')
+    .getByRole('button', { name: /Search/ });
+  await expect(searchButton).toBeVisible();
+  await searchButton.click();
+  await expect(page.getByRole('dialog', { name: 'Command Center' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Control+k');
+  const palette = page.getByRole('dialog', { name: 'Command Center' });
+  await expect(palette).toBeVisible();
+  const input = palette.getByRole('combobox');
+  await expect(input).toBeFocused();
+  await input.fill('Mobile UX heaviside');
+  await expect(palette.getByRole('option', { name: /Mobile UX review/ })).toBeVisible();
+  await input.press('Enter');
+
+  await expect(page).toHaveURL(new RegExp(`/sessions/${tmuxSessions[1].id}$`));
+});
+
+test('keeps primary session actions usable at 390x844 and opens overflow plus long-press search', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page);
+  await page.goto('/sessions');
+
+  const toolbar = page.getByTestId('sessions-mobile-toolbar');
+  await expect(toolbar).toBeVisible();
+  for (const name of ['Select', 'Search sessions', 'New', 'More session actions']) {
+    await expect(toolbar.getByRole('button', { name, exact: true })).toBeVisible();
+  }
+  await expect(page.getByTestId('sessions-desktop-toolbar')).toBeHidden();
+  const targetSizes = await toolbar.getByRole('button').evaluateAll((targets) => (
+    targets.map((target) => {
+      const { width, height } = target.getBoundingClientRect();
+      return { width, height };
+    })
+  ));
+  expect(targetSizes.every(({ width, height }) => width >= 44 && height >= 44)).toBe(true);
+
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.screenshot({ path: testInfo.outputPath('sessions-mobile-toolbar.png'), fullPage: true });
+  }
+
+  await toolbar.getByRole('button', { name: 'More session actions' }).click();
+  const overflow = page.getByRole('dialog', { name: 'Session actions' });
+  await expect(overflow).toBeVisible();
+  await expect(overflow.getByRole('link', { name: 'Workflow' })).toBeVisible();
+  await expect(overflow.getByRole('button', { name: 'Import orphan panes' })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  const search = toolbar.getByRole('button', { name: 'Search sessions' });
+  await search.dispatchEvent('pointerdown', { pointerType: 'touch' });
+  await page.waitForTimeout(550);
+  await expect(page.getByRole('dialog', { name: 'Command Center' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.screenshot({ path: testInfo.outputPath('sessions-mobile-command-palette.png'), fullPage: true });
+  }
+});
+
+test('enrolls a host and rotates its token with one-time installation guidance', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/hosts');
+
+  await page.getByRole('button', { name: 'Add host' }).click();
+  const addDialog = page.getByRole('dialog', { name: 'Add host' });
+  await addDialog.getByLabel('Name', { exact: true }).fill('buildbox');
+  await addDialog.getByLabel('Tailscale name (optional)').fill('buildbox.tailnet-name.ts.net');
+  const createRequest = page.waitForRequest((request) => (
+    request.method() === 'POST' && new URL(request.url()).pathname === '/v1/hosts'
+  ));
+  await addDialog.getByRole('button', { name: 'Create host' }).click();
+  expect((await createRequest).postDataJSON()).toEqual({
+    name: 'buildbox',
+    tailscale_name: 'buildbox.tailnet-name.ts.net',
+  });
+
+  const created = page.getByRole('dialog', { name: 'Host created' });
+  await expect(created.getByText(enrolledHost.id, { exact: true })).toBeVisible();
+  await expect(created.getByText('ac_agent_created_once', { exact: true })).toBeVisible();
+  await expect(created).toContainText('Copy the token now.');
+  await expect(created).toContainText('deploy/install-agentd.sh');
+  await expect(created).toContainText('~/.config/agentd/config.yaml');
+  await expect(created).toContainText('/v1/agent/connect');
+  await expect(created).toContainText('systemctl --user enable --now agentd.service');
+  await created.getByRole('button', { name: 'I saved the token' }).click();
+  await expect(created).not.toBeVisible();
+
+  const rotateRequest = page.waitForRequest((request) => (
+    request.method() === 'POST'
+    && new URL(request.url()).pathname === `/v1/hosts/${tmuxHost.id}/token`
+  ));
+  await page.getByRole('button', { name: 'Rotate agent token' }).first().click();
+  await rotateRequest;
+  const rotated = page.getByRole('dialog', { name: 'Agent token rotated' });
+  await expect(rotated.getByText(tmuxHost.id, { exact: true })).toBeVisible();
+  await expect(rotated.getByText('ac_agent_rotated_once', { exact: true })).toBeVisible();
+});
+
+test('hides host enrollment actions when the control plane rejects admin access', async ({ page }) => {
+  await page.route('**/v1/hosts', async (route) => {
+    if (route.request().method() === 'POST') {
+      await route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Forbidden' }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+  await signIn(page);
+  await page.goto('/hosts');
+
+  await page.getByRole('button', { name: 'Add host' }).click();
+  const addDialog = page.getByRole('dialog', { name: 'Add host' });
+  await addDialog.getByLabel('Name', { exact: true }).fill('viewer-host');
+  await addDialog.getByRole('button', { name: 'Create host' }).click();
+
+  await expect(addDialog.getByRole('alert')).toContainText('administrators only');
+  await expect(page.getByRole('button', { name: 'Add host' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Rotate agent token' })).toHaveCount(0);
 });
 
 test('renders Command Center at mobile and desktop widths and redirects legacy tmux links', async ({ page }, testInfo) => {

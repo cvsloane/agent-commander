@@ -131,21 +131,21 @@ export function SettingsQuickPanel({ className }: SettingsQuickPanelProps) {
             <div className="flex items-center gap-2">
               <RadioGroupItem value="light" id="quick-theme-light" />
               <Label htmlFor="quick-theme-light" className="cursor-pointer flex items-center gap-2">
-                <Sun className="h-4 w-4" />
+                <Sun className="h-4 w-4" aria-hidden="true" />
                 Light
               </Label>
             </div>
             <div className="flex items-center gap-2">
               <RadioGroupItem value="dark" id="quick-theme-dark" />
               <Label htmlFor="quick-theme-dark" className="cursor-pointer flex items-center gap-2">
-                <Moon className="h-4 w-4" />
+                <Moon className="h-4 w-4" aria-hidden="true" />
                 Dark
               </Label>
             </div>
             <div className="flex items-center gap-2">
               <RadioGroupItem value="system" id="quick-theme-system" />
               <Label htmlFor="quick-theme-system" className="cursor-pointer flex items-center gap-2">
-                <Monitor className="h-4 w-4" />
+                <Monitor className="h-4 w-4" aria-hidden="true" />
                 System
               </Label>
             </div>
@@ -161,23 +161,25 @@ export function SettingsQuickPanel({ className }: SettingsQuickPanelProps) {
         <div className="rounded-lg border p-4 space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-sm font-medium flex items-center gap-2">
-                <Bell className="h-4 w-4" />
+              <Label htmlFor="quick-browser-notifications" className="flex items-center gap-2 text-sm font-medium">
+                <Bell className="h-4 w-4" aria-hidden="true" />
                 Browser Notifications
-              </div>
+              </Label>
               <div className="text-xs text-muted-foreground">
                 Permission: {permission === 'granted' ? 'Granted' : permission === 'denied' ? 'Blocked' : 'Not granted'}
               </div>
             </div>
             <Switch
+              id="quick-browser-notifications"
               checked={notificationsEnabled}
               onCheckedChange={handleBrowserToggle}
             />
           </div>
 
           <div className="flex items-center justify-between">
-            <Label className="text-xs text-muted-foreground">Only when app is unfocused</Label>
+            <Label htmlFor="quick-browser-unfocused" className="text-xs text-muted-foreground">Only when app is unfocused</Label>
             <Switch
+              id="quick-browser-unfocused"
               checked={alertSettings.browser.onlyWhenUnfocused}
               onCheckedChange={(checked) => setAlertChannelFocus('browser', checked)}
             />
@@ -185,11 +187,11 @@ export function SettingsQuickPanel({ className }: SettingsQuickPanelProps) {
 
           <Button
             variant="outline"
-            size="sm"
+            size="mobile"
             className="gap-2"
             onClick={handleTestNotification}
           >
-            <TestTube2 className="h-4 w-4" />
+            <TestTube2 className="h-4 w-4" aria-hidden="true" />
             Test Notification
           </Button>
         </div>
@@ -197,35 +199,38 @@ export function SettingsQuickPanel({ className }: SettingsQuickPanelProps) {
         <div className="rounded-lg border p-4 space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-sm font-medium flex items-center gap-2">
-                <Volume2 className="h-4 w-4" />
+              <Label htmlFor="quick-audio-alerts" className="flex items-center gap-2 text-sm font-medium">
+                <Volume2 className="h-4 w-4" aria-hidden="true" />
                 Audio Alerts
-              </div>
+              </Label>
               <div className="text-xs text-muted-foreground">
                 Volume: {Math.round((alertSettings.audio.volume ?? 0.5) * 100)}%
               </div>
             </div>
             <Switch
+              id="quick-audio-alerts"
               checked={audioEnabled}
               onCheckedChange={(checked) => setAlertChannelEnabled('audio', checked)}
             />
           </div>
 
           <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Volume</Label>
+            <Label htmlFor="quick-audio-volume" className="text-xs text-muted-foreground">Volume</Label>
             <input
+              id="quick-audio-volume"
               type="range"
               min={0}
               max={100}
               value={Math.round((alertSettings.audio.volume ?? 0.5) * 100)}
               onChange={(e) => setAlertAudioVolume(Number(e.target.value) / 100)}
-              className="w-full"
+              className="h-11 w-full"
             />
           </div>
 
           <div className="flex items-center justify-between">
-            <Label className="text-xs text-muted-foreground">Only when app is unfocused</Label>
+            <Label htmlFor="quick-audio-unfocused" className="text-xs text-muted-foreground">Only when app is unfocused</Label>
             <Switch
+              id="quick-audio-unfocused"
               checked={alertSettings.audio.onlyWhenUnfocused}
               onCheckedChange={(checked) => setAlertChannelFocus('audio', checked)}
             />
@@ -233,11 +238,11 @@ export function SettingsQuickPanel({ className }: SettingsQuickPanelProps) {
 
           <Button
             variant="outline"
-            size="sm"
+            size="mobile"
             className="gap-2"
             onClick={handleTestAudio}
           >
-            <TestTube2 className="h-4 w-4" />
+            <TestTube2 className="h-4 w-4" aria-hidden="true" />
             Test Audio
           </Button>
         </div>
@@ -249,7 +254,7 @@ export function SettingsQuickPanel({ className }: SettingsQuickPanelProps) {
         </h3>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Boxes className="h-4 w-4 text-muted-foreground" />
+            <Boxes className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
             <Label htmlFor="quick-show-visualizer" className="cursor-pointer">
               Show in Sidebar
             </Label>

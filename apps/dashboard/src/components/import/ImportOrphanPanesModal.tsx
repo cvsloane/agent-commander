@@ -2,8 +2,16 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Download, Server, Terminal, CheckCircle, AlertCircle, Loader2, X } from 'lucide-react';
+import { Download, Terminal, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { getHosts, getOrphanPanes, adoptOrphanPanes, type OrphanPane } from '@/lib/api';
 import { formatRelativeTime, getProviderIcon } from '@/lib/utils';
 import { useHydrated } from '@/hooks/useHydrated';
@@ -14,7 +22,11 @@ interface ImportOrphanPanesModalProps {
   onSuccess?: () => void;
 }
 
-export function ImportOrphanPanesModal({ isOpen, onClose, onSuccess }: ImportOrphanPanesModalProps) {
+export function ImportOrphanPanesModal({
+  isOpen,
+  onClose,
+  onSuccess,
+}: ImportOrphanPanesModalProps) {
   const [selectedHostId, setSelectedHostId] = useState<string | null>(null);
   const [selectedPanes, setSelectedPanes] = useState<Set<string>>(new Set());
   const queryClient = useQueryClient();
@@ -27,9 +39,14 @@ export function ImportOrphanPanesModal({ isOpen, onClose, onSuccess }: ImportOrp
   });
 
   // Fetch orphan panes for selected host
-  const { data: orphanPanesData, isLoading: panesLoading, refetch: refetchPanes } = useQuery({
+  const {
+    data: orphanPanesData,
+    isLoading: panesLoading,
+    refetch: refetchPanes,
+  } = useQuery({
     queryKey: ['orphan-panes', selectedHostId],
-    queryFn: () => (selectedHostId ? getOrphanPanes(selectedHostId) : Promise.resolve({ orphan_panes: [] })),
+    queryFn: () =>
+      selectedHostId ? getOrphanPanes(selectedHostId) : Promise.resolve({ orphan_panes: [] }),
     enabled: isOpen && !!selectedHostId,
   });
 
@@ -84,32 +101,37 @@ export function ImportOrphanPanesModal({ isOpen, onClose, onSuccess }: ImportOrp
     onClose();
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="flex max-h-[80dvh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border bg-background shadow-lg">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b">
-          <div className="flex items-center gap-2">
-            <Download className="h-5 w-5 text-muted-foreground" />
-            <h2 className="text-lg font-semibold">Import Orphan Panes</h2>
+    <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
+      <DialogContent className="max-h-[85dvh] gap-0 overflow-hidden p-0 sm:max-w-2xl" hideClose>
+        <DialogHeader className="border-b px-4 py-3 pr-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-2">
+              <Download className="h-5 w-5 text-muted-foreground" />
+              <div className="min-w-0 space-y-1">
+                <DialogTitle>Import Orphan Panes</DialogTitle>
+                <DialogDescription>
+                  Adopt unmanaged tmux panes as tracked sessions. These panes were detected but not
+                  created through Agent Commander.
+                </DialogDescription>
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="mobile-icon"
+              onClick={handleClose}
+              aria-label="Close import dialog"
+            >
+              <span aria-hidden="true">×</span>
+            </Button>
           </div>
-          <button onClick={handleClose} className="p-1 hover:bg-accent rounded">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+        </DialogHeader>
 
         {/* Content */}
         <div className="flex-1 overflow-auto p-4 space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Adopt unmanaged tmux panes as tracked sessions. These panes were detected but not created
-            through Agent Commander.
-          </p>
-
           {/* Host selector */}
           <div className="space-y-2">
-            <label className="text-sm font-medium">Select Host</label>
+            <label htmlFor="orphan-host" className="text-sm font-medium">Select Host</label>
             {hostsLoading ? (
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -119,12 +141,13 @@ export function ImportOrphanPanesModal({ isOpen, onClose, onSuccess }: ImportOrp
               <p className="text-sm text-muted-foreground">No hosts available</p>
             ) : (
               <select
+                id="orphan-host"
                 value={selectedHostId || ''}
                 onChange={(e) => {
                   setSelectedHostId(e.target.value || null);
                   setSelectedPanes(new Set());
                 }}
-                className="w-full px-3 py-2 text-sm bg-background border rounded-md"
+                className="h-11 w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <option value="">Select a host...</option>
                 {hosts.map((host) => (
@@ -141,11 +164,9 @@ export function ImportOrphanPanesModal({ isOpen, onClose, onSuccess }: ImportOrp
           {selectedHostId && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-medium">
-                  Orphan Panes ({orphanPanes.length})
-                </label>
+                <label className="text-sm font-medium">Orphan Panes ({orphanPanes.length})</label>
                 {orphanPanes.length > 0 && (
-                  <Button variant="ghost" size="sm" onClick={toggleAll}>
+                  <Button variant="ghost" size="mobile" onClick={toggleAll}>
                     {selectedPanes.size === orphanPanes.length ? 'Deselect All' : 'Select All'}
                   </Button>
                 )}
@@ -188,9 +209,7 @@ export function ImportOrphanPanesModal({ isOpen, onClose, onSuccess }: ImportOrp
           {/* Success with partial errors */}
           {adoptMutation.data && adoptMutation.data.error_count > 0 && (
             <div className="text-sm space-y-1">
-              <p className="text-green-600">
-                Adopted {adoptMutation.data.adopted_count} pane(s).
-              </p>
+              <p className="text-green-600">Adopted {adoptMutation.data.adopted_count} pane(s).</p>
               <p className="text-destructive">
                 Failed to adopt {adoptMutation.data.error_count} pane(s).
               </p>
@@ -199,11 +218,12 @@ export function ImportOrphanPanesModal({ isOpen, onClose, onSuccess }: ImportOrp
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-2 px-4 py-3 border-t">
-          <Button variant="outline" onClick={handleClose}>
+        <DialogFooter className="border-t px-4 py-3">
+          <Button variant="outline" size="mobile" onClick={handleClose}>
             Cancel
           </Button>
           <Button
+            size="mobile"
             onClick={() => adoptMutation.mutate()}
             disabled={selectedPanes.size === 0 || adoptMutation.isPending}
           >
@@ -219,9 +239,9 @@ export function ImportOrphanPanesModal({ isOpen, onClose, onSuccess }: ImportOrp
               </>
             )}
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -280,9 +300,7 @@ function OrphanPaneRow({ pane, isSelected, onToggle }: OrphanPaneRowProps) {
           <div className="text-xs text-muted-foreground truncate mt-0.5">{pane.cwd}</div>
         )}
         {pane.git_branch && (
-          <div className="text-xs text-muted-foreground mt-0.5">
-            Branch: {pane.git_branch}
-          </div>
+          <div className="text-xs text-muted-foreground mt-0.5">Branch: {pane.git_branch}</div>
         )}
         {pane.last_activity_at && (
           <div className="text-xs text-muted-foreground mt-1">

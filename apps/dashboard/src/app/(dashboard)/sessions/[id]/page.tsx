@@ -179,9 +179,9 @@ export default function SessionDetailPage() {
 
   if (error || !data) {
     return (
-      <div className="container mx-auto px-4 py-6 text-center">
+      <div className="mx-auto w-full max-w-7xl px-3 py-4 text-center sm:px-4 sm:py-6">
         <p className="text-destructive mb-4">Failed to load session</p>
-        <Button onClick={() => refetch()}>Retry</Button>
+        <Button size="mobile" onClick={() => refetch()}>Retry</Button>
       </div>
     );
   }
@@ -203,7 +203,7 @@ export default function SessionDetailPage() {
   };
 
   return (
-    <div className={cn('container mx-auto px-4 py-6', isMobile && 'px-2 py-3')}>
+    <div className="mx-auto w-full max-w-7xl px-3 py-4 sm:px-4 sm:py-6">
       {/* Header */}
       <div className={cn(
         'flex items-start justify-between mb-6',
@@ -213,8 +213,8 @@ export default function SessionDetailPage() {
           {/* Back button on mobile */}
           {isMobile && (
             <Link href="/sessions">
-              <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0">
-                <ChevronLeft className="h-5 w-5" />
+              <Button variant="ghost" size="mobile-icon" className="shrink-0" aria-label="Back to sessions">
+                <ChevronLeft className="h-5 w-5" aria-hidden="true" />
               </Button>
             </Link>
           )}
@@ -237,27 +237,27 @@ export default function SessionDetailPage() {
                   onKeyDown={handleKeyDown}
                   disabled={isSaving}
                   className={cn(
-                    'font-bold px-2 py-1 bg-background border rounded focus:outline-none focus:ring-2 focus:ring-primary flex-1 min-w-0',
+                    'h-11 min-w-0 flex-1 rounded border bg-background px-2 font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                     isMobile ? 'text-lg' : 'text-2xl'
                   )}
                 />
                 <Button
                   variant="ghost"
-                  size="icon"
+                  size="mobile-icon"
                   onClick={saveTitle}
                   disabled={isSaving}
-                  className={cn(isMobile && 'h-10 w-10')}
+                  aria-label="Save session title"
                 >
-                  <Check className="h-4 w-4" />
+                  <Check className="h-4 w-4" aria-hidden="true" />
                 </Button>
                 <Button
                   variant="ghost"
-                  size="icon"
+                  size="mobile-icon"
                   onClick={cancelEditing}
                   disabled={isSaving}
-                  className={cn(isMobile && 'h-10 w-10')}
+                  aria-label="Cancel title editing"
                 >
-                  <X className="h-4 w-4" />
+                  <X className="h-4 w-4" aria-hidden="true" />
                 </Button>
               </div>
             ) : (
@@ -271,11 +271,12 @@ export default function SessionDetailPage() {
                 {!isMobile && (
                   <Button
                     variant="ghost"
-                    size="icon"
+                    size="mobile-icon"
                     onClick={startEditing}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+                    aria-label="Edit session title"
                   >
-                    <Pencil className="h-4 w-4" />
+                    <Pencil className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 )}
               </div>
@@ -320,52 +321,56 @@ export default function SessionDetailPage() {
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
-              size="sm"
+              size="mobile"
               onClick={handleIdleToggle}
               disabled={idlePending}
-              className={cn('gap-1', isMobile && 'h-10 px-3')}
+              className="gap-1"
               title={isManualIdle ? 'Wake session' : 'Mark idle'}
+              aria-label={isManualIdle ? 'Wake session' : 'Mark session idle'}
             >
-              {isManualIdle ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              {isManualIdle ? <Sun className="h-4 w-4" aria-hidden="true" /> : <Moon className="h-4 w-4" aria-hidden="true" />}
               {!isMobile && (isManualIdle ? 'Wake' : 'Idle')}
             </Button>
             <Button
               variant="outline"
-              size="sm"
+              size="mobile"
               onClick={() => setSendToDialogOpen(true)}
-              className={cn('gap-1', isMobile && 'h-10 px-3')}
+              className="gap-1"
+              aria-label="Send content to another session"
             >
-              <Send className="h-4 w-4" />
+              <Send className="h-4 w-4" aria-hidden="true" />
               {!isMobile && 'Send to...'}
             </Button>
             <Button
               variant="outline"
-              size="sm"
+              size="mobile"
               onClick={() => mcpManager.open(sessionId, session.repo_root || undefined)}
-              className={cn('gap-1', isMobile && 'h-10 px-3')}
+              className="gap-1"
+              aria-label="Manage MCP servers"
             >
-              <Plug className="h-4 w-4" />
+              <Plug className="h-4 w-4" aria-hidden="true" />
               {!isMobile && 'MCP'}
             </Button>
             <Button
               variant="outline"
-              size="sm"
+              size="mobile"
               onClick={handleTerminate}
               disabled={isTerminating}
-              className={cn('gap-1 text-destructive hover:text-destructive', isMobile && 'h-10 px-3')}
+              className="gap-1 text-destructive hover:text-destructive"
               title="Terminate session"
+              aria-label="Terminate session"
             >
-              <Power className="h-4 w-4" />
+              <Power className="h-4 w-4" aria-hidden="true" />
               {!isMobile && 'Terminate'}
             </Button>
             {isMobile && (
               <Button
                 variant="ghost"
-                size="icon"
+                size="mobile-icon"
                 onClick={startEditing}
-                className="h-10 w-10"
+                aria-label="Edit session title"
               >
-                <Pencil className="h-4 w-4" />
+                <Pencil className="h-4 w-4" aria-hidden="true" />
               </Button>
             )}
           </div>

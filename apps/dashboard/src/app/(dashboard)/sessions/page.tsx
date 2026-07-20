@@ -5,7 +5,13 @@ export const dynamic = 'force-dynamic';
 
 export default function SessionsPage() {
   return (
-    <Suspense fallback={<div className="container mx-auto px-4 py-6">Loading...</div>}>
+    <Suspense
+      fallback={
+        <div className="mx-auto w-full max-w-7xl px-3 py-4 sm:px-4 sm:py-6" role="status">
+          Loading sessions…
+        </div>
+      }
+    >
       <SessionsPageClient />
     </Suspense>
   );

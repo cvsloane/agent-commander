@@ -13,7 +13,7 @@ import { createMemoryEntry, getRepos, searchMemory } from '@/lib/api';
 import { formatRelativeTime } from '@/lib/utils';
 
 const selectClassName =
-  'flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+  'flex h-11 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
 const EMPTY_REPOS: Array<{
   id: string;
@@ -106,29 +106,32 @@ export default function MemoryPage() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-6 space-y-6">
-      <div className="flex items-center justify-between gap-4">
+    <div className="mx-auto w-full max-w-7xl space-y-5 px-3 py-4 sm:px-4 sm:py-6">
+      <header className="flex items-start justify-between gap-3">
         <div className="space-y-1">
           <div className="flex items-center gap-3">
-            <Brain className="h-6 w-6 text-primary" />
-            <h1 className="text-2xl font-bold">Memory</h1>
+            <Brain className="h-6 w-6 text-primary" aria-hidden="true" />
+            <h1 className="text-xl font-bold sm:text-2xl">Memory</h1>
           </div>
           <p className="text-sm text-muted-foreground">
-            Search repo and global memory, then add durable knowledge without touching working-memory internals.
+            Search repo and global memory, then add durable knowledge without touching
+            working-memory internals.
           </p>
         </div>
-        <Button variant="outline" onClick={handleRefresh} className="gap-2">
-          <RefreshCw className="h-4 w-4" />
-          Refresh
+        <Button variant="outline" size="mobile" onClick={handleRefresh} className="shrink-0 gap-2">
+          <RefreshCw className="h-4 w-4" aria-hidden="true" />
+          <span className="hidden sm:inline">Refresh</span>
+          <span className="sr-only sm:hidden">Refresh memory</span>
         </Button>
-      </div>
+      </header>
 
-      <div className="grid gap-4 xl:grid-cols-[1.25fr,0.95fr]">
+      <div className="grid gap-5 xl:grid-cols-[1.25fr,0.95fr]">
         <Card>
           <CardHeader>
             <CardTitle>Search Memory</CardTitle>
             <CardDescription>
-              Repo memory is best for codebase-specific patterns. Global memory is best for preferences and cross-repo lessons.
+              Repo memory is best for codebase-specific patterns. Global memory is best for
+              preferences and cross-repo lessons.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -137,8 +140,11 @@ export default function MemoryPage() {
                 <Label htmlFor="memory-query">Query</Label>
                 <Input
                   id="memory-query"
+                  className="h-11"
                   value={searchDraft.q}
-                  onChange={(event) => setSearchDraft((current) => ({ ...current, q: event.target.value }))}
+                  onChange={(event) =>
+                    setSearchDraft((current) => ({ ...current, q: event.target.value }))
+                  }
                   placeholder="heartbeat scheduler claim logic"
                 />
               </div>
@@ -148,7 +154,9 @@ export default function MemoryPage() {
                   id="memory-scope"
                   className={selectClassName}
                   value={searchDraft.scope_type}
-                  onChange={(event) => setSearchDraft((current) => ({ ...current, scope_type: event.target.value }))}
+                  onChange={(event) =>
+                    setSearchDraft((current) => ({ ...current, scope_type: event.target.value }))
+                  }
                 >
                   <option value="">All relevant</option>
                   <option value="global">Global</option>
@@ -162,7 +170,9 @@ export default function MemoryPage() {
                   id="memory-tier"
                   className={selectClassName}
                   value={searchDraft.tier}
-                  onChange={(event) => setSearchDraft((current) => ({ ...current, tier: event.target.value }))}
+                  onChange={(event) =>
+                    setSearchDraft((current) => ({ ...current, tier: event.target.value }))
+                  }
                 >
                   <option value="">Any tier</option>
                   <option value="working">Working</option>
@@ -175,11 +185,14 @@ export default function MemoryPage() {
                 <Label htmlFor="memory-limit">Limit</Label>
                 <Input
                   id="memory-limit"
+                  className="h-11"
                   type="number"
                   min="1"
                   max="50"
                   value={searchDraft.limit}
-                  onChange={(event) => setSearchDraft((current) => ({ ...current, limit: event.target.value }))}
+                  onChange={(event) =>
+                    setSearchDraft((current) => ({ ...current, limit: event.target.value }))
+                  }
                 />
               </div>
             </div>
@@ -190,7 +203,9 @@ export default function MemoryPage() {
                   id="memory-repo"
                   className={selectClassName}
                   value={searchDraft.repo_id}
-                  onChange={(event) => setSearchDraft((current) => ({ ...current, repo_id: event.target.value }))}
+                  onChange={(event) =>
+                    setSearchDraft((current) => ({ ...current, repo_id: event.target.value }))
+                  }
                 >
                   <option value="">No repo filter</option>
                   {repos.map((repo) => (
@@ -201,6 +216,7 @@ export default function MemoryPage() {
                 </select>
               </div>
               <Button
+                size="mobile"
                 className="self-end gap-2"
                 onClick={() =>
                   setSubmittedSearch({
@@ -217,7 +233,7 @@ export default function MemoryPage() {
                 }
                 disabled={!searchDraft.q.trim()}
               >
-                <Search className="h-4 w-4" />
+                <Search className="h-4 w-4" aria-hidden="true" />
                 Search
               </Button>
             </div>
@@ -283,7 +299,8 @@ export default function MemoryPage() {
           <CardHeader>
             <CardTitle>Add Durable Memory</CardTitle>
             <CardDescription>
-              Manual writes are for global and repo memory only. Working memory is captured from sessions automatically.
+              Manual writes are for global and repo memory only. Working memory is captured from
+              sessions automatically.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -294,7 +311,9 @@ export default function MemoryPage() {
                   id="memory-form-scope"
                   className={selectClassName}
                   value={memoryForm.scope_type}
-                  onChange={(event) => setMemoryForm((current) => ({ ...current, scope_type: event.target.value }))}
+                  onChange={(event) =>
+                    setMemoryForm((current) => ({ ...current, scope_type: event.target.value }))
+                  }
                 >
                   <option value="global">Global</option>
                   <option value="repo">Repo</option>
@@ -306,7 +325,9 @@ export default function MemoryPage() {
                   id="memory-form-tier"
                   className={selectClassName}
                   value={memoryForm.tier}
-                  onChange={(event) => setMemoryForm((current) => ({ ...current, tier: event.target.value }))}
+                  onChange={(event) =>
+                    setMemoryForm((current) => ({ ...current, tier: event.target.value }))
+                  }
                 >
                   <option value="procedural">Procedural</option>
                   <option value="semantic">Semantic</option>
@@ -322,7 +343,9 @@ export default function MemoryPage() {
                   id="memory-form-repo"
                   className={selectClassName}
                   value={memoryForm.repo_id}
-                  onChange={(event) => setMemoryForm((current) => ({ ...current, repo_id: event.target.value }))}
+                  onChange={(event) =>
+                    setMemoryForm((current) => ({ ...current, repo_id: event.target.value }))
+                  }
                 >
                   <option value="">Select repo...</option>
                   {repos.map((repo) => (
@@ -338,8 +361,11 @@ export default function MemoryPage() {
               <Label htmlFor="memory-form-summary">Summary</Label>
               <Input
                 id="memory-form-summary"
+                className="h-11"
                 value={memoryForm.summary}
-                onChange={(event) => setMemoryForm((current) => ({ ...current, summary: event.target.value }))}
+                onChange={(event) =>
+                  setMemoryForm((current) => ({ ...current, summary: event.target.value }))
+                }
                 placeholder="Use DB advisory locks for scheduler singleton behavior"
               />
             </div>
@@ -349,7 +375,9 @@ export default function MemoryPage() {
               <Textarea
                 id="memory-form-content"
                 value={memoryForm.content}
-                onChange={(event) => setMemoryForm((current) => ({ ...current, content: event.target.value }))}
+                onChange={(event) =>
+                  setMemoryForm((current) => ({ ...current, content: event.target.value }))
+                }
                 placeholder="The control plane is horizontally scalable, so scheduler ownership must come from Postgres, not process-local timers."
                 className="min-h-[180px]"
               />
@@ -359,29 +387,35 @@ export default function MemoryPage() {
               <Label htmlFor="memory-form-confidence">Confidence</Label>
               <Input
                 id="memory-form-confidence"
+                className="h-11"
                 type="number"
                 min="0"
                 max="1"
                 step="0.05"
                 value={memoryForm.confidence}
-                onChange={(event) => setMemoryForm((current) => ({ ...current, confidence: event.target.value }))}
+                onChange={(event) =>
+                  setMemoryForm((current) => ({ ...current, confidence: event.target.value }))
+                }
               />
             </div>
 
             {createMemoryMutation.error && (
               <p className="text-sm text-destructive">
-                {createMemoryMutation.error instanceof Error ? createMemoryMutation.error.message : 'Failed to create memory entry'}
+                {createMemoryMutation.error instanceof Error
+                  ? createMemoryMutation.error.message
+                  : 'Failed to create memory entry'}
               </p>
             )}
 
             <Button
+              size="mobile"
               className="w-full"
               onClick={() => createMemoryMutation.mutate()}
               disabled={
-                createMemoryMutation.isPending
-                || !memoryForm.summary.trim()
-                || !memoryForm.content.trim()
-                || (memoryForm.scope_type === 'repo' && !memoryForm.repo_id)
+                createMemoryMutation.isPending ||
+                !memoryForm.summary.trim() ||
+                !memoryForm.content.trim() ||
+                (memoryForm.scope_type === 'repo' && !memoryForm.repo_id)
               }
             >
               {createMemoryMutation.isPending ? 'Saving...' : 'Save Memory'}
