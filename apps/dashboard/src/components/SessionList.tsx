@@ -163,7 +163,7 @@ export function SessionList({
         session.latest_snapshot?.created_at || '',
       ].join(':'))
       .join('|')}`;
-  }, [data?.sessions]);
+  }, [data]);
   const lastDataKeyRef = useRef<string>('');
 
   // Store fetched sessions

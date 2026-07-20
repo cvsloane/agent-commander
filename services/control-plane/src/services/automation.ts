@@ -511,7 +511,7 @@ export async function evaluateAutomationPreflight(input: {
   );
   const issues: AutomationPreflightIssue[] = [...budget.issues];
 
-  let host: Host | null = null;
+  let host: Host | null;
   if (input.reusableSession) {
     host = await db.getHostById(input.reusableSession.host_id);
     if (!host || !hostAllowsSpawn(host)) {

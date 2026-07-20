@@ -163,7 +163,7 @@ export function createClawdbotNotifier(dependencies: {
 
   async function deliver(notification: QueuedNotification): Promise<void> {
     let attempts = 0;
-    let result: Awaited<ReturnType<typeof sendOnce>> = { ok: false };
+    let result: Awaited<ReturnType<typeof sendOnce>>;
     for (;;) {
       attempts += 1;
       result = await sendOnce(notification.config, notification.message);

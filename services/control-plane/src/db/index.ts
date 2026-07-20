@@ -248,7 +248,7 @@ export async function listRepos(userId: string, filters?: {
 
   query += ' ORDER BY r.updated_at DESC, r.created_at DESC';
   if (filters?.limit) {
-    query += ` LIMIT $${paramIndex++}`;
+    query += ` LIMIT $${paramIndex}`;
     params.push(filters.limit);
   }
 
@@ -386,7 +386,6 @@ export async function validateAgentToken(token: string): Promise<string | null> 
       hasTokenShaColumn = false;
       if (!warnedMissingTokenSha) {
         warnedMissingTokenSha = true;
-        // eslint-disable-next-line no-console
         console.warn('[db] agent_tokens.token_sha256 missing; run migrations to enable fast token validation');
       }
     } else {
@@ -602,7 +601,7 @@ function buildSessionsFilter(filters?: SessionFilters): { where: string; params:
     if (filters.group_id === null || filters.include_ungrouped) {
       query += ` AND group_id IS NULL`;
     } else {
-      query += ` AND group_id = $${paramIndex++}`;
+      query += ` AND group_id = $${paramIndex}`;
       params.push(filters.group_id);
     }
   }
@@ -1004,7 +1003,7 @@ export async function getApprovals(filters?: {
 }): Promise<Approval[]> {
   let query = 'SELECT * FROM approvals WHERE 1=1';
   const params: unknown[] = [];
-  let paramIndex = 1;
+  const paramIndex = 1;
 
   if (filters?.status === 'pending') {
     query += ' AND decision IS NULL AND timed_out_at IS NULL';
@@ -1013,7 +1012,7 @@ export async function getApprovals(filters?: {
   }
 
   if (filters?.session_id) {
-    query += ` AND session_id = $${paramIndex++}`;
+    query += ` AND session_id = $${paramIndex}`;
     params.push(filters.session_id);
   }
 
@@ -1431,7 +1430,7 @@ export async function getProjects(userId: string, filters?: {
 
   query += ' ORDER BY last_used_at DESC NULLS LAST, usage_count DESC NULLS LAST';
   if (filters?.limit) {
-    query += ` LIMIT $${paramIndex++}`;
+    query += ` LIMIT $${paramIndex}`;
     params.push(filters.limit);
   }
 
@@ -2152,7 +2151,7 @@ export async function getLatestProviderUsage(filters?: {
     params.push(filters.session_id);
   }
   if (filters?.scope) {
-    whereClause += ` AND scope = $${paramIndex++}`;
+    whereClause += ` AND scope = $${paramIndex}`;
     params.push(filters.scope);
   }
 
@@ -2334,7 +2333,7 @@ export async function getAnalyticsSummary(filters?: {
     params.push(filters.provider);
   }
   if (filters?.since) {
-    whereClause += ` AND s.created_at >= $${paramIndex++}`;
+    whereClause += ` AND s.created_at >= $${paramIndex}`;
     params.push(filters.since);
   }
 
