@@ -1,0 +1,1 @@
+{"v":1,"type":"commands.dispatch","ts":"2026-07-19T20:01:04Z","payload":{"cmd_id":"cmd-adopt","session_id":"22222222-2222-4222-8222-222222222222","command":{"type":"adopt_pane","payload":{"tmux_pane_id":"%9","title":"Adopted shell"}}}}

@@ -1,6 +1,6 @@
 [Unit]
 Description=Agent Commander Host Agent
-Documentation=https://github.com/your-org/agent-commander
+Documentation=https://github.com/cvsloane/agent-commander
 After=network-online.target
 Wants=network-online.target
 

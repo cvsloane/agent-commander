@@ -1,0 +1,1 @@
+{"v":1,"type":"tool.event.started","ts":"2026-07-19T20:00:06Z","seq":10,"payload":{"event_id":"77777777-7777-4777-8777-777777777777","session_id":"22222222-2222-4222-8222-222222222222","provider":"codex","tool_name":"exec_command","tool_input":{"cmd":"go test ./..."},"started_at":"2026-07-19T20:00:06Z"}}

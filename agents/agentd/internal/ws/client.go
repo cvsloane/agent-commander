@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/agent-command/agentd/internal/metrics"
+	"github.com/agent-command/agentd/internal/protocol"
 	"github.com/agent-command/agentd/internal/queue"
 	"github.com/gorilla/websocket"
 )
@@ -174,10 +175,7 @@ func (c *Client) reader(conn *websocket.Conn) {
 		}
 
 		// Parse message envelope
-		var envelope struct {
-			Type    string          `json:"type"`
-			Payload json.RawMessage `json:"payload"`
-		}
+		var envelope protocol.ServerEnvelope
 		if err := json.Unmarshal(message, &envelope); err != nil {
 			log.Printf("Failed to parse message: %v", err)
 			continue
@@ -185,11 +183,7 @@ func (c *Client) reader(conn *websocket.Conn) {
 
 		// Handle acks specially
 		if envelope.Type == "agent.ack" {
-			var ackPayload struct {
-				AckSeq int64  `json:"ack_seq"`
-				Status string `json:"status"`
-				Error  string `json:"error"`
-			}
+			var ackPayload protocol.AgentAckPayload
 			if err := json.Unmarshal(envelope.Payload, &ackPayload); err == nil {
 				if ackPayload.Status == "error" {
 					log.Printf("Agent ack error (seq=%d): %s", ackPayload.AckSeq, ackPayload.Error)
@@ -330,12 +324,12 @@ func (c *Client) Send(msgType string, payload any) error {
 		}
 	}
 
-	msg := map[string]any{
-		"v":       1,
-		"type":    msgType,
-		"ts":      time.Now().UTC().Format(time.RFC3339Nano),
-		"seq":     seq,
-		"payload": json.RawMessage(payloadBytes),
+	msg := protocol.AgentEnvelope{
+		V:       protocol.Version,
+		Type:    msgType,
+		TS:      time.Now().UTC().Format(time.RFC3339Nano),
+		Seq:     seq,
+		Payload: payloadBytes,
 	}
 
 	data, err := json.Marshal(msg)
@@ -432,12 +426,12 @@ func (c *Client) ResendQueued() error {
 }
 
 func (c *Client) writeEnvelope(seq int64, msgType string, payload json.RawMessage) error {
-	envelope := map[string]any{
-		"v":       1,
-		"type":    msgType,
-		"ts":      time.Now().UTC().Format(time.RFC3339Nano),
-		"seq":     seq,
-		"payload": payload,
+	envelope := protocol.AgentEnvelope{
+		V:       protocol.Version,
+		Type:    msgType,
+		TS:      time.Now().UTC().Format(time.RFC3339Nano),
+		Seq:     seq,
+		Payload: payload,
 	}
 	data, err := json.Marshal(envelope)
 	if err != nil {

@@ -1,0 +1,1 @@
+{"v":1,"type":"tool.event.completed","ts":"2026-07-19T20:00:07Z","seq":11,"payload":{"event_id":"77777777-7777-4777-8777-777777777777","tool_output":{"exit_code":0},"completed_at":"2026-07-19T20:00:07Z","success":true,"duration_ms":912}}

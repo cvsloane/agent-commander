@@ -1,0 +1,1 @@
+{"v":1,"type":"mcp.update_project_config","ts":"2026-07-19T20:00:15Z","payload":{"cmd_id":"01JMCP000000000000000000005","repo_root":"/home/cvsloane/dev/agent-command","enablement":{"github":{"enabled":false,"scope":"project"}}}}

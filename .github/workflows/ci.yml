@@ -52,7 +52,7 @@ jobs:
         run: pnpm test:smoke:dashboard
 
   go:
-    name: Go tests
+    name: Go build + vet + test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -62,13 +62,17 @@ jobs:
         with:
           go-version: "1.22.x"
 
+      - name: Build
+        working-directory: agents/agentd
+        run: go build ./...
+
+      - name: Vet
+        working-directory: agents/agentd
+        run: go vet ./...
+
       - name: Test
         working-directory: agents/agentd
         run: go test ./...
-
-      - name: Build
-        working-directory: agents/agentd
-        run: go build ./cmd/agentd
 
   docker:
     name: Docker build

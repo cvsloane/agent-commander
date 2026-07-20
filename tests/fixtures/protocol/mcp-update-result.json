@@ -1,0 +1,1 @@
+{"v":1,"type":"mcp.update_result","ts":"2026-07-19T20:00:19Z","seq":17,"payload":{"cmd_id":"01JMCP000000000000000000003","success":false,"restart_required":false,"error":"MCP configuration not supported on this agent"}}

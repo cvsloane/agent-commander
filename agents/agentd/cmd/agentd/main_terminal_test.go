@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/agent-command/agentd/internal/protocol"
 	"github.com/agent-command/agentd/internal/tmux"
 )
 
@@ -18,10 +19,10 @@ func TestTerminalOutputHandlerDoesNotReencodeFanoutChunk(t *testing.T) {
 
 	agent.handleTerminalOutput("channel-1", "YWxyZWFkeS1lbmNvZGVk")
 
-	want := map[string]any{
-		"channel_id": "channel-1",
-		"encoding":   "base64",
-		"data":       "YWxyZWFkeS1lbmNvZGVk",
+	want := protocol.TerminalOutputPayload{
+		ChannelID: "channel-1",
+		Encoding:  "base64",
+		Data:      "YWxyZWFkeS1lbmNvZGVk",
 	}
 	if gotType != "terminal.output" || !reflect.DeepEqual(gotPayload, want) {
 		t.Fatalf("message=(%q, %#v), want=(terminal.output, %#v)", gotType, gotPayload, want)
@@ -45,13 +46,13 @@ func TestTerminalAuditHandlerEmitsAdditiveAuditEvent(t *testing.T) {
 		PreviousControllerChannelID: "channel-1",
 	})
 
-	want := map[string]any{
-		"event_type":                     "terminal.audit",
-		"action":                         "control_transfer",
-		"channel_id":                     "channel-2",
-		"session_id":                     "session-1",
-		"pane_id":                        "%7",
-		"previous_controller_channel_id": "channel-1",
+	want := protocol.TerminalAuditPayload{
+		EventType:                   "terminal.audit",
+		Action:                      "control_transfer",
+		ChannelID:                   "channel-2",
+		SessionID:                   "session-1",
+		PaneID:                      "%7",
+		PreviousControllerChannelID: "channel-1",
 	}
 	if gotType != "terminal.audit" || !reflect.DeepEqual(gotPayload, want) {
 		t.Fatalf("message=(%q, %#v), want=(terminal.audit, %#v)", gotType, gotPayload, want)

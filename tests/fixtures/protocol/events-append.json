@@ -1,0 +1,1 @@
+{"v":1,"type":"events.append","ts":"2026-07-19T20:00:04Z","seq":8,"payload":{"session_id":"22222222-2222-4222-8222-222222222222","event_id":"01JEVENT0000000000000000000","event_type":"orchestrator.report","payload":{"outcome":"succeeded","summary":"gate green"}}}

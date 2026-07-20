@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/agent-command/agentd/internal/orchestrator"
+	"github.com/agent-command/agentd/internal/protocol"
 	"github.com/agent-command/agentd/internal/tmux"
 	"github.com/google/uuid"
 )
@@ -167,7 +168,7 @@ func (b *agentOrchestratorBackend) Spawn(_ context.Context, callerSessionID stri
 	b.agent.sessions[sessionID] = child
 	registered = true
 	b.agent.refreshHierarchyMetadataLocked()
-	updates := []map[string]any{sessionUpsert(child)}
+	updates := []protocol.SessionUpsert{sessionUpsert(child)}
 	if parent := b.agent.sessions[callerSessionID]; parent != nil {
 		updates = append(updates, sessionUpsert(parent))
 	}
@@ -184,7 +185,7 @@ func (b *agentOrchestratorBackend) Spawn(_ context.Context, callerSessionID stri
 		}
 	}
 	committed = true
-	b.agent.send("sessions.upsert", map[string]any{"sessions": updates})
+	b.agent.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: updates})
 	if request.Prompt != "" && status != "IDLE" {
 		go b.agent.sendPromptAfterReady(sessionID, created.PaneID, request.Prompt, runner)
 	}
@@ -280,7 +281,7 @@ func (b *agentOrchestratorBackend) Kill(_ context.Context, _ string, request orc
 	}
 
 	now := time.Now().UTC()
-	updates := make([]map[string]any, 0, len(succeeded))
+	updates := make([]protocol.SessionUpsert, 0, len(succeeded))
 	b.agent.sessionsMu.Lock()
 	for _, sessionID := range succeeded {
 		session := b.agent.sessions[sessionID]
@@ -300,7 +301,7 @@ func (b *agentOrchestratorBackend) Kill(_ context.Context, _ string, request orc
 		}
 		updatedIDs[sessionID] = true
 		update := sessionUpsert(b.agent.sessions[sessionID])
-		update["archived_at"] = now.Format(time.RFC3339)
+		update.ArchivedAt = protocol.String(now.Format(time.RFC3339))
 		updates = append(updates, update)
 	}
 	for _, sessionID := range succeeded {
@@ -317,7 +318,7 @@ func (b *agentOrchestratorBackend) Kill(_ context.Context, _ string, request orc
 	}
 	b.agent.sessionsMu.Unlock()
 	if len(updates) > 0 {
-		b.agent.send("sessions.upsert", map[string]any{"sessions": updates})
+		b.agent.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: updates})
 	}
 	response := orchestrator.KillResponse{KilledSessionIDs: succeeded}
 	if len(failed) > 0 {
@@ -492,10 +493,10 @@ func (b *agentOrchestratorBackend) Report(_ context.Context, callerSessionID str
 	if detail := strings.TrimSpace(request.Detail); detail != "" {
 		payload["detail"] = detail
 	}
-	if err := b.agent.send("events.append", map[string]any{
-		"session_id": callerSessionID,
-		"event_type": "orchestrator.report",
-		"payload":    payload,
+	if err := b.agent.send(protocol.TypeEventsAppend, protocol.EventsAppendPayload{
+		SessionID: callerSessionID,
+		EventType: "orchestrator.report",
+		Payload:   payload,
 	}); err != nil {
 		return fmt.Errorf("emit orchestrator report: %w", err)
 	}
@@ -532,36 +533,36 @@ func tmuxSessionFromTarget(target string) string {
 	return ""
 }
 
-func sessionUpsert(session *SessionState) map[string]any {
-	update := map[string]any{
-		"id":           session.ID,
-		"kind":         session.Kind,
-		"provider":     session.Provider,
-		"status":       session.Status,
-		"title":        session.Title,
-		"cwd":          session.CWD,
-		"tmux_pane_id": session.PaneID,
-		"tmux_target":  session.TmuxTarget,
-		"metadata":     cloneJSONMap(session.Metadata),
+func sessionUpsert(session *SessionState) protocol.SessionUpsert {
+	update := protocol.SessionUpsert{
+		ID:         session.ID,
+		Kind:       session.Kind,
+		Provider:   session.Provider,
+		Status:     session.Status,
+		Title:      protocol.String(session.Title),
+		CWD:        protocol.String(session.CWD),
+		TmuxPaneID: protocol.String(session.PaneID),
+		TmuxTarget: protocol.String(session.TmuxTarget),
+		Metadata:   protocol.NewSessionMetadata(cloneJSONMap(session.Metadata)),
 	}
 	if !session.LastActivity.IsZero() {
-		update["last_activity_at"] = session.LastActivity.UTC().Format(time.RFC3339)
+		update.LastActivityAt = session.LastActivity.UTC().Format(time.RFC3339)
 	}
 	if session.RepoRoot != "" {
-		update["repo_root"] = session.RepoRoot
+		update.RepoRoot = protocol.String(session.RepoRoot)
 	}
 	if session.GitBranch != "" {
-		update["git_branch"] = session.GitBranch
+		update.GitBranch = protocol.String(session.GitBranch)
 	}
 	if session.GitRemote != "" {
-		update["git_remote"] = session.GitRemote
+		update.GitRemote = protocol.String(session.GitRemote)
 	}
 	if session.GroupID != "" {
-		update["group_id"] = session.GroupID
+		update.GroupID = protocol.String(session.GroupID)
 	}
 	if session.ForkedFrom != "" {
-		update["forked_from"] = session.ForkedFrom
-		update["fork_depth"] = session.ForkDepth
+		update.ForkedFrom = protocol.String(session.ForkedFrom)
+		update.ForkDepth = session.ForkDepth
 	}
 	return update
 }

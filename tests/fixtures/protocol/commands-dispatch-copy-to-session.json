@@ -1,0 +1,1 @@
+{"v":1,"type":"commands.dispatch","ts":"2026-07-19T20:01:13Z","payload":{"cmd_id":"cmd-copy","session_id":"22222222-2222-4222-8222-222222222222","command":{"type":"copy_to_session","payload":{"target_session_id":"44444444-4444-4444-8444-444444444444","mode":"range","line_start":10,"line_end":40,"prepend_text":"Context","append_text":"Review this","strip_ansi":true}}}}
