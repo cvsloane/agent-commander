@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#020617" />
+    <title>Agent Commander — Offline</title>
+    <style>
+      :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+        background: #020617;
+        color: #f8fafc;
+      }
+      main { width: min(100%, 28rem); text-align: center; }
+      .mark {
+        width: 72px;
+        height: 72px;
+        margin: 0 auto 24px;
+        display: grid;
+        place-items: center;
+        border: 1px solid #334155;
+        border-radius: 18px;
+        background: #0f172a;
+        color: #22d3ee;
+        font: 700 28px/1 ui-monospace, monospace;
+      }
+      h1 { margin: 0 0 8px; font-size: 1.5rem; }
+      p { margin: 0 0 24px; color: #94a3b8; line-height: 1.6; }
+      button {
+        min-height: 44px;
+        border: 1px solid #475569;
+        border-radius: 8px;
+        padding: 0 18px;
+        background: #f8fafc;
+        color: #020617;
+        font: inherit;
+        font-weight: 650;
+        cursor: pointer;
+      }
+      button:focus-visible { outline: 3px solid #22d3ee; outline-offset: 3px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark" aria-hidden="true">&gt;_</div>
+      <h1>You’re offline</h1>
+      <p>Agent Commander will reconnect when this device is back online. Previously loaded static assets remain available.</p>
+      <button type="button" onclick="location.reload()">Try again</button>
+    </main>
+  </body>
+</html>

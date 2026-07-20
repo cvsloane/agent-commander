@@ -135,8 +135,8 @@ export function SessionWorkbench({
         className={cn(
           'flex flex-col',
           maximized
-            ? 'fixed inset-0 z-[60] rounded-none border-0 h-screen'
-            : isMobile ? 'h-[66vh] min-h-[360px]' : 'h-[66vh]',
+            ? 'fixed inset-0 z-[60] h-dvh rounded-none border-0 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]'
+            : isMobile ? 'h-[66dvh] min-h-[360px]' : 'h-[66dvh]',
           terminalCardClassName
         )}
       >

@@ -5,6 +5,7 @@ import { SessionProvider } from 'next-auth/react';
 import { useState } from 'react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { SettingsSync } from '@/components/settings/SettingsSync';
+import { PWARegistration } from '@/components/pwa/PWARegistration';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -23,6 +24,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <SessionProvider>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
+          <PWARegistration />
           <SettingsSync />
           {children}
         </TooltipProvider>

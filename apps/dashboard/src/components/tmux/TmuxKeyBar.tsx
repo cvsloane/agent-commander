@@ -28,7 +28,7 @@ function renderIcon(icon: TmuxShortcutKey['icon']) {
 export function TmuxKeyBar({ onInput, className }: TmuxKeyBarProps) {
   return (
     <div
-      className={cn('border-t bg-background px-2 py-2', className)}
+      className={cn('border-t bg-background px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2', className)}
       role="toolbar"
       aria-label="tmux keyboard shortcuts"
     >

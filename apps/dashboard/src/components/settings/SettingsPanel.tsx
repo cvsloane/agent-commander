@@ -52,6 +52,7 @@ import {
 } from '@/stores/settings';
 import { useVisualizerThemeStore, type VisualizerTheme } from '@/stores/visualizerTheme';
 import type { SpawnProvider } from '@/lib/api';
+import { PushNotificationsCard } from '@/components/pwa/PushNotificationsCard';
 
 interface SettingsPanelProps {
   className?: string;
@@ -459,6 +460,8 @@ export function SettingsPanel({ className }: SettingsPanelProps) {
             </Button>
           </div>
 
+          <PushNotificationsCard />
+
           <div className="rounded-lg border p-4 space-y-4">
             <div className="flex items-center justify-between">
               <div>
@@ -545,7 +548,7 @@ export function SettingsPanel({ className }: SettingsPanelProps) {
               <div>
                 <div className="text-sm font-medium flex items-center gap-2">
                   <Bot className="h-4 w-4" />
-                  OpenClaw (Push Notifications)
+                  OpenClaw (Messaging Alerts)
                 </div>
                 <div className="text-xs text-muted-foreground">
                   Receive alerts via Telegram, WhatsApp, Discord, etc.

@@ -133,7 +133,7 @@ export function OrbitInfoModal({ open, session, stats, usage, onClose }: OrbitIn
           border-radius: 12px;
           min-width: 400px;
           max-width: 500px;
-          max-height: 80vh;
+          max-height: 80dvh;
           overflow-y: auto;
         }
 

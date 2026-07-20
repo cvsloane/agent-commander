@@ -88,7 +88,7 @@ export function ImportOrphanPanesModal({ isOpen, onClose, onSuccess }: ImportOrp
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-background border rounded-lg shadow-lg w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+      <div className="flex max-h-[80dvh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border bg-background shadow-lg">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <div className="flex items-center gap-2">

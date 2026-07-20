@@ -62,7 +62,7 @@ export default function Dashboard() {
     if (waitingOrchestratorItems.length === 0) return [];
     const byId = new Map(sessions.map((session) => [session.id, session]));
     return waitingOrchestratorItems
-      .map((item) => byId.get(item.sessionId))
+      .map((item) => item.sessionId ? byId.get(item.sessionId) : undefined)
       .filter((session): session is (typeof sessions)[number] => Boolean(session));
   }, [sessions, waitingOrchestratorItems]);
 

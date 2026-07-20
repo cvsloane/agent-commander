@@ -151,7 +151,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15dvh]">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/50"
@@ -187,7 +187,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
         {/* Results */}
         <div
           ref={listRef}
-          className="max-h-[50vh] overflow-y-auto"
+          className="max-h-[50dvh] overflow-y-auto"
         >
           {query && results.length === 0 && !isSearchPending && (
             <div className="px-4 py-8 text-center text-sm text-muted-foreground">

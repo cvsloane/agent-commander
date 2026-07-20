@@ -5,6 +5,8 @@ import type {
   Approval,
   ApprovalInput,
   ApprovalType,
+  AutomationRun,
+  GovernanceApproval,
 } from '@agent-command/schema';
 import {
   analyzeSnapshot,
@@ -12,18 +14,34 @@ import {
   stripAnsi,
   type DetectedAction,
 } from '@/components/orchestrator/DetectionEngine';
+import {
+  mergeAttentionItems,
+  type MergeableAttentionItem,
+} from '@/lib/attentionMerge';
+
+type SessionWithAttention = SessionWithSnapshot & {
+  attention_reason?: string | null;
+};
+
+export interface ServerAttentionSignal {
+  attentionReason: string | null;
+  question?: string;
+  confidence?: number;
+  captureHash?: string;
+}
 
 /**
  * Orchestrator Item - represents something that needs user attention
  */
-export interface OrchestratorItem {
+export interface OrchestratorItem extends MergeableAttentionItem {
   id: string;
-  sessionId: string;
+  sessionId: string | null;
   sessionTitle: string | null;
   sessionCwd: string | null;
   sessionProvider: string | null;
+  sessionHostId?: string | null;
   sessionStatus: string;
-  source: 'snapshot' | 'approval' | 'status';
+  source: 'snapshot' | 'approval' | 'status' | 'governance' | 'run';
   action: DetectedAction | null;
   approval?: Approval;
   approvalInput?: ApprovalInput;
@@ -35,6 +53,11 @@ export interface OrchestratorItem {
   summaryLoading?: boolean;
   summaryFailed?: boolean;
   captureHash?: string;
+  attentionReason?: string;
+  governanceApproval?: GovernanceApproval;
+  automationRun?: AutomationRun;
+  automationRunId?: string;
+  governanceRunId?: string | null;
 }
 
 /**
@@ -48,7 +71,8 @@ interface OrchestratorState {
   items: OrchestratorItem[];
 
   // Session tracking
-  sessionsById: Record<string, SessionWithSnapshot>;
+  sessionsById: Record<string, SessionWithAttention>;
+  runsById: Record<string, AutomationRun>;
 
   // Deduplication
   lastHashBySession: Record<string, string>;
@@ -67,11 +91,17 @@ interface OrchestratorState {
 
   // Data ingestion
   ingestSessions: (
-    sessions: SessionWithSnapshot[],
+    sessions: SessionWithAttention[],
     options?: { analyzeSnapshots?: boolean; fullSync?: boolean }
   ) => void;
   ingestSnapshot: (sessionId: string, captureText: string, captureHash?: string) => void;
   ingestApproval: (approval: Approval, session?: Session) => void;
+  ingestAttention: (sessionId: string, signal: ServerAttentionSignal) => void;
+  ingestAutomationRuns: (runs: AutomationRun[], options?: { fullSync?: boolean }) => void;
+  ingestGovernanceApprovals: (
+    approvals: GovernanceApproval[],
+    options?: { fullSync?: boolean }
+  ) => void;
   removeApprovalItem: (approvalId: string) => void;
   pruneApprovals: (approvalIds: string[]) => void;
 
@@ -89,6 +119,7 @@ interface OrchestratorState {
 
   // Computed getters
   getActiveItems: () => OrchestratorItem[];
+  getQueueItems: () => OrchestratorItem[];
   getWaitingItems: () => OrchestratorItem[];
   getIdledItems: () => OrchestratorItem[];
   getItemCount: () => number;
@@ -105,15 +136,98 @@ const ATTENTION_STATUSES = new Set([
   'ERROR',
 ]);
 
+const SESSION_DERIVED_SOURCES = new Set<OrchestratorItem['source']>([
+  'snapshot',
+  'approval',
+  'status',
+]);
+const TRANSIENT_SESSION_SOURCES = new Set<OrchestratorItem['source']>([
+  'snapshot',
+  'status',
+]);
+
 const ACTIONABLE_CONFIDENCE_THRESHOLD = 0.75;
 const SNAPSHOT_CONTEXT_LINES = 60;
 const APPROVAL_PRUNE_GRACE_MS = 60 * 1000;
+
+function serverAttentionReason(session: SessionWithAttention): string | undefined {
+  const reason = session.attention_reason;
+  return typeof reason === 'string' && reason.trim() ? reason.trim() : undefined;
+}
+
+function timestamp(value: string | null | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+function governanceReason(approval: GovernanceApproval): string {
+  const payload = approval.request_payload;
+  const reason = payload.reason || payload.message || payload.objective || payload.description;
+  if (reason) return String(reason);
+  return `${approval.type.replace(/_/g, ' ')} approval required`;
+}
 
 function buildSnapshotContext(captureText: string): string {
   if (!captureText) return '';
   const cleanText = stripAnsi(captureText);
   const lines = cleanText.split('\n');
   return lines.slice(-SNAPSHOT_CONTEXT_LINES).join('\n');
+}
+
+function actionFromServerAttention(
+  signal: ServerAttentionSignal,
+  captureText = ''
+): DetectedAction {
+  const context = buildSnapshotContext(captureText);
+  const fallback = captureText
+    ? analyzeSnapshot(captureText, signal.captureHash).action
+    : null;
+  if (
+    fallback &&
+    (!signal.question ||
+      (signal.attentionReason === 'multi_choice' && fallback.options?.length))
+  ) {
+    return {
+      ...fallback,
+      question: signal.question || fallback.question,
+      confidence: signal.confidence ?? fallback.confidence,
+    };
+  }
+
+  const supportedType = [
+    'multi_choice',
+    'yes_no',
+    'text_input',
+    'plan_review',
+    'error',
+    'needs_attention',
+  ].includes(signal.attentionReason || '')
+    ? signal.attentionReason as DetectedAction['type']
+    : 'needs_attention';
+  const question = signal.question || (
+    signal.attentionReason === 'waiting_approval'
+      ? 'Approval required'
+      : signal.attentionReason === 'waiting_input'
+        ? 'Session is waiting for input'
+        : signal.attentionReason === 'error'
+          ? 'Session reported an error'
+          : 'Session needs attention'
+  );
+  const options = supportedType === 'yes_no' || supportedType === 'plan_review'
+    ? [
+        { value: 'y', label: supportedType === 'plan_review' ? 'Approve' : 'Yes' },
+        { value: 'n', label: supportedType === 'plan_review' ? 'Reject' : 'No' },
+      ]
+    : undefined;
+
+  return {
+    type: supportedType,
+    question,
+    options,
+    context,
+    confidence: signal.confidence ?? 1,
+  };
 }
 
 function buildApprovalFallbackContext(requestedPayload: Record<string, unknown>): string {
@@ -390,6 +504,7 @@ export const useOrchestratorStore = create<OrchestratorState>()(
       isOpen: false,
       items: [],
       sessionsById: {},
+      runsById: {},
       lastHashBySession: {},
       lastDetectedAt: {},
       throttleMs: DEFAULT_THROTTLE_MS,
@@ -412,9 +527,14 @@ export const useOrchestratorStore = create<OrchestratorState>()(
 
           for (const session of sessions) {
             const isArchived = Boolean(session.archived_at);
-            const previousStatus = state.sessionsById[session.id]?.status;
-            const wasAttention = previousStatus ? ATTENTION_STATUSES.has(previousStatus) : false;
-            const isAttention = ATTENTION_STATUSES.has(session.status);
+            const previousSession = state.sessionsById[session.id];
+            const previousStatus = previousSession?.status;
+            const attentionReason = serverAttentionReason(session);
+            const wasAttention = Boolean(
+              (previousStatus && ATTENTION_STATUSES.has(previousStatus)) ||
+              (previousSession && serverAttentionReason(previousSession))
+            );
+            const isAttention = ATTENTION_STATUSES.has(session.status) || Boolean(attentionReason);
 
             sessionsById[session.id] = session;
             const parsedIdledAt = session.idled_at
@@ -432,7 +552,7 @@ export const useOrchestratorStore = create<OrchestratorState>()(
               items = items.filter(
                 (item) =>
                   item.sessionId !== session.id ||
-                  item.source === 'approval'
+                  !TRANSIENT_SESSION_SOURCES.has(item.source)
               );
               delete lastHashBySession[session.id];
               delete lastDetectedAt[session.id];
@@ -447,68 +567,114 @@ export const useOrchestratorStore = create<OrchestratorState>()(
               items = items.filter(
                 (item) =>
                   item.sessionId !== session.id ||
-                  item.source === 'approval'
+                  !TRANSIENT_SESSION_SOURCES.has(item.source)
               );
               delete lastHashBySession[session.id];
               delete lastDetectedAt[session.id];
             }
 
-            const needsAttention = ATTENTION_STATUSES.has(session.status);
+            const needsAttention = isAttention;
 
             if (needsAttention) {
-              const hasActiveStatus = items.some(
-                (item) =>
-                  item.sessionId === session.id &&
-                  item.source === 'status' &&
-                  !item.dismissedAt
-              );
-              const hasActiveApproval = items.some(
-                (item) =>
-                  item.sessionId === session.id &&
-                  item.source === 'approval' &&
-                  !item.dismissedAt
-              );
-
-              if (!hasActiveStatus && !hasActiveApproval) {
-                items = items.filter(
-                  (item) => !(item.sessionId === session.id && item.source === 'status')
+              if (attentionReason) {
+                const previousItem = items.find(
+                  (item) => item.sessionId === session.id && item.source === 'status'
                 );
-
+                const captureHash =
+                  session.latest_snapshot?.capture_hash || previousItem?.captureHash;
+                const sameSignal = Boolean(
+                  previousItem?.attentionReason === attentionReason &&
+                  (!captureHash || previousItem.captureHash === captureHash)
+                );
+                const action = sameSignal && previousItem?.action
+                  ? {
+                      ...previousItem.action,
+                      context: snapshotContext || previousItem.action.context,
+                    }
+                  : actionFromServerAttention(
+                      { attentionReason, captureHash },
+                      session.latest_snapshot?.capture_text
+                    );
+                items = items.filter(
+                  (item) =>
+                    !(
+                      item.sessionId === session.id &&
+                      (item.source === 'status' || item.source === 'snapshot')
+                    )
+                );
                 items.push({
-                  id: `status-${session.id}-${now}`,
+                  id: previousItem?.id || `status-${session.id}-${now}`,
                   sessionId: session.id,
                   sessionTitle: session.title ?? null,
                   sessionCwd: session.cwd ?? null,
                   sessionProvider: session.provider ?? null,
+                  sessionHostId: session.host_id,
                   sessionStatus: session.status,
                   source: 'status',
-                  action: {
-                    type: 'needs_attention',
-                    question: `Session is ${session.status.toLowerCase().replace(/_/g, ' ')}`,
-                    context: '',
-                    confidence: 0.5,
-                  },
-                  createdAt: now,
+                  action,
+                  attentionReason,
+                  captureHash,
+                  createdAt: sameSignal ? (previousItem?.createdAt || now) : now,
+                  dismissedAt: sameSignal ? previousItem?.dismissedAt : undefined,
                   idledAt: isIdledSession ? (parsedIdledAt as number) : undefined,
                 });
               } else {
-                // Keep status item details fresh
-                items = items.map((item) =>
-                  item.sessionId === session.id && item.source === 'status'
-                    ? {
-                        ...item,
-                        sessionTitle: session.title ?? item.sessionTitle,
-                        sessionCwd: session.cwd ?? item.sessionCwd,
-                        sessionProvider: session.provider ?? item.sessionProvider,
-                        sessionStatus: session.status,
-                      }
-                    : item
+                const hasActiveStatus = items.some(
+                  (item) =>
+                    item.sessionId === session.id &&
+                    item.source === 'status' &&
+                    !item.dismissedAt
                 );
-              }
-              if (hasActiveApproval) {
-                items = items.filter(
-                  (item) => !(item.sessionId === session.id && item.source === 'status')
+                const hasActiveApproval = items.some(
+                  (item) =>
+                    item.sessionId === session.id &&
+                    item.source === 'approval' &&
+                    !item.dismissedAt
                 );
+
+                if (!hasActiveStatus && !hasActiveApproval) {
+                  items = items.filter(
+                    (item) => !(item.sessionId === session.id && item.source === 'status')
+                  );
+
+                  items.push({
+                    id: `status-${session.id}-${now}`,
+                    sessionId: session.id,
+                    sessionTitle: session.title ?? null,
+                    sessionCwd: session.cwd ?? null,
+                    sessionProvider: session.provider ?? null,
+                    sessionHostId: session.host_id,
+                    sessionStatus: session.status,
+                    source: 'status',
+                    action: {
+                      type: 'needs_attention',
+                      question: `Session is ${session.status.toLowerCase().replace(/_/g, ' ')}`,
+                      context: '',
+                      confidence: 0.5,
+                    },
+                    createdAt: now,
+                    idledAt: isIdledSession ? (parsedIdledAt as number) : undefined,
+                  });
+                } else {
+                  // Keep status item details fresh
+                  items = items.map((item) =>
+                    item.sessionId === session.id && item.source === 'status'
+                      ? {
+                          ...item,
+                          sessionTitle: session.title ?? item.sessionTitle,
+                          sessionCwd: session.cwd ?? item.sessionCwd,
+                          sessionProvider: session.provider ?? item.sessionProvider,
+                          sessionHostId: session.host_id,
+                          sessionStatus: session.status,
+                        }
+                      : item
+                  );
+                }
+                if (hasActiveApproval) {
+                  items = items.filter(
+                    (item) => !(item.sessionId === session.id && item.source === 'status')
+                  );
+                }
               }
             } else {
               // Status no longer requires attention; remove status items
@@ -518,7 +684,7 @@ export const useOrchestratorStore = create<OrchestratorState>()(
             }
 
             // If session has a snapshot, analyze it
-            if (analyzeSnapshots && session.latest_snapshot?.capture_text) {
+            if (!attentionReason && analyzeSnapshots && session.latest_snapshot?.capture_text) {
               const snapshot = session.latest_snapshot;
               const hash = snapshot.capture_hash || generateCaptureHash(snapshot.capture_text);
 
@@ -554,6 +720,7 @@ export const useOrchestratorStore = create<OrchestratorState>()(
                       sessionTitle: session.title ?? null,
                       sessionCwd: session.cwd ?? null,
                       sessionProvider: session.provider ?? null,
+                      sessionHostId: session.host_id,
                       sessionStatus: session.status,
                       source: 'snapshot',
                       action: result.action,
@@ -568,7 +735,7 @@ export const useOrchestratorStore = create<OrchestratorState>()(
 
             // Sync idle state on existing items for this session
             items = items.map((item) =>
-              item.sessionId === session.id
+              item.sessionId === session.id && SESSION_DERIVED_SOURCES.has(item.source)
                 ? { ...item, idledAt: isIdledSession ? (parsedIdledAt as number) : undefined }
                 : item
             );
@@ -580,7 +747,7 @@ export const useOrchestratorStore = create<OrchestratorState>()(
                 item.source === 'snapshot' &&
                 !item.dismissedAt
             );
-            if (hasActiveSnapshot) {
+            if (!attentionReason && hasActiveSnapshot) {
               items = items.filter(
                 (item) => !(item.sessionId === session.id && item.source === 'status')
               );
@@ -594,7 +761,9 @@ export const useOrchestratorStore = create<OrchestratorState>()(
           if (fullSync) {
             const sessionIds = new Set(sessions.map((session) => session.id));
             items = items.filter(
-              (item) => item.source === 'approval' || sessionIds.has(item.sessionId)
+              (item) =>
+                !['snapshot', 'status'].includes(item.source) ||
+                (item.sessionId !== null && sessionIds.has(item.sessionId))
             );
           }
 
@@ -611,6 +780,17 @@ export const useOrchestratorStore = create<OrchestratorState>()(
       ingestSnapshot: (sessionId, captureText, captureHash) => {
         set((state) => {
           const hash = captureHash || generateCaptureHash(captureText);
+          const session = state.sessionsById[sessionId];
+          if (session && serverAttentionReason(session)) {
+            const context = buildSnapshotContext(captureText);
+            return {
+              lastHashBySession: {
+                ...state.lastHashBySession,
+                [sessionId]: hash,
+              },
+              items: applySnapshotContext(state.items, sessionId, context),
+            };
+          }
 
           // Check if this is a new snapshot
           if (hash === state.lastHashBySession[sessionId]) {
@@ -659,6 +839,7 @@ export const useOrchestratorStore = create<OrchestratorState>()(
                 sessionTitle: session?.title || null,
                 sessionCwd: session?.cwd || null,
                 sessionProvider: session?.provider || null,
+                sessionHostId: session?.host_id,
                 sessionStatus: session?.status || 'unknown',
                 source: 'snapshot',
                 action: result.action,
@@ -700,6 +881,7 @@ export const useOrchestratorStore = create<OrchestratorState>()(
                   sessionTitle: session?.title ?? null,
                   sessionCwd: session?.cwd ?? null,
                   sessionProvider: session?.provider ?? null,
+                  sessionHostId: session?.host_id,
                   sessionStatus: sessionStatus as string,
                   source: 'status',
                   action: {
@@ -722,6 +904,70 @@ export const useOrchestratorStore = create<OrchestratorState>()(
           }
 
           return newState as OrchestratorState;
+        });
+      },
+
+      ingestAttention: (sessionId, signal) => {
+        const attentionReason = signal.attentionReason?.trim() || null;
+        set((state) => {
+          const session = state.sessionsById[sessionId];
+          const sessionsById = session
+            ? {
+                ...state.sessionsById,
+                [sessionId]: { ...session, attention_reason: attentionReason },
+              }
+            : state.sessionsById;
+          const previousItem = state.items.find(
+            (item) => item.sessionId === sessionId && item.source === 'status'
+          );
+          const itemsWithoutTransientSignals = state.items.filter(
+            (item) =>
+              item.sessionId !== sessionId ||
+              !TRANSIENT_SESSION_SOURCES.has(item.source)
+          );
+          if (!attentionReason) {
+            return { items: itemsWithoutTransientSignals, sessionsById };
+          }
+
+          const captureText = session?.latest_snapshot?.capture_text || '';
+          const captureHash =
+            signal.captureHash || session?.latest_snapshot?.capture_hash;
+          const sameVersion = Boolean(
+            previousItem &&
+            previousItem.attentionReason === attentionReason &&
+            (!signal.question || previousItem.action?.question === signal.question) &&
+            (!captureHash || previousItem.captureHash === captureHash)
+          );
+          const now = Date.now();
+          return {
+            sessionsById,
+            items: [
+              ...itemsWithoutTransientSignals,
+              {
+                id: sameVersion && previousItem
+                  ? previousItem.id
+                  : `status-${sessionId}-${now}`,
+                sessionId,
+                sessionTitle: session?.title ?? null,
+                sessionCwd: session?.cwd ?? null,
+                sessionProvider: session?.provider ?? null,
+                sessionHostId: session?.host_id ?? null,
+                sessionStatus: session?.status || 'WAITING_FOR_INPUT',
+                source: 'status',
+                action: actionFromServerAttention(
+                  { ...signal, attentionReason, captureHash },
+                  captureText
+                ),
+                attentionReason,
+                captureHash,
+                createdAt: sameVersion && previousItem ? previousItem.createdAt : now,
+                dismissedAt: sameVersion ? previousItem?.dismissedAt : undefined,
+                idledAt: sessionId in state.idledSessionsById
+                  ? state.idledSessionsById[sessionId]
+                  : undefined,
+              },
+            ],
+          };
         });
       },
 
@@ -865,6 +1111,7 @@ export const useOrchestratorStore = create<OrchestratorState>()(
             sessionTitle: sessionData?.title || approval.provider || 'Approval pending...',
             sessionCwd: sessionData?.cwd || null,
             sessionProvider: sessionData?.provider || approval.provider || 'unknown',
+            sessionHostId: sessionData?.host_id,
             sessionStatus: sessionData?.status || 'WAITING_FOR_APPROVAL',
             source: 'approval',
             action,
@@ -883,6 +1130,140 @@ export const useOrchestratorStore = create<OrchestratorState>()(
               newItem,
             ],
           };
+        });
+      },
+
+      ingestAutomationRuns: (runs, options) => {
+        const fullSync = options?.fullSync ?? false;
+        set((state) => {
+          const now = Date.now();
+          const runsById = { ...state.runsById };
+          let items = [...state.items];
+          const incomingIds = new Set(runs.map((run) => run.id));
+
+          for (const run of runs) {
+            runsById[run.id] = run;
+            const previousItem = items.find(
+              (item) => item.source === 'run' && item.automationRunId === run.id
+            );
+            items = items.filter(
+              (item) => !(item.source === 'run' && item.automationRunId === run.id)
+            );
+
+            if (run.status !== 'failed' && run.status !== 'blocked') continue;
+            const failed = run.status === 'failed';
+            const runSession = run.session_id ? state.sessionsById[run.session_id] : undefined;
+            items.push({
+              id: `run-${run.id}`,
+              sessionId: run.session_id ?? null,
+              sessionTitle: run.objective,
+              sessionCwd: null,
+              sessionProvider: null,
+              sessionHostId: runSession?.host_id,
+              sessionStatus: failed ? 'ERROR' : 'BLOCKED',
+              source: 'run',
+              action: {
+                type: failed ? 'error' : 'needs_attention',
+                question: failed ? 'Automation run failed' : 'Automation run is blocked',
+                context: run.result_summary || run.objective,
+                confidence: 1,
+              },
+              automationRun: run,
+              automationRunId: run.id,
+              createdAt: timestamp(run.ended_at || run.started_at, now),
+              dismissedAt: previousItem?.dismissedAt,
+            });
+          }
+
+          items = items.map((item) => {
+            if (item.source !== 'governance' || !item.governanceRunId) return item;
+            const run = runsById[item.governanceRunId];
+            const runSession = run?.session_id ? state.sessionsById[run.session_id] : undefined;
+            return run
+              ? {
+                  ...item,
+                  sessionId: run.session_id ?? item.sessionId,
+                  sessionHostId: runSession?.host_id ?? item.sessionHostId,
+                }
+              : item;
+          });
+
+          if (fullSync) {
+            items = items.filter(
+              (item) =>
+                item.source !== 'run' ||
+                (item.automationRunId !== undefined && incomingIds.has(item.automationRunId))
+            );
+            for (const runId of Object.keys(runsById)) {
+              if (!incomingIds.has(runId)) delete runsById[runId];
+            }
+          }
+
+          return { items, runsById };
+        });
+      },
+
+      ingestGovernanceApprovals: (approvals, options) => {
+        const fullSync = options?.fullSync ?? false;
+        set((state) => {
+          const now = Date.now();
+          let items = [...state.items];
+          const incomingIds = new Set(approvals.map((approval) => approval.id));
+
+          for (const approval of approvals) {
+            const previousItem = items.find(
+              (item) =>
+                item.source === 'governance' &&
+                item.governanceApproval?.id === approval.id
+            );
+            items = items.filter(
+              (item) =>
+                !(
+                  item.source === 'governance' &&
+                  item.governanceApproval?.id === approval.id
+                )
+            );
+            if (approval.status !== 'pending') continue;
+
+            const run = approval.automation_run_id
+              ? state.runsById[approval.automation_run_id]
+              : undefined;
+            const runSession = run?.session_id ? state.sessionsById[run.session_id] : undefined;
+            const reason = governanceReason(approval);
+            items.push({
+              id: `governance-${approval.id}`,
+              sessionId: run?.session_id ?? null,
+              sessionTitle: `Governance · ${approval.type.replace(/_/g, ' ')}`,
+              sessionCwd: null,
+              sessionProvider: null,
+              sessionHostId: runSession?.host_id,
+              sessionStatus: 'WAITING_FOR_APPROVAL',
+              source: 'governance',
+              action: {
+                type: 'yes_no',
+                question: reason,
+                options: [
+                  { value: 'approve', label: 'Approve' },
+                  { value: 'deny', label: 'Deny' },
+                ],
+                context: JSON.stringify(approval.request_payload, null, 2),
+                confidence: 1,
+              },
+              governanceApproval: approval,
+              governanceRunId: approval.automation_run_id ?? null,
+              createdAt: timestamp(approval.requested_at, now),
+              dismissedAt: previousItem?.dismissedAt,
+            });
+          }
+
+          if (fullSync) {
+            items = items.filter(
+              (item) =>
+                item.source !== 'governance' ||
+                (item.governanceApproval !== undefined && incomingIds.has(item.governanceApproval.id))
+            );
+          }
+          return { items };
         });
       },
 
@@ -943,7 +1324,9 @@ export const useOrchestratorStore = create<OrchestratorState>()(
             : state.sessionsById;
           return {
             items: state.items.map((item) =>
-              item.sessionId === sessionId ? { ...item, idledAt } : item
+              item.sessionId === sessionId && SESSION_DERIVED_SOURCES.has(item.source)
+                ? { ...item, idledAt }
+                : item
             ),
             idledSessionsById,
             sessionsById,
@@ -995,6 +1378,8 @@ export const useOrchestratorStore = create<OrchestratorState>()(
           });
       },
 
+      getQueueItems: () => mergeAttentionItems(get().items),
+
       getWaitingItems: () => {
         const state = get();
         return state.items
@@ -1010,8 +1395,7 @@ export const useOrchestratorStore = create<OrchestratorState>()(
       },
 
       getItemCount: () => {
-        const state = get();
-        return state.items.filter((item) => !item.dismissedAt && !item.idledAt && isActionableItem(item)).length;
+        return mergeAttentionItems(get().items).length;
       },
 
       getIdledCount: () => {
