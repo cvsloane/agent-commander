@@ -307,30 +307,33 @@ export type ServerToAgentMessage = z.infer<typeof ServerToAgentMessageSchema>;
 // UI WebSocket Messages
 // =====================
 
+export const UISubscriptionTopicSchema = z.enum([
+  'sessions',
+  'approvals',
+  'events',
+  'console',
+  'snapshots',
+  'tool_events',
+  'session_usage',
+  'automation_runs',
+  'automation_run_events',
+  'automation_wakeups',
+  'governance_approvals',
+  'work_items',
+  'hosts',
+  'session_edges',
+  'agent_tasks',
+  'attention',
+]);
+export type UISubscriptionTopic = z.infer<typeof UISubscriptionTopicSchema>;
+
 // UI subscribe
 export const UISubscribeMessageSchema = MessageEnvelopeBaseSchema.extend({
   type: z.literal('ui.subscribe'),
   payload: z.object({
     topics: z.array(
       z.object({
-        type: z.enum([
-          'sessions',
-          'approvals',
-          'events',
-          'console',
-          'snapshots',
-          'tool_events',
-          'session_usage',
-          'automation_runs',
-          'automation_run_events',
-          'automation_wakeups',
-          'governance_approvals',
-          'work_items',
-          'hosts',
-          'session_edges',
-          'agent_tasks',
-          'attention',
-        ]),
+        type: UISubscriptionTopicSchema,
         filter: z.record(z.unknown()).optional(),
       })
     ),
@@ -391,6 +394,8 @@ export const ApprovalsUpdatedMessageSchema = ServerToUIEnvelopeSchema.extend({
     approval_id: z.string().uuid(),
     decision: z.enum(['allow', 'deny']),
     decided_by_user_id: z.string().uuid().optional(),
+    session_id: z.string().uuid().optional(),
+    timed_out: z.boolean().optional(),
   }),
 });
 export type ApprovalsUpdatedMessage = z.infer<typeof ApprovalsUpdatedMessageSchema>;
@@ -541,3 +546,23 @@ export const ServerToUIMessageSchema = z.discriminatedUnion('type', [
   UIAttentionChangedMessageSchema,
 ]);
 export type ServerToUIMessage = z.infer<typeof ServerToUIMessageSchema>;
+
+const UnknownServerToUIMessageSchema = ServerToUIEnvelopeSchema.extend({
+  type: z.string().min(1),
+  payload: z.unknown(),
+}).passthrough();
+
+const serverToUIMessageTypes = new Set<string>(
+  ServerToUIMessageSchema.options.map((schema) => schema.shape.type.value)
+);
+
+/**
+ * Validate known server messages at the browser seam. A structurally valid
+ * future message type is ignored so an older dashboard stays connected; known
+ * types with invalid payloads still fail validation.
+ */
+export function parseServerToUIMessage(input: unknown): ServerToUIMessage | null {
+  const envelope = UnknownServerToUIMessageSchema.parse(input);
+  if (!serverToUIMessageTypes.has(envelope.type)) return null;
+  return ServerToUIMessageSchema.parse(input);
+}

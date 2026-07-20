@@ -29,7 +29,8 @@ export function registerNotificationRoutes(app: FastifyInstance): void {
     }
 
     // Get user settings
-    const settings = await db.getUserSettings(userId, request.user.sub);
+    await db.claimLegacyUserSettings(userId, request.user.sub);
+    const settings = await db.getUserSettings(userId);
     if (!settings) {
       return reply.status(400).send({ error: 'No settings found' });
     }

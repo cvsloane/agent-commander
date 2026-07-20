@@ -59,25 +59,34 @@ export function getPaneData(session: SessionWithSnapshot): TmuxPaneView {
     window_name?: string;
     window_index?: number;
     pane_index?: number;
+    pane_id?: string;
+    target?: string;
   } | undefined;
   const parsedTarget = parseTargetIndexes(session.tmux_target);
-  const tmuxSessionName = tmuxMeta?.session_name?.trim()
+  const tmuxSessionName = session.tmux_session_name?.trim()
+    || tmuxMeta?.session_name?.trim()
     || session.tmux_target?.split(':')[0]
     || 'tmux';
-  const windowIndex = typeof tmuxMeta?.window_index === 'number'
+  const windowIndex = typeof session.tmux_window_index === 'number'
+    ? session.tmux_window_index
+    : typeof tmuxMeta?.window_index === 'number'
     ? tmuxMeta.window_index
     : parsedTarget.windowIndex ?? 0;
-  const paneIndex = typeof tmuxMeta?.pane_index === 'number'
+  const paneIndex = typeof session.tmux_pane_index === 'number'
+    ? session.tmux_pane_index
+    : typeof tmuxMeta?.pane_index === 'number'
     ? tmuxMeta.pane_index
     : parsedTarget.paneIndex ?? 0;
   const rawWindowName = tmuxMeta?.window_name?.trim();
   const windowName = rawWindowName || `window ${windowIndex}`;
-  const target = session.tmux_target || `${tmuxSessionName}:${windowIndex}.${paneIndex}`;
+  const target = tmuxMeta?.target
+    || session.tmux_target
+    || `${tmuxSessionName}:${windowIndex}.${paneIndex}`;
 
   return {
     session,
     identity: {
-      pane_id: session.tmux_pane_id || session.id,
+      pane_id: tmuxMeta?.pane_id || session.tmux_pane_id || session.id,
       target,
       session_name: tmuxSessionName,
       window_name: windowName,

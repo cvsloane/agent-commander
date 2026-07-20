@@ -91,3 +91,23 @@ export const agentMessageHandlerFailuresTotal = new client.Counter({
 export function recordAgentMessageHandlerFailure(messageType: string): void {
   agentMessageHandlerFailuresTotal.inc({ message_type: messageType });
 }
+
+export const eventPayloadValidationTotal = new client.Counter({
+  name: 'agent_command_event_payload_validation_total',
+  help: 'Count of event payloads that are unknown to or invalid against the event registry.',
+  labelNames: ['status', 'event_type'] as const,
+  registers: [registry],
+});
+
+export function recordEventPayloadValidation(
+  status: 'unknown' | 'invalid',
+  eventType: string
+): void {
+  // Unknown producer-controlled names are unbounded; collapse them to keep the
+  // Prometheus label cardinality stable. Invalid types come from the finite
+  // registry and remain useful as per-type diagnostics.
+  eventPayloadValidationTotal.inc({
+    status,
+    event_type: status === 'unknown' ? '__unknown__' : eventType,
+  });
+}

@@ -18,8 +18,8 @@ export const SessionMetricsSchema = z.object({
   approvals_denied: z.number().default(0),
 
   // Timing
-  first_event_at: z.string().datetime({ offset: true }).nullable().optional(),
-  last_event_at: z.string().datetime({ offset: true }).nullable().optional(),
+  first_event_at: z.string().datetime({ offset: true }).nullable(),
+  last_event_at: z.string().datetime({ offset: true }).nullable(),
 
   // Cost estimate (in USD cents)
   estimated_cost_cents: z.number().default(0),
@@ -89,30 +89,30 @@ export type TimeSeriesPoint = z.infer<typeof TimeSeriesPointSchema>;
 export const ProviderUsageSchema = z.object({
   id: z.number().optional(),
   provider: z.string(),
-  host_id: z.string().uuid().nullable().optional(),
-  session_id: z.string().uuid().nullable().optional(),
+  host_id: z.string().uuid().nullable(),
+  session_id: z.string().uuid().nullable(),
   scope: z.enum(['account', 'session']).default('account'),
-  reported_at: z.string().datetime({ offset: true }).optional(),
-  raw_text: z.string().nullable().optional(),
-  raw_json: z.record(z.unknown()).nullable().optional(),
-  remaining_tokens: z.number().nullable().optional(),
-  remaining_requests: z.number().nullable().optional(),
-  weekly_limit_tokens: z.number().nullable().optional(),
-  weekly_remaining_tokens: z.number().nullable().optional(),
-  weekly_remaining_cost_cents: z.number().nullable().optional(),
-  reset_at: z.string().datetime({ offset: true }).nullable().optional(),
+  reported_at: z.string().datetime({ offset: true }),
+  raw_text: z.string().nullable(),
+  raw_json: z.record(z.unknown()).nullable(),
+  remaining_tokens: z.number().nullable(),
+  remaining_requests: z.number().nullable(),
+  weekly_limit_tokens: z.number().nullable(),
+  weekly_remaining_tokens: z.number().nullable(),
+  weekly_remaining_cost_cents: z.number().nullable(),
+  reset_at: z.string().datetime({ offset: true }).nullable(),
   // Utilization percentages (0-100)
-  five_hour_utilization: z.number().nullable().optional(),
-  five_hour_reset_at: z.string().datetime({ offset: true }).nullable().optional(),
-  weekly_utilization: z.number().nullable().optional(),
-  weekly_reset_at: z.string().datetime({ offset: true }).nullable().optional(),
-  weekly_opus_utilization: z.number().nullable().optional(),
-  weekly_opus_reset_at: z.string().datetime({ offset: true }).nullable().optional(),
-  weekly_sonnet_utilization: z.number().nullable().optional(),
-  weekly_sonnet_reset_at: z.string().datetime({ offset: true }).nullable().optional(),
+  five_hour_utilization: z.number().nullable(),
+  five_hour_reset_at: z.string().datetime({ offset: true }).nullable(),
+  weekly_utilization: z.number().nullable(),
+  weekly_reset_at: z.string().datetime({ offset: true }).nullable(),
+  weekly_opus_utilization: z.number().nullable(),
+  weekly_opus_reset_at: z.string().datetime({ offset: true }).nullable(),
+  weekly_sonnet_utilization: z.number().nullable(),
+  weekly_sonnet_reset_at: z.string().datetime({ offset: true }).nullable(),
   // Daily utilization (Gemini)
-  daily_utilization: z.number().nullable().optional(),
-  daily_reset_at: z.string().datetime({ offset: true }).nullable().optional(),
+  daily_utilization: z.number().nullable(),
+  daily_reset_at: z.string().datetime({ offset: true }).nullable(),
 });
 export type ProviderUsage = z.infer<typeof ProviderUsageSchema>;
 

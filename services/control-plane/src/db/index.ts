@@ -22,6 +22,7 @@ import type {
   Project,
   Repo,
   RecentLaunch,
+  TmuxRosterGroup,
 } from '@agent-command/schema';
 
 const { Pool } = pg;
@@ -85,6 +86,22 @@ function deriveRepoDisplayName(
     return match?.[1] ?? null;
   }
   return null;
+}
+
+function parseTmuxTargetIdentity(target?: string | null): {
+  sessionName: string | null;
+  windowIndex: number | null;
+  paneIndex: number | null;
+} {
+  const match = target?.trim().match(/^(.+):(\d+)(?:\.(\d+))?$/);
+  if (!match) {
+    return { sessionName: null, windowIndex: null, paneIndex: null };
+  }
+  return {
+    sessionName: match[1]?.trim() || null,
+    windowIndex: Number(match[2]),
+    paneIndex: match[3] === undefined ? null : Number(match[3]),
+  };
 }
 
 export async function resolveRepo(data: {
@@ -409,6 +426,15 @@ export async function createAgentToken(hostId: string, token: string): Promise<v
 export async function upsertSession(hostId: string, session: SessionUpsert): Promise<Session> {
   const metadataProvided = session.metadata !== undefined;
   const idledAtProvided = session.idled_at !== undefined;
+  const tmuxPaneIdProvided = session.tmux_pane_id !== undefined;
+  const tmuxTargetProvided = session.tmux_target !== undefined;
+  const tmuxIdentity = session.metadata?.tmux;
+  // Go's omitempty intentionally omits zero-valued tmux indexes. The canonical
+  // target still carries them, so retain 0:0 identity without relying on JSON
+  // field presence.
+  const targetIdentity = parseTmuxTargetIdentity(
+    tmuxIdentity?.target ?? session.tmux_target
+  );
   const resolvedRepoId = session.repo_id
     ?? (session.git_remote || session.repo_root
       ? (await resolveRepo({
@@ -421,28 +447,50 @@ export async function upsertSession(hostId: string, session: SessionUpsert): Pro
   const result = await pool.query(
      `INSERT INTO sessions (
        id, host_id, user_id, repo_id, kind, provider, status, title, cwd, repo_root,
-       git_remote, git_branch, tmux_pane_id, tmux_target, metadata, last_activity_at,
-       group_id, forked_from, fork_depth, archived_at, idled_at
+       git_remote, git_branch, tmux_pane_id, tmux_target,
+       tmux_session_name, tmux_window_index, tmux_pane_index,
+       metadata, last_activity_at, group_id, forked_from, fork_depth, archived_at, idled_at
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+     VALUES (
+       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+       $15, $16, $17, $18, $19, $20, $21, $22, $23, $24
+     )
      ON CONFLICT (id) DO UPDATE SET
        user_id = COALESCE(EXCLUDED.user_id, sessions.user_id),
        repo_id = COALESCE(EXCLUDED.repo_id, sessions.repo_id),
+       kind = EXCLUDED.kind,
+       provider = EXCLUDED.provider,
        status = EXCLUDED.status,
        title = COALESCE(EXCLUDED.title, sessions.title),
        cwd = COALESCE(EXCLUDED.cwd, sessions.cwd),
        repo_root = COALESCE(EXCLUDED.repo_root, sessions.repo_root),
        git_remote = COALESCE(EXCLUDED.git_remote, sessions.git_remote),
        git_branch = COALESCE(EXCLUDED.git_branch, sessions.git_branch),
-       tmux_pane_id = EXCLUDED.tmux_pane_id,
-       tmux_target = EXCLUDED.tmux_target,
-       metadata = CASE WHEN $22 THEN EXCLUDED.metadata ELSE sessions.metadata END,
+       tmux_pane_id = CASE WHEN $27 THEN EXCLUDED.tmux_pane_id ELSE sessions.tmux_pane_id END,
+       tmux_target = CASE WHEN $28 THEN EXCLUDED.tmux_target ELSE sessions.tmux_target END,
+       tmux_session_name = CASE
+         WHEN $25 AND EXCLUDED.metadata ? 'tmux' THEN EXCLUDED.tmux_session_name
+         ELSE sessions.tmux_session_name
+       END,
+       tmux_window_index = CASE
+         WHEN $25 AND EXCLUDED.metadata ? 'tmux' THEN EXCLUDED.tmux_window_index
+         ELSE sessions.tmux_window_index
+       END,
+       tmux_pane_index = CASE
+         WHEN $25 AND EXCLUDED.metadata ? 'tmux' THEN EXCLUDED.tmux_pane_index
+         ELSE sessions.tmux_pane_index
+       END,
+       metadata = CASE WHEN $25 THEN EXCLUDED.metadata ELSE sessions.metadata END,
        last_activity_at = COALESCE(EXCLUDED.last_activity_at, sessions.last_activity_at),
        group_id = COALESCE(EXCLUDED.group_id, sessions.group_id),
        forked_from = COALESCE(EXCLUDED.forked_from, sessions.forked_from),
        fork_depth = COALESCE(EXCLUDED.fork_depth, sessions.fork_depth),
-       archived_at = COALESCE(EXCLUDED.archived_at, sessions.archived_at),
-       idled_at = CASE WHEN $23 THEN EXCLUDED.idled_at ELSE sessions.idled_at END
+       archived_at = CASE
+         WHEN EXCLUDED.kind = 'tmux_pane' AND EXCLUDED.tmux_pane_id IS NOT NULL AND $27 THEN NULL
+         ELSE COALESCE(EXCLUDED.archived_at, sessions.archived_at)
+       END,
+       idled_at = CASE WHEN $26 THEN EXCLUDED.idled_at ELSE sessions.idled_at END
+     WHERE sessions.host_id = EXCLUDED.host_id
      RETURNING *`,
     [
       session.id,
@@ -459,18 +507,27 @@ export async function upsertSession(hostId: string, session: SessionUpsert): Pro
       session.git_branch || null,
       session.tmux_pane_id ?? null,
       session.tmux_target ?? null,
+      tmuxIdentity?.session_name?.trim() || targetIdentity.sessionName,
+      tmuxIdentity?.window_index ?? targetIdentity.windowIndex,
+      tmuxIdentity?.pane_index ?? targetIdentity.paneIndex,
       JSON.stringify(session.metadata ?? {}),
       session.last_activity_at || null,
       session.group_id ?? null,
       session.forked_from ?? null,
-      session.fork_depth ?? null,
+      session.fork_depth ?? 0,
       session.archived_at ?? null,
       session.idled_at ?? null,
       metadataProvided,
       idledAtProvided,
+      tmuxPaneIdProvided,
+      tmuxTargetProvided,
     ]
   );
-  return result.rows[0];
+  const saved = result.rows[0];
+  if (!saved) {
+    throw new Error('Session id is already owned by another host');
+  }
+  return saved;
 }
 
 export async function pruneHostSessions(hostId: string, activeSessionIds: string[]): Promise<number> {
@@ -571,22 +628,56 @@ export async function getSessions(filters?: SessionFilters): Promise<Session[]> 
 }
 
 export async function getTmuxRosterSessions(hostId?: string): Promise<Session[]> {
-  const params: unknown[] = [];
-  let query = `
-    SELECT *
-    FROM sessions
-    WHERE kind = 'tmux_pane'
-      AND archived_at IS NULL
-  `;
+  const groups = await getTmuxRosterGroups(hostId);
+  return groups.flatMap((group) => group.sessions);
+}
 
+export async function getTmuxRosterGroups(hostId?: string): Promise<TmuxRosterGroup[]> {
+  const params: unknown[] = [];
+  let hostFilter = '';
   if (hostId) {
     params.push(hostId);
-    query += ` AND host_id = $${params.length}`;
+    hostFilter = ` AND host_id = $${params.length}`;
   }
 
-  query += ' ORDER BY last_activity_at DESC NULLS LAST';
-  const result = await pool.query(query, params);
-  return result.rows;
+  const result = await pool.query(`
+    WITH roster_sessions AS (
+      SELECT
+        sessions.*,
+        COALESCE(
+          NULLIF(tmux_session_name, ''),
+          NULLIF(split_part(tmux_target, ':', 1), ''),
+          'tmux'
+        ) AS roster_tmux_session_name
+      FROM sessions
+      WHERE kind = 'tmux_pane'
+        AND archived_at IS NULL
+        ${hostFilter}
+    )
+    SELECT
+      host_id,
+      roster_tmux_session_name AS tmux_session_name,
+      COUNT(DISTINCT COALESCE(tmux_window_index, 0))::INTEGER AS window_count,
+      COUNT(*)::INTEGER AS pane_count,
+      jsonb_agg(
+        to_jsonb(roster_sessions) - 'roster_tmux_session_name'
+        ORDER BY
+          tmux_window_index ASC NULLS LAST,
+          tmux_pane_index ASC NULLS LAST,
+          last_activity_at DESC NULLS LAST
+      ) AS sessions
+    FROM roster_sessions
+    GROUP BY host_id, roster_tmux_session_name
+    ORDER BY roster_tmux_session_name ASC, host_id ASC
+  `, params);
+
+  return result.rows.map((row) => ({
+    host_id: row.host_id,
+    tmux_session_name: row.tmux_session_name,
+    window_count: Number(row.window_count),
+    pane_count: Number(row.pane_count),
+    sessions: row.sessions,
+  }));
 }
 
 export async function getSessionsTotal(filters?: SessionFilters): Promise<number> {
@@ -850,7 +941,7 @@ export async function insertEvent(
   type: string,
   payload: Record<string, unknown>,
   eventId?: string
-): Promise<Event> {
+): Promise<Event | null> {
   const result = await pool.query(
     `INSERT INTO events (session_id, type, event_id, payload)
      VALUES ($1, $2, $3, $4)
@@ -858,7 +949,7 @@ export async function insertEvent(
      RETURNING *`,
     [sessionId, type, eventId || null, JSON.stringify(payload)]
   );
-  return result.rows[0];
+  return result.rows[0] || null;
 }
 
 export async function getEvents(
@@ -999,6 +1090,41 @@ export async function markApprovalTimedOut(approvalId: string): Promise<Approval
     [approvalId]
   );
   return result.rows[0] || null;
+}
+
+export async function markExpiredApprovalsTimedOut(
+  timeoutMs: number
+): Promise<{ approvals: Approval[]; sessions: Session[] }> {
+  const result = await pool.query<{ approvals: Approval[]; sessions: Session[] }>(
+    `WITH timed_out AS (
+       UPDATE approvals
+       SET timed_out_at = NOW()
+       WHERE decision IS NULL
+         AND timed_out_at IS NULL
+         AND ts_requested <= NOW() - ($1::double precision * INTERVAL '1 millisecond')
+       RETURNING *
+     ), updated_sessions AS (
+       UPDATE sessions AS session
+       SET metadata = COALESCE(session.metadata, '{}'::JSONB) - 'approval' - 'status_detail',
+           status = CASE
+             WHEN session.status = 'WAITING_FOR_APPROVAL' THEN 'IDLE'::session_status
+             ELSE session.status
+           END,
+           updated_at = NOW()
+       FROM timed_out AS approval
+       WHERE session.id = approval.session_id
+         AND (
+           session.metadata #>> '{approval,id}' IS NULL
+           OR session.metadata #>> '{approval,id}' = approval.id::TEXT
+         )
+       RETURNING session.*
+     )
+     SELECT
+       COALESCE((SELECT jsonb_agg(to_jsonb(timed_out)) FROM timed_out), '[]'::JSONB) AS approvals,
+       COALESCE((SELECT jsonb_agg(to_jsonb(updated_sessions)) FROM updated_sessions), '[]'::JSONB) AS sessions`,
+    [timeoutMs]
+  );
+  return result.rows[0] ?? { approvals: [], sessions: [] };
 }
 
 // Get pending approval for a session (not decided and not timed out)
@@ -1275,14 +1401,20 @@ export async function touchProject(data: {
   path: string;
   display_name?: string | null;
 }): Promise<void> {
+  const repo = await resolveRepo({
+    repo_root: data.path,
+    host_id: data.host_id,
+    display_name: data.display_name,
+  });
   await pool.query(
-    `INSERT INTO projects (user_id, host_id, path, display_name, last_used_at, usage_count)
-     VALUES ($1, $2, $3, $4, NOW(), 1)
+    `INSERT INTO projects (user_id, host_id, repo_id, path, display_name, last_used_at, usage_count)
+     VALUES ($1, $2, $3, $4, $5, NOW(), 1)
      ON CONFLICT (user_id, host_id, path) DO UPDATE SET
        last_used_at = NOW(),
        usage_count = projects.usage_count + 1,
+       repo_id = COALESCE(EXCLUDED.repo_id, projects.repo_id),
        display_name = COALESCE(EXCLUDED.display_name, projects.display_name)`,
-    [data.user_id, data.host_id, data.path, data.display_name || null]
+    [data.user_id, data.host_id, repo?.id ?? null, data.path, data.display_name || null]
   );
 }
 
@@ -1358,58 +1490,130 @@ export async function getRecentLaunches(userId: string, filters?: {
 }
 
 // User settings (persisted UI preferences)
-export async function getUserSettings(
+export async function claimLegacyUserSettings(
   userId: string,
-  userSubject?: string
-): Promise<Record<string, unknown> | null> {
+  userSubject: string
+): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const mappingResult = await client.query<{ user_id: string }>(
+      `SELECT user_id
+       FROM user_settings_legacy_subjects
+       WHERE user_subject = $1
+       FOR UPDATE`,
+      [userSubject]
+    );
+    const legacyUserId = mappingResult.rows[0]?.user_id;
+    if (!legacyUserId) {
+      await client.query('COMMIT');
+      return;
+    }
+
+    if (legacyUserId !== userId) {
+      const legacyResult = await client.query<{ settings: Record<string, unknown> }>(
+        `SELECT settings FROM user_settings WHERE user_id = $1 FOR UPDATE`,
+        [legacyUserId]
+      );
+      const legacySettings = legacyResult.rows[0]?.settings;
+      if (legacySettings) {
+        await client.query(
+          `INSERT INTO user_settings (user_id, settings)
+           VALUES ($1, $2)
+           ON CONFLICT (user_id) DO UPDATE
+             SET settings = EXCLUDED.settings || user_settings.settings`,
+          [userId, JSON.stringify(legacySettings)]
+        );
+      }
+    }
+
+    await client.query(
+      `DELETE FROM user_settings_legacy_subjects
+       WHERE user_subject = $1 AND user_id = $2`,
+      [userSubject, legacyUserId]
+    );
+    if (legacyUserId !== userId) {
+      await client.query('DELETE FROM user_settings WHERE user_id = $1', [legacyUserId]);
+      await client.query(
+        `DELETE FROM users
+         WHERE id = $1
+           AND name = 'Legacy user settings'
+           AND github_id IS NULL
+           AND email IS NULL`,
+        [legacyUserId]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getUserSettings(userId: string): Promise<Record<string, unknown> | null> {
   const result = await pool.query(
-    `SELECT settings, user_id, user_subject
+    `SELECT settings
      FROM user_settings
-     WHERE user_id = $1 OR (user_subject = $2 AND $2 IS NOT NULL)
-     ORDER BY (user_id = $1) DESC
-     LIMIT 1`,
-    [userId, userSubject ?? null]
+     WHERE user_id = $1`,
+    [userId]
   );
   const row = result.rows[0];
   if (!row) return null;
-
-  if (!row.user_id && userSubject) {
-    try {
-      await pool.query(
-        `UPDATE user_settings SET user_id = $1 WHERE user_subject = $2 AND user_id IS NULL`,
-        [userId, userSubject]
-      );
-    } catch {
-      // best-effort backfill
-    }
-  }
-
   return row.settings ?? null;
 }
 
 export async function upsertUserSettings(
   userId: string,
-  userSubject: string,
   settings: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
   const result = await pool.query(
-    `WITH upsert AS (
-       UPDATE user_settings
-       SET settings = $3,
-           user_subject = COALESCE($2, user_subject)
-       WHERE user_id = $1
-       RETURNING settings
-     )
-     INSERT INTO user_settings (user_id, user_subject, settings)
-     SELECT $1, $2, $3
-     WHERE NOT EXISTS (SELECT 1 FROM upsert)
-     ON CONFLICT (user_subject) DO UPDATE
-       SET settings = EXCLUDED.settings,
-           user_id = COALESCE(user_settings.user_id, EXCLUDED.user_id)
+    `INSERT INTO user_settings (user_id, settings)
+     VALUES ($1, $2)
+     ON CONFLICT (user_id) DO UPDATE
+       SET settings = EXCLUDED.settings
      RETURNING settings`,
-    [userId, userSubject, JSON.stringify(settings)]
+    [userId, JSON.stringify(settings)]
   );
   return result.rows[0]?.settings ?? {};
+}
+
+export async function pruneExpiredData(
+  retentionDays: number,
+  batchSize = 10_000
+): Promise<{ events: number; snapshots: number }> {
+  const result = await pool.query(
+    `WITH expired_events AS (
+       SELECT id
+       FROM events
+       WHERE ts < NOW() - ($1::double precision * INTERVAL '1 day')
+       ORDER BY id
+       LIMIT $2
+     ), deleted_events AS (
+       DELETE FROM events
+       WHERE id IN (SELECT id FROM expired_events)
+       RETURNING id
+     ), expired_snapshots AS (
+       SELECT id
+       FROM session_snapshots
+       WHERE created_at < NOW() - ($1::double precision * INTERVAL '1 day')
+       ORDER BY id
+       LIMIT $2
+     ), deleted_snapshots AS (
+       DELETE FROM session_snapshots
+       WHERE id IN (SELECT id FROM expired_snapshots)
+       RETURNING id
+     )
+     SELECT
+       (SELECT COUNT(*)::INTEGER FROM deleted_events) AS events,
+       (SELECT COUNT(*)::INTEGER FROM deleted_snapshots) AS snapshots`,
+    [retentionDays, batchSize]
+  );
+  return {
+    events: Number(result.rows[0]?.events ?? 0),
+    snapshots: Number(result.rows[0]?.snapshots ?? 0),
+  };
 }
 
 export async function assignSessionGroup(
@@ -2489,7 +2693,7 @@ export async function getToolStats(sessionId: string): Promise<ToolStat[]> {
 export interface Summary {
   id: number;
   capture_hash: string;
-  session_id: string;
+  session_id: string | null;
   action_type: string;
   summary: string;
   created_at: string;
@@ -2505,7 +2709,7 @@ export async function getSummaryByCaptureHash(captureHash: string): Promise<Summ
 
 export async function saveSummary(
   captureHash: string,
-  sessionId: string,
+  sessionId: string | null,
   actionType: string,
   summary: string
 ): Promise<Summary> {

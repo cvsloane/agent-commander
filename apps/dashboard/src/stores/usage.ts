@@ -5,37 +5,8 @@ import { recordUsageBatch, recordUsageUpdate } from '@/lib/sessionsPerf';
 
 export type PlanType = 'free' | 'pro' | 'max' | 'unlimited';
 
-// Session-level usage tracking
-export interface SessionUsage {
-  session_id: string;
-  provider: string;
-  input_tokens?: number;
-  output_tokens?: number;
-  total_tokens?: number;
-  cache_read_tokens?: number;
-  cache_write_tokens?: number;
-  estimated_cost_cents?: number;
-  session_utilization_percent?: number;
-  session_left_percent?: number;
-  session_reset_text?: string;
-  weekly_utilization_percent?: number;
-  weekly_left_percent?: number;
-  weekly_reset_text?: string;
-  weekly_sonnet_utilization_percent?: number;
-  weekly_sonnet_reset_text?: string;
-  weekly_opus_utilization_percent?: number;
-  weekly_opus_reset_text?: string;
-  context_used_tokens?: number;
-  context_total_tokens?: number;
-  context_left_percent?: number;
-  five_hour_left_percent?: number;
-  five_hour_reset_text?: string;
-  daily_utilization_percent?: number;
-  daily_left_percent?: number;
-  daily_reset_hours?: number;
-  raw_usage_line?: string;
-  reported_at: string;
-}
+export type { SessionUsageSummary as SessionUsage } from '@agent-command/schema';
+type SessionUsage = SessionUsageSummary;
 
 export interface PlanConfig {
   weeklyTokens: number;

@@ -35,6 +35,7 @@ import { pubsub } from './services/pubsub.js';
 import { startAutomationService } from './services/automation.js';
 import { verifyRequestToken } from './auth/verify.js';
 import { commandRouter } from './services/commandRouter.js';
+import { startDataMaintenanceService } from './services/dataMaintenance.js';
 
 const app = Fastify({
   logger: {
@@ -160,6 +161,13 @@ async function start(): Promise<void> {
     await app.listen({ host: config.HOST, port: config.PORT });
     app.log.info(`Control plane listening on ${config.HOST}:${config.PORT}`);
     automationService = startAutomationService(app.log);
+    dataMaintenanceService = startDataMaintenanceService({
+      logger: app.log,
+      retentionDays: config.DATA_RETENTION_DAYS,
+      retentionSweepIntervalMs: config.DATA_RETENTION_SWEEP_INTERVAL_MS,
+      approvalTimeoutMs: config.APPROVAL_TIMEOUT_MS,
+      approvalSweepIntervalMs: config.APPROVAL_SWEEP_INTERVAL_MS,
+    });
     commandOutboxSweepTimer = setInterval(() => {
       void commandRouter.maintain().catch((error) => {
         app.log.error({ error }, 'Failed to maintain command outbox rows');
@@ -173,12 +181,14 @@ async function start(): Promise<void> {
 }
 
 let automationService: { stop: () => void } | null = null;
+let dataMaintenanceService: { stop: () => Promise<void> } | null = null;
 let commandOutboxSweepTimer: NodeJS.Timeout | null = null;
 
 // Graceful shutdown
 const shutdown = async (): Promise<void> => {
   app.log.info('Shutting down...');
   automationService?.stop();
+  await dataMaintenanceService?.stop();
   if (commandOutboxSweepTimer) clearInterval(commandOutboxSweepTimer);
   await app.close();
   process.exit(0);

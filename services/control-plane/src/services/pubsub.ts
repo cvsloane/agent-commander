@@ -12,6 +12,7 @@ import type {
   WorkItem,
   SessionEdge,
   AgentTask,
+  UISubscriptionTopic,
 } from '@agent-command/schema';
 import { notificationDispatcher } from './notificationDispatcher.js';
 import { WS_HEARTBEAT_TIMEOUT_MS } from './webSocketHeartbeat.js';
@@ -52,26 +53,8 @@ function isActionableApproval(approval: Approval): boolean {
   return approvalHasDecisionPayload(approval.requested_payload);
 }
 
-type TopicType =
-  | 'sessions'
-  | 'approvals'
-  | 'events'
-  | 'console'
-  | 'snapshots'
-  | 'tool_events'
-  | 'session_usage'
-  | 'automation_runs'
-  | 'automation_run_events'
-  | 'automation_wakeups'
-  | 'governance_approvals'
-  | 'work_items'
-  | 'hosts'
-  | 'session_edges'
-  | 'agent_tasks'
-  | 'attention';
-
 interface Subscription {
-  type: TopicType;
+  type: UISubscriptionTopic;
   filter?: Record<string, unknown>;
 }
 
@@ -215,7 +198,7 @@ class PubSub {
     message: ServerToUIMessage
   ): ServerToUIMessage | null {
     // Map message type to topic
-    const topicMap: Record<string, TopicType> = {
+    const topicMap: Record<string, UISubscriptionTopic> = {
       'sessions.changed': 'sessions',
       'approvals.created': 'approvals',
       'approvals.updated': 'approvals',
@@ -669,6 +652,22 @@ class PubSub {
         approval_id: approvalId,
         decision,
         decided_by_user_id: userId,
+      },
+    });
+  }
+
+  publishApprovalTimedOut(approval: Approval): void {
+    this.publishToUI({
+      v: 1,
+      type: 'approvals.updated',
+      ts: new Date().toISOString(),
+      payload: {
+        approval_id: approval.id,
+        session_id: approval.session_id,
+        // Older dashboards understand only allow/deny and will remove this
+        // inactive approval. Newer clients can distinguish timed_out.
+        decision: 'deny',
+        timed_out: true,
       },
     });
   }

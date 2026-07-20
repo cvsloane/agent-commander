@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { SessionKindSchema, SessionProviderSchema, SessionStatusSchema } from './enums.js';
+import {
+  PersistedSessionKindSchema,
+  SessionKindSchema,
+  SessionProviderSchema,
+  SessionStatusSchema,
+} from './enums.js';
 import { SessionRoleSchema } from './orchestration.js';
 
 // Session Link Types
@@ -46,12 +51,14 @@ export const TmuxPaneIdentitySchema = z.object({
 export type TmuxPaneIdentity = z.infer<typeof TmuxPaneIdentitySchema>;
 
 export const TmuxMetadataSchema = z.object({
+  pane_id: z.string().min(1).optional(),
+  target: z.string().min(1).optional(),
   pane_pid: z.number().optional(),
   current_command: z.string().optional(),
   session_name: z.string().optional(),
   window_name: z.string().optional(),
-  window_index: z.number().optional(),
-  pane_index: z.number().optional(),
+  window_index: z.number().int().nonnegative().optional(),
+  pane_index: z.number().int().nonnegative().optional(),
 });
 export type TmuxMetadata = z.infer<typeof TmuxMetadataSchema>;
 
@@ -59,6 +66,7 @@ export type TmuxMetadata = z.infer<typeof TmuxMetadataSchema>;
 export const SessionMetadataSchema = z.object({
   tmux: TmuxMetadataSchema.optional(),
   parent_session_id: z.string().uuid().optional(),
+  child_status_rollup: z.record(z.number().int().nonnegative()).optional(),
   unmanaged: z.boolean().optional(),
   claude_session_id: z.string().optional(),
   codex_thread_id: z.string().optional(),
@@ -101,7 +109,7 @@ export const SessionSchema = z.object({
   host_id: z.string().uuid(),
   user_id: z.string().uuid().nullable().optional(),
   repo_id: z.string().uuid().nullable().optional(),
-  kind: SessionKindSchema,
+  kind: PersistedSessionKindSchema,
   provider: SessionProviderSchema,
   status: SessionStatusSchema,
   attention_reason: z.string().nullable().optional(),
@@ -113,6 +121,9 @@ export const SessionSchema = z.object({
   git_branch: z.string().nullable().optional(),
   tmux_pane_id: z.string().nullable().optional(),
   tmux_target: z.string().nullable().optional(),
+  tmux_session_name: z.string().nullable().optional(),
+  tmux_window_index: z.number().int().nonnegative().nullable().optional(),
+  tmux_pane_index: z.number().int().nonnegative().nullable().optional(),
   metadata: SessionMetadataSchema.nullable().optional(),
   created_at: z.string().datetime({ offset: true }),
   updated_at: z.string().datetime({ offset: true }),
@@ -176,6 +187,30 @@ export const SessionWithSnapshotSchema = SessionSchema.extend({
     .optional(),
 });
 export type SessionWithSnapshot = z.infer<typeof SessionWithSnapshotSchema>;
+
+export const SessionsResponseSchema = z.object({
+  sessions: z.array(SessionWithSnapshotSchema),
+  total: z.number().int().nonnegative().optional(),
+  limit: z.number().int().positive().optional(),
+  offset: z.number().int().nonnegative().optional(),
+});
+export type SessionsResponse = z.infer<typeof SessionsResponseSchema>;
+
+export const TmuxRosterGroupSchema = z.object({
+  host_id: z.string().uuid(),
+  tmux_session_name: z.string().min(1),
+  window_count: z.number().int().nonnegative(),
+  pane_count: z.number().int().nonnegative(),
+  sessions: z.array(SessionWithSnapshotSchema),
+});
+export type TmuxRosterGroup = z.infer<typeof TmuxRosterGroupSchema>;
+
+export const TmuxRosterResponseSchema = z.object({
+  groups: z.array(TmuxRosterGroupSchema),
+  sessions: z.array(SessionWithSnapshotSchema),
+  total: z.number().int().nonnegative(),
+});
+export type TmuxRosterResponse = z.infer<typeof TmuxRosterResponseSchema>;
 
 // Update session request (for PATCH /v1/sessions/:id)
 export const UpdateSessionRequestSchema = z.object({

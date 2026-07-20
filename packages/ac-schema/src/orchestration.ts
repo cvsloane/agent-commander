@@ -34,3 +34,25 @@ export const AgentTaskSchema = z.object({
   metadata: z.record(z.unknown()).default({}),
 });
 export type AgentTask = z.infer<typeof AgentTaskSchema>;
+
+export const SessionGraphRollupSchema = z.object({
+  session_id: z.string().uuid(),
+  child_sessions: z.object({
+    total: z.number().int().nonnegative(),
+    by_status: z.record(z.number().int().nonnegative()),
+  }),
+  agent_tasks: z.object({
+    total: z.number().int().nonnegative(),
+    running: z.number().int().nonnegative(),
+    completed: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+  }),
+});
+export type SessionGraphRollup = z.infer<typeof SessionGraphRollupSchema>;
+
+export const SessionGraphResponseSchema = z.object({
+  session_id: z.string().uuid(),
+  edges: z.array(SessionEdgeSchema),
+  rollup: SessionGraphRollupSchema,
+});
+export type SessionGraphResponse = z.infer<typeof SessionGraphResponseSchema>;

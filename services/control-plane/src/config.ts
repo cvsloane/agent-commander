@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import 'dotenv/config';
 
+const OptionalPositiveInteger = z.preprocess(
+  (value) => value === '' || value === undefined ? undefined : value,
+  z.coerce.number().int().positive().optional()
+);
+
 const ConfigSchema = z.object({
   DATABASE_URL: z.string().min(1),
   HOST: z.string().default('0.0.0.0'),
@@ -17,6 +22,10 @@ const ConfigSchema = z.object({
   OPENAI_EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
   INTEGRATION_SERVICE_TOKENS_JSON: z.string().optional(),
   INTEGRATION_WEBHOOK_SECRET: z.string().min(16).optional(),
+  DATA_RETENTION_DAYS: OptionalPositiveInteger,
+  DATA_RETENTION_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().default(6 * 60 * 60 * 1000),
+  APPROVAL_TIMEOUT_MS: z.coerce.number().int().positive().default(10 * 60 * 1000),
+  APPROVAL_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().default(60 * 1000),
 });
 
 const parseConfig = () => {

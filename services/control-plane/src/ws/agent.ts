@@ -9,6 +9,7 @@ import {
   ToolEventCompleteSchema,
   ProviderUsageReportSchema,
   SessionUsageSummarySchema,
+  validateEventPayload,
   type AgentMessage,
   type Session,
   type SessionUpsert,
@@ -27,7 +28,10 @@ import { consoleSubscriptions } from '../services/consoleSubscriptions.js';
 import { installWebSocketHeartbeat } from '../services/webSocketHeartbeat.js';
 import { attentionService } from '../services/attention.js';
 import { hostProgress } from '../services/hostProgress.js';
-import { recordAgentMessageHandlerFailure } from '../metrics.js';
+import {
+  recordAgentMessageHandlerFailure,
+  recordEventPayloadValidation,
+} from '../metrics.js';
 import { agentTasks, agentTaskUpdateFromEvent } from '../db/agentTasks.js';
 import { sessionGraph } from '../db/sessionGraph.js';
 import { reportAutomationRunForSession } from '../services/automation.js';
@@ -316,6 +320,20 @@ async function processAgentMessage(
         message.payload.session_id,
         auditPayload
       );
+      const event = await db.insertEvent(
+        message.payload.session_id,
+        'terminal.audit',
+        message.payload,
+        `terminal-audit:${state.hostId}:${seq}`
+      );
+      if (event) {
+        pubsub.publishEventAppended(message.payload.session_id, {
+          id: event.id!,
+          ts: event.ts,
+          type: event.type,
+          payload: event.payload,
+        });
+      }
       sendAck(socket, seq, 'ok');
       break;
     }
@@ -587,6 +605,21 @@ async function handleEventsAppend(
   if (!sourceSession || sourceSession.host_id !== state.hostId) {
     throw new Error('Event session does not belong to the authenticated host');
   }
+  const validation = validateEventPayload(payload.event_type, payload.payload);
+  if (validation.status !== 'valid') {
+    recordEventPayloadValidation(validation.status, payload.event_type);
+    app.log.warn(
+      {
+        eventType: payload.event_type,
+        sessionId: payload.session_id,
+        ...(validation.status === 'invalid' ? { error: validation.error } : {}),
+      },
+      validation.status === 'unknown'
+        ? 'Unknown event type retained without registry validation'
+        : 'Invalid event payload retained without dropping telemetry'
+    );
+  }
+
   const event = await db.insertEvent(
     payload.session_id,
     payload.event_type,
@@ -604,7 +637,7 @@ async function handleEventsAppend(
     pubsub.publishAgentTasksChanged(payload.session_id, [agentTask]);
   }
 
-  if (payload.event_type === 'orchestrator.report') {
+  if (payload.event_type === 'orchestrator.report' && validation.status === 'valid') {
     const report = AutomationRunReportRequestSchema.parse(payload.payload);
     const finalized = await reportAutomationRunForSession(payload.session_id, report);
     if (!finalized) {
@@ -624,7 +657,7 @@ async function handleEventsAppend(
     });
 
     // Handle special event types that create approvals
-    if (payload.event_type === 'approval.requested') {
+    if (payload.event_type === 'approval.requested' && validation.status === 'valid') {
       const session = await db.getSessionById(payload.session_id);
       if (session) {
         const approvalId =
