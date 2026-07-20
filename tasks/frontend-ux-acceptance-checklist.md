@@ -17,7 +17,7 @@ PTY transport mode; visualizer and R3F/Drei untouched.
 - [x] Integrated Wave 1–4 gates, firewall reviews, and independent review receipts are committed in `tasks/frontend-ux-log.md`; lane-level commands and frozen SHAs are in the eight frozen handoffs. The FW1 agentd handoff includes the required Go build/vet/test gate.
 - [x] The frozen handoffs and integration log report no per-viewer PTY transport-mode change and no visualizer/R3F/Drei edit. FW1-MODERN explicitly records the protected dependency audit; FW2-TERM records protocol shapes untouched.
 - [ ] **NOT-MET — owner on-device PWA checkpoints.** The program log records the 2026-07-20 owner directive that per-wave on-device checkpoints were deferred to final review; no completed iOS install/push/terminal-typing receipt is committed.
-- [ ] **NOT-MET — final Wave 5 polish/probe evidence.** No `fw5-polish.md` frozen handoff or integrated `web-vitals`/terminal frame-timing probe is present on this branch. The static performance contract is documented, but it is not a measurement-probe receipt.
+- [x] Final Wave 5 polish/probe evidence — RESOLVED at integration (post-FW5-QA freeze): `fw5-polish.md` frozen SHA `9ceed372d75d39eac2d9406bd48ca2b5f1f54436` is committed with web-vitals + sampled terminal frame-to-paint probes integrated @ `18a7c74`; AI Lead gate re-run green in tmux TTY (20/20 smoke). (FW5-QA correctly flagged this NOT-MET on its own branch, which predated the polish integration.)
 
 ## Wave 1
 
@@ -88,7 +88,7 @@ PTY transport mode; visualizer and R3F/Drei untouched.
 ## Wave 5
 
 - [x] The seven deterministic Playwright journeys pass at 390x844 and 1280x720: sign-in/first paint, attach/type/detach, window create/rename/kill with last-window warning, history load-older, take-control, launch, and terminal-overlay approval. Evidence: commit `63b1946`, `command-center.journey.spec.ts`, and 14/14 Chromium results from a tmux TTY.
-- [ ] **NOT-MET — runtime performance probes.** `docs/performance.md` at `faa4db3` names and test-backs the zero-write/scroll-anchor/fleet-reconciliation budgets, but the separate FW5-POLISH `web-vitals` and sampled terminal frame-to-paint probe work is absent.
+- [x] Runtime performance probes — RESOLVED at integration: FW5-POLISH `9ceed37` landed web-vitals reporting + 1% sampled terminal frame-to-paint instrumentation on the existing telemetry channel (integrated @ `18a7c74`), complementing the static budgets in `docs/performance.md`.
 - [x] Keep a Changelog 0.4.0 release entry is dated 2026-07-20 and covers Waves 1–5. Evidence: `CHANGELOG.md`, commit `9a136fa`.
 - [x] README, docs, and Docsify navigation describe the current Command Center, tmux workspace, multi-terminal, composer/overlay, launch, Add host, palette, shortcuts, and `ac-agentd-` namespace. Evidence: commits `7fa0f0b` and `faa4db3`.
 - [ ] **NOT-MET — refreshed docs-site screenshot asset.** Wave 3/4 browser captures were inspected in their handoffs, but the master plan's refreshed docs-site screenshot was not committed and no FW5-POLISH handoff supplies it.
