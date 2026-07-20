@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "type": "commands.dispatch",
+  "ts": "2026-05-19T18:00:05.000Z",
+  "payload": {
+    "cmd_id": "01HZXCOMMANDROUTERTEST000000000",
+    "session_id": "22222222-2222-4222-8222-222222222222",
+    "command": {
+      "type": "send_input",
+      "payload": {
+        "text": "continue",
+        "enter": true
+      }
+    }
+  }
+}

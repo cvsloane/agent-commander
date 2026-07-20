@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AgentHostInfoSchema } from './host.js';
+import { AgentHostInfoSchema, HostPresenceSchema } from './host.js';
 import { SessionSchema, SessionUpsertSchema, SessionSnapshotSchema } from './session.js';
 import { EventAppendPayloadSchema } from './event.js';
 import { CommandDispatchSchema, CommandResultSchema } from './command.js';
@@ -20,6 +20,8 @@ import {
 } from './mcp.js';
 import { ToolEventStartSchema, ToolEventCompleteSchema, ToolEventSchema } from './toolEvent.js';
 import { ProviderUsageReportSchema, SessionUsageSummarySchema } from './analytics.js';
+import { AgentTaskSchema, SessionEdgeSchema } from './orchestration.js';
+import { TerminalDimensionSchema } from './terminal.js';
 
 // Message envelope (base)
 export const MessageEnvelopeBaseSchema = z.object({
@@ -34,6 +36,11 @@ export const AgentMessageEnvelopeSchema = MessageEnvelopeBaseSchema.extend({
 
 // Server message envelope (includes cmd_id for commands)
 export const ServerMessageEnvelopeSchema = MessageEnvelopeBaseSchema;
+
+// UI messages gain a source-native cursor without changing legacy clients.
+export const ServerToUIEnvelopeSchema = ServerMessageEnvelopeSchema.extend({
+  seq: z.number().int().nonnegative().optional(),
+});
 
 // =====================
 // Agent -> Control Plane Messages
@@ -118,13 +125,32 @@ export const TerminalStatusMessageSchema = AgentMessageEnvelopeSchema.extend({
     'terminal.error',
     'terminal.readonly',
     'terminal.control',
+    'terminal.lag',
   ]),
   payload: z.object({
     channel_id: z.string().uuid(),
     message: z.string().optional(),
+    readonly: z.boolean().optional(),
+    resumed: z.boolean().optional(),
+    resume_token: z.string().min(1).optional(),
+    dropped: z.number().int().positive().optional(),
   }),
 });
 export type TerminalStatusMessage = z.infer<typeof TerminalStatusMessageSchema>;
+
+// Durable terminal lifecycle audit (agent -> control plane)
+export const TerminalAuditMessageSchema = AgentMessageEnvelopeSchema.extend({
+  type: z.literal('terminal.audit'),
+  payload: z.object({
+    event_type: z.literal('terminal.audit'),
+    action: z.enum(['attach', 'detach', 'control_transfer']),
+    channel_id: z.string().uuid(),
+    session_id: z.string().uuid(),
+    pane_id: z.string().min(1),
+    previous_controller_channel_id: z.string().uuid().optional(),
+  }),
+});
+export type TerminalAuditMessage = z.infer<typeof TerminalAuditMessageSchema>;
 
 // Sessions prune (agent -> control plane)
 export const SessionsPruneMessageSchema = AgentMessageEnvelopeSchema.extend({
@@ -174,6 +200,7 @@ export const AgentMessageSchema = z.discriminatedUnion('type', [
   ConsoleChunkMessageSchema,
   TerminalOutputMessageSchema,
   TerminalStatusMessageSchema,
+  TerminalAuditMessageSchema,
   ToolEventStartedMessageSchema,
   ToolEventCompletedMessageSchema,
   ProviderUsageReportMessageSchema,
@@ -214,6 +241,9 @@ export const TerminalAttachMessageSchema = ServerMessageEnvelopeSchema.extend({
     channel_id: z.string().uuid(),
     pane_id: z.string(),
     session_id: z.string().uuid(),
+    cols: TerminalDimensionSchema.optional(),
+    rows: TerminalDimensionSchema.optional(),
+    resume_token: z.string().min(1).optional(),
   }),
 });
 export type TerminalAttachMessage = z.infer<typeof TerminalAttachMessageSchema>;
@@ -231,8 +261,8 @@ export const TerminalResizeMessageSchema = ServerMessageEnvelopeSchema.extend({
   type: z.literal('terminal.resize'),
   payload: z.object({
     channel_id: z.string().uuid(),
-    cols: z.number().int(),
-    rows: z.number().int(),
+    cols: TerminalDimensionSchema,
+    rows: TerminalDimensionSchema,
   }),
 });
 export type TerminalResizeMessage = z.infer<typeof TerminalResizeMessageSchema>;
@@ -277,35 +307,48 @@ export type ServerToAgentMessage = z.infer<typeof ServerToAgentMessageSchema>;
 // UI WebSocket Messages
 // =====================
 
+export const UISubscriptionTopicSchema = z.enum([
+  'sessions',
+  'approvals',
+  'events',
+  'console',
+  'snapshots',
+  'tool_events',
+  'session_usage',
+  'automation_runs',
+  'automation_run_events',
+  'automation_wakeups',
+  'governance_approvals',
+  'work_items',
+  'hosts',
+  'session_edges',
+  'agent_tasks',
+  'attention',
+]);
+export type UISubscriptionTopic = z.infer<typeof UISubscriptionTopicSchema>;
+
 // UI subscribe
 export const UISubscribeMessageSchema = MessageEnvelopeBaseSchema.extend({
   type: z.literal('ui.subscribe'),
   payload: z.object({
     topics: z.array(
       z.object({
-        type: z.enum([
-          'sessions',
-          'approvals',
-          'events',
-          'console',
-          'snapshots',
-          'tool_events',
-          'session_usage',
-          'automation_runs',
-          'automation_run_events',
-          'automation_wakeups',
-          'governance_approvals',
-          'work_items',
-        ]),
+        type: UISubscriptionTopicSchema,
         filter: z.record(z.unknown()).optional(),
       })
     ),
+    since: z
+      .union([
+        z.number().int().nonnegative(),
+        z.record(z.number().int().nonnegative()),
+      ])
+      .optional(),
   }),
 });
 export type UISubscribeMessage = z.infer<typeof UISubscribeMessageSchema>;
 
 // Sessions changed
-export const SessionsChangedMessageSchema = ServerMessageEnvelopeSchema.extend({
+export const SessionsChangedMessageSchema = ServerToUIEnvelopeSchema.extend({
   type: z.literal('sessions.changed'),
   payload: z.object({
     sessions: z.array(SessionSchema),
@@ -314,8 +357,26 @@ export const SessionsChangedMessageSchema = ServerMessageEnvelopeSchema.extend({
 });
 export type SessionsChangedMessage = z.infer<typeof SessionsChangedMessageSchema>;
 
+export const SessionEdgesChangedMessageSchema = ServerToUIEnvelopeSchema.extend({
+  type: z.literal('session_edges.changed'),
+  payload: z.object({
+    session_id: z.string().uuid(),
+    edges: z.array(SessionEdgeSchema),
+  }),
+});
+export type SessionEdgesChangedMessage = z.infer<typeof SessionEdgesChangedMessageSchema>;
+
+export const AgentTasksChangedMessageSchema = ServerToUIEnvelopeSchema.extend({
+  type: z.literal('agent_tasks.changed'),
+  payload: z.object({
+    session_id: z.string().uuid(),
+    agent_tasks: z.array(AgentTaskSchema),
+  }),
+});
+export type AgentTasksChangedMessage = z.infer<typeof AgentTasksChangedMessageSchema>;
+
 // Approvals created
-export const ApprovalsCreatedMessageSchema = ServerMessageEnvelopeSchema.extend({
+export const ApprovalsCreatedMessageSchema = ServerToUIEnvelopeSchema.extend({
   type: z.literal('approvals.created'),
   payload: z.object({
     approval_id: z.string().uuid(),
@@ -327,18 +388,20 @@ export const ApprovalsCreatedMessageSchema = ServerMessageEnvelopeSchema.extend(
 export type ApprovalsCreatedMessage = z.infer<typeof ApprovalsCreatedMessageSchema>;
 
 // Approvals updated
-export const ApprovalsUpdatedMessageSchema = ServerMessageEnvelopeSchema.extend({
+export const ApprovalsUpdatedMessageSchema = ServerToUIEnvelopeSchema.extend({
   type: z.literal('approvals.updated'),
   payload: z.object({
     approval_id: z.string().uuid(),
     decision: z.enum(['allow', 'deny']),
     decided_by_user_id: z.string().uuid().optional(),
+    session_id: z.string().uuid().optional(),
+    timed_out: z.boolean().optional(),
   }),
 });
 export type ApprovalsUpdatedMessage = z.infer<typeof ApprovalsUpdatedMessageSchema>;
 
 // Events appended
-export const EventsAppendedMessageSchema = ServerMessageEnvelopeSchema.extend({
+export const EventsAppendedMessageSchema = ServerToUIEnvelopeSchema.extend({
   type: z.literal('events.appended'),
   payload: z.object({
     session_id: z.string().uuid(),
@@ -353,7 +416,7 @@ export const EventsAppendedMessageSchema = ServerMessageEnvelopeSchema.extend({
 export type EventsAppendedMessage = z.infer<typeof EventsAppendedMessageSchema>;
 
 // Console chunk (to UI)
-export const UIConsoleChunkMessageSchema = ServerMessageEnvelopeSchema.extend({
+export const UIConsoleChunkMessageSchema = ServerToUIEnvelopeSchema.extend({
   type: z.literal('console.chunk'),
   payload: z.object({
     subscription_id: z.string().uuid(),
@@ -365,7 +428,7 @@ export const UIConsoleChunkMessageSchema = ServerMessageEnvelopeSchema.extend({
 export type UIConsoleChunkMessage = z.infer<typeof UIConsoleChunkMessageSchema>;
 
 // Snapshots updated (to UI)
-export const UISnapshotUpdatedMessageSchema = ServerMessageEnvelopeSchema.extend({
+export const UISnapshotUpdatedMessageSchema = ServerToUIEnvelopeSchema.extend({
   type: z.literal('snapshots.updated'),
   payload: z.object({
     session_id: z.string().uuid(),
@@ -377,7 +440,7 @@ export const UISnapshotUpdatedMessageSchema = ServerMessageEnvelopeSchema.extend
 export type UISnapshotUpdatedMessage = z.infer<typeof UISnapshotUpdatedMessageSchema>;
 
 // Tool event started (to UI)
-export const UIToolEventStartedMessageSchema = ServerMessageEnvelopeSchema.extend({
+export const UIToolEventStartedMessageSchema = ServerToUIEnvelopeSchema.extend({
   type: z.literal('tool_event.started'),
   payload: z.object({
     session_id: z.string().uuid(),
@@ -387,7 +450,7 @@ export const UIToolEventStartedMessageSchema = ServerMessageEnvelopeSchema.exten
 export type UIToolEventStartedMessage = z.infer<typeof UIToolEventStartedMessageSchema>;
 
 // Tool event completed (to UI)
-export const UIToolEventCompletedMessageSchema = ServerMessageEnvelopeSchema.extend({
+export const UIToolEventCompletedMessageSchema = ServerToUIEnvelopeSchema.extend({
   type: z.literal('tool_event.completed'),
   payload: z.object({
     session_id: z.string().uuid(),
@@ -397,51 +460,74 @@ export const UIToolEventCompletedMessageSchema = ServerMessageEnvelopeSchema.ext
 export type UIToolEventCompletedMessage = z.infer<typeof UIToolEventCompletedMessageSchema>;
 
 // Session usage updated (to UI)
-export const UISessionUsageUpdatedMessageSchema = ServerMessageEnvelopeSchema.extend({
+export const UISessionUsageUpdatedMessageSchema = ServerToUIEnvelopeSchema.extend({
   type: z.literal('session_usage.updated'),
   payload: SessionUsageSummarySchema,
 });
 export type UISessionUsageUpdatedMessage = z.infer<typeof UISessionUsageUpdatedMessageSchema>;
 
-export const UIAutomationRunUpdatedMessageSchema = ServerMessageEnvelopeSchema.extend({
+// Host presence changed (to UI)
+export const UIHostsChangedMessageSchema = ServerToUIEnvelopeSchema.extend({
+  type: z.literal('hosts.changed'),
+  payload: z.object({
+    hosts: z.array(HostPresenceSchema),
+  }),
+});
+export type UIHostsChangedMessage = z.infer<typeof UIHostsChangedMessageSchema>;
+
+export const UIAutomationRunUpdatedMessageSchema = ServerToUIEnvelopeSchema.extend({
   type: z.literal('automation.run.updated'),
   payload: AutomationRunSchema,
 });
 export type UIAutomationRunUpdatedMessage = z.infer<typeof UIAutomationRunUpdatedMessageSchema>;
 
-export const UIAutomationRunEventMessageSchema = ServerMessageEnvelopeSchema.extend({
+export const UIAutomationRunEventMessageSchema = ServerToUIEnvelopeSchema.extend({
   type: z.literal('automation.run.event'),
   payload: AutomationRunEventSchema,
 });
 export type UIAutomationRunEventMessage = z.infer<typeof UIAutomationRunEventMessageSchema>;
 
-export const UIAutomationWakeupUpdatedMessageSchema = ServerMessageEnvelopeSchema.extend({
+export const UIAutomationWakeupUpdatedMessageSchema = ServerToUIEnvelopeSchema.extend({
   type: z.literal('automation.wakeup.updated'),
   payload: AutomationWakeupSchema,
 });
 export type UIAutomationWakeupUpdatedMessage = z.infer<typeof UIAutomationWakeupUpdatedMessageSchema>;
 
-export const UIGovernanceApprovalUpdatedMessageSchema = ServerMessageEnvelopeSchema.extend({
+export const UIGovernanceApprovalUpdatedMessageSchema = ServerToUIEnvelopeSchema.extend({
   type: z.literal('governance_approval.updated'),
   payload: GovernanceApprovalSchema,
 });
 export type UIGovernanceApprovalUpdatedMessage = z.infer<typeof UIGovernanceApprovalUpdatedMessageSchema>;
 
-export const UIWorkItemUpdatedMessageSchema = ServerMessageEnvelopeSchema.extend({
+export const UIWorkItemUpdatedMessageSchema = ServerToUIEnvelopeSchema.extend({
   type: z.literal('work_item.updated'),
   payload: WorkItemSchema,
 });
 export type UIWorkItemUpdatedMessage = z.infer<typeof UIWorkItemUpdatedMessageSchema>;
 
-export const UIAutomationRuntimeStateUpdatedMessageSchema = ServerMessageEnvelopeSchema.extend({
+export const UIAutomationRuntimeStateUpdatedMessageSchema = ServerToUIEnvelopeSchema.extend({
   type: z.literal('automation.runtime_state.updated'),
   payload: AutomationRuntimeStateSchema,
 });
 export type UIAutomationRuntimeStateUpdatedMessage = z.infer<typeof UIAutomationRuntimeStateUpdatedMessageSchema>;
 
+export const UIAttentionChangedMessageSchema = ServerToUIEnvelopeSchema.extend({
+  type: z.literal('attention.changed'),
+  payload: z.object({
+    session_id: z.string().uuid(),
+    attention_reason: z.string().nullable(),
+    question: z.string().optional(),
+    confidence: z.number().min(0).max(1).optional(),
+    capture_hash: z.string().optional(),
+  }),
+});
+export type UIAttentionChangedMessage = z.infer<typeof UIAttentionChangedMessageSchema>;
+
 // Union of all UI messages from server
 export const ServerToUIMessageSchema = z.discriminatedUnion('type', [
   SessionsChangedMessageSchema,
+  SessionEdgesChangedMessageSchema,
+  AgentTasksChangedMessageSchema,
   ApprovalsCreatedMessageSchema,
   ApprovalsUpdatedMessageSchema,
   EventsAppendedMessageSchema,
@@ -456,5 +542,27 @@ export const ServerToUIMessageSchema = z.discriminatedUnion('type', [
   UIGovernanceApprovalUpdatedMessageSchema,
   UIWorkItemUpdatedMessageSchema,
   UIAutomationRuntimeStateUpdatedMessageSchema,
+  UIHostsChangedMessageSchema,
+  UIAttentionChangedMessageSchema,
 ]);
 export type ServerToUIMessage = z.infer<typeof ServerToUIMessageSchema>;
+
+const UnknownServerToUIMessageSchema = ServerToUIEnvelopeSchema.extend({
+  type: z.string().min(1),
+  payload: z.unknown(),
+}).passthrough();
+
+const serverToUIMessageTypes = new Set<string>(
+  ServerToUIMessageSchema.options.map((schema) => schema.shape.type.value)
+);
+
+/**
+ * Validate known server messages at the browser seam. A structurally valid
+ * future message type is ignored so an older dashboard stays connected; known
+ * types with invalid payloads still fail validation.
+ */
+export function parseServerToUIMessage(input: unknown): ServerToUIMessage | null {
+  const envelope = UnknownServerToUIMessageSchema.parse(input);
+  if (!serverToUIMessageTypes.has(envelope.type)) return null;
+  return ServerToUIMessageSchema.parse(input);
+}

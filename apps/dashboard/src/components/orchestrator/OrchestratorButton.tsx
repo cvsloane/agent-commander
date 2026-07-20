@@ -2,10 +2,21 @@
 
 import { useEffect, useCallback } from 'react';
 import { Bell } from 'lucide-react';
-import type { ServerToUIMessage, Session, Approval } from '@agent-command/schema';
+import type {
+  Approval,
+  AutomationRun,
+  GovernanceApproval,
+  ServerToUIMessage,
+  Session,
+} from '@agent-command/schema';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { getSessions, getApprovals } from '@/lib/api';
+import {
+  getApprovals,
+  getAttentionAutomationRuns,
+  getGovernanceApprovals,
+  getSessions,
+} from '@/lib/api';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useOrchestratorStore } from '@/stores/orchestrator';
 
@@ -14,7 +25,7 @@ import { useOrchestratorStore } from '@/stores/orchestrator';
  * Also handles background session monitoring via WebSocket.
  */
 export function OrchestratorButton() {
-  const attentionStatusFilter = 'WAITING_FOR_INPUT,WAITING_FOR_APPROVAL,ERROR';
+  const attentionStatusFilter = 'RUNNING,STARTING,WAITING_FOR_INPUT,WAITING_FOR_APPROVAL,ERROR,IDLE';
   const toggle = useOrchestratorStore((s) => s.toggle);
   const isOpen = useOrchestratorStore((s) => s.isOpen);
   const itemCount = useOrchestratorStore((s) => s.getItemCount());
@@ -23,6 +34,9 @@ export function OrchestratorButton() {
   const ingestApproval = useOrchestratorStore((s) => s.ingestApproval);
   const removeApprovalItem = useOrchestratorStore((s) => s.removeApprovalItem);
   const pruneApprovals = useOrchestratorStore((s) => s.pruneApprovals);
+  const ingestAttention = useOrchestratorStore((s) => s.ingestAttention);
+  const ingestAutomationRuns = useOrchestratorStore((s) => s.ingestAutomationRuns);
+  const ingestGovernanceApprovals = useOrchestratorStore((s) => s.ingestGovernanceApprovals);
 
   // Seed initial counts (sessions + approvals)
   useEffect(() => {
@@ -47,17 +61,59 @@ export function OrchestratorButton() {
       } catch {
         // ignore seed errors
       }
+
+      try {
+        const data = await getAttentionAutomationRuns();
+        if (cancelled) return;
+        ingestAutomationRuns(data.runs, { fullSync: true });
+      } catch {
+        // Older control planes may not expose automation attention yet.
+      }
+
+      try {
+        const data = await getGovernanceApprovals({ status: 'pending' });
+        if (cancelled) return;
+        ingestGovernanceApprovals(data.approvals, { fullSync: true });
+      } catch {
+        // Keep session attention available when governance is unavailable.
+      }
     };
 
     seed();
     return () => {
       cancelled = true;
     };
-  }, [ingestSessions, ingestApproval, pruneApprovals]);
+  }, [
+    ingestApproval,
+    ingestAutomationRuns,
+    ingestGovernanceApprovals,
+    ingestSessions,
+    pruneApprovals,
+  ]);
 
   // Background WebSocket monitoring (always active for badge)
   const handleWebSocketMessage = useCallback(
     (message: ServerToUIMessage) => {
+      const rawMessage = message as unknown as { type: string; payload: unknown };
+      if (rawMessage.type === 'attention.changed') {
+        const payload = rawMessage.payload as {
+          session_id: string;
+          attention_reason?: string | null;
+          reason?: string | null;
+          question?: string;
+          confidence?: number;
+          capture_hash?: string;
+        };
+        if (typeof payload.session_id !== 'string') return;
+        ingestAttention(payload.session_id, {
+          attentionReason: payload.attention_reason ?? payload.reason ?? null,
+          question: payload.question,
+          confidence: payload.confidence,
+          captureHash: payload.capture_hash,
+        });
+        return;
+      }
+
       switch (message.type) {
         case 'sessions.changed': {
           const payload = message.payload as { sessions: Session[] };
@@ -103,9 +159,25 @@ export function OrchestratorButton() {
           removeApprovalItem(payload.approval_id);
           break;
         }
+
+        case 'automation.run.updated':
+          ingestAutomationRuns([message.payload as AutomationRun]);
+          break;
+
+        case 'governance_approval.updated':
+          ingestGovernanceApprovals([message.payload as GovernanceApproval]);
+          break;
       }
     },
-    [ingestSessions, ingestSnapshot, ingestApproval, removeApprovalItem]
+    [
+      ingestApproval,
+      ingestAttention,
+      ingestAutomationRuns,
+      ingestGovernanceApprovals,
+      ingestSessions,
+      ingestSnapshot,
+      removeApprovalItem,
+    ]
   );
 
   // Always subscribe to sessions, snapshots, and approvals for badge count
@@ -116,10 +188,20 @@ export function OrchestratorButton() {
       { type: 'sessions', filter: { include_archived: true } },
       { type: 'snapshots' },
       { type: 'approvals', filter: { status: 'pending' } },
+      // Receive resolution/recovery transitions too, otherwise the badge can
+      // keep counting stale governance and run items while the modal is closed.
+      { type: 'governance_approvals' },
+      { type: 'automation_runs' },
     ],
     handleWebSocketMessage,
     // Modal has its own subscriptions; disable this to avoid duplicate ingestion while open.
     !isOpen
+  );
+  useWebSocket(
+    [{ type: 'attention' }],
+    handleWebSocketMessage,
+    !isOpen,
+    'attention'
   );
 
   // Shift+O keyboard shortcut

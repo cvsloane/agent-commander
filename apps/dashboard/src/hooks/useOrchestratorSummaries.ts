@@ -84,6 +84,7 @@ export function useOrchestratorSummaries(
     // Generate summaries for all items that have action and some context
     const needsSummary = items.filter((item) => {
       if (!item.action) return false;
+      if (!item.sessionId) return false;
       if (item.summary || item.summaryLoading) return false;
       if (inFlightSummaries.has(item.id)) return false;
 
@@ -105,6 +106,7 @@ export function useOrchestratorSummaries(
     const toGenerate = needsSummary.slice(0, availableSlots);
 
     for (const item of toGenerate) {
+      if (!item.sessionId) continue;
       inFlightSummaries.add(item.id);
       setSummaryLoading(item.id, true);
 

@@ -18,7 +18,7 @@ export type ClawdbotReason =
 
 export const clawdbotNotificationDecisionsTotal = new client.Counter({
   name: 'agent_command_clawdbot_notification_decisions_total',
-  help: 'Count of Clawdbot notification decisions (allowed/blocked) and reasons.',
+  help: 'Count of OpenClaw notification decisions (allowed/blocked) and reasons.',
   labelNames: ['decision', 'reason', 'event_type', 'provider'] as const,
   registers: [registry],
 });
@@ -79,4 +79,35 @@ export const memorySearchesTotal = new client.Counter({
 
 export function recordMemorySearch(scope: string, hit: boolean): void {
   memorySearchesTotal.inc({ scope, hit: hit ? 'true' : 'false' });
+}
+
+export const agentMessageHandlerFailuresTotal = new client.Counter({
+  name: 'agent_command_agent_message_handler_failures_total',
+  help: 'Count of agent messages that could not be durably handled and were left unacknowledged.',
+  labelNames: ['message_type'] as const,
+  registers: [registry],
+});
+
+export function recordAgentMessageHandlerFailure(messageType: string): void {
+  agentMessageHandlerFailuresTotal.inc({ message_type: messageType });
+}
+
+export const eventPayloadValidationTotal = new client.Counter({
+  name: 'agent_command_event_payload_validation_total',
+  help: 'Count of event payloads that are unknown to or invalid against the event registry.',
+  labelNames: ['status', 'event_type'] as const,
+  registers: [registry],
+});
+
+export function recordEventPayloadValidation(
+  status: 'unknown' | 'invalid',
+  eventType: string
+): void {
+  // Unknown producer-controlled names are unbounded; collapse them to keep the
+  // Prometheus label cardinality stable. Invalid types come from the finite
+  // registry and remain useful as per-type diagnostics.
+  eventPayloadValidationTotal.inc({
+    status,
+    event_type: status === 'unknown' ? '__unknown__' : eventType,
+  });
 }

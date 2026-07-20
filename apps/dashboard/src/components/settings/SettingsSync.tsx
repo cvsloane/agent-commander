@@ -87,6 +87,9 @@ function mergeSettings(settings: UserSettings | null): NormalizedUserSettings {
       defaultSessionTemplate: data.defaultSessionTemplate ?? 'single',
       autoLinkSessions: data.autoLinkSessions ?? true,
       defaultLinkType: data.defaultLinkType ?? 'complement',
+      defaultMobileLaunchProvider: data.defaultMobileLaunchProvider ?? 'codex',
+      defaultMobileLaunchHostId: data.defaultMobileLaunchHostId ?? null,
+      defaultMobileLaunchTmuxTarget: data.defaultMobileLaunchTmuxTarget ?? null,
     },
   };
 }
@@ -128,6 +131,9 @@ function buildPayload(): UserSettings {
       defaultSessionTemplate: settingsState.defaultSessionTemplate,
       autoLinkSessions: settingsState.autoLinkSessions,
       defaultLinkType: settingsState.defaultLinkType,
+      defaultMobileLaunchProvider: settingsState.defaultMobileLaunchProvider,
+      defaultMobileLaunchHostId: settingsState.defaultMobileLaunchHostId,
+      defaultMobileLaunchTmuxTarget: settingsState.defaultMobileLaunchTmuxTarget,
     },
   };
 }
@@ -219,6 +225,9 @@ export function SettingsSync() {
             defaultSessionTemplate: merged.data.defaultSessionTemplate,
             autoLinkSessions: merged.data.autoLinkSessions,
             defaultLinkType: merged.data.defaultLinkType,
+            defaultMobileLaunchProvider: merged.data.defaultMobileLaunchProvider,
+            defaultMobileLaunchHostId: merged.data.defaultMobileLaunchHostId,
+            defaultMobileLaunchTmuxTarget: merged.data.defaultMobileLaunchTmuxTarget,
           });
           applyingRemoteRef.current = false;
         }

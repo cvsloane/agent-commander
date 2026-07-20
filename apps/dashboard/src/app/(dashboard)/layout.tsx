@@ -14,10 +14,10 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className={`${inter.className} min-h-screen bg-background`}>
+    <div className={`${inter.className} flex h-dvh flex-col overflow-hidden bg-background`}>
       {/* Header */}
-      <header className="border-b h-[57px]">
-        <div className="h-full px-4 flex items-center justify-between">
+      <header className="shrink-0 border-b pt-[env(safe-area-inset-top)]">
+        <div className="flex h-[57px] items-center justify-between pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">
           <div className="flex items-center gap-2">
             <MobileHeader />
             <a href="/" className="text-xl font-bold">

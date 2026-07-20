@@ -1,70 +1,30 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { ulid } from 'ulid';
-import { CommandRequestSchema, CommandPayloadSchema, CommandsDispatchMessageSchema, UpdateSessionRequestSchema, BulkOperationRequestSchema, CopyToSessionPayloadSchema } from '@agent-command/schema';
+import { randomUUID } from 'node:crypto';
+import { CommandRequestSchema, CommandPayloadSchema, UpdateSessionRequestSchema, BulkOperationRequestSchema, CopyToSessionPayloadSchema, DashboardSpawnRequestSchema } from '@agent-command/schema';
 import * as db from '../db/index.js';
+import { sessionGraph } from '../db/sessionGraph.js';
+import { agentTasks } from '../db/agentTasks.js';
 import { pubsub } from '../services/pubsub.js';
 import { consoleSubscriptions } from '../services/consoleSubscriptions.js';
 import { spawnSessionOnHost } from '../services/sessionSpawn.js';
 import { bootstrapSessionMemory, prepareSessionMemoryForSpawn } from '../services/sessionMemory.js';
 import { hasRole } from '../auth/rbac.js';
+import { commandRouter } from '../services/commandRouter.js';
+import {
+  fingerprintIdempotentRequest,
+  getIdempotencyKey,
+  IdempotencyConflictError,
+  InvalidIdempotencyKeyError,
+  scopeIdempotencyKey,
+} from '../services/idempotency.js';
 
-// Pending command result tracking for cross-host operations
-const pendingCommandResults = new Map<string, {
-  resolve: (value: { ok: boolean; result?: Record<string, unknown>; error?: { code: string; message: string } }) => void;
-  reject: (error: Error) => void;
-  timeout: NodeJS.Timeout;
-}>();
-
-// Called by agent WebSocket handler when a command result is received
-export function handleCommandResultForPending(
-  cmdId: string,
-  result: { ok: boolean; result?: Record<string, unknown>; error?: { code: string; message: string } }
-): boolean {
-  const pending = pendingCommandResults.get(cmdId);
-  if (!pending) return false;
-
-  clearTimeout(pending.timeout);
-  pendingCommandResults.delete(cmdId);
-  pending.resolve(result);
-  return true;
-}
-
-// Helper to send command to agent and wait for result
-async function sendCommandAndWait(
-  hostId: string,
-  sessionId: string,
-  cmdId: string,
-  command: { type: string; payload: unknown },
-  timeoutMs = 30000
-): Promise<{ ok: boolean; result?: Record<string, unknown>; error?: { code: string; message: string } }> {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      pendingCommandResults.delete(cmdId);
-      reject(new Error('Command timed out'));
-    }, timeoutMs);
-
-    pendingCommandResults.set(cmdId, { resolve, reject, timeout });
-
-    const dispatchMessage = CommandsDispatchMessageSchema.parse({
-      v: 1,
-      type: 'commands.dispatch',
-      ts: new Date().toISOString(),
-      payload: {
-        cmd_id: cmdId,
-        session_id: sessionId,
-        command,
-      },
-    });
-
-    const sent = pubsub.sendToAgent(hostId, dispatchMessage);
-    if (!sent) {
-      clearTimeout(timeout);
-      pendingCommandResults.delete(cmdId);
-      reject(new Error('Agent not connected'));
-    }
-  });
-}
+const PRIVILEGED_COMMAND_TYPES = new Set([
+  'spawn_session',
+  'spawn_job',
+  'list_directory',
+  'kill_session',
+]);
 
 // Query schemas
 const SessionsQuerySchema = z.object({
@@ -159,6 +119,7 @@ export function registerSessionRoutes(app: FastifyInstance): void {
           ? {
               created_at: snapshot.created_at,
               capture_text: snapshot.capture_text,
+              capture_hash: snapshot.capture_hash,
             }
           : null,
       };
@@ -197,6 +158,47 @@ export function registerSessionRoutes(app: FastifyInstance): void {
 
     return result;
   });
+
+  // GET /v1/sessions/:id/graph - Get connected edges and direct-child rollups
+  app.get<{ Params: { id: string } }>(
+    '/v1/sessions/:id/graph',
+    async (request, reply) => {
+      const { id } = request.params;
+      if (!z.string().uuid().safeParse(id).success) {
+        return reply.status(400).send({ error: 'Invalid session ID' });
+      }
+      const session = await db.getSessionById(id);
+      if (!session) {
+        return reply.status(404).send({ error: 'Session not found' });
+      }
+
+      const [edges, rollup] = await Promise.all([
+        sessionGraph.list(id),
+        sessionGraph.rollup(id),
+      ]);
+      return { session_id: id, edges, rollup };
+    }
+  );
+
+  // GET /v1/sessions/:id/agent-tasks - Get in-process provider subagents
+  app.get<{ Params: { id: string } }>(
+    '/v1/sessions/:id/agent-tasks',
+    async (request, reply) => {
+      const { id } = request.params;
+      if (!z.string().uuid().safeParse(id).success) {
+        return reply.status(400).send({ error: 'Invalid session ID' });
+      }
+      const session = await db.getSessionById(id);
+      if (!session) {
+        return reply.status(404).send({ error: 'Session not found' });
+      }
+
+      return {
+        session_id: id,
+        agent_tasks: await agentTasks.list(id),
+      };
+    }
+  );
 
   // GET /v1/sessions/:id/events - Get session events with pagination
   app.get<{ Params: { id: string }; Querystring: unknown }>(
@@ -306,25 +308,17 @@ export function registerSessionRoutes(app: FastifyInstance): void {
         return reply.status(404).send({ error: 'Session not found' });
       }
 
-      const cmdId = ulid();
+      if (PRIVILEGED_COMMAND_TYPES.has(payloadResult.data.type)) {
+        return reply.status(403).send({
+          error: `${payloadResult.data.type} must use a dedicated policy-checked endpoint`,
+        });
+      }
 
-      // Build command dispatch message
-      const dispatchMessage = CommandsDispatchMessageSchema.parse({
-        v: 1,
-        type: 'commands.dispatch',
-        ts: new Date().toISOString(),
-        payload: {
-          cmd_id: cmdId,
-          session_id: sessionId,
-          command: {
-            type: payloadResult.data.type,
-            payload: payloadResult.data.payload,
-          },
-        },
+      const cmdId = randomUUID();
+      const sent = await commandRouter.dispatch(session.host_id, sessionId, cmdId, {
+        type: payloadResult.data.type,
+        payload: payloadResult.data.payload,
       });
-
-      // Send to agent
-      const sent = pubsub.sendToAgent(session.host_id, dispatchMessage);
       if (!sent) {
         return reply.status(503).send({ error: 'Agent not connected' });
       }
@@ -456,27 +450,18 @@ export function registerSessionRoutes(app: FastifyInstance): void {
         return reply.status(404).send({ error: 'Session not found' });
       }
 
-      const cmdId = ulid();
-
-      // Build fork command dispatch
-      const dispatchMessage = CommandsDispatchMessageSchema.parse({
-        v: 1,
-        type: 'commands.dispatch',
-        ts: new Date().toISOString(),
-        payload: {
-          cmd_id: cmdId,
-          session_id: sessionId,
-          command: {
-            type: 'fork',
-            payload: bodyResult.data,
-          },
-        },
+      const cmdId = randomUUID();
+      const sent = await commandRouter.dispatch(session.host_id, sessionId, cmdId, {
+        type: 'fork',
+        payload: bodyResult.data,
       });
-
-      // Send to agent
-      const sent = pubsub.sendToAgent(session.host_id, dispatchMessage);
       if (!sent) {
         return reply.status(503).send({ error: 'Agent not connected' });
+      }
+
+      const backfilled = await sessionGraph.backfillForkEdges(sessionId);
+      if (backfilled.length > 0) {
+        pubsub.publishSessionEdgesChanged(sessionId, backfilled);
       }
 
       // Log audit
@@ -527,25 +512,14 @@ export function registerSessionRoutes(app: FastifyInstance): void {
       }
 
       const sameHost = sourceSession.host_id === targetSession.host_id;
-      const cmdId = ulid();
+      const cmdId = randomUUID();
 
       if (sameHost) {
         // Same host - dispatch copy_to_session command directly
-        const dispatchMessage = CommandsDispatchMessageSchema.parse({
-          v: 1,
-          type: 'commands.dispatch',
-          ts: new Date().toISOString(),
-          payload: {
-            cmd_id: cmdId,
-            session_id: sourceSessionId,
-            command: {
-              type: 'copy_to_session',
-              payload: bodyResult.data,
-            },
-          },
+        const sent = await commandRouter.dispatch(sourceSession.host_id, sourceSessionId, cmdId, {
+          type: 'copy_to_session',
+          payload: bodyResult.data,
         });
-
-        const sent = pubsub.sendToAgent(sourceSession.host_id, dispatchMessage);
         if (!sent) {
           return reply.status(503).send({ error: 'Source agent not connected' });
         }
@@ -553,7 +527,7 @@ export function registerSessionRoutes(app: FastifyInstance): void {
         // Cross-host - capture from source, send to target
         try {
           // Step 1: Capture from source session
-          const captureResult = await sendCommandAndWait(
+          const captureResult = await commandRouter.dispatchAndWait(
             sourceSession.host_id,
             sourceSessionId,
             cmdId,
@@ -589,25 +563,14 @@ export function registerSessionRoutes(app: FastifyInstance): void {
           }
 
           // Step 3: Send to target session
-          const sendCmdId = ulid();
-          const sendMessage = CommandsDispatchMessageSchema.parse({
-            v: 1,
-            type: 'commands.dispatch',
-            ts: new Date().toISOString(),
+          const sendCmdId = randomUUID();
+          const sent = await commandRouter.dispatch(targetSession.host_id, target_session_id, sendCmdId, {
+            type: 'send_input',
             payload: {
-              cmd_id: sendCmdId,
-              session_id: target_session_id,
-              command: {
-                type: 'send_input',
-                payload: {
-                  text: combined,
-                  enter: true,
-                },
-              },
+              text: combined,
+              enter: true,
             },
           });
-
-          const sent = pubsub.sendToAgent(targetSession.host_id, sendMessage);
           if (!sent) {
             return reply.status(503).send({ error: 'Target agent not connected' });
           }
@@ -663,22 +626,11 @@ export function registerSessionRoutes(app: FastifyInstance): void {
           continue;
         }
 
-        const cmdId = ulid();
-        const dispatchMessage = CommandsDispatchMessageSchema.parse({
-          v: 1,
-          type: 'commands.dispatch',
-          ts: new Date().toISOString(),
-          payload: {
-            cmd_id: cmdId,
-            session_id: id,
-            command: {
-              type: 'kill_session',
-              payload: {},
-            },
-          },
+        const cmdId = randomUUID();
+        const sent = await commandRouter.dispatch(session.host_id, id, cmdId, {
+          type: 'kill_session',
+          payload: {},
         });
-
-        const sent = pubsub.sendToAgent(session.host_id, dispatchMessage);
         if (!sent) {
           errors.push({ session_id: id, error: 'Agent not connected' });
           continue;
@@ -764,24 +716,19 @@ export function registerSessionRoutes(app: FastifyInstance): void {
   });
 
   // POST /v1/sessions/spawn - Spawn a new session from dashboard
-  const DashboardSpawnRequestSchema = z.object({
-    host_id: z.string().uuid(),
-    provider: z.enum(['claude_code', 'codex', 'gemini_cli', 'opencode', 'aider', 'shell']),
-    working_directory: z.string().min(1),
-    title: z.string().optional(),
-    flags: z.array(z.string()).optional(),
-    group_id: z.string().uuid().optional(),
-    tmux: z
-      .object({
-        target_session: z.string().optional(),
-        window_name: z.string().optional(),
-      })
-      .optional(),
-  });
-
   app.post<{ Body: unknown }>('/v1/sessions/spawn', async (request, reply) => {
     if (!request.user || !hasRole(request.user, 'operator')) {
       return reply.status(403).send({ error: 'Forbidden' });
+    }
+
+    let rawIdempotencyKey: string | undefined;
+    try {
+      rawIdempotencyKey = getIdempotencyKey(request.headers['idempotency-key']);
+    } catch (error) {
+      if (error instanceof InvalidIdempotencyKeyError) {
+        return reply.status(400).send({ error: error.message });
+      }
+      throw error;
     }
 
     const bodyResult = DashboardSpawnRequestSchema.safeParse(request.body);
@@ -789,7 +736,25 @@ export function registerSessionRoutes(app: FastifyInstance): void {
       return reply.status(400).send({ error: 'Invalid request body', details: bodyResult.error });
     }
 
-    const { host_id, provider, working_directory, title, flags, group_id, tmux } = bodyResult.data;
+    const {
+      host_id,
+      provider,
+      working_directory,
+      title,
+      flags,
+      group_id,
+      parent_session_id,
+      role,
+      tmux,
+    } = bodyResult.data;
+    const idempotencyKey = scopeIdempotencyKey(
+      rawIdempotencyKey,
+      'sessions.spawn',
+      request.user.id
+    );
+    const idempotencyFingerprint = rawIdempotencyKey
+      ? fingerprintIdempotentRequest(bodyResult.data)
+      : undefined;
 
     try {
       const memoryPlan = await prepareSessionMemoryForSpawn({
@@ -809,20 +774,29 @@ export function registerSessionRoutes(app: FastifyInstance): void {
         title,
         flags,
         group_id,
+        parent_session_id,
+        role,
         tmux,
+        idempotencyKey,
+        idempotencyFingerprint,
       });
-      void bootstrapSessionMemory({
-        host_id,
-        session_id: result.session.id,
-        source: 'automatic',
-      }).catch((error) => {
-        request.log.warn({ error, sessionId: result.session.id }, 'Failed to bootstrap session memory');
-      });
-      return result;
+      if (!result.queued && !result.replayed) {
+        void bootstrapSessionMemory({
+          host_id,
+          session_id: result.session.id,
+          source: 'automatic',
+        }).catch((error) => {
+          request.log.warn({ error, sessionId: result.session.id }, 'Failed to bootstrap session memory');
+        });
+      }
+      return { session: result.session, cmd_id: result.cmd_id };
     } catch (error) {
       const message = (error as Error).message;
       const status =
-        message === 'Host not found' ? 404
+        error instanceof IdempotencyConflictError
+          || message === 'Idempotency-Key was used with a different request' ? 409
+        : message === 'Host not found' ? 404
+        : message === 'Parent session not found' ? 404
         : message === 'Host does not allow remote session spawning' ? 403
         : message.startsWith('Host does not advertise provider support') ? 400
         : message === 'Host is offline' || message === 'Failed to send command to agent' ? 503

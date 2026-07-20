@@ -19,12 +19,7 @@ import { cn } from '@/lib/utils';
 import { getGroups, deleteGroup as deleteGroupApi } from '@/lib/api';
 import { useGroupsStore } from '@/stores/groups';
 import { DroppableGroup } from './DroppableGroup';
-import type { SessionGroup } from '@agent-command/schema';
-
-interface GroupWithChildren extends SessionGroup {
-  children: GroupWithChildren[];
-  session_count: number;
-}
+import type { GroupWithChildren } from '@/lib/groupTypes';
 
 interface GroupTreeItemProps {
   group: GroupWithChildren;

@@ -1,0 +1,10 @@
+# W6-CLEANUP — Dead Code, Visualizer Isolation, Deps, Docs, CHANGELOG
+
+Read master plan workstream G + findings §3 item 10, §5 items 5-6. Worktree `/home/cvsloane/dev/wt/ac-w6-clean`, branch `refactor/wave6-cleanup` off latest origin/refactor/tmux-command-center (heavisidelinux; run `pnpm install` first; Node/pnpm available). Ownership: `apps/dashboard/**` (deletions + lazy-loading only — no feature edits), `docs/**`, `CHANGELOG.md`, `.github/**`, root/package dep bumps + lockfile. Do NOT touch `services/control-plane/src/**`, `packages/ac-schema/src/**`, `apps/dashboard/src/lib/api.ts` or `src/stores/**` (sibling lanes own those). Push branch when gate green. Handoff `tasks/massive-refactor-handoffs/w6-cleanup.md`; token `W6-CLEANUP FROZEN <sha>`.
+
+1. Delete: `(workshop)` route group + its 8 CSS files + `stores/workshopVibe.ts` shim + SidebarNav dead badge branches + any now-unreferenced assets; verify next.config.js redirect stays.
+2. Visualizer isolation: route-scoped CSS imports + dynamic() three.js/r3f imports so the main bundle drops the ~160KB CSS + three deps; visualizer still renders when opened.
+3. Dependency security: address the 12 GitHub-flagged vulnerabilities with patch/minor bumps (pnpm update; check `pnpm audit`); list any requiring major bumps in the handoff instead of forcing them.
+4. Docs truth pass: deployment.md compose/Postgres claim, operations.md horizontal-scaling claim (single-replica + advisory-lock reality), configuration.md completeness (DEEPGRAM_API_KEY, APP_BASE_URL, METRICS_TOKEN, VAPID_*, INTEGRATION_*), new docs stubs: orchestrator control channel (agentd local API + ac CLI/MCP), PWA/push setup, per-viewer terminal; CHANGELOG 0.3.0 entry summarizing this program (see tasks/massive-refactor-log.md for the wave history).
+5. CI: verify Go job + cli/dashboard tests run in ci.yml (add if missing), fix release.yml empty-notes issue (CHANGELOG extraction now finds 0.3.0), actionlint or careful YAML review.
+6. Gate (bare exit codes): `pnpm --filter @agent-command/dashboard test && pnpm --filter @agent-command/dashboard lint && pnpm typecheck && pnpm build && pnpm test:smoke:dashboard`

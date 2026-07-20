@@ -22,7 +22,7 @@ export function WeeklyUsage() {
   });
 
   const { data: providerUsage } = useQuery({
-    queryKey: ['providerUsage', 'account'],
+    queryKey: ['provider-usage', 'account'],
     queryFn: () => getProviderUsage({ scope: 'account' }),
     refetchInterval: 60000,
   });

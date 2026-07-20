@@ -2,19 +2,31 @@
 
 Events are stored in Postgres and streamed to the UI in real time.
 
-## Core event types
+## Registered event types
 
-- `session.created` - a session appeared or was spawned.
-- `session.updated` - metadata changes (status, title, repo, etc.).
-- `session.deleted` - session removed.
 - `approval.requested` - approval request created.
 - `approval.decided` - approval decision made.
-- `command.dispatched` - a command was sent to agentd.
 - `command.completed` - command result recorded.
 - `claude.hook` - provider hook payload captured.
+- `claude.event` - Claude headless job event line.
+- `codex.hook` - Codex hook payload captured.
 - `codex.event` - codex job event line.
-- `console.chunk` - console output chunk (streamed, not always persisted).
-- `error` - error or failure event.
+- `workshop.*` - normalized provider lifecycle, tool, and subagent hooks.
+- `orchestrator.report` - structured completion from an orchestrator session.
+- `terminal.audit` - durable terminal attach, detach, and control transfer.
+
+Each registered type has a Zod payload schema in `@agent-command/schema`. The
+control plane warns and increments `agent_command_event_payload_validation_total`
+for unknown or invalid payloads, but still stores and streams them so telemetry is
+never lost during version skew.
+
+## Retention
+
+Set `DATA_RETENTION_DAYS=30` for the standard 30-day events and snapshots window.
+Retention is off when the variable is omitted. Sweeps delete in bounded batches;
+each run has an overall batch cap and the timestamp indexes keep pruning work
+bounded. Session, approval, command, usage, and audit records are not part of
+this job.
 
 ## Tool events
 

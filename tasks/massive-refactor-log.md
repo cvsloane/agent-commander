@@ -1,0 +1,27 @@
+# Massive Refactor — Append-only Log
+
+- 2026-07-19T15:20Z [AI Lead] Program launched. Six-subsystem study complete; plan + briefs committed (9e26344). Owner decisions locked (PWA-first, visibility-first subagents, API+MCP+CLI, build-on-automation, full program, delete+isolate, current branch).
+- 2026-07-19T15:25Z [AI Lead] Owner directive: delegate builds to codex agents in tmux panes per Autonomous Development Loop (SloaneVault); Workflow-tool execution rejected. Wave 1 restructured into 4 codex lanes + worktrees.
+- 2026-07-19T15:40Z [AI Lead] All 4 Wave-1 codex lanes verified ACTIVE in worktrees (w1-cp, w1-auto, w1-dash on homelinux; wave1-agentd on heavisidelinux). Remote pane needed a proper claude /exit + codex relaunch; main clone verified clean. Supervision tick started (~10 min).
+- 2026-07-19T15:52Z [AI Lead] Sweep 1: agentd committed outage-safe WS delivery (e39ab81), building keyed worker pool. automation committed offline-run queueing (4b334a6), iterating tests. dashboard committed reconnect state machine (58ec6aa). cp-core unblocked from codex safety-check dialog (kept sol model).
+- 2026-07-19T16:20Z [AI Lead] W1-AUTOMATION reviewed (handoff attempt 1, gate independently re-run: 39/39 tests, typecheck clean, diff within firewall) => PASS, merged into integration branch. hostPresence reconciliation deferred to CP-CORE freeze.
+- 2026-07-19T16:35Z [AI Lead] W1-DASHBOARD (43 tests, gate re-run clean) and W1-AGENTD (go build/vet/test re-run clean on fetched branch) both PASS => merged. Only W1-CP-CORE outstanding.
+- 2026-07-19T17:15Z [AI Lead] W1-CP-CORE PASS (gate re-run 59 tests; firewall: sanctioned 3-line automation.ts call-site). Merge conflict in hostAllowsSpawn resolved preserving queued-until-online semantics; hostIsOnline delegated to hostPresence. One integration fallout fixed (db mock missing pool export). WAVE 1 CLOSED: full gate green (lint, typecheck, 137 tests, 7 smoke, go build/vet/test).
+- 2026-07-19T17:30Z [AI Lead] Wave 2 launched: W2-CONTRACTS (homelinux) + W2-AGENTD-API (heavisidelinux) verified active in fresh contexts at e6b4c7b.
+- 2026-07-19T18:05Z [AI Lead] W2-CONTRACTS (91/91 re-run; first-run failure was AI Lead env stubs) and W2-AGENTD-API (go gate re-run clean) PASS => merged; combined gate green. Launching W2-CP-ORCH + W2-MCP-CLI.
+- 2026-07-19T18:55Z [AI Lead] W2-CP-ORCH PASS (gate re-run 107 tests; firewall clean) => merged. Noted follow-up: inject session token into child env once spawn env field exists (agentd local API supports env).
+- 2026-07-19T19:02Z [AI Lead] W2-CP-ORCH integrated (33da2d7). Post-merge 7-test failure was a stale ac-schema dist in the integration clone — rebuild fixed, 107/107. Process rules: (1) rebuild ac-schema before post-merge gates; (2) never pipe gate commands through grep in && chains — masked a red gate before push.
+- 2026-07-19T19:25Z [AI Lead] W2-MCP-CLI PASS (44/44 re-run) => merged. WAVE 2 CLOSED: full gate green (221 tests, 7 smoke, go clean, exit-code verified). Orchestrator loop now end-to-end: local agentd API + session graph + structured completion + governance resume + ac CLI/MCP tools.
+- 2026-07-19T19:40Z [AI Lead] Wave 3 (push-backend, pwa) + W4-AGENTD-TERM launched and verified active at 2b895f6.
+- 2026-07-19T20:15Z [AI Lead] W4-AGENTD-TERM PASS (go gate re-run clean; firewall clean; per-viewer PTY flag-gated) => merged. W3 lanes still building.
+- 2026-07-19T20:45Z [AI Lead] W3-PUSH-BACKEND PASS (132/132 re-run; live-PG migration proof 001-036; firewall clean) => merged. W3-PWA outstanding.
+- 2026-07-19T21:10Z [AI Lead] W3-PWA PASS (54 tests + smoke re-run clean; firewall clean) => merged. WAVE 3 CLOSED. Waves 1-3 + W4-AGENTD-TERM all integrated.
+- 2026-07-19T21:30Z [AI Lead] W4-TERM-CLIENT + W4-FLEET-UI + W5-GO-CONTRACTS launched and verified active at c2500da.
+- 2026-07-19T22:05Z [AI Lead] W5-GO-CONTRACTS PASS (go gate re-run clean; firewall clean) => merged in 28min. Typed Go protocol + fixture matrix + goreleaser/install tooling landed.
+- 2026-07-19T22:30Z [AI Lead] W4-TERM-CLIENT PASS (141 CP + 61 dash tests + smoke re-run clean; firewall clean) => merged. W4-FLEET-UI outstanding.
+- 2026-07-19T22:50Z [AI Lead] W4-FLEET-UI PASS (gate re-run clean; one import conflict resolved) => merged. WAVE 4 CLOSED. All C/D workstream lanes integrated.
+- 2026-07-19T23:05Z [AI Lead] Final lanes launched and verified active at 095fe01: W5-SECURITY, W5-DATA (homelinux), W6-CLEANUP (heavisidelinux).
+- 2026-07-19T23:35Z [AI Lead] w6-clean blocked on heavisidelinux fs.inotify.max_user_instances=128 (no passwordless sudo). Steered to polling watchers (CHOKIDAR_USEPOLLING/WATCHPACK_POLLING) + prod-server smoke fallback. OPS FOLLOW-UP for owner: raise inotify limits on heavisidelinux.
+- 2026-07-20T00:05Z [AI Lead] W5-SECURITY PASS (150 CP + 72 dash tests re-run clean) => merged. Outstanding: W5-DATA, W6-CLEANUP.
+- 2026-07-20T00:40Z [AI Lead] W6-CLEANUP PASS (66/66 + build + typecheck re-run; lockfile conflict resolved keeping rate-limit + version bumps) => merged. Only W5-DATA outstanding.
+- 2026-07-20T01:20Z [AI Lead] W5-DATA PASS (157 CP + 37 schema + 70 dash tests re-run; live-PG migrations 001-038 proof) => merged; integration fix: fetchAPI validation made warn-and-passthrough (strict parse bricked roster against older payloads; test updated to tolerant contract). PROGRAM COMPLETE: full gate green (test:ci, lint, typecheck, smoke 10/10, build, go build/vet/test). All 13 lanes across 6 waves integrated on refactor/tmux-command-center.

@@ -1,0 +1,38 @@
+{
+  "name": "@agent-command/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agent Commander CLI and stdio MCP server",
+  "type": "module",
+  "bin": {
+    "ac": "./dist/bin.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc && chmod +x dist/bin.js",
+    "lint": "cd ../.. && ESLINT_USE_FLAT_CONFIG=false pnpm exec eslint packages/ac-cli/src --ext .ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "commander": "^14.0.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

@@ -13,7 +13,11 @@ Agent Commander exposes live tmux panes in the web UI. You can watch output, sen
 
 Only one viewer has control at a time. Additional viewers are attached in read only mode and receive output but cannot send input.
 
+See [Per-viewer Terminal](per-viewer-terminal.md) for agentd configuration,
+control transfer, and reconnect behavior.
+
 Status messages:
+
 - `attached` - channel connected.
 - `control` - you have control.
 - `readonly` - another viewer has control.
@@ -27,6 +31,7 @@ Terminal channels automatically detach after 10 minutes of inactivity to prevent
 ## Input messages
 
 The UI sends JSON messages:
+
 - `{ "type": "input", "data": "ls -la\n" }`
 - `{ "type": "resize", "cols": 120, "rows": 30 }`
 - `{ "type": "control" }` (request control)

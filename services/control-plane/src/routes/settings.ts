@@ -10,7 +10,8 @@ export function registerSettingsRoutes(app: FastifyInstance): void {
       return reply.status(403).send({ error: 'Forbidden' });
     }
 
-    const settings = await db.getUserSettings(request.user.id, request.user.sub);
+    await db.claimLegacyUserSettings(request.user.id, request.user.sub);
+    const settings = await db.getUserSettings(request.user.id);
     return { settings: settings ?? null };
   });
 
@@ -25,7 +26,8 @@ export function registerSettingsRoutes(app: FastifyInstance): void {
       return reply.status(400).send({ error: 'Invalid request body', details: bodyResult.error });
     }
 
-    const saved = await db.upsertUserSettings(request.user.id, request.user.sub, bodyResult.data);
+    await db.claimLegacyUserSettings(request.user.id, request.user.sub);
+    const saved = await db.upsertUserSettings(request.user.id, bodyResult.data);
     return { settings: saved };
   });
 }

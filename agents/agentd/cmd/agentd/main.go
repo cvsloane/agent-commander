@@ -23,9 +23,13 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/agent-command/agentd/internal/commands"
 	"github.com/agent-command/agentd/internal/config"
 	"github.com/agent-command/agentd/internal/console"
+	"github.com/agent-command/agentd/internal/metrics"
+	"github.com/agent-command/agentd/internal/orchestrator"
 	"github.com/agent-command/agentd/internal/proc"
+	"github.com/agent-command/agentd/internal/protocol"
 	"github.com/agent-command/agentd/internal/providers"
 	"github.com/agent-command/agentd/internal/queue"
 	"github.com/agent-command/agentd/internal/tmux"
@@ -35,16 +39,19 @@ import (
 )
 
 type Agent struct {
-	cfg             *config.Config
-	wsClient        *ws.Client
-	tmuxClient      *tmux.Client
-	gitCache        *tmux.GitCache
-	gitStatusCache  *tmux.GitStatusCache
-	claudeProvider  *providers.ClaudeProvider
-	streamer        *console.Streamer
-	terminalManager *tmux.TerminalManager
-	pipeMux         *tmux.PipeMux
-	lastPruneAt     time.Time
+	cfg              *config.Config
+	wsClient         *ws.Client
+	tmuxClient       *tmux.Client
+	gitCache         *tmux.GitCache
+	gitStatusCache   *tmux.GitStatusCache
+	claudeProvider   *providers.ClaudeProvider
+	streamer         *console.Streamer
+	terminalManager  *tmux.TerminalManager
+	pipeMux          *tmux.PipeMux
+	lastPruneAt      time.Time
+	orchestratorTmux TmuxRunner
+	sendMessage      func(string, any) error
+	topologyMu       sync.Mutex
 
 	// Session state
 	sessions          map[string]*SessionState
@@ -52,6 +59,8 @@ type Agent struct {
 	snapshotHash      map[string]string
 	toolEventsMu      sync.Mutex
 	pendingToolEvents map[string][]toolEventPending
+	bufferedHooksMu   sync.Mutex
+	bufferedHooks     []bufferedHook
 
 	// Approval lifecycle - TTL cache to prevent race conditions
 	recentDecisions   map[string]time.Time
@@ -62,6 +71,9 @@ type Agent struct {
 
 	// Snapshot-derived provider usage (avoid duplicate emits)
 	providerUsageHash map[string]string
+	launchTemplates   *providers.LaunchTemplates
+
+	commandExecutor *commands.Executor
 }
 
 type toolEventPending struct {
@@ -69,35 +81,53 @@ type toolEventPending struct {
 	StartedAt time.Time
 }
 
-type memoryFileSpec struct {
-	BaseDir      string `json:"base_dir"`
-	RelativePath string `json:"relative_path"`
-	Content      string `json:"content"`
-	Scope        string `json:"scope"`
+type bufferedHook struct {
+	Provider   string
+	Payload    providers.ClaudeHookPayload
+	BufferedAt time.Time
 }
 
+type memoryFileSpec = protocol.SpawnSessionMemoryFile
+
 type SessionState struct {
-	ID           string
-	PaneID       string
-	Kind         string
-	Provider     string
-	Status       string
-	Title        string
-	CWD          string
-	RepoRoot     string
-	GitBranch    string
-	GitRemote    string
-	TmuxTarget   string
-	GroupID      string
-	ForkedFrom   string
-	ForkDepth    int
-	Metadata     map[string]any
-	LastActivity time.Time
-	LastOutput   time.Time
-	LastStatsAt  time.Time
-	LastUsageAt  time.Time
-	Unmanaged    bool
-	LastCWD      string // Track CWD changes
+	ID              string
+	PaneID          string
+	Kind            string
+	Provider        string
+	Status          string
+	Title           string
+	CWD             string
+	RepoRoot        string
+	GitBranch       string
+	GitRemote       string
+	TmuxTarget      string
+	GroupID         string
+	ForkedFrom      string
+	ForkDepth       int
+	ParentSessionID string
+	Ready           bool
+	Metadata        map[string]any
+	LastActivity    time.Time
+	LastOutput      time.Time
+	LastStatsAt     time.Time
+	LastUsageAt     time.Time
+	Unmanaged       bool
+	LastCWD         string // Track CWD changes
+}
+
+func cloneJSONMap(value map[string]any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var clone map[string]any
+	if err := json.Unmarshal(data, &clone); err != nil {
+		return nil
+	}
+	return clone
 }
 
 func main() {
@@ -123,8 +153,8 @@ func main() {
 	runDaemon()
 }
 
-// Version information
-const Version = "0.1.0"
+// Version is overridden at build time with -ldflags "-X main.Version=<version>".
+var Version = "dev"
 
 func printHelp() {
 	fmt.Println(`agentd - Agent Command daemon for tmux management
@@ -244,8 +274,8 @@ func runSessionsCommand(args []string) {
 	procSnap := proc.TakeSnapshot()
 
 	for _, pane := range panes {
-		// Get session ID from tmux option
-		sessionID, _ := tmuxClient.GetPaneOption(pane.PaneID, cfg.Tmux.OptionSessionID)
+		// Session identity is included in the list-panes format.
+		sessionID := pane.SessionID
 		isOrphan := sessionID == ""
 
 		if *orphansOnly && !isOrphan {
@@ -376,26 +406,44 @@ func (a *Agent) Run() error {
 	)
 	a.wsClient.SetMessageHandler(a.handleMessage)
 	a.wsClient.SetOnConnect(func() {
-		a.wsClient.ResendQueued()
 		if err := a.sendHello(); err != nil {
 			log.Printf("Failed to send hello: %v", err)
+			return
+		}
+		if err := a.wsClient.ResendQueued(); err != nil {
+			log.Printf("Failed to replay outbound queue: %v", err)
 		}
 	})
 
 	// Initialize outbound queue
 	outboundQueue, err := queue.NewQueue(a.cfg.Storage.StateDir, a.cfg.Storage.OutboundQueueMax)
-	if err == nil {
-		a.wsClient.SetQueue(outboundQueue, a.cfg.Storage.StateDir)
-		if lastAcked, err := queue.LoadAckedSeq(a.cfg.Storage.StateDir); err == nil {
-			_ = outboundQueue.PruneAcked(lastAcked)
-			a.wsClient.SetLastAckedSeq(lastAcked)
-		}
+	if err != nil {
+		return fmt.Errorf("failed to initialize outbound queue: %w", err)
 	}
+	defer outboundQueue.Close()
+	a.wsClient.SetQueue(outboundQueue, a.cfg.Storage.StateDir)
+	lastAcked, err := queue.LoadAckedSeq(a.cfg.Storage.StateDir)
+	if err != nil {
+		return fmt.Errorf("failed to load acknowledged sequence: %w", err)
+	}
+	if err := outboundQueue.PruneAcked(lastAcked); err != nil {
+		return fmt.Errorf("failed to prune acknowledged queue entries: %w", err)
+	}
+	if _, err := outboundQueue.RebaseAbove(max(lastAcked, 1)); err != nil {
+		return fmt.Errorf("failed to reserve hello sequence: %w", err)
+	}
+	a.wsClient.SetLastAckedSeq(lastAcked)
+
+	a.commandExecutor = commands.NewExecutor(4, a.executeCommand, func(result commands.Result) {
+		a.send(protocol.TypeCommandsResult, result)
+	})
+	a.launchTemplates = providers.NewLaunchTemplates(a.cfg)
 
 	// Initialize Claude provider
 	a.claudeProvider = providers.NewClaudeProvider(&a.cfg.Providers.Claude)
 	a.claudeProvider.SetHookHandler(a.handleClaudeHook)
 	a.claudeProvider.SetCodexHookHandler(a.handleCodexHook)
+	a.claudeProvider.SetOrchestratorHandler(orchestrator.NewHandler(&agentOrchestratorBackend{agent: a}))
 
 	// Initialize console streamer
 	a.streamer, err = console.NewStreamer(a.cfg.Storage.StateDir + "/console")
@@ -406,8 +454,11 @@ func (a *Agent) Run() error {
 
 	// Initialize terminal manager
 	a.terminalManager = tmux.NewTerminalManager(a.tmuxClient, a.cfg.Storage.StateDir)
+	a.terminalManager.SetPerViewerPTY(a.cfg.Terminal.PerViewerPTY)
 	a.terminalManager.SetOutputHandler(a.handleTerminalOutput)
 	a.terminalManager.SetStatusHandler(a.handleTerminalStatus)
+	a.terminalManager.SetAuditHandler(a.handleTerminalAudit)
+	a.terminalManager.Start()
 
 	// Initialize pipe mux for console + terminal output
 	a.pipeMux = tmux.NewPipeMux(a.tmuxClient, a.cfg.Storage.StateDir+"/console")
@@ -439,6 +490,9 @@ func (a *Agent) Run() error {
 	<-sigCh
 
 	log.Println("Shutting down...")
+	if a.commandExecutor != nil {
+		a.commandExecutor.Close()
+	}
 	if a.terminalManager != nil {
 		a.terminalManager.Close()
 	}
@@ -731,12 +785,12 @@ func (a *Agent) reportProviderUsage(provider, command string, parseJSON bool) {
 	fields := extractUsageFields(rawJSON, cleanedText)
 	scope := "account"
 
-	payload := map[string]any{
-		"provider":    provider,
-		"scope":       scope,
-		"host_id":     a.cfg.Host.ID,
-		"reported_at": time.Now().UTC().Format(time.RFC3339),
-		"raw_text":    raw,
+	payload := protocol.ProviderUsagePayload{
+		Provider:   provider,
+		Scope:      scope,
+		HostID:     a.cfg.Host.ID,
+		ReportedAt: time.Now().UTC().Format(time.RFC3339),
+		RawText:    raw,
 	}
 	parsed := parseProviderUsageText(provider, cleanedText)
 	if len(parsed) > 0 {
@@ -753,13 +807,15 @@ func (a *Agent) reportProviderUsage(provider, command string, parseJSON bool) {
 		}
 	}
 	if rawJSON != nil {
-		payload["raw_json"] = rawJSON
+		payload.RawJSON = rawJSON
 	}
-	for k, v := range fields {
-		payload[k] = v
+	if data, marshalErr := json.Marshal(fields); marshalErr == nil {
+		if unmarshalErr := json.Unmarshal(data, &payload); unmarshalErr != nil {
+			log.Printf("Failed to apply provider usage fields (%s): %v", provider, unmarshalErr)
+		}
 	}
 
-	_ = a.wsClient.Send("provider.usage", payload)
+	_ = a.send(protocol.TypeProviderUsage, payload)
 }
 
 func runUsageCommand(command string) ([]byte, error) {
@@ -1658,28 +1714,40 @@ func applyParsedUsageEntries(fields map[string]any, rawJSON map[string]any) {
 func (a *Agent) sendHello() error {
 	providers := a.providerAvailabilityMap()
 
-	payload := map[string]any{
-		"host": map[string]any{
-			"id":            a.cfg.Host.ID,
-			"name":          a.cfg.Host.Name,
-			"agent_version": "0.1.0",
-			"capabilities": map[string]any{
-				"tmux":            true,
-				"spawn":           a.cfg.Security.AllowSpawn,
-				"kill":            a.cfg.Security.AllowKill,
-				"console_stream":  a.cfg.Security.AllowConsoleStream,
-				"terminal":        true,
-				"claude_hooks":    true,
-				"codex_exec_json": true,
-				"providers":       providers,
+	payload := protocol.AgentHelloPayload{
+		Host: protocol.AgentHostInfo{
+			ID:           a.cfg.Host.ID,
+			Name:         a.cfg.Host.Name,
+			AgentVersion: Version,
+			Capabilities: protocol.HostCapabilities{
+				Tmux:          true,
+				Spawn:         a.cfg.Security.AllowSpawn,
+				Kill:          a.cfg.Security.AllowKill,
+				ConsoleStream: a.cfg.Security.AllowConsoleStream,
+				Terminal:      true,
+				ClaudeHooks:   true,
+				CodexExecJSON: true,
+				Providers:     providers,
 			},
 		},
-		"resume": map[string]any{
-			"last_acked_seq": a.wsClient.GetLastAckedSeq(),
-		},
+		Resume: &protocol.AgentResume{LastAckedSeq: a.wsClient.GetLastAckedSeq()},
 	}
 
-	return a.wsClient.Send("agent.hello", payload)
+	return a.wsClient.SendHello(payload)
+}
+
+func (a *Agent) send(msgType string, payload any) error {
+	var err error
+	if a.sendMessage != nil {
+		err = a.sendMessage(msgType, payload)
+	} else {
+		err = a.wsClient.Send(msgType, payload)
+	}
+	if err != nil {
+		metrics.RecordMessageDrop(msgType)
+		log.Printf("Failed to send %s: %v", msgType, err)
+	}
+	return err
 }
 
 func (a *Agent) providerAvailabilityMap() map[string]bool {
@@ -1696,26 +1764,14 @@ func (a *Agent) providerAvailabilityMap() map[string]bool {
 }
 
 func providerCommandAvailable(cfg *config.Config, provider string) bool {
-	switch provider {
-	case "claude_code":
-		return commandAvailable("claude")
-	case "codex":
-		return commandAvailable(cfg.Providers.Codex.ExecPath, "codex")
-	case "gemini_cli":
-		return commandAvailable("gemini")
-	case "opencode":
-		return commandAvailable("opencode")
-	case "cursor":
-		return commandAvailable("cursor")
-	case "aider":
-		return commandAvailable("aider")
-	case "continue":
-		return commandAvailable("continue")
-	case "shell":
+	if provider == "shell" {
 		return true
-	default:
+	}
+	spec, err := providers.NewLaunchTemplates(cfg).Interactive(provider, nil, nil)
+	if err != nil || len(spec.Argv) == 0 {
 		return false
 	}
+	return commandAvailable(spec.Argv[0])
 }
 
 func commandAvailable(candidates ...string) bool {
@@ -1832,32 +1888,21 @@ func (a *Agent) handleMessage(msgType string, payload json.RawMessage) {
 }
 
 func (a *Agent) handleCommandDispatch(payload json.RawMessage) {
-	var cmd struct {
-		CmdID     string `json:"cmd_id"`
-		SessionID string `json:"session_id"`
-		Command   struct {
-			Type    string          `json:"type"`
-			Payload json.RawMessage `json:"payload"`
-		} `json:"command"`
-	}
+	var cmd commands.Dispatch
 	if err := json.Unmarshal(payload, &cmd); err != nil {
 		log.Printf("Failed to parse command: %v", err)
 		return
 	}
-
-	var result struct {
-		CmdID     string         `json:"cmd_id"`
-		SessionID string         `json:"session_id"`
-		OK        bool           `json:"ok"`
-		Result    map[string]any `json:"result,omitempty"`
-		Error     *struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"error,omitempty"`
+	if a.commandExecutor == nil {
+		log.Printf("Command executor is not initialized (cmd_id=%s)", cmd.CmdID)
+		return
 	}
-	result.CmdID = cmd.CmdID
-	result.SessionID = cmd.SessionID
+	if err := a.commandExecutor.Submit(cmd); err != nil {
+		log.Printf("Failed to queue command %s: %v", cmd.CmdID, err)
+	}
+}
 
+func (a *Agent) executeCommand(cmd commands.Dispatch) (map[string]any, error) {
 	// Get session when required
 	var session *SessionState
 	a.sessionsMu.RLock()
@@ -1923,7 +1968,7 @@ func (a *Agent) handleCommandDispatch(payload json.RawMessage) {
 			err = fmt.Errorf("session not found")
 			break
 		}
-		err = a.executeCapturePaneCommand(session, cmd.CmdID, cmd.Command.Payload)
+		resultPayload, err = a.executeCapturePaneCommand(session, cmd.Command.Payload)
 	case "copy_to_session":
 		if !exists {
 			err = fmt.Errorf("session not found")
@@ -1935,112 +1980,74 @@ func (a *Agent) handleCommandDispatch(payload json.RawMessage) {
 	default:
 		err = fmt.Errorf("unknown command type: %s", cmd.Command.Type)
 	}
-
-	if err != nil {
-		result.Error = &struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		}{"COMMAND_FAILED", err.Error()}
-	} else {
-		result.OK = true
-		if resultPayload != nil {
-			result.Result = resultPayload
-		}
-	}
-
-	a.wsClient.Send("commands.result", result)
+	return resultPayload, err
 }
 
 func (a *Agent) handleMCPList(payload json.RawMessage) {
-	var req struct {
-		CmdID  string `json:"cmd_id"`
-		HostID string `json:"host_id"`
-	}
+	var req protocol.MCPListServersPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse mcp.list_servers: %v", err)
 		return
 	}
 
-	a.wsClient.Send("mcp.servers", map[string]any{
-		"cmd_id":  req.CmdID,
-		"servers": []any{},
-		"pool_config": map[string]any{
-			"enabled":  false,
-			"pool_all": false,
-		},
+	a.send(protocol.TypeMCPServers, protocol.MCPServersPayload{
+		CmdID:      req.CmdID,
+		Servers:    []protocol.MCPServer{},
+		PoolConfig: protocol.MCPPoolConfig{},
 	})
 }
 
 func (a *Agent) handleMCPGetConfig(payload json.RawMessage) {
-	var req struct {
-		CmdID     string `json:"cmd_id"`
-		SessionID string `json:"session_id"`
-	}
+	var req protocol.MCPGetConfigPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse mcp.get_config: %v", err)
 		return
 	}
 
-	a.wsClient.Send("mcp.config", map[string]any{
-		"cmd_id":           req.CmdID,
-		"session_id":       req.SessionID,
-		"servers":          []any{},
-		"enablement":       map[string]any{},
-		"restart_required": false,
+	a.send(protocol.TypeMCPConfig, protocol.MCPConfigPayload{
+		CmdID:      req.CmdID,
+		SessionID:  req.SessionID,
+		Servers:    []protocol.MCPServer{},
+		Enablement: map[string]protocol.MCPEnablement{},
 	})
 }
 
 func (a *Agent) handleMCPUpdateConfig(payload json.RawMessage) {
-	var req struct {
-		CmdID      string         `json:"cmd_id"`
-		SessionID  string         `json:"session_id"`
-		Enablement map[string]any `json:"enablement"`
-	}
+	var req protocol.MCPUpdateConfigPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse mcp.update_config: %v", err)
 		return
 	}
 
-	a.wsClient.Send("mcp.update_result", map[string]any{
-		"cmd_id":           req.CmdID,
-		"success":          false,
-		"restart_required": false,
-		"error":            "MCP configuration not supported on this agent",
+	a.send(protocol.TypeMCPUpdateResult, protocol.MCPUpdateResultPayload{
+		CmdID: req.CmdID,
+		Error: "MCP configuration not supported on this agent",
 	})
 }
 
 func (a *Agent) handleMCPGetProjectConfig(payload json.RawMessage) {
-	var req struct {
-		CmdID    string `json:"cmd_id"`
-		RepoRoot string `json:"repo_root"`
-	}
+	var req protocol.MCPGetProjectConfigPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse mcp.get_project_config: %v", err)
 		return
 	}
 
-	a.wsClient.Send("mcp.project_config", map[string]any{
-		"cmd_id":     req.CmdID,
-		"enablement": map[string]any{},
+	a.send(protocol.TypeMCPProjectConfig, protocol.MCPProjectConfigPayload{
+		CmdID:      req.CmdID,
+		Enablement: map[string]protocol.MCPEnablement{},
 	})
 }
 
 func (a *Agent) handleMCPUpdateProjectConfig(payload json.RawMessage) {
-	var req struct {
-		CmdID      string         `json:"cmd_id"`
-		RepoRoot   string         `json:"repo_root"`
-		Enablement map[string]any `json:"enablement"`
-	}
+	var req protocol.MCPUpdateProjectConfigPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse mcp.update_project_config: %v", err)
 		return
 	}
 
-	a.wsClient.Send("mcp.update_result", map[string]any{
-		"cmd_id":           req.CmdID,
-		"success":          false,
-		"restart_required": false,
-		"error":            "MCP configuration not supported on this agent",
+	a.send(protocol.TypeMCPUpdateResult, protocol.MCPUpdateResultPayload{
+		CmdID: req.CmdID,
+		Error: "MCP configuration not supported on this agent",
 	})
 }
 
@@ -2049,10 +2056,7 @@ func (a *Agent) executeSendInput(session *SessionState, payload json.RawMessage)
 		return fmt.Errorf("send_input not allowed by policy")
 	}
 
-	var p struct {
-		Text  string `json:"text"`
-		Enter bool   `json:"enter"`
-	}
+	var p protocol.SendInputPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
@@ -2065,9 +2069,7 @@ func (a *Agent) executeSendKeys(session *SessionState, payload json.RawMessage) 
 		return fmt.Errorf("send_keys not allowed by policy")
 	}
 
-	var p struct {
-		Keys []string `json:"keys"`
-	}
+	var p protocol.SendKeysPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
@@ -2080,7 +2082,47 @@ func (a *Agent) executeKillSession(session *SessionState) error {
 		return fmt.Errorf("kill not allowed by policy")
 	}
 
-	return a.tmuxClient.KillPane(session.PaneID)
+	a.topologyMu.Lock()
+	a.sessionsMu.RLock()
+	current := a.sessions[session.ID]
+	if current == nil {
+		a.sessionsMu.RUnlock()
+		a.topologyMu.Unlock()
+		return fmt.Errorf("session not found")
+	}
+	paneID := current.PaneID
+	a.sessionsMu.RUnlock()
+	if paneID == "" {
+		a.topologyMu.Unlock()
+		return fmt.Errorf("session has no active pane")
+	}
+	if err := a.localTmuxRunner().KillPane(paneID); err != nil {
+		a.topologyMu.Unlock()
+		return err
+	}
+
+	now := time.Now().UTC()
+	a.sessionsMu.Lock()
+	updates := make([]protocol.SessionUpsert, 0, 2)
+	if current = a.sessions[session.ID]; current != nil {
+		current.Status = "DONE"
+		current.PaneID = ""
+		current.TmuxTarget = ""
+		current.LastActivity = now
+		a.refreshHierarchyMetadataLocked()
+		update := sessionUpsert(current)
+		update.ArchivedAt = protocol.String(now.Format(time.RFC3339))
+		updates = append(updates, update)
+		if parent := a.sessions[current.ParentSessionID]; parent != nil {
+			updates = append(updates, sessionUpsert(parent))
+		}
+	}
+	a.sessionsMu.Unlock()
+	a.topologyMu.Unlock()
+	if len(updates) > 0 {
+		a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: updates})
+	}
+	return nil
 }
 
 func (a *Agent) executeConsoleSubscribe(session *SessionState, payload json.RawMessage) error {
@@ -2088,10 +2130,7 @@ func (a *Agent) executeConsoleSubscribe(session *SessionState, payload json.RawM
 		return fmt.Errorf("console_stream not allowed by policy")
 	}
 
-	var p struct {
-		SubscriptionID string `json:"subscription_id"`
-		PaneID         string `json:"pane_id"`
-	}
+	var p protocol.ConsoleSubscribePayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
@@ -2113,9 +2152,7 @@ func (a *Agent) executeConsoleSubscribe(session *SessionState, payload json.RawM
 }
 
 func (a *Agent) executeConsoleUnsubscribe(payload json.RawMessage) error {
-	var p struct {
-		SubscriptionID string `json:"subscription_id"`
-	}
+	var p protocol.ConsoleUnsubscribePayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
@@ -2129,16 +2166,10 @@ func (a *Agent) executeConsoleUnsubscribe(payload json.RawMessage) error {
 	return nil
 }
 
-func (a *Agent) executeCapturePaneCommand(session *SessionState, cmdID string, payload json.RawMessage) error {
-	var p struct {
-		Mode       string `json:"mode"`
-		LineStart  int    `json:"line_start"`
-		LineEnd    int    `json:"line_end"`
-		LastNLines int    `json:"last_n_lines"`
-		StripANSI  bool   `json:"strip_ansi"`
-	}
+func (a *Agent) executeCapturePaneCommand(session *SessionState, payload json.RawMessage) (map[string]any, error) {
+	var p protocol.CapturePanePayload
 	if err := json.Unmarshal(payload, &p); err != nil {
-		return err
+		return nil, err
 	}
 
 	mode := tmux.CaptureModeVisible
@@ -2163,36 +2194,19 @@ func (a *Agent) executeCapturePaneCommand(session *SessionState, cmdID string, p
 
 	content, err := a.tmuxClient.CapturePaneRange(session.PaneID, opts)
 	if err != nil {
-		return fmt.Errorf("capture failed: %w", err)
+		return nil, fmt.Errorf("capture failed: %w", err)
 	}
 
-	// Send capture result back as a command result with content
 	lineCount := strings.Count(content, "\n")
-	a.wsClient.Send("commands.result", map[string]any{
-		"cmd_id":     cmdID,
-		"session_id": session.ID,
-		"ok":         true,
-		"result": map[string]any{
-			"content":      content,
-			"line_count":   lineCount,
-			"capture_mode": p.Mode,
-		},
-	})
-
-	return nil
+	return map[string]any{
+		"content":      content,
+		"line_count":   lineCount,
+		"capture_mode": p.Mode,
+	}, nil
 }
 
 func (a *Agent) executeCopyToSession(sourceSession *SessionState, payload json.RawMessage) error {
-	var p struct {
-		TargetSessionID string `json:"target_session_id"`
-		Mode            string `json:"mode"`
-		LineStart       int    `json:"line_start"`
-		LineEnd         int    `json:"line_end"`
-		LastNLines      int    `json:"last_n_lines"`
-		PrependText     string `json:"prepend_text"`
-		AppendText      string `json:"append_text"`
-		StripANSI       bool   `json:"strip_ansi"`
-	}
+	var p protocol.CopyToSessionPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
@@ -2262,10 +2276,7 @@ func (a *Agent) executeCopyToSession(sourceSession *SessionState, payload json.R
 }
 
 func (a *Agent) executeListDirectory(payload json.RawMessage) (map[string]any, error) {
-	var p struct {
-		Path       string `json:"path"`
-		ShowHidden bool   `json:"show_hidden"`
-	}
+	var p protocol.ListDirectoryPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return nil, err
 	}
@@ -2448,10 +2459,7 @@ func (a *Agent) executeAdoptPane(payload json.RawMessage) error {
 		return fmt.Errorf("adopt_pane not allowed by policy")
 	}
 
-	var p struct {
-		TmuxPaneID string `json:"tmux_pane_id"`
-		Title      string `json:"title"`
-	}
+	var p protocol.AdoptPanePayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
@@ -2459,10 +2467,11 @@ func (a *Agent) executeAdoptPane(payload json.RawMessage) error {
 		return fmt.Errorf("tmux_pane_id is required")
 	}
 
-	// Find existing unmanaged session for this pane
-	a.sessionsMu.Lock()
-	defer a.sessionsMu.Unlock()
+	a.topologyMu.Lock()
+	defer a.topologyMu.Unlock()
 
+	// Find existing unmanaged session for this pane
+	a.sessionsMu.RLock()
 	var session *SessionState
 	for _, s := range a.sessions {
 		if s.PaneID == p.TmuxPaneID {
@@ -2470,9 +2479,10 @@ func (a *Agent) executeAdoptPane(payload json.RawMessage) error {
 			break
 		}
 	}
+	a.sessionsMu.RUnlock()
 
+	newSession := session == nil
 	if session == nil {
-		// Create new session state
 		now := time.Now().UTC()
 		session = &SessionState{
 			ID:           uuid.New().String(),
@@ -2483,41 +2493,36 @@ func (a *Agent) executeAdoptPane(payload json.RawMessage) error {
 			LastActivity: now,
 			LastOutput:   now,
 		}
-		a.sessions[session.ID] = session
 	}
 
+	optionSessionID := a.cfg.Tmux.OptionSessionID
+	if optionSessionID == "" {
+		optionSessionID = "@ac_session_id"
+	}
+	if err := a.localTmuxRunner().SetPaneOption(p.TmuxPaneID, optionSessionID, session.ID); err != nil {
+		return err
+	}
+
+	a.sessionsMu.Lock()
+	if newSession {
+		a.sessions[session.ID] = session
+	}
 	session.Unmanaged = false
 	session.LastActivity = time.Now().UTC()
 	session.LastOutput = session.LastActivity
 	if p.Title != "" {
 		session.Title = p.Title
 	}
+	a.refreshHierarchyMetadataLocked()
+	update := sessionUpsert(session)
+	a.sessionsMu.Unlock()
 
-	// Persist session ID on the pane
-	if err := a.tmuxClient.SetPaneOption(p.TmuxPaneID, a.cfg.Tmux.OptionSessionID, session.ID); err != nil {
-		return err
-	}
-
-	// Send upsert
-	update := map[string]any{
-		"id":               session.ID,
-		"kind":             session.Kind,
-		"provider":         session.Provider,
-		"status":           session.Status,
-		"title":            session.Title,
-		"tmux_pane_id":     session.PaneID,
-		"tmux_target":      session.TmuxTarget,
-		"metadata":         session.Metadata,
-		"last_activity_at": session.LastActivity.UTC().Format(time.RFC3339),
-	}
-	a.wsClient.Send("sessions.upsert", map[string]any{"sessions": []map[string]any{update}})
+	a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: []protocol.SessionUpsert{update}})
 	return nil
 }
 
 func (a *Agent) executeRenameSession(session *SessionState, payload json.RawMessage) error {
-	var p struct {
-		Title string `json:"title"`
-	}
+	var p protocol.RenameSessionPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
@@ -2530,15 +2535,15 @@ func (a *Agent) executeRenameSession(session *SessionState, payload json.RawMess
 	session.LastActivity = time.Now().UTC()
 	a.sessionsMu.Unlock()
 
-	update := map[string]any{
-		"id":               session.ID,
-		"kind":             session.Kind,
-		"provider":         session.Provider,
-		"status":           session.Status,
-		"title":            session.Title,
-		"last_activity_at": session.LastActivity.UTC().Format(time.RFC3339),
+	update := protocol.SessionUpsert{
+		ID:             session.ID,
+		Kind:           session.Kind,
+		Provider:       session.Provider,
+		Status:         session.Status,
+		Title:          protocol.String(session.Title),
+		LastActivityAt: session.LastActivity.UTC().Format(time.RFC3339),
 	}
-	a.wsClient.Send("sessions.upsert", map[string]any{"sessions": []map[string]any{update}})
+	a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: []protocol.SessionUpsert{update}})
 	return nil
 }
 
@@ -2547,37 +2552,19 @@ func (a *Agent) executeSpawnSession(sessionID string, payload json.RawMessage) e
 		return fmt.Errorf("spawn_session not allowed by policy")
 	}
 
-	var raw map[string]any
-	if err := json.Unmarshal(payload, &raw); err != nil {
-		return err
-	}
-
-	if _, ok := raw["working_directory"]; ok {
-		return a.executeSpawnSessionInteractive(sessionID, payload)
-	}
-
-	return a.executeSpawnSessionWorktree(sessionID, payload)
-}
-
-func (a *Agent) executeSpawnSessionWorktree(sessionID string, payload json.RawMessage) error {
-	var p struct {
-		Provider    string `json:"provider"`
-		RepoRoot    string `json:"repo_root"`
-		BaseBranch  string `json:"base_branch"`
-		BranchName  string `json:"branch_name"`
-		WorktreeDir string `json:"worktree_dir"`
-		Title       string `json:"title"`
-		MemoryFiles []memoryFileSpec `json:"memory_files"`
-		Tmux        struct {
-			TargetSession string `json:"target_session"`
-			WindowName    string `json:"window_name"`
-			Command       string `json:"command"`
-		} `json:"tmux"`
-		Env map[string]string `json:"env"`
-	}
+	var p protocol.SpawnSessionPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
+
+	if p.WorkingDirectory != nil {
+		return a.executeSpawnSessionInteractive(sessionID, p)
+	}
+
+	return a.executeSpawnSessionWorktree(sessionID, p)
+}
+
+func (a *Agent) executeSpawnSessionWorktree(sessionID string, p protocol.SpawnSessionPayload) error {
 	if p.RepoRoot == "" || p.BranchName == "" || p.WorktreeDir == "" {
 		return fmt.Errorf("repo_root, branch_name, and worktree_dir are required")
 	}
@@ -2613,6 +2600,13 @@ func (a *Agent) executeSpawnSessionWorktree(sessionID string, payload json.RawMe
 		return err
 	}
 
+	launchCommand, err := a.interactiveLaunchCommand(p.Provider, nil, p.Env, sessionID)
+	if err != nil {
+		return err
+	}
+	a.topologyMu.Lock()
+	defer a.topologyMu.Unlock()
+
 	// Ensure tmux session exists
 	if !a.tmuxClient.HasSession(p.Tmux.TargetSession) {
 		if err := a.tmuxClient.NewSession(p.Tmux.TargetSession); err != nil {
@@ -2621,58 +2615,69 @@ func (a *Agent) executeSpawnSessionWorktree(sessionID string, payload json.RawMe
 	}
 
 	// Create window
-	paneID, err := a.tmuxClient.NewWindow(p.Tmux.TargetSession, p.Tmux.WindowName, p.WorktreeDir)
+	created, err := a.tmuxClient.CreateWindow(p.Tmux.TargetSession, p.Tmux.WindowName, p.WorktreeDir)
 	if err != nil {
 		return err
 	}
-
-	// Build command with env
-	envParts := []string{fmt.Sprintf("AC_SESSION_ID=%s", sessionID)}
-	for k, v := range p.Env {
-		envParts = append(envParts, fmt.Sprintf("%s=%s", k, v))
-	}
-	command := fmt.Sprintf("export %s && cd %s && %s", strings.Join(envParts, " "), p.WorktreeDir, p.Tmux.Command)
-	_ = a.tmuxClient.SendKeys(paneID, []string{command, "Enter"})
+	paneID := created.PaneID
+	committed := false
+	registered := false
+	defer func() {
+		if committed {
+			return
+		}
+		if registered {
+			a.sessionsMu.Lock()
+			delete(a.sessions, sessionID)
+			a.refreshHierarchyMetadataLocked()
+			a.sessionsMu.Unlock()
+		}
+		_ = a.tmuxClient.KillPane(paneID)
+	}()
 
 	// Persist session ID on the pane
 	if err := a.tmuxClient.SetPaneOption(paneID, a.cfg.Tmux.OptionSessionID, sessionID); err != nil {
 		return err
 	}
+	if p.ParentSessionID != "" {
+		if err := a.tmuxClient.SetPaneOption(paneID, parentSessionOption, p.ParentSessionID); err != nil {
+			return err
+		}
+	}
+	if launchCommand != "" {
+		if err := a.tmuxClient.SendInput(paneID, launchCommand, true); err != nil {
+			return err
+		}
+	}
 
 	// Register session
 	now := time.Now().UTC()
 	a.sessionsMu.Lock()
-	a.sessions[sessionID] = &SessionState{
-		ID:           sessionID,
-		PaneID:       paneID,
-		Kind:         "tmux_pane",
-		Provider:     p.Provider,
-		Status:       "STARTING",
-		Title:        p.Title,
-		CWD:          p.WorktreeDir,
-		RepoRoot:     p.RepoRoot,
-		GitBranch:    p.BranchName,
-		LastActivity: now,
-		LastOutput:   now,
+	spawned := &SessionState{
+		ID:              sessionID,
+		PaneID:          paneID,
+		Kind:            "tmux_pane",
+		Provider:        p.Provider,
+		Status:          "STARTING",
+		Title:           p.Title,
+		CWD:             p.WorktreeDir,
+		RepoRoot:        p.RepoRoot,
+		GitBranch:       p.BranchName,
+		TmuxTarget:      created.TmuxTarget,
+		LastActivity:    now,
+		LastOutput:      now,
+		ParentSessionID: p.ParentSessionID,
+	}
+	a.sessions[sessionID] = spawned
+	registered = true
+	a.refreshHierarchyMetadataLocked()
+	updates := []protocol.SessionUpsert{sessionUpsert(spawned)}
+	if parent := a.sessions[p.ParentSessionID]; parent != nil {
+		updates = append(updates, sessionUpsert(parent))
 	}
 	a.sessionsMu.Unlock()
-
-	a.wsClient.Send("sessions.upsert", map[string]any{
-		"sessions": []map[string]any{
-			{
-				"id":               sessionID,
-				"kind":             "tmux_pane",
-				"provider":         p.Provider,
-				"status":           "STARTING",
-				"title":            p.Title,
-				"cwd":              p.WorktreeDir,
-				"repo_root":        p.RepoRoot,
-				"git_branch":       p.BranchName,
-				"tmux_pane_id":     paneID,
-				"last_activity_at": time.Now().UTC().Format(time.RFC3339),
-			},
-		},
-	})
+	committed = true
+	a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: updates})
 
 	return nil
 }
@@ -2694,26 +2699,11 @@ func deriveSpawnTmuxSessionName(configured, repoRoot, cwd string) string {
 	return tmuxSession
 }
 
-func (a *Agent) executeSpawnSessionInteractive(sessionID string, payload json.RawMessage) error {
-	var p struct {
-		Provider         string   `json:"provider"`
-		WorkingDirectory string   `json:"working_directory"`
-		Title            string   `json:"title"`
-		Flags            []string `json:"flags"`
-		MemoryFiles      []memoryFileSpec `json:"memory_files"`
-		GroupID          string   `json:"group_id"`
-		Tmux             struct {
-			TargetSession string `json:"target_session"`
-			WindowName    string `json:"window_name"`
-		} `json:"tmux"`
-	}
-	if err := json.Unmarshal(payload, &p); err != nil {
-		return err
-	}
-	if p.WorkingDirectory == "" {
+func (a *Agent) executeSpawnSessionInteractive(sessionID string, p protocol.SpawnSessionPayload) error {
+	if p.WorkingDirectory == nil || *p.WorkingDirectory == "" {
 		return fmt.Errorf("working_directory is required")
 	}
-	_, resolvedWorkingDir, err := normalizeListDirectoryPath(p.WorkingDirectory)
+	_, resolvedWorkingDir, err := normalizeListDirectoryPath(*p.WorkingDirectory)
 	if err != nil {
 		return err
 	}
@@ -2740,6 +2730,12 @@ func (a *Agent) executeSpawnSessionInteractive(sessionID string, payload json.Ra
 		}
 		return ""
 	}(), resolvedWorkingDir)
+	launchCommand, err := a.interactiveLaunchCommand(p.Provider, p.Flags, nil, sessionID)
+	if err != nil {
+		return err
+	}
+	a.topologyMu.Lock()
+	defer a.topologyMu.Unlock()
 	if !a.tmuxClient.HasSession(tmuxSession) {
 		if err := a.tmuxClient.NewSession(tmuxSession); err != nil {
 			return err
@@ -2758,24 +2754,40 @@ func (a *Agent) executeSpawnSessionInteractive(sessionID string, payload json.Ra
 		displayTitle = windowName
 	}
 
-	paneID, err := a.tmuxClient.NewWindow(tmuxSession, windowName, resolvedWorkingDir)
+	created, err := a.tmuxClient.CreateWindow(tmuxSession, windowName, resolvedWorkingDir)
 	if err != nil {
 		return err
 	}
+	paneID := created.PaneID
+	committed := false
+	registered := false
+	defer func() {
+		if committed {
+			return
+		}
+		if registered {
+			a.sessionsMu.Lock()
+			delete(a.sessions, sessionID)
+			a.refreshHierarchyMetadataLocked()
+			a.sessionsMu.Unlock()
+		}
+		_ = a.tmuxClient.KillPane(paneID)
+	}()
 
 	if err := a.tmuxClient.SetPaneOption(paneID, a.cfg.Tmux.OptionSessionID, sessionID); err != nil {
 		return err
 	}
+	if p.ParentSessionID != "" {
+		if err := a.tmuxClient.SetPaneOption(paneID, parentSessionOption, p.ParentSessionID); err != nil {
+			return err
+		}
+	}
 
-	launchCommand := a.buildProviderCommand(p.Provider, p.Flags)
-	commandParts := []string{
-		fmt.Sprintf("export AC_SESSION_ID=%s", sessionID),
-		fmt.Sprintf("cd %s", resolvedWorkingDir),
-	}
 	if launchCommand != "" {
-		commandParts = append(commandParts, launchCommand)
+		if err := a.tmuxClient.SendInput(paneID, launchCommand, true); err != nil {
+			return err
+		}
 	}
-	_ = a.tmuxClient.SendKeys(paneID, []string{strings.Join(commandParts, " && "), "Enter"})
 
 	status := "IDLE"
 	if launchCommand != "" {
@@ -2791,43 +2803,33 @@ func (a *Agent) executeSpawnSessionInteractive(sessionID string, payload json.Ra
 
 	now := time.Now().UTC()
 	a.sessionsMu.Lock()
-	a.sessions[sessionID] = &SessionState{
-		ID:           sessionID,
-		PaneID:       paneID,
-		Kind:         "tmux_pane",
-		Provider:     p.Provider,
-		Status:       status,
-		Title:        displayTitle,
-		CWD:          resolvedWorkingDir,
-		RepoRoot:     repoRoot,
-		GitBranch:    gitBranch,
-		GitRemote:    gitRemote,
-		GroupID:      p.GroupID,
-		LastActivity: now,
-		LastOutput:   now,
+	spawned := &SessionState{
+		ID:              sessionID,
+		PaneID:          paneID,
+		Kind:            "tmux_pane",
+		Provider:        p.Provider,
+		Status:          status,
+		Title:           displayTitle,
+		CWD:             resolvedWorkingDir,
+		RepoRoot:        repoRoot,
+		GitBranch:       gitBranch,
+		GitRemote:       gitRemote,
+		GroupID:         p.GroupID,
+		ParentSessionID: p.ParentSessionID,
+		TmuxTarget:      created.TmuxTarget,
+		LastActivity:    now,
+		LastOutput:      now,
+	}
+	a.sessions[sessionID] = spawned
+	registered = true
+	a.refreshHierarchyMetadataLocked()
+	updates := []protocol.SessionUpsert{sessionUpsert(spawned)}
+	if parent := a.sessions[p.ParentSessionID]; parent != nil {
+		updates = append(updates, sessionUpsert(parent))
 	}
 	a.sessionsMu.Unlock()
-
-	update := map[string]any{
-		"id":               sessionID,
-		"kind":             "tmux_pane",
-		"provider":         p.Provider,
-		"status":           status,
-		"title":            displayTitle,
-		"cwd":              resolvedWorkingDir,
-		"repo_root":        repoRoot,
-		"git_branch":       gitBranch,
-		"git_remote":       gitRemote,
-		"tmux_pane_id":     paneID,
-		"last_activity_at": time.Now().UTC().Format(time.RFC3339),
-	}
-	if p.GroupID != "" {
-		update["group_id"] = p.GroupID
-	}
-
-	a.wsClient.Send("sessions.upsert", map[string]any{
-		"sessions": []map[string]any{update},
-	})
+	committed = true
+	a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: updates})
 
 	return nil
 }
@@ -2837,20 +2839,25 @@ func (a *Agent) executeSpawnJob(sessionID string, payload json.RawMessage) error
 		return fmt.Errorf("spawn_job not allowed by policy")
 	}
 
-	var p struct {
-		Provider string            `json:"provider"`
-		Cwd      string            `json:"cwd"`
-		Prompt   string            `json:"prompt"`
-		Env      map[string]string `json:"env"`
-	}
+	var p protocol.SpawnJobPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
 	if p.Provider == "" {
 		p.Provider = "codex"
 	}
-	if p.Cwd == "" || p.Prompt == "" {
+	if p.CWD == "" || p.Prompt == "" {
 		return fmt.Errorf("cwd and prompt are required")
+	}
+	if a.launchTemplates == nil {
+		a.launchTemplates = providers.NewLaunchTemplates(a.cfg)
+	}
+	headlessSpec, err := a.launchTemplates.Headless(p.Provider, p.Prompt, p.Env)
+	if err != nil {
+		return err
+	}
+	if _, err := headlessSpec.ExecCommand(p.CWD); err != nil {
+		return err
 	}
 
 	if sessionID == "" {
@@ -2865,26 +2872,24 @@ func (a *Agent) executeSpawnJob(sessionID string, payload json.RawMessage) error
 		Kind:         "job",
 		Provider:     p.Provider,
 		Status:       "STARTING",
-		CWD:          p.Cwd,
+		CWD:          p.CWD,
 		LastActivity: now,
 		LastOutput:   now,
 	}
 	a.sessionsMu.Unlock()
 
-	a.wsClient.Send("sessions.upsert", map[string]any{
-		"sessions": []map[string]any{
-			{
-				"id":               sessionID,
-				"kind":             "job",
-				"provider":         p.Provider,
-				"status":           "STARTING",
-				"cwd":              p.Cwd,
-				"last_activity_at": time.Now().UTC().Format(time.RFC3339),
-			},
-		},
+	a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{
+		Sessions: []protocol.SessionUpsert{{
+			ID:             sessionID,
+			Kind:           "job",
+			Provider:       p.Provider,
+			Status:         "STARTING",
+			CWD:            protocol.String(p.CWD),
+			LastActivityAt: time.Now().UTC().Format(time.RFC3339),
+		}},
 	})
 
-	go a.runCodexJob(sessionID, p.Cwd, p.Prompt, p.Env)
+	go a.runHeadlessJob(sessionID, p.Provider, p.CWD, p.Prompt, p.Env)
 	return nil
 }
 
@@ -2893,19 +2898,13 @@ func (a *Agent) executeFork(parentSession *SessionState, payload json.RawMessage
 		return fmt.Errorf("fork not allowed by policy")
 	}
 
-	var p struct {
-		Branch   string `json:"branch"`
-		Cwd      string `json:"cwd"`
-		Provider string `json:"provider"`
-		Note     string `json:"note"`
-		GroupID  string `json:"group_id"`
-	}
+	var p protocol.ForkPayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return err
 	}
 
 	newSessionID := uuid.New().String()
-	newCwd := p.Cwd
+	newCwd := p.CWD
 	if newCwd == "" {
 		newCwd = parentSession.CWD
 	}
@@ -2952,6 +2951,13 @@ func (a *Agent) executeFork(parentSession *SessionState, payload json.RawMessage
 		}
 	}
 
+	launchCommand, err := a.interactiveLaunchCommand(provider, nil, nil, newSessionID)
+	if err != nil {
+		return err
+	}
+	a.topologyMu.Lock()
+	defer a.topologyMu.Unlock()
+
 	// Ensure tmux session exists
 	tmuxSession := a.cfg.Spawn.TmuxSessionName
 	if !a.tmuxClient.HasSession(tmuxSession) {
@@ -2961,26 +2967,40 @@ func (a *Agent) executeFork(parentSession *SessionState, payload json.RawMessage
 	}
 
 	// Create new window in the tmux session
-	paneID, err := a.tmuxClient.NewWindow(tmuxSession, windowName, newCwd)
+	created, err := a.tmuxClient.CreateWindow(tmuxSession, windowName, newCwd)
 	if err != nil {
 		return fmt.Errorf("failed to create window for fork: %w", err)
 	}
+	paneID := created.PaneID
+	committed := false
+	registered := false
+	defer func() {
+		if committed {
+			return
+		}
+		if registered {
+			a.sessionsMu.Lock()
+			delete(a.sessions, newSessionID)
+			a.refreshHierarchyMetadataLocked()
+			a.sessionsMu.Unlock()
+		}
+		_ = a.tmuxClient.KillPane(paneID)
+	}()
 
 	// Set session ID on the pane
 	if err := a.tmuxClient.SetPaneOption(paneID, a.cfg.Tmux.OptionSessionID, newSessionID); err != nil {
 		return err
 	}
+	if err := a.tmuxClient.SetPaneOption(paneID, parentSessionOption, parentSession.ID); err != nil {
+		return err
+	}
 
 	// Start provider command (if applicable) and set env
-	launchCommand := a.forkLaunchCommand(parentSession, provider)
-	commandParts := []string{
-		fmt.Sprintf("export AC_SESSION_ID=%s", newSessionID),
-		fmt.Sprintf("cd %s", newCwd),
-	}
 	if launchCommand != "" {
-		commandParts = append(commandParts, launchCommand)
+		if err := a.tmuxClient.SendInput(paneID, launchCommand, true); err != nil {
+			return err
+		}
 	}
-	_ = a.tmuxClient.SendKeys(paneID, []string{strings.Join(commandParts, " && "), "Enter"})
 
 	// Calculate fork depth
 	forkDepth := parentSession.ForkDepth + 1
@@ -3016,101 +3036,58 @@ func (a *Agent) executeFork(parentSession *SessionState, payload json.RawMessage
 	// Create new session state
 	now := time.Now().UTC()
 	a.sessionsMu.Lock()
-	a.sessions[newSessionID] = &SessionState{
-		ID:           newSessionID,
-		PaneID:       paneID,
-		Kind:         "tmux_pane",
-		Provider:     provider,
-		Status:       status,
-		Title:        title,
-		CWD:          newCwd,
-		RepoRoot:     repoRoot,
-		GitBranch:    gitBranch,
-		GitRemote:    gitRemote,
-		TmuxTarget:   fmt.Sprintf("%s:%s", tmuxSession, windowName),
-		LastActivity: now,
-		LastOutput:   now,
-		GroupID:      groupID,
-		ForkedFrom:   parentSession.ID,
-		ForkDepth:    forkDepth,
+	spawned := &SessionState{
+		ID:              newSessionID,
+		PaneID:          paneID,
+		Kind:            "tmux_pane",
+		Provider:        provider,
+		Status:          status,
+		Title:           title,
+		CWD:             newCwd,
+		RepoRoot:        repoRoot,
+		GitBranch:       gitBranch,
+		GitRemote:       gitRemote,
+		TmuxTarget:      created.TmuxTarget,
+		LastActivity:    now,
+		LastOutput:      now,
+		GroupID:         groupID,
+		ForkedFrom:      parentSession.ID,
+		ForkDepth:       forkDepth,
+		ParentSessionID: parentSession.ID,
 		Metadata: map[string]any{
-			"forked_from": parentSession.ID,
-			"fork_depth":  forkDepth,
+			"forked_from":       parentSession.ID,
+			"fork_depth":        forkDepth,
+			"parent_session_id": parentSession.ID,
 		},
+	}
+	a.sessions[newSessionID] = spawned
+	registered = true
+	a.refreshHierarchyMetadataLocked()
+	updates := []protocol.SessionUpsert{sessionUpsert(spawned)}
+	if parent := a.sessions[parentSession.ID]; parent != nil {
+		updates = append(updates, sessionUpsert(parent))
 	}
 	a.sessionsMu.Unlock()
-
-	// Send session upsert
-	update := map[string]any{
-		"id":               newSessionID,
-		"kind":             "tmux_pane",
-		"provider":         provider,
-		"status":           status,
-		"title":            title,
-		"cwd":              newCwd,
-		"repo_root":        repoRoot,
-		"git_branch":       gitBranch,
-		"git_remote":       gitRemote,
-		"tmux_pane_id":     paneID,
-		"forked_from":      parentSession.ID,
-		"fork_depth":       forkDepth,
-		"last_activity_at": time.Now().UTC().Format(time.RFC3339),
-	}
-	if groupID != "" {
-		update["group_id"] = groupID
-	}
-	a.wsClient.Send("sessions.upsert", map[string]any{
-		"sessions": []map[string]any{
-			update,
-		},
-	})
+	committed = true
+	a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: updates})
 
 	return nil
 }
 
-func (a *Agent) forkLaunchCommand(parentSession *SessionState, provider string) string {
-	if parentSession != nil && parentSession.Metadata != nil {
-		if tmuxMeta, ok := parentSession.Metadata["tmux"].(map[string]any); ok {
-			if cmd, ok := tmuxMeta["current_command"].(string); ok {
-				cmd = strings.TrimSpace(cmd)
-				if cmd != "" && !isShellCommand(cmd) {
-					return cmd
-				}
-			}
-		}
+func (a *Agent) interactiveLaunchCommand(provider string, flags []string, env map[string]string, sessionID string) (string, error) {
+	if a.launchTemplates == nil {
+		a.launchTemplates = providers.NewLaunchTemplates(a.cfg)
 	}
-
-	return a.buildProviderCommand(provider, nil)
-}
-
-func (a *Agent) buildProviderCommand(provider string, flags []string) string {
-	var base string
-	switch provider {
-	case "claude_code":
-		base = "claude"
-	case "codex":
-		base = "codex"
-	case "gemini_cli":
-		base = "gemini"
-	case "aider":
-		base = "aider"
-	case "opencode":
-		base = "opencode"
-	case "cursor":
-		base = "cursor"
-	case "continue":
-		base = "continue"
-	case "shell":
-		return ""
+	requestEnv := make(map[string]string, len(env)+1)
+	for key, value := range env {
+		requestEnv[key] = value
 	}
-
-	if base == "" {
-		return ""
+	requestEnv["AC_SESSION_ID"] = sessionID
+	spec, err := a.launchTemplates.Interactive(provider, flags, requestEnv)
+	if err != nil {
+		return "", err
 	}
-	if len(flags) == 0 {
-		return base
-	}
-	return base + " " + strings.Join(flags, " ")
+	return spec.ShellCommand()
 }
 
 func isShellCommand(command string) bool {
@@ -3239,11 +3216,19 @@ func (a *Agent) deriveStatus(session *SessionState, pane tmux.Pane) string {
 	return "IDLE"
 }
 
-func (a *Agent) runCodexJob(sessionID, cwd, prompt string, env map[string]string) {
-	cmd := exec.Command(a.cfg.Providers.Codex.ExecPath, "exec", "--json", prompt)
-	cmd.Dir = cwd
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), formatEnv(env)...)
+func (a *Agent) runHeadlessJob(sessionID, provider, cwd, prompt string, env map[string]string) {
+	if a.launchTemplates == nil {
+		a.launchTemplates = providers.NewLaunchTemplates(a.cfg)
+	}
+	spec, err := a.launchTemplates.Headless(provider, prompt, env)
+	if err != nil {
+		a.updateJobStatus(sessionID, "ERROR")
+		return
+	}
+	cmd, err := spec.ExecCommand(cwd)
+	if err != nil {
+		a.updateJobStatus(sessionID, "ERROR")
+		return
 	}
 
 	stdout, err := cmd.StdoutPipe()
@@ -3269,14 +3254,18 @@ func (a *Agent) runCodexJob(sessionID, cwd, prompt string, env map[string]string
 			continue
 		}
 
-		a.wsClient.Send("events.append", map[string]any{
-			"session_id": sessionID,
-			"event_type": "codex.event",
-			"payload":    evt,
+		a.send(protocol.TypeEventsAppend, protocol.EventsAppendPayload{
+			SessionID: sessionID,
+			EventType: providerEventType(provider),
+			Payload:   evt,
 		})
 
-		if t, ok := evt["event_type"].(string); ok {
-			switch t {
+		eventName, _ := evt["event_type"].(string)
+		if eventName == "" {
+			eventName, _ = evt["type"].(string)
+		}
+		if eventName != "" {
+			switch eventName {
 			case "turn.started", "thread.started":
 				a.updateJobStatus(sessionID, "RUNNING")
 			case "turn.completed":
@@ -3294,6 +3283,17 @@ func (a *Agent) runCodexJob(sessionID, cwd, prompt string, env map[string]string
 	a.updateJobStatus(sessionID, "DONE")
 }
 
+func providerEventType(provider string) string {
+	switch provider {
+	case "claude_code":
+		return "claude.event"
+	case "codex":
+		return "codex.event"
+	default:
+		return provider + ".event"
+	}
+}
+
 func (a *Agent) updateJobStatus(sessionID, status string) {
 	provider := "codex"
 	a.sessionsMu.Lock()
@@ -3306,35 +3306,19 @@ func (a *Agent) updateJobStatus(sessionID, status string) {
 	}
 	a.sessionsMu.Unlock()
 
-	a.wsClient.Send("sessions.upsert", map[string]any{
-		"sessions": []map[string]any{
-			{
-				"id":               sessionID,
-				"kind":             "job",
-				"provider":         provider,
-				"status":           status,
-				"last_activity_at": time.Now().UTC().Format(time.RFC3339),
-			},
-		},
+	a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{
+		Sessions: []protocol.SessionUpsert{{
+			ID:             sessionID,
+			Kind:           "job",
+			Provider:       provider,
+			Status:         status,
+			LastActivityAt: time.Now().UTC().Format(time.RFC3339),
+		}},
 	})
 }
 
-func formatEnv(env map[string]string) []string {
-	items := make([]string, 0, len(env))
-	for k, v := range env {
-		items = append(items, fmt.Sprintf("%s=%s", k, v))
-	}
-	return items
-}
-
 func (a *Agent) handleApprovalDecision(payload json.RawMessage) {
-	var decision struct {
-		ApprovalID   string `json:"approval_id"`
-		SessionID    string `json:"session_id"`
-		Decision     string `json:"decision"`
-		Mode         string `json:"mode"`
-		UpdatedInput any    `json:"updated_input"`
-	}
+	var decision protocol.ApprovalDecisionPayload
 	if err := json.Unmarshal(payload, &decision); err != nil {
 		log.Printf("Failed to parse approval decision: %v", err)
 		return
@@ -3413,25 +3397,12 @@ func (a *Agent) handleClaudeHook(payload providers.ClaudeHookPayload) (*provider
 
 	hookName := extractHookName(hookData)
 
-	// Find or create session
-	sessionID := payload.Meta.ACSessionID
+	sessionID := a.resolveHookSessionID(payload)
 	if sessionID == "" {
-		// Try to find session by pane
-		a.sessionsMu.RLock()
-		for _, s := range a.sessions {
-			if s.PaneID == payload.Meta.TmuxPane {
-				sessionID = s.ID
-				break
-			}
-		}
-		a.sessionsMu.RUnlock()
-	}
-
-	if sessionID == "" {
-		// No matching session found
-		log.Printf("Claude hook received but no matching session found for pane %s", payload.Meta.TmuxPane)
+		a.bufferHook("claude_code", payload)
 		return nil, nil
 	}
+	a.markSessionReady(sessionID)
 
 	// Update session status based on hook
 	newStatus := providers.MapHookToStatus(hookName, hookData)
@@ -3452,21 +3423,21 @@ func (a *Agent) handleClaudeHook(payload providers.ClaudeHookPayload) (*provider
 	}
 	a.sessionsMu.RUnlock()
 	a.handleWorkshopHookEvent(sessionID, "claude_code", hookName, hookData, fallbackCwd)
-	eventPayload := map[string]any{
-		"session_id": sessionID,
-		"event_type": "claude.hook",
-		"payload": map[string]any{
-			"hook_name": hookName,
-			"hook_data": hookData,
-		},
+	hookPayload := map[string]any{
+		"hook_name": hookName,
+		"hook_data": hookData,
 	}
 	if toolName != "" {
-		eventPayload["payload"].(map[string]any)["tool_name"] = toolName
+		hookPayload["tool_name"] = toolName
 	}
 	if usage := extractUsageFromHook(hookData); usage != nil {
-		eventPayload["payload"].(map[string]any)["usage"] = usage
+		hookPayload["usage"] = usage
 	}
-	a.wsClient.Send("events.append", eventPayload)
+	a.send(protocol.TypeEventsAppend, protocol.EventsAppendPayload{
+		SessionID: sessionID,
+		EventType: "claude.hook",
+		Payload:   hookPayload,
+	})
 
 	var approvalID string
 	if approvalRequested {
@@ -3495,12 +3466,11 @@ func (a *Agent) handleClaudeHook(payload providers.ClaudeHookPayload) (*provider
 		if inputSchema != nil {
 			payloadData["input_schema"] = inputSchema
 		}
-		eventPayload := map[string]any{
-			"session_id": sessionID,
-			"event_type": "approval.requested",
-			"payload":    payloadData,
-		}
-		a.wsClient.Send("events.append", eventPayload)
+		a.send(protocol.TypeEventsAppend, protocol.EventsAppendPayload{
+			SessionID: sessionID,
+			EventType: "approval.requested",
+			Payload:   payloadData,
+		})
 	}
 
 	return nil, nil
@@ -3514,23 +3484,12 @@ func (a *Agent) handleCodexHook(payload providers.ClaudeHookPayload) (*providers
 
 	hookName := extractHookName(hookData)
 
-	// Find session by ID or pane
-	sessionID := payload.Meta.ACSessionID
+	sessionID := a.resolveHookSessionID(payload)
 	if sessionID == "" {
-		a.sessionsMu.RLock()
-		for _, s := range a.sessions {
-			if s.PaneID == payload.Meta.TmuxPane {
-				sessionID = s.ID
-				break
-			}
-		}
-		a.sessionsMu.RUnlock()
-	}
-
-	if sessionID == "" {
-		log.Printf("Codex hook received but no matching session found for pane %s", payload.Meta.TmuxPane)
+		a.bufferHook("codex", payload)
 		return nil, nil
 	}
+	a.markSessionReady(sessionID)
 
 	approvalRequested := isApprovalHook(hookName, hookData)
 	if approvalRequested && a.sessionHasPendingApproval(sessionID) {
@@ -3550,21 +3509,21 @@ func (a *Agent) handleCodexHook(payload providers.ClaudeHookPayload) (*providers
 	}
 	a.sessionsMu.RUnlock()
 	a.handleWorkshopHookEvent(sessionID, "codex", hookName, hookData, fallbackCwd)
-	eventPayload := map[string]any{
-		"session_id": sessionID,
-		"event_type": "codex.hook",
-		"payload": map[string]any{
-			"hook_name": hookName,
-			"hook_data": hookData,
-		},
+	hookPayload := map[string]any{
+		"hook_name": hookName,
+		"hook_data": hookData,
 	}
 	if toolName != "" {
-		eventPayload["payload"].(map[string]any)["tool_name"] = toolName
+		hookPayload["tool_name"] = toolName
 	}
 	if usage := extractUsageFromHook(hookData); usage != nil {
-		eventPayload["payload"].(map[string]any)["usage"] = usage
+		hookPayload["usage"] = usage
 	}
-	a.wsClient.Send("events.append", eventPayload)
+	a.send(protocol.TypeEventsAppend, protocol.EventsAppendPayload{
+		SessionID: sessionID,
+		EventType: "codex.hook",
+		Payload:   hookPayload,
+	})
 
 	var approvalID string
 	if approvalRequested {
@@ -3593,14 +3552,96 @@ func (a *Agent) handleCodexHook(payload providers.ClaudeHookPayload) (*providers
 		if inputSchema != nil {
 			codexPayload["input_schema"] = inputSchema
 		}
-		a.wsClient.Send("events.append", map[string]any{
-			"session_id": sessionID,
-			"event_type": "approval.requested",
-			"payload":    codexPayload,
+		a.send(protocol.TypeEventsAppend, protocol.EventsAppendPayload{
+			SessionID: sessionID,
+			EventType: "approval.requested",
+			Payload:   codexPayload,
 		})
 	}
 
 	return nil, nil
+}
+
+func (a *Agent) resolveHookSessionID(payload providers.ClaudeHookPayload) string {
+	if payload.Meta.ACSessionID != "" {
+		return payload.Meta.ACSessionID
+	}
+	a.sessionsMu.RLock()
+	defer a.sessionsMu.RUnlock()
+	for _, session := range a.sessions {
+		if session.PaneID == payload.Meta.TmuxPane {
+			return session.ID
+		}
+	}
+	return ""
+}
+
+func (a *Agent) markSessionReady(sessionID string) {
+	a.sessionsMu.Lock()
+	if session := a.sessions[sessionID]; session != nil {
+		session.Ready = true
+	}
+	a.sessionsMu.Unlock()
+}
+
+func (a *Agent) bufferHook(provider string, payload providers.ClaudeHookPayload) {
+	a.bufferedHooksMu.Lock()
+	a.bufferedHooks = append(a.bufferedHooks, bufferedHook{
+		Provider:   provider,
+		Payload:    payload,
+		BufferedAt: time.Now(),
+	})
+	a.bufferedHooksMu.Unlock()
+	log.Printf("Buffered %s hook until pane %s is discovered", provider, payload.Meta.TmuxPane)
+}
+
+func (a *Agent) hookBufferTTL() time.Duration {
+	pollCycle := time.Duration(a.cfg.Tmux.PollIntervalMs) * time.Millisecond
+	if pollCycle < 5*time.Second {
+		return 5 * time.Second
+	}
+	return pollCycle + time.Second
+}
+
+func (a *Agent) retryBufferedHooks() {
+	a.bufferedHooksMu.Lock()
+	pending := a.bufferedHooks
+	a.bufferedHooks = nil
+	a.bufferedHooksMu.Unlock()
+	if len(pending) == 0 {
+		return
+	}
+
+	now := time.Now()
+	remaining := make([]bufferedHook, 0, len(pending))
+	for _, hook := range pending {
+		sessionID := a.resolveHookSessionID(hook.Payload)
+		if sessionID != "" {
+			hook.Payload.Meta.ACSessionID = sessionID
+			switch hook.Provider {
+			case "claude_code":
+				if _, err := a.handleClaudeHook(hook.Payload); err != nil {
+					log.Printf("Failed to replay buffered Claude hook: %v", err)
+				}
+			case "codex":
+				if _, err := a.handleCodexHook(hook.Payload); err != nil {
+					log.Printf("Failed to replay buffered Codex hook: %v", err)
+				}
+			}
+			continue
+		}
+		if now.Sub(hook.BufferedAt) >= a.hookBufferTTL() {
+			log.Printf("Dropping buffered %s hook after %s without a session match for pane %s", hook.Provider, now.Sub(hook.BufferedAt).Round(time.Millisecond), hook.Payload.Meta.TmuxPane)
+			continue
+		}
+		remaining = append(remaining, hook)
+	}
+
+	if len(remaining) > 0 {
+		a.bufferedHooksMu.Lock()
+		a.bufferedHooks = append(remaining, a.bufferedHooks...)
+		a.bufferedHooksMu.Unlock()
+	}
 }
 
 func extractHookName(hookData map[string]any) string {
@@ -3897,6 +3938,8 @@ func mapHookToWorkshopEventType(hookName string) string {
 		return "session_start"
 	case lower == "sessionend":
 		return "session_end"
+	case lower == "subagentstart":
+		return "subagent_start"
 	case lower == "subagentstop":
 		return "subagent_stop"
 	case lower == "precompact":
@@ -3919,10 +3962,10 @@ func (a *Agent) emitWorkshopEvent(sessionID, eventType string, payload map[strin
 	if _, ok := payload["sessionId"]; !ok {
 		payload["sessionId"] = sessionID
 	}
-	a.wsClient.Send("events.append", map[string]any{
-		"session_id": sessionID,
-		"event_type": "workshop." + eventType,
-		"payload":    payload,
+	a.send(protocol.TypeEventsAppend, protocol.EventsAppendPayload{
+		SessionID: sessionID,
+		EventType: "workshop." + eventType,
+		Payload:   payload,
 	})
 }
 
@@ -3932,11 +3975,13 @@ func (a *Agent) handleWorkshopHookEvent(sessionID, provider, hookName string, ho
 		return
 	}
 
+	now := time.Now().UTC()
 	base := map[string]any{
-		"sessionId": sessionID,
-		"provider":  provider,
-		"cwd":       extractCWD(hookData, fallbackCwd),
-		"timestamp": time.Now().UnixMilli(),
+		"sessionId":   sessionID,
+		"provider":    provider,
+		"cwd":         extractCWD(hookData, fallbackCwd),
+		"timestamp":   now.UnixMilli(),
+		"occurred_at": now.Format(time.RFC3339Nano),
 	}
 
 	switch eventType {
@@ -3950,6 +3995,7 @@ func (a *Agent) handleWorkshopHookEvent(sessionID, provider, hookName string, ho
 		}
 		if toolUseID := extractToolUseID(hookData); toolUseID != "" {
 			base["toolUseId"] = toolUseID
+			base["tool_use_id"] = toolUseID
 		}
 		if assistantText := extractAssistantText(hookData); assistantText != "" {
 			base["assistantText"] = assistantText
@@ -3968,6 +4014,7 @@ func (a *Agent) handleWorkshopHookEvent(sessionID, provider, hookName string, ho
 		base["success"] = extractToolSuccess(hookData)
 		if toolUseID := extractToolUseID(hookData); toolUseID != "" {
 			base["toolUseId"] = toolUseID
+			base["tool_use_id"] = toolUseID
 		}
 	case "user_prompt_submit":
 		if prompt := extractUserPrompt(hookData); prompt != "" {
@@ -3993,6 +4040,26 @@ func (a *Agent) handleWorkshopHookEvent(sessionID, provider, hookName string, ho
 		if reason := extractHookString(hookData, "reason"); reason != "" {
 			base["reason"] = reason
 		}
+	case "subagent_start", "subagent_stop":
+		if toolUseID := extractToolUseID(hookData); toolUseID != "" {
+			base["toolUseId"] = toolUseID
+			base["tool_use_id"] = toolUseID
+		}
+		if description := extractSubagentDescription(hookData); description != "" {
+			base["description"] = description
+		}
+		if agentID := extractHookString(hookData, "agent_id", "agentId"); agentID != "" {
+			base["agent_id"] = agentID
+			base["subagent_id"] = agentID
+		}
+		if agentType := extractHookString(hookData, "agent_type", "agentType"); agentType != "" {
+			base["agent_type"] = agentType
+		}
+		if eventType == "subagent_start" {
+			base["started_at"] = now.Format(time.RFC3339Nano)
+		} else {
+			base["stopped_at"] = now.Format(time.RFC3339Nano)
+		}
 	case "pre_compact":
 		if trigger := extractHookString(hookData, "trigger"); trigger != "" {
 			base["trigger"] = trigger
@@ -4002,7 +4069,38 @@ func (a *Agent) handleWorkshopHookEvent(sessionID, provider, hookName string, ho
 		}
 	}
 
+	toolUseID := extractToolUseID(hookData)
+	if eventType == "pre_tool_use" && isLegacyTaskTool(extractToolName(hookData)) && toolUseID != "" {
+		subagentPayload := cloneJSONMap(base)
+		if description := extractSubagentDescription(hookData); description != "" {
+			subagentPayload["description"] = description
+		}
+		subagentPayload["started_at"] = now.Format(time.RFC3339Nano)
+		a.emitWorkshopEvent(sessionID, "subagent_start", subagentPayload)
+	}
+	if eventType == "post_tool_use" && isLegacyTaskTool(extractToolName(hookData)) && toolUseID != "" {
+		subagentPayload := cloneJSONMap(base)
+		if description := extractSubagentDescription(hookData); description != "" {
+			subagentPayload["description"] = description
+		}
+		subagentPayload["stopped_at"] = now.Format(time.RFC3339Nano)
+		a.emitWorkshopEvent(sessionID, "subagent_stop", subagentPayload)
+	}
 	a.emitWorkshopEvent(sessionID, eventType, base)
+}
+
+func extractSubagentDescription(hookData map[string]any) string {
+	if description := extractHookString(hookData, "description", "task_description", "task", "prompt", "name", "agent_type", "agentType"); description != "" {
+		return description
+	}
+	if input := extractToolInput(hookData); input != nil {
+		return extractHookString(input, "description", "task_description", "task", "prompt", "name")
+	}
+	return ""
+}
+
+func isLegacyTaskTool(toolName string) bool {
+	return strings.EqualFold(strings.TrimSpace(toolName), "task")
 }
 
 func (a *Agent) recordToolEventStart(sessionID, provider, toolName string, toolInput map[string]any) {
@@ -4017,17 +4115,14 @@ func (a *Agent) recordToolEventStart(sessionID, provider, toolName string, toolI
 	})
 	a.toolEventsMu.Unlock()
 
-	payload := map[string]any{
-		"event_id":   eventID,
-		"session_id": sessionID,
-		"provider":   provider,
-		"tool_name":  toolName,
-		"started_at": startedAt.Format(time.RFC3339),
-	}
-	if toolInput != nil {
-		payload["tool_input"] = toolInput
-	}
-	a.wsClient.Send("tool.event.started", payload)
+	a.send(protocol.TypeToolEventStarted, protocol.ToolEventStartedPayload{
+		EventID:   eventID,
+		SessionID: sessionID,
+		Provider:  provider,
+		ToolName:  toolName,
+		ToolInput: toolInput,
+		StartedAt: startedAt.Format(time.RFC3339),
+	})
 }
 
 func (a *Agent) recordToolEventComplete(sessionID, provider, toolName string, toolOutput map[string]any, success bool) {
@@ -4052,14 +4147,13 @@ func (a *Agent) recordToolEventComplete(sessionID, provider, toolName string, to
 	if !ok {
 		// Create a synthetic start so the completion has a row to update
 		eventID := uuid.New().String()
-		payload := map[string]any{
-			"event_id":   eventID,
-			"session_id": sessionID,
-			"provider":   provider,
-			"tool_name":  toolName,
-			"started_at": completedAt.Format(time.RFC3339),
-		}
-		a.wsClient.Send("tool.event.started", payload)
+		a.send(protocol.TypeToolEventStarted, protocol.ToolEventStartedPayload{
+			EventID:   eventID,
+			SessionID: sessionID,
+			Provider:  provider,
+			ToolName:  toolName,
+			StartedAt: completedAt.Format(time.RFC3339),
+		})
 		pending = toolEventPending{ID: eventID, StartedAt: completedAt}
 	}
 
@@ -4068,16 +4162,13 @@ func (a *Agent) recordToolEventComplete(sessionID, provider, toolName string, to
 		durationMs = 0
 	}
 
-	payload := map[string]any{
-		"event_id":     pending.ID,
-		"completed_at": completedAt.Format(time.RFC3339),
-		"success":      success,
-		"duration_ms":  int(durationMs),
-	}
-	if toolOutput != nil {
-		payload["tool_output"] = toolOutput
-	}
-	a.wsClient.Send("tool.event.completed", payload)
+	a.send(protocol.TypeToolEventCompleted, protocol.ToolEventCompletedPayload{
+		EventID:     pending.ID,
+		ToolOutput:  toolOutput,
+		CompletedAt: completedAt.Format(time.RFC3339),
+		Success:     success,
+		DurationMS:  durationMs,
+	})
 }
 
 func extractUsageFromHook(hookData map[string]any) map[string]any {
@@ -4391,7 +4482,7 @@ func truncateSummary(value string) string {
 
 func (a *Agent) updateSessionFromHook(sessionID, status, statusDetail string, approvalMeta map[string]any) {
 	now := time.Now().UTC()
-	var update map[string]any
+	var updates []protocol.SessionUpsert
 
 	a.sessionsMu.Lock()
 	if session, ok := a.sessions[sessionID]; ok {
@@ -4413,21 +4504,16 @@ func (a *Agent) updateSessionFromHook(sessionID, status, statusDetail string, ap
 		}
 		session.LastActivity = now
 
-		update = map[string]any{
-			"id":               session.ID,
-			"kind":             session.Kind,
-			"provider":         session.Provider,
-			"status":           session.Status,
-			"metadata":         session.Metadata,
-			"last_activity_at": now.Format(time.RFC3339),
+		a.refreshHierarchyMetadataLocked()
+		updates = append(updates, sessionUpsert(session))
+		if parent := a.sessions[session.ParentSessionID]; parent != nil {
+			updates = append(updates, sessionUpsert(parent))
 		}
 	}
 	a.sessionsMu.Unlock()
 
-	if update != nil {
-		a.wsClient.Send("sessions.upsert", map[string]any{
-			"sessions": []map[string]any{update},
-		})
+	if len(updates) > 0 {
+		a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: updates})
 	}
 }
 
@@ -4487,19 +4573,17 @@ func (a *Agent) clearApprovalMetadata(sessionID string) {
 		session.LastActivity = now
 
 		// Send session upsert so control plane clears its copy too
-		update := map[string]any{
-			"id":               session.ID,
-			"kind":             session.Kind,
-			"provider":         session.Provider,
-			"status":           session.Status,
-			"metadata":         session.Metadata,
-			"last_activity_at": now.Format(time.RFC3339),
+		update := protocol.SessionUpsert{
+			ID:             session.ID,
+			Kind:           session.Kind,
+			Provider:       session.Provider,
+			Status:         session.Status,
+			Metadata:       protocol.NewSessionMetadata(cloneJSONMap(session.Metadata)),
+			LastActivityAt: now.Format(time.RFC3339),
 		}
 		a.sessionsMu.Unlock()
 
-		a.wsClient.Send("sessions.upsert", map[string]any{
-			"sessions": []map[string]any{update},
-		})
+		a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: []protocol.SessionUpsert{update}})
 	} else {
 		a.sessionsMu.Unlock()
 	}
@@ -4526,13 +4610,12 @@ func mapCodexHookToStatus(hookName string, hookData map[string]any) string {
 }
 
 func (a *Agent) handleConsoleChunk(subscriptionID, sessionID string, data []byte, offset int64) {
-	payload := map[string]any{
-		"subscription_id": subscriptionID,
-		"session_id":      sessionID,
-		"data":            string(data),
-		"offset":          offset,
-	}
-	a.wsClient.Send("console.chunk", payload)
+	a.send(protocol.TypeConsoleChunk, protocol.ConsoleChunkPayload{
+		SubscriptionID: subscriptionID,
+		SessionID:      sessionID,
+		Data:           string(data),
+		Offset:         offset,
+	})
 }
 
 func (a *Agent) pollTmux() {
@@ -4540,89 +4623,140 @@ func (a *Agent) pollTmux() {
 	defer ticker.Stop()
 
 	for range ticker.C {
+		a.topologyMu.Lock()
 		panes, err := a.tmuxClient.ListPanes()
 		if err != nil {
+			a.topologyMu.Unlock()
 			log.Printf("Failed to list tmux panes: %v", err)
 			continue
 		}
 
 		procSnap := proc.TakeSnapshot()
 		a.syncPanes(panes, procSnap)
+		a.topologyMu.Unlock()
+		a.retryBufferedHooks()
 	}
 }
 
 func (a *Agent) syncPanes(panes []tmux.Pane, procSnap *proc.Snapshot) {
-	a.sessionsMu.Lock()
-	defer a.sessionsMu.Unlock()
+	type paneObservation struct {
+		pane      tmux.Pane
+		sessionID string
+		unmanaged bool
+		provider  string
+		gitInfo   *tmux.GitInfo
+		gitStatus *tmux.GitStatus
+	}
 
-	// Track seen pane IDs
-	seenPanes := make(map[string]bool)
+	// Snapshot only the state needed to prepare observations. No tmux or git
+	// subprocess is run while sessionsMu is held.
+	unmanagedByPane := make(map[string]string)
+	lastCWDByPane := make(map[string]string)
+	a.sessionsMu.RLock()
+	for id, session := range a.sessions {
+		if session.Unmanaged && session.PaneID != "" {
+			unmanagedByPane[session.PaneID] = id
+		}
+		if session.PaneID != "" {
+			lastCWDByPane[session.PaneID] = session.LastCWD
+		}
+	}
+	a.sessionsMu.RUnlock()
 
-	var updatedSessions []map[string]any
-	activeSessionIDs := []string{}
-
+	observations := make([]paneObservation, 0, len(panes))
 	for _, pane := range panes {
-		seenPanes[pane.PaneID] = true
-
-		// Get session ID from tmux option
-		sessionID, _ := a.tmuxClient.GetPaneOption(pane.PaneID, a.cfg.Tmux.OptionSessionID)
-		needsSetOption := false
+		sessionID := pane.SessionID
 		unmanaged := false
-
 		if sessionID == "" {
-			// Check if we already have an unmanaged session for this pane
-			for id, s := range a.sessions {
-				if s.PaneID == pane.PaneID && s.Unmanaged {
-					sessionID = id
-					break
-				}
-			}
-
-			// Create new unmanaged session
+			sessionID = unmanagedByPane[pane.PaneID]
 			if sessionID == "" {
 				sessionID = uuid.New().String()
 				unmanaged = true
 			}
-			needsSetOption = true
-		}
-
-		if needsSetOption {
 			if err := a.tmuxClient.SetPaneOption(pane.PaneID, a.cfg.Tmux.OptionSessionID, sessionID); err != nil {
 				log.Printf("Failed to set pane session id: %v", err)
 			}
 		}
 
-		if sessionID != "" {
-			activeSessionIDs = append(activeSessionIDs, sessionID)
+		if oldCWD := lastCWDByPane[pane.PaneID]; oldCWD != "" && oldCWD != pane.CurrentPath {
+			a.gitCache.Delete(oldCWD)
+			a.gitStatusCache.Delete(oldCWD)
 		}
 
-		provider := detectProviderForPane(pane, procSnap)
+		var gitInfo *tmux.GitInfo
+		var gitStatus *tmux.GitStatus
+		if pane.CurrentPath != "" {
+			if cached, ok := a.gitCache.Get(pane.CurrentPath); ok {
+				gitInfo = cached
+			} else if resolved := tmux.ResolveGitInfo(pane.CurrentPath); resolved != nil {
+				a.gitCache.Set(pane.CurrentPath, resolved)
+				gitInfo = resolved
+			}
+			if cached, ok := a.gitStatusCache.Get(pane.CurrentPath); ok {
+				gitStatus = cached
+			} else if resolved := tmux.ResolveGitStatus(pane.CurrentPath); resolved != nil {
+				a.gitStatusCache.Set(pane.CurrentPath, resolved)
+				gitStatus = resolved
+			}
+		}
 
-		// Get or create session state
-		session, exists := a.sessions[sessionID]
+		observations = append(observations, paneObservation{
+			pane:      pane,
+			sessionID: sessionID,
+			unmanaged: unmanaged,
+			provider:  detectProviderForPane(pane, procSnap),
+			gitInfo:   gitInfo,
+			gitStatus: gitStatus,
+		})
+	}
+
+	seenPanes := make(map[string]bool, len(observations))
+	updatedSessions := make([]protocol.SessionUpsert, 0, len(observations))
+	activeSessionIDs := make([]string, 0, len(observations))
+	var staleIDs []string
+	pruneNow := false
+
+	a.sessionsMu.Lock()
+	for _, observation := range observations {
+		pane := observation.pane
+		seenPanes[pane.PaneID] = true
+		activeSessionIDs = append(activeSessionIDs, observation.sessionID)
+
+		session, exists := a.sessions[observation.sessionID]
 		if !exists {
 			now := time.Now().UTC()
 			session = &SessionState{
-				ID:           sessionID,
+				ID:           observation.sessionID,
 				PaneID:       pane.PaneID,
 				Kind:         "tmux_pane",
 				Status:       "IDLE",
-				Unmanaged:    unmanaged,
+				Unmanaged:    observation.unmanaged,
 				LastActivity: now,
 				LastOutput:   now,
 			}
-			a.sessions[sessionID] = session
+			a.sessions[observation.sessionID] = session
 		}
 
-		// Update session state
 		session.PaneID = pane.PaneID
-		session.Provider = provider
+		expectedProvider := session.Provider
+		if !(session.Status == "STARTING" && expectedProvider != "" && expectedProvider != "shell" && observation.provider == "shell") {
+			session.Provider = observation.provider
+		}
+		if observation.provider == "shell" && (expectedProvider == "" || expectedProvider == "shell") {
+			session.Ready = true
+		} else if observation.provider == expectedProvider && observation.provider != "unknown" && !isShellCommand(pane.CurrentCommand) {
+			session.Ready = true
+		}
 		session.CWD = pane.CurrentPath
+		session.LastCWD = pane.CurrentPath
 		session.TmuxTarget = pane.GetTmuxTarget()
+		session.ParentSessionID = pane.ParentSessionID
 		if session.Metadata == nil {
 			session.Metadata = map[string]any{}
 		}
 		session.Metadata["tmux"] = map[string]any{
+			"pane_id":         pane.PaneID,
+			"target":          pane.GetTmuxTarget(),
 			"pane_pid":        pane.PanePID,
 			"current_command": pane.CurrentCommand,
 			"session_name":    pane.SessionName,
@@ -4632,41 +4766,17 @@ func (a *Agent) syncPanes(panes []tmux.Pane, procSnap *proc.Snapshot) {
 		}
 		session.Metadata["unmanaged"] = session.Unmanaged
 
-		// Update git info if CWD changed or cache expired
-		if session.LastCWD != session.CWD {
-			old := session.LastCWD
-			session.LastCWD = session.CWD
-			if old != "" {
-				a.gitCache.Delete(old)
-				a.gitStatusCache.Delete(old)
-			}
-		}
-		if gitInfo, ok := a.gitCache.Get(session.CWD); ok {
-			session.RepoRoot = gitInfo.RepoRoot
-			session.GitBranch = gitInfo.Branch
-			session.GitRemote = gitInfo.Remote
-		} else if gitInfo := tmux.ResolveGitInfo(session.CWD); gitInfo != nil {
-			a.gitCache.Set(session.CWD, gitInfo)
-			session.RepoRoot = gitInfo.RepoRoot
-			session.GitBranch = gitInfo.Branch
-			session.GitRemote = gitInfo.Remote
+		if observation.gitInfo != nil {
+			session.RepoRoot = observation.gitInfo.RepoRoot
+			session.GitBranch = observation.gitInfo.Branch
+			session.GitRemote = observation.gitInfo.Remote
 		} else {
 			session.RepoRoot = ""
 			session.GitBranch = ""
 			session.GitRemote = ""
 		}
-
-		// Update git status (porcelain v2) and attach to metadata
-		var gitStatus *tmux.GitStatus
-		if session.CWD != "" {
-			if status, ok := a.gitStatusCache.Get(session.CWD); ok {
-				gitStatus = status
-			} else if status := tmux.ResolveGitStatus(session.CWD); status != nil {
-				a.gitStatusCache.Set(session.CWD, status)
-				gitStatus = status
-			}
-		}
-		if gitStatus != nil {
+		if observation.gitStatus != nil {
+			gitStatus := observation.gitStatus
 			session.Metadata["git_status"] = map[string]any{
 				"branch":     gitStatus.Branch,
 				"upstream":   gitStatus.Upstream,
@@ -4682,84 +4792,80 @@ func (a *Agent) syncPanes(panes []tmux.Pane, procSnap *proc.Snapshot) {
 			delete(session.Metadata, "git_status")
 		}
 
-		// Derive status for non-hook providers (don't override approvals/errors)
 		session.Status = a.deriveStatus(session, pane)
-
-		// Build session update
-		update := map[string]any{
-			"id":           session.ID,
-			"kind":         session.Kind,
-			"provider":     session.Provider,
-			"status":       session.Status,
-			"cwd":          session.CWD,
-			"repo_root":    session.RepoRoot,
-			"git_branch":   session.GitBranch,
-			"git_remote":   session.GitRemote,
-			"tmux_pane_id": session.PaneID,
-			"tmux_target":  session.TmuxTarget,
-			"metadata":     session.Metadata,
+		update := protocol.SessionUpsert{
+			ID:         session.ID,
+			Kind:       session.Kind,
+			Provider:   session.Provider,
+			Status:     session.Status,
+			CWD:        protocol.String(session.CWD),
+			RepoRoot:   protocol.String(session.RepoRoot),
+			GitBranch:  protocol.String(session.GitBranch),
+			GitRemote:  protocol.String(session.GitRemote),
+			TmuxPaneID: protocol.String(session.PaneID),
+			TmuxTarget: protocol.String(session.TmuxTarget),
+			Metadata:   protocol.NewSessionMetadata(cloneJSONMap(session.Metadata)),
 		}
 		if session.GroupID != "" {
-			update["group_id"] = session.GroupID
+			update.GroupID = protocol.String(session.GroupID)
 		}
 		if session.ForkedFrom != "" {
-			update["forked_from"] = session.ForkedFrom
-			update["fork_depth"] = session.ForkDepth
+			update.ForkedFrom = protocol.String(session.ForkedFrom)
+			update.ForkDepth = session.ForkDepth
 		}
 		if !session.LastActivity.IsZero() {
-			update["last_activity_at"] = session.LastActivity.UTC().Format(time.RFC3339)
+			update.LastActivityAt = session.LastActivity.UTC().Format(time.RFC3339)
 		}
-
 		if session.Title != "" {
-			update["title"] = session.Title
+			update.Title = protocol.String(session.Title)
 		}
-
 		updatedSessions = append(updatedSessions, update)
 	}
 
-	// Mark sessions for panes that disappeared as DONE
-	var staleIDs []string
 	for id, session := range a.sessions {
 		if session.Kind == "tmux_pane" && !seenPanes[session.PaneID] {
 			session.Status = "DONE"
 			session.LastActivity = time.Now().UTC()
 			session.PaneID = ""
 			session.TmuxTarget = ""
-			updatedSessions = append(updatedSessions, map[string]any{
-				"id":               id,
-				"status":           "DONE",
-				"kind":             session.Kind,
-				"provider":         session.Provider,
-				"tmux_pane_id":     nil,
-				"tmux_target":      nil,
-				"archived_at":      session.LastActivity.UTC().Format(time.RFC3339),
-				"last_activity_at": session.LastActivity.UTC().Format(time.RFC3339),
+			updatedSessions = append(updatedSessions, protocol.SessionUpsert{
+				ID:             id,
+				Status:         "DONE",
+				Kind:           session.Kind,
+				Provider:       session.Provider,
+				TmuxPaneID:     protocol.NullString(),
+				TmuxTarget:     protocol.NullString(),
+				ArchivedAt:     protocol.String(session.LastActivity.UTC().Format(time.RFC3339)),
+				LastActivityAt: session.LastActivity.UTC().Format(time.RFC3339),
 			})
 			staleIDs = append(staleIDs, id)
 		}
 	}
-
-	// Send sessions upsert
-	if len(updatedSessions) > 0 {
-		a.wsClient.Send("sessions.upsert", map[string]any{
-			"sessions": updatedSessions,
-		})
-	}
-
-	// Remove stale sessions from memory
 	for _, id := range staleIDs {
 		delete(a.sessions, id)
 		delete(a.snapshotHash, id)
 		delete(a.providerUsageHash, id)
-		a.usageTracker.RemoveSession(id)
 	}
-
-	// Periodically prune sessions on control plane
+	a.refreshHierarchyMetadataLocked()
+	for index := range updatedSessions {
+		if session := a.sessions[updatedSessions[index].ID]; session != nil {
+			updatedSessions[index].Metadata = protocol.NewSessionMetadata(cloneJSONMap(session.Metadata))
+		}
+	}
 	if time.Since(a.lastPruneAt) > 5*time.Minute {
 		a.lastPruneAt = time.Now().UTC()
-		a.wsClient.Send("sessions.prune", map[string]any{
-			"session_ids": activeSessionIDs,
-		})
+		pruneNow = true
+	}
+	a.sessionsMu.Unlock()
+
+	for _, id := range staleIDs {
+		a.usageTracker.RemoveSession(id)
+	}
+	if len(updatedSessions) > 0 {
+		a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: updatedSessions})
+	}
+	if pruneNow {
+		a.send(protocol.TypeSessionsPrune, protocol.SessionsPrunePayload{SessionIDs: activeSessionIDs})
 	}
 }
 
@@ -4797,10 +4903,10 @@ func (a *Agent) captureSnapshots() {
 			a.sessionsMu.Unlock()
 
 			// Send snapshot
-			a.wsClient.Send("sessions.snapshot", map[string]any{
-				"session_id":   session.ID,
-				"capture_hash": hash,
-				"capture_text": text,
+			a.send(protocol.TypeSessionsSnapshot, protocol.SessionSnapshotPayload{
+				SessionID:   session.ID,
+				CaptureHash: hash,
+				CaptureText: text,
 			})
 
 			// Emit provider usage snapshots for Claude/Codex when /usage output appears.
@@ -4808,87 +4914,37 @@ func (a *Agent) captureSnapshots() {
 
 			// Parse and emit session usage if changed
 			if sessionUsage := a.usageTracker.ParseAndCheckChanged(session.ID, session.Provider, text); sessionUsage != nil {
-				payload := map[string]any{
-					"session_id":  session.ID,
-					"provider":    sessionUsage.Provider,
-					"reported_at": sessionUsage.ReportedAt.Format(time.RFC3339),
+				payload := protocol.SessionUsagePayload{
+					SessionID:                      session.ID,
+					Provider:                       sessionUsage.Provider,
+					InputTokens:                    sessionUsage.InputTokens,
+					OutputTokens:                   sessionUsage.OutputTokens,
+					TotalTokens:                    sessionUsage.TotalTokens,
+					CacheReadTokens:                sessionUsage.CacheReadTokens,
+					CacheWriteTokens:               sessionUsage.CacheWriteTokens,
+					EstimatedCostCents:             sessionUsage.CostCents,
+					SessionUtilizationPercent:      sessionUsage.SessionUtilizationPercent,
+					SessionLeftPercent:             sessionUsage.SessionLeftPercent,
+					SessionResetText:               sessionUsage.SessionResetText,
+					WeeklyUtilizationPercent:       sessionUsage.WeeklyUtilizationPercent,
+					WeeklyLeftPercent:              sessionUsage.WeeklyLeftPercent,
+					WeeklyResetText:                sessionUsage.WeeklyResetText,
+					WeeklySonnetUtilizationPercent: sessionUsage.WeeklySonnetUtilizationPercent,
+					WeeklySonnetResetText:          sessionUsage.WeeklySonnetResetText,
+					WeeklyOpusUtilizationPercent:   sessionUsage.WeeklyOpusUtilizationPercent,
+					WeeklyOpusResetText:            sessionUsage.WeeklyOpusResetText,
+					ContextUsedTokens:              sessionUsage.ContextUsedTokens,
+					ContextTotalTokens:             sessionUsage.ContextTotalTokens,
+					ContextLeftPercent:             sessionUsage.ContextLeftPercent,
+					FiveHourLeftPercent:            sessionUsage.FiveHourLeftPercent,
+					FiveHourResetText:              sessionUsage.FiveHourResetText,
+					DailyUtilizationPercent:        sessionUsage.DailyUtilizationPercent,
+					DailyLeftPercent:               sessionUsage.DailyLeftPercent,
+					DailyResetHours:                sessionUsage.DailyResetHours,
+					ReportedAt:                     sessionUsage.ReportedAt.Format(time.RFC3339),
+					RawUsageLine:                   sessionUsage.RawLine,
 				}
-				if sessionUsage.InputTokens != nil {
-					payload["input_tokens"] = *sessionUsage.InputTokens
-				}
-				if sessionUsage.OutputTokens != nil {
-					payload["output_tokens"] = *sessionUsage.OutputTokens
-				}
-				if sessionUsage.TotalTokens != nil {
-					payload["total_tokens"] = *sessionUsage.TotalTokens
-				}
-				if sessionUsage.CacheReadTokens != nil {
-					payload["cache_read_tokens"] = *sessionUsage.CacheReadTokens
-				}
-				if sessionUsage.CacheWriteTokens != nil {
-					payload["cache_write_tokens"] = *sessionUsage.CacheWriteTokens
-				}
-				if sessionUsage.CostCents != nil {
-					payload["estimated_cost_cents"] = *sessionUsage.CostCents
-				}
-				if sessionUsage.SessionUtilizationPercent != nil {
-					payload["session_utilization_percent"] = *sessionUsage.SessionUtilizationPercent
-				}
-				if sessionUsage.SessionLeftPercent != nil {
-					payload["session_left_percent"] = *sessionUsage.SessionLeftPercent
-				}
-				if sessionUsage.SessionResetText != nil {
-					payload["session_reset_text"] = *sessionUsage.SessionResetText
-				}
-				if sessionUsage.WeeklyUtilizationPercent != nil {
-					payload["weekly_utilization_percent"] = *sessionUsage.WeeklyUtilizationPercent
-				}
-				if sessionUsage.WeeklyLeftPercent != nil {
-					payload["weekly_left_percent"] = *sessionUsage.WeeklyLeftPercent
-				}
-				if sessionUsage.WeeklyResetText != nil {
-					payload["weekly_reset_text"] = *sessionUsage.WeeklyResetText
-				}
-				if sessionUsage.WeeklySonnetUtilizationPercent != nil {
-					payload["weekly_sonnet_utilization_percent"] = *sessionUsage.WeeklySonnetUtilizationPercent
-				}
-				if sessionUsage.WeeklySonnetResetText != nil {
-					payload["weekly_sonnet_reset_text"] = *sessionUsage.WeeklySonnetResetText
-				}
-				if sessionUsage.WeeklyOpusUtilizationPercent != nil {
-					payload["weekly_opus_utilization_percent"] = *sessionUsage.WeeklyOpusUtilizationPercent
-				}
-				if sessionUsage.WeeklyOpusResetText != nil {
-					payload["weekly_opus_reset_text"] = *sessionUsage.WeeklyOpusResetText
-				}
-				if sessionUsage.ContextUsedTokens != nil {
-					payload["context_used_tokens"] = *sessionUsage.ContextUsedTokens
-				}
-				if sessionUsage.ContextTotalTokens != nil {
-					payload["context_total_tokens"] = *sessionUsage.ContextTotalTokens
-				}
-				if sessionUsage.ContextLeftPercent != nil {
-					payload["context_left_percent"] = *sessionUsage.ContextLeftPercent
-				}
-				if sessionUsage.FiveHourLeftPercent != nil {
-					payload["five_hour_left_percent"] = *sessionUsage.FiveHourLeftPercent
-				}
-				if sessionUsage.FiveHourResetText != nil {
-					payload["five_hour_reset_text"] = *sessionUsage.FiveHourResetText
-				}
-				if sessionUsage.DailyUtilizationPercent != nil {
-					payload["daily_utilization_percent"] = *sessionUsage.DailyUtilizationPercent
-				}
-				if sessionUsage.DailyLeftPercent != nil {
-					payload["daily_left_percent"] = *sessionUsage.DailyLeftPercent
-				}
-				if sessionUsage.DailyResetHours != nil {
-					payload["daily_reset_hours"] = *sessionUsage.DailyResetHours
-				}
-				if sessionUsage.RawLine != "" {
-					payload["raw_usage_line"] = sessionUsage.RawLine
-				}
-				a.wsClient.Send("session.usage", payload)
+				a.send(protocol.TypeSessionUsage, payload)
 
 				// Gemini: also emit provider usage with model details (account scope).
 				if sessionUsage.Provider == "gemini_cli" {
@@ -4905,22 +4961,20 @@ func (a *Agent) captureSnapshots() {
 						}
 					}
 
-					providerPayload := map[string]any{
-						"provider":    sessionUsage.Provider,
-						"scope":       "account",
-						"host_id":     a.cfg.Host.ID,
-						"reported_at": sessionUsage.ReportedAt.Format(time.RFC3339),
+					providerPayload := protocol.ProviderUsagePayload{
+						Provider:   sessionUsage.Provider,
+						Scope:      "account",
+						HostID:     a.cfg.Host.ID,
+						ReportedAt: sessionUsage.ReportedAt.Format(time.RFC3339),
 					}
 
 					if len(modelPayload) > 0 {
-						providerPayload["raw_json"] = map[string]any{
+						providerPayload.RawJSON = map[string]any{
 							"models": modelPayload,
 						}
 					}
 
-					if sessionUsage.DailyUtilizationPercent != nil {
-						providerPayload["daily_utilization"] = *sessionUsage.DailyUtilizationPercent
-					}
+					providerPayload.DailyUtilization = sessionUsage.DailyUtilizationPercent
 
 					resetHours := minResetHours
 					if sessionUsage.DailyResetHours != nil {
@@ -4928,10 +4982,10 @@ func (a *Agent) captureSnapshots() {
 					}
 					if resetHours > 0 {
 						resetAt := sessionUsage.ReportedAt.Add(time.Duration(resetHours) * time.Hour).UTC().Format(time.RFC3339)
-						providerPayload["daily_reset_at"] = resetAt
+						providerPayload.DailyResetAt = resetAt
 					}
 
-					_ = a.wsClient.Send("provider.usage", providerPayload)
+					_ = a.send(protocol.TypeProviderUsage, providerPayload)
 				}
 			}
 		}
@@ -4958,24 +5012,26 @@ func (a *Agent) maybeEmitProviderUsageSnapshot(session *SessionState, text strin
 	}
 	a.providerUsageHash[session.ID] = usageHash
 
-	providerPayload := map[string]any{
-		"provider":    session.Provider,
-		"scope":       "account",
-		"host_id":     a.cfg.Host.ID,
-		"reported_at": time.Now().UTC().Format(time.RFC3339),
-		"raw_text":    normalized,
-		"raw_json": map[string]any{
+	providerPayload := protocol.ProviderUsagePayload{
+		Provider:   session.Provider,
+		Scope:      "account",
+		HostID:     a.cfg.Host.ID,
+		ReportedAt: time.Now().UTC().Format(time.RFC3339),
+		RawText:    normalized,
+		RawJSON: map[string]any{
 			"source":  "snapshot",
 			"entries": parsed,
 		},
 	}
 
 	fields := extractUsageFields(nil, normalized)
-	for k, v := range fields {
-		providerPayload[k] = v
+	if data, err := json.Marshal(fields); err == nil {
+		if err := json.Unmarshal(data, &providerPayload); err != nil {
+			log.Printf("Failed to apply snapshot usage fields (%s): %v", session.Provider, err)
+		}
 	}
 
-	_ = a.wsClient.Send("provider.usage", providerPayload)
+	_ = a.send(protocol.TypeProviderUsage, providerPayload)
 }
 
 func extractUsageSnapshot(text string) string {
@@ -5011,36 +5067,37 @@ func hashString(value string) string {
 // Terminal handlers
 
 func (a *Agent) handleTerminalAttach(payload json.RawMessage) {
-	var req struct {
-		ChannelID string `json:"channel_id"`
-		PaneID    string `json:"pane_id"`
-		SessionID string `json:"session_id"`
-	}
+	var req protocol.TerminalAttachPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse terminal.attach: %v", err)
 		return
 	}
 
-	fifoPath, first, err := a.terminalManager.Attach(req.ChannelID, req.PaneID, req.SessionID)
+	result, err := a.terminalManager.AttachWithOptions(req.ChannelID, req.PaneID, tmux.AttachOptions{
+		SessionID:   req.SessionID,
+		Cols:        req.Cols,
+		Rows:        req.Rows,
+		ResumeToken: req.ResumeToken,
+	})
 	if err != nil {
 		log.Printf("Failed to attach terminal: %v", err)
-		a.wsClient.Send("terminal.error", map[string]any{
-			"channel_id": req.ChannelID,
-			"message":    err.Error(),
+		a.send(protocol.TypeTerminalError, protocol.TerminalStatusPayload{
+			ChannelID: req.ChannelID,
+			Message:   err.Error(),
 		})
 		return
 	}
 
 	// Check if using PTY mode (fifoPath is empty in PTY mode)
-	isPTYMode := fifoPath == ""
+	isPTYMode := result.PTY
 
 	// If using FIFO mode and this is the first viewer, enable terminal output in pipe mux
-	if !isPTYMode && first {
-		if err := a.pipeMux.SetTerminal(req.PaneID, fifoPath, true); err != nil {
+	if !isPTYMode && result.First {
+		if err := a.pipeMux.SetTerminal(req.PaneID, result.FIFOPath, true); err != nil {
 			log.Printf("Failed to enable terminal output: %v", err)
-			a.wsClient.Send("terminal.error", map[string]any{
-				"channel_id": req.ChannelID,
-				"message":    err.Error(),
+			a.send(protocol.TypeTerminalError, protocol.TerminalStatusPayload{
+				ChannelID: req.ChannelID,
+				Message:   err.Error(),
 			})
 			_, _ = a.terminalManager.Detach(req.ChannelID)
 			return
@@ -5055,18 +5112,28 @@ func (a *Agent) handleTerminalAttach(payload json.RawMessage) {
 		}); err != nil {
 			log.Printf("Failed to capture pane for terminal attach: %v", err)
 		} else if text != "" {
-			a.handleTerminalOutput(req.ChannelID, []byte(text))
+			a.handleTerminalOutput(req.ChannelID, base64.StdEncoding.EncodeToString([]byte(text)))
 		}
+	}
+	readOnly := result.ReadOnly
+	resumed := result.Resumed
+	a.send(protocol.TypeTerminalAttached, protocol.TerminalStatusPayload{
+		ChannelID:   req.ChannelID,
+		ReadOnly:    &readOnly,
+		ResumeToken: result.ResumeToken,
+		Resumed:     &resumed,
+	})
+	if result.ReadOnly {
+		a.handleTerminalStatus(req.ChannelID, "readonly", "Read-only: another viewer has control")
+	} else {
+		a.handleTerminalStatus(req.ChannelID, "control", "Control granted")
 	}
 
 	log.Printf("Terminal attached: channel=%s pane=%s mode=%s", req.ChannelID, req.PaneID, map[bool]string{true: "PTY", false: "FIFO"}[isPTYMode])
 }
 
 func (a *Agent) handleTerminalInput(payload json.RawMessage) {
-	var req struct {
-		ChannelID string `json:"channel_id"`
-		Data      string `json:"data"`
-	}
+	var req protocol.TerminalInputPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse terminal.input: %v", err)
 		return
@@ -5082,11 +5149,7 @@ func (a *Agent) handleTerminalInput(payload json.RawMessage) {
 }
 
 func (a *Agent) handleTerminalResize(payload json.RawMessage) {
-	var req struct {
-		ChannelID string `json:"channel_id"`
-		Cols      int    `json:"cols"`
-		Rows      int    `json:"rows"`
-	}
+	var req protocol.TerminalResizePayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse terminal.resize: %v", err)
 		return
@@ -5098,9 +5161,7 @@ func (a *Agent) handleTerminalResize(payload json.RawMessage) {
 }
 
 func (a *Agent) handleTerminalControl(payload json.RawMessage) {
-	var req struct {
-		ChannelID string `json:"channel_id"`
-	}
+	var req protocol.TerminalChannelPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse terminal.control: %v", err)
 		return
@@ -5113,9 +5174,7 @@ func (a *Agent) handleTerminalControl(payload json.RawMessage) {
 }
 
 func (a *Agent) handleTerminalDetach(payload json.RawMessage) {
-	var req struct {
-		ChannelID string `json:"channel_id"`
-	}
+	var req protocol.TerminalChannelPayload
 	if err := json.Unmarshal(payload, &req); err != nil {
 		log.Printf("Failed to parse terminal.detach: %v", err)
 		return
@@ -5132,21 +5191,26 @@ func (a *Agent) handleTerminalDetach(payload json.RawMessage) {
 	}
 }
 
-func (a *Agent) handleTerminalOutput(channelID string, data []byte) {
-	a.wsClient.Send("terminal.output", map[string]any{
-		"channel_id": channelID,
-		"encoding":   "base64",
-		"data":       base64.StdEncoding.EncodeToString(data),
+func (a *Agent) handleTerminalOutput(channelID, encodedData string) {
+	a.send(protocol.TypeTerminalOutput, protocol.TerminalOutputPayload{
+		ChannelID: channelID,
+		Encoding:  "base64",
+		Data:      encodedData,
 	})
 }
 
 func (a *Agent) handleTerminalStatus(channelID, status, message string) {
 	msgType := "terminal." + status
-	payload := map[string]any{
-		"channel_id": channelID,
-	}
-	if message != "" {
-		payload["message"] = message
-	}
-	a.wsClient.Send(msgType, payload)
+	a.send(msgType, protocol.TerminalStatusPayload{ChannelID: channelID, Message: message})
+}
+
+func (a *Agent) handleTerminalAudit(event tmux.TerminalAuditEvent) {
+	a.send(protocol.TypeTerminalAudit, protocol.TerminalAuditPayload{
+		EventType:                   protocol.TypeTerminalAudit,
+		Action:                      event.Action,
+		ChannelID:                   event.ChannelID,
+		SessionID:                   event.SessionID,
+		PaneID:                      event.PaneID,
+		PreviousControllerChannelID: event.PreviousControllerChannelID,
+	})
 }

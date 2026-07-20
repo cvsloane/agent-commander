@@ -13,6 +13,7 @@ export type RepoSortBy = 'name' | 'last_modified' | 'last_used';
 export type SessionNamingPattern = 'repo_name' | 'branch_name' | 'repo_branch';
 export type SessionTemplate = 'single' | 'claude_codex' | 'full_dev';
 export type LinkType = 'complement' | 'review';
+export type MobileLaunchDefaultProvider = 'codex' | 'claude_code';
 export const ALERT_PROVIDER_KEYS = [
   'claude_code',
   'codex',
@@ -404,6 +405,12 @@ interface SettingsStore {
   setAutoLinkSessions: (auto: boolean) => void;
   defaultLinkType: LinkType;
   setDefaultLinkType: (linkType: LinkType) => void;
+  defaultMobileLaunchProvider: MobileLaunchDefaultProvider;
+  setDefaultMobileLaunchProvider: (provider: MobileLaunchDefaultProvider) => void;
+  defaultMobileLaunchHostId: string | null;
+  setDefaultMobileLaunchHostId: (hostId: string | null) => void;
+  defaultMobileLaunchTmuxTarget: string | null;
+  setDefaultMobileLaunchTmuxTarget: (tmuxTarget: string | null) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>()(
@@ -660,6 +667,12 @@ export const useSettingsStore = create<SettingsStore>()(
       setAutoLinkSessions: (auto) => set({ autoLinkSessions: auto }),
       defaultLinkType: 'complement',
       setDefaultLinkType: (linkType) => set({ defaultLinkType: linkType }),
+      defaultMobileLaunchProvider: 'codex',
+      setDefaultMobileLaunchProvider: (provider) => set({ defaultMobileLaunchProvider: provider }),
+      defaultMobileLaunchHostId: null,
+      setDefaultMobileLaunchHostId: (hostId) => set({ defaultMobileLaunchHostId: hostId }),
+      defaultMobileLaunchTmuxTarget: null,
+      setDefaultMobileLaunchTmuxTarget: (tmuxTarget) => set({ defaultMobileLaunchTmuxTarget: tmuxTarget }),
     }),
     {
       name: 'settings-storage',

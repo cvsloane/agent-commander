@@ -4,7 +4,7 @@ import { GovernanceApprovalDecisionRequestSchema } from '@agent-command/schema';
 import * as automationDb from '../db/automationMemory.js';
 import { hasRole } from '../auth/rbac.js';
 import { pubsub } from '../services/pubsub.js';
-import { recordGovernanceApproval } from '../metrics.js';
+import { recordAutomationWakeup, recordGovernanceApproval } from '../metrics.js';
 
 const GovernanceApprovalsQuerySchema = z.object({
   status: z.string().optional(),
@@ -32,19 +32,33 @@ export function registerGovernanceApprovalRoutes(app: FastifyInstance): void {
         return reply.status(400).send({ error: 'Invalid request body', details: body.error });
       }
 
-      const approval = await automationDb.decideGovernanceApproval(
+      const outcome = await automationDb.decideGovernanceApprovalWithOutcome(
         request.user.id,
         request.params.id,
         request.user.id,
         body.data
       );
-      if (!approval) {
+      if (!outcome) {
         return reply.status(404).send({ error: 'Governance approval not found or already decided' });
       }
 
-      pubsub.publishGovernanceApprovalUpdated(approval);
-      recordGovernanceApproval(approval.status, approval.type);
-      return { approval };
+      pubsub.publishGovernanceApprovalUpdated(outcome.approval);
+      recordGovernanceApproval(outcome.approval.status, outcome.approval.type);
+      if (outcome.wakeup) {
+        pubsub.publishAutomationWakeupUpdated(outcome.wakeup);
+        recordAutomationWakeup(outcome.wakeup.status, outcome.wakeup.source);
+      }
+      if (outcome.run) {
+        pubsub.publishAutomationRunUpdated(outcome.run);
+      }
+      if (outcome.work_item) {
+        pubsub.publishWorkItemUpdated(outcome.work_item);
+      }
+      return {
+        approval: outcome.approval,
+        resume_wakeup: outcome.approval.status === 'approved' ? outcome.wakeup : null,
+        run: outcome.run,
+      };
     }
   );
 }

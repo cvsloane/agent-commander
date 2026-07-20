@@ -26,6 +26,14 @@ Trusted integrations can also authenticate with service headers:
 - `GET /v1/sessions/:id/analytics` - aggregate metrics.
 - `GET /v1/sessions/:id/analytics/timeseries` - time series usage.
 
+## Tmux
+- `GET /v1/tmux/roster` - list active, unarchived tmux pane sessions for roster rendering without fetching snapshots. Accepts optional `host_id`.
+- `POST /v1/tmux/open` - open an existing tmux pane by `host_id` or `host_alias` plus `tmux_target` or `pane_id`. Returns the matching session, terminal URL, and `adopted: true` when an unmanaged pane was adopted.
+
+## Launch
+- `GET /v1/launch/targets` - list phone-friendly launch targets: host aliases, online state, terminal/spawn support, provider support, allowed roots, recent projects, recent tmux panes, and recent launches.
+- `POST /v1/launch` - launch Codex or Claude Code in a tmux-backed session through the normal spawn service and record a recent launch. Accepts `host_id` or `host_alias`, `provider`, `working_directory`, optional `title`, `flags`, `group_id`, `prompt`, `tmux.target_session`, `tmux.window_name`, `wait`, and `wait_timeout_ms`. Returns `session_id`, `cmd_id`, `status`, `href`, `terminal.openable`, and optional `prompt_cmd_id`.
+
 ## Approvals
 - `GET /v1/approvals` - list approvals.
 - `GET /v1/approvals/:id` - approval detail.

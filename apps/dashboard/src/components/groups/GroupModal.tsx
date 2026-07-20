@@ -5,12 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { createGroup, updateGroup, getGroups } from '@/lib/api';
-import type { SessionGroup } from '@agent-command/schema';
-
-interface GroupWithChildren extends SessionGroup {
-  children: GroupWithChildren[];
-  session_count: number;
-}
+import type { GroupWithChildren } from '@/lib/groupTypes';
 
 // Preset colors for groups
 const PRESET_COLORS = [

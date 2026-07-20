@@ -24,10 +24,17 @@ type Pane struct {
 	CurrentCommand   string
 	PaneTitle        string
 	ProviderOverride string
+	SessionID        string
+	ParentSessionID  string
 }
 
 type Client struct {
 	cfg *config.TmuxConfig
+}
+
+type CreatedPane struct {
+	PaneID     string
+	TmuxTarget string
 }
 
 func NewClient(cfg *config.TmuxConfig) *Client {
@@ -36,7 +43,11 @@ func NewClient(cfg *config.TmuxConfig) *Client {
 
 // ListPanes returns all panes across all tmux sessions
 func (c *Client) ListPanes() ([]Pane, error) {
-	format := "#{pane_id}\t#{pane_pid}\t#{session_name}\t#{window_name}\t#{window_index}\t#{pane_index}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_title}\t#{@ac_provider}"
+	sessionOption := c.cfg.OptionSessionID
+	if sessionOption == "" {
+		sessionOption = "@ac_session_id"
+	}
+	format := "#{pane_id}\t#{pane_pid}\t#{session_name}\t#{window_name}\t#{window_index}\t#{pane_index}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_title}\t#{@ac_provider}\t#{" + sessionOption + "}\t#{@ac_parent_session_id}"
 
 	args := []string{"list-panes", "-a", "-F", format}
 	if c.cfg.Socket != "" {
@@ -60,32 +71,43 @@ func (c *Client) ListPanes() ([]Pane, error) {
 	var panes []Pane
 	scanner := bufio.NewScanner(bytes.NewReader(output))
 	for scanner.Scan() {
-		line := scanner.Text()
-		fields := strings.Split(line, "\t")
-		if len(fields) < 8 {
+		pane, ok := parsePaneLine(scanner.Text())
+		if !ok {
 			continue
 		}
-
-		var pane Pane
-		pane.PaneID = fields[0]
-		fmt.Sscanf(fields[1], "%d", &pane.PanePID)
-		pane.SessionName = fields[2]
-		pane.WindowName = fields[3]
-		fmt.Sscanf(fields[4], "%d", &pane.WindowIndex)
-		fmt.Sscanf(fields[5], "%d", &pane.PaneIndex)
-		pane.CurrentPath = fields[6]
-		pane.CurrentCommand = fields[7]
-		if len(fields) > 8 {
-			pane.PaneTitle = fields[8]
-		}
-		if len(fields) > 9 {
-			pane.ProviderOverride = fields[9]
-		}
-
 		panes = append(panes, pane)
 	}
 
 	return panes, scanner.Err()
+}
+
+func parsePaneLine(line string) (Pane, bool) {
+	fields := strings.Split(line, "\t")
+	if len(fields) < 8 {
+		return Pane{}, false
+	}
+	var pane Pane
+	pane.PaneID = fields[0]
+	fmt.Sscanf(fields[1], "%d", &pane.PanePID)
+	pane.SessionName = fields[2]
+	pane.WindowName = fields[3]
+	fmt.Sscanf(fields[4], "%d", &pane.WindowIndex)
+	fmt.Sscanf(fields[5], "%d", &pane.PaneIndex)
+	pane.CurrentPath = fields[6]
+	pane.CurrentCommand = fields[7]
+	if len(fields) > 8 {
+		pane.PaneTitle = fields[8]
+	}
+	if len(fields) > 9 {
+		pane.ProviderOverride = fields[9]
+	}
+	if len(fields) > 10 {
+		pane.SessionID = fields[10]
+	}
+	if len(fields) > 11 {
+		pane.ParentSessionID = fields[11]
+	}
+	return pane, true
 }
 
 // GetPaneOption retrieves a pane option value
@@ -380,7 +402,15 @@ func (c *Client) NewSession(name string) error {
 
 // NewWindow creates a new window in a session
 func (c *Client) NewWindow(session, windowName, startDir string) (string, error) {
-	args := []string{"new-window", "-t", session, "-n", windowName, "-c", startDir, "-P", "-F", "#{pane_id}"}
+	created, err := c.CreateWindow(session, windowName, startDir)
+	if err != nil {
+		return "", err
+	}
+	return created.PaneID, nil
+}
+
+func (c *Client) CreateWindow(session, windowName, startDir string) (CreatedPane, error) {
+	args := []string{"new-window", "-t", session, "-n", windowName, "-c", startDir, "-P", "-F", "#{pane_id}\t#{session_name}:#{window_index}.#{pane_index}"}
 	if c.cfg.Socket != "" {
 		args = append([]string{"-S", c.cfg.Socket}, args...)
 	}
@@ -388,10 +418,50 @@ func (c *Client) NewWindow(session, windowName, startDir string) (string, error)
 	cmd := exec.Command(c.cfg.Bin, args...)
 	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("failed to create window: %w", err)
+		return CreatedPane{}, fmt.Errorf("failed to create window: %w", err)
 	}
 
-	return strings.TrimSpace(string(output)), nil
+	return parseCreatedPane(output)
+}
+
+func (c *Client) SplitPane(target, paneName, startDir string) (CreatedPane, error) {
+	args := []string{"split-window", "-t", target, "-c", startDir, "-P", "-F", "#{pane_id}\t#{session_name}:#{window_index}.#{pane_index}"}
+	if c.cfg.Socket != "" {
+		args = append([]string{"-S", c.cfg.Socket}, args...)
+	}
+
+	cmd := exec.Command(c.cfg.Bin, args...)
+	output, err := cmd.Output()
+	if err != nil {
+		return CreatedPane{}, fmt.Errorf("failed to split pane: %w", err)
+	}
+	created, err := parseCreatedPane(output)
+	if err != nil {
+		return CreatedPane{}, err
+	}
+	if strings.TrimSpace(paneName) != "" {
+		titleArgs := []string{"select-pane", "-t", created.PaneID, "-T", paneName}
+		if c.cfg.Socket != "" {
+			titleArgs = append([]string{"-S", c.cfg.Socket}, titleArgs...)
+		}
+		if err := exec.Command(c.cfg.Bin, titleArgs...).Run(); err != nil {
+			killArgs := []string{"kill-pane", "-t", created.PaneID}
+			if c.cfg.Socket != "" {
+				killArgs = append([]string{"-S", c.cfg.Socket}, killArgs...)
+			}
+			_ = exec.Command(c.cfg.Bin, killArgs...).Run()
+			return CreatedPane{}, fmt.Errorf("failed to name split pane: %w", err)
+		}
+	}
+	return created, nil
+}
+
+func parseCreatedPane(output []byte) (CreatedPane, error) {
+	parts := strings.SplitN(strings.TrimSpace(string(output)), "\t", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return CreatedPane{}, fmt.Errorf("tmux returned an invalid pane identity: %q", strings.TrimSpace(string(output)))
+	}
+	return CreatedPane{PaneID: parts[0], TmuxTarget: parts[1]}, nil
 }
 
 // StartPipePane starts pipe-pane output to a file

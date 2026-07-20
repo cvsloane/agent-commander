@@ -1,14 +1,16 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { z } from 'zod';
 import { generateSummary, isSummarizerAvailable } from '../services/summarizer.js';
 import { getSummaryByCaptureHash, saveSummary } from '../db/index.js';
 
-interface GenerateSummaryBody {
-  session_id: string;
-  capture_hash: string;
-  action_type: string;
-  context: string;
-  question: string;
-}
+const GenerateSummaryBodySchema = z.object({
+  session_id: z.string().uuid().optional(),
+  capture_hash: z.string().trim().min(1),
+  action_type: z.string().trim().min(1),
+  context: z.string().trim().min(1),
+  question: z.string().trim().min(1),
+});
+type GenerateSummaryBody = z.infer<typeof GenerateSummaryBodySchema>;
 
 /**
  * Register summary generation routes
@@ -34,23 +36,14 @@ export function registerSummaryRoutes(app: FastifyInstance): void {
         });
       }
 
-      const body = (request.body ?? {}) as Partial<GenerateSummaryBody>;
-      const { session_id, capture_hash, action_type, context, question } = body;
-
-      if (
-        typeof capture_hash !== 'string' ||
-        capture_hash.trim().length === 0 ||
-        typeof action_type !== 'string' ||
-        action_type.trim().length === 0 ||
-        typeof context !== 'string' ||
-        context.trim().length === 0 ||
-        typeof question !== 'string' ||
-        question.trim().length === 0
-      ) {
+      const body = GenerateSummaryBodySchema.safeParse(request.body ?? {});
+      if (!body.success) {
         return reply.status(400).send({
-          error: 'Missing required fields: capture_hash, action_type, context, question',
+          error: 'Invalid summary request',
+          details: body.error,
         });
       }
+      const { session_id, capture_hash, action_type, context, question } = body.data;
 
       // Check database cache
       try {
@@ -81,7 +74,7 @@ export function registerSummaryRoutes(app: FastifyInstance): void {
 
         // Save to database
         try {
-          await saveSummary(capture_hash, session_id || '', action_type, summary);
+          await saveSummary(capture_hash, session_id ?? null, action_type, summary);
           app.log.debug({ capture_hash }, 'Summary saved to database');
         } catch (saveError) {
           app.log.warn({ error: saveError }, 'Failed to save summary to database');

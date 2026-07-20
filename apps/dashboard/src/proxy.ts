@@ -7,5 +7,7 @@ export default withAuth({
 });
 
 export const config = {
-  matcher: ['/((?!api/auth|api/control-plane-token|signin|_next/static|_next/image|favicon.ico).*)'],
+  matcher: [
+    '/((?!api/auth|api/control-plane-token|signin|_next/static|_next/image|favicon[.]ico|sw[.]js|manifest[.]json|offline[.]html|icons/|sounds/).*)',
+  ],
 };

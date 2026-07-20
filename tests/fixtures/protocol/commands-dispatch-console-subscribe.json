@@ -1,0 +1,1 @@
+{"v":1,"type":"commands.dispatch","ts":"2026-07-19T20:01:10Z","payload":{"cmd_id":"cmd-console-subscribe","session_id":"22222222-2222-4222-8222-222222222222","command":{"type":"console.subscribe","payload":{"subscription_id":"66666666-6666-4666-8666-666666666666","pane_id":"%1"}}}}

@@ -10,8 +10,12 @@ import type {
   AutomationWakeup,
   GovernanceApproval,
   WorkItem,
+  SessionEdge,
+  AgentTask,
+  UISubscriptionTopic,
 } from '@agent-command/schema';
-import { clawdbotNotifier } from './clawdbot.js';
+import { notificationDispatcher } from './notificationDispatcher.js';
+import { WS_HEARTBEAT_TIMEOUT_MS } from './webSocketHeartbeat.js';
 
 // Tools that don't block workflow - user can respond async
 const NON_BLOCKING_APPROVAL_TOOLS = new Set([
@@ -49,22 +53,8 @@ function isActionableApproval(approval: Approval): boolean {
   return approvalHasDecisionPayload(approval.requested_payload);
 }
 
-type TopicType =
-  | 'sessions'
-  | 'approvals'
-  | 'events'
-  | 'console'
-  | 'snapshots'
-  | 'tool_events'
-  | 'session_usage'
-  | 'automation_runs'
-  | 'automation_run_events'
-  | 'automation_wakeups'
-  | 'governance_approvals'
-  | 'work_items';
-
 interface Subscription {
-  type: TopicType;
+  type: UISubscriptionTopic;
   filter?: Record<string, unknown>;
 }
 
@@ -73,17 +63,17 @@ interface UIClient {
   subscriptions: Subscription[];
 }
 
-interface AgentConnection {
+export interface AgentConnection {
   ws: WebSocket;
   hostId: string;
   lastAckedSeq: number;
+  lastHeartbeatAt: number;
+  readyForCommands: boolean;
 }
 
 class PubSub {
   private uiClients: Map<string, UIClient> = new Map();
   private agentConnections: Map<string, AgentConnection> = new Map();
-  // Track notified session+status to prevent duplicate notifications
-  private notifiedSessionStatus: Map<string, string> = new Map();
   // Track last published session state to throttle activity-only updates
   private lastSessionFingerprint: Map<string, string> = new Map();
   private lastActivityPublishedAt: Map<string, number> = new Map();
@@ -108,15 +98,79 @@ class PubSub {
 
   // Agent connection management
   addAgentConnection(hostId: string, ws: WebSocket, lastAckedSeq = 0): void {
-    this.agentConnections.set(hostId, { ws, hostId, lastAckedSeq });
+    const previous = this.agentConnections.get(hostId);
+    const wasOnline = Boolean(
+      previous && Date.now() - previous.lastHeartbeatAt <= WS_HEARTBEAT_TIMEOUT_MS
+    );
+    const connection = {
+      ws,
+      hostId,
+      lastAckedSeq,
+      lastHeartbeatAt: Date.now(),
+      readyForCommands: false,
+    };
+    this.agentConnections.set(hostId, connection);
+    if (previous && previous.ws !== ws) {
+      previous.ws.terminate();
+    }
+    if (!wasOnline) {
+      this.publishHostPresence(connection, true);
+    }
   }
 
-  removeAgentConnection(hostId: string): void {
+  removeAgentConnection(hostId: string, ws?: WebSocket): boolean {
+    const connection = this.agentConnections.get(hostId);
+    if (!connection || (ws && connection.ws !== ws)) return false;
+
     this.agentConnections.delete(hostId);
+    this.publishHostPresence(connection, false);
+    return true;
   }
 
   getAgentConnection(hostId: string): AgentConnection | undefined {
     return this.agentConnections.get(hostId);
+  }
+
+  getAgentConnections(): AgentConnection[] {
+    return Array.from(this.agentConnections.values());
+  }
+
+  markAgentHeartbeat(hostId: string, ws: WebSocket, at = Date.now()): boolean {
+    const connection = this.agentConnections.get(hostId);
+    if (!connection || connection.ws !== ws) return false;
+    connection.lastHeartbeatAt = at;
+    return true;
+  }
+
+  markAgentReady(hostId: string, ws: WebSocket): boolean {
+    const connection = this.agentConnections.get(hostId);
+    if (!connection || connection.ws !== ws) return false;
+    connection.readyForCommands = true;
+    return true;
+  }
+
+  isAgentReady(hostId: string): boolean {
+    return this.agentConnections.get(hostId)?.readyForCommands === true;
+  }
+
+  private publishHostPresence(connection: AgentConnection, online: boolean): void {
+    this.publishToUI({
+      v: 1,
+      type: 'hosts.changed',
+      ts: new Date().toISOString(),
+      payload: {
+        hosts: [{
+          host_id: connection.hostId,
+          online,
+          last_heartbeat_at: new Date(connection.lastHeartbeatAt).toISOString(),
+        }],
+      },
+    });
+    if (!online) {
+      void notificationDispatcher.notifyHostOffline(connection.hostId).catch((error) => {
+        console.error('[pubsub] Failed to send host-offline notification:', error);
+      });
+    }
   }
 
   updateAgentAckedSeq(hostId: string, seq: number): void {
@@ -144,7 +198,7 @@ class PubSub {
     message: ServerToUIMessage
   ): ServerToUIMessage | null {
     // Map message type to topic
-    const topicMap: Record<string, TopicType> = {
+    const topicMap: Record<string, UISubscriptionTopic> = {
       'sessions.changed': 'sessions',
       'approvals.created': 'approvals',
       'approvals.updated': 'approvals',
@@ -160,6 +214,10 @@ class PubSub {
       'automation.wakeup.updated': 'automation_wakeups',
       'governance_approval.updated': 'governance_approvals',
       'work_item.updated': 'work_items',
+      'hosts.changed': 'hosts',
+      'session_edges.changed': 'session_edges',
+      'agent_tasks.changed': 'agent_tasks',
+      'attention.changed': 'attention',
     };
 
     const topic = topicMap[message.type];
@@ -210,6 +268,28 @@ class PubSub {
     }
 
     if (message.type === 'events.appended') {
+      const payload = message.payload as { session_id: string };
+      for (const sub of relevantSubs) {
+        const filter = sub.filter || {};
+        if (!filter.session_id || filter.session_id === payload.session_id) {
+          return message;
+        }
+      }
+      return null;
+    }
+
+    if (message.type === 'session_edges.changed' || message.type === 'agent_tasks.changed') {
+      const payload = message.payload as { session_id: string };
+      for (const sub of relevantSubs) {
+        const filter = sub.filter || {};
+        if (!filter.session_id || filter.session_id === payload.session_id) {
+          return message;
+        }
+      }
+      return null;
+    }
+
+    if (message.type === 'attention.changed') {
       const payload = message.payload as { session_id: string };
       for (const sub of relevantSubs) {
         const filter = sub.filter || {};
@@ -406,9 +486,11 @@ class PubSub {
       if (session.archived_at) return false;
     }
     if (filter.needs_attention) {
-      const needs = ['WAITING_FOR_INPUT', 'WAITING_FOR_APPROVAL', 'ERROR'].includes(
-        session.status
-      );
+      const needs = Boolean(session.attention_reason) || [
+        'WAITING_FOR_INPUT',
+        'WAITING_FOR_APPROVAL',
+        'ERROR',
+      ].includes(session.status);
       if (!needs) return false;
     }
     if (filter.q && typeof filter.q === 'string') {
@@ -443,7 +525,7 @@ class PubSub {
   // Publish to specific agent
   sendToAgent(hostId: string, message: unknown): boolean {
     const conn = this.agentConnections.get(hostId);
-    if (!conn) return false;
+    if (!conn?.readyForCommands) return false;
 
     try {
       conn.ws.send(JSON.stringify(message));
@@ -492,51 +574,12 @@ class PubSub {
       });
     }
 
-    // Clean up notification tracking and clawdbot state for deleted sessions
+    // Clean up publication fingerprints for deleted sessions.
     if (deleted) {
       for (const sessionId of deleted) {
-        this.notifiedSessionStatus.delete(sessionId);
         this.lastSessionFingerprint.delete(sessionId);
         this.lastActivityPublishedAt.delete(sessionId);
         this.lastActivityPublishedValue.delete(sessionId);
-        clawdbotNotifier.clearSessionState(sessionId);
-      }
-    }
-
-    // Send clawdbot notifications only on status transitions
-    for (const session of filteredSessions) {
-      const notifiableStatuses = ['ERROR', 'WAITING_FOR_INPUT', 'WAITING_FOR_APPROVAL'];
-      const lastNotifiedStatus = this.notifiedSessionStatus.get(session.id);
-
-      // Clear tracking if session moved to a non-notifiable status
-      if (!notifiableStatuses.includes(session.status)) {
-        this.notifiedSessionStatus.delete(session.id);
-        continue;
-      }
-
-      // Skip if already notified for this status
-      if (lastNotifiedStatus === session.status) {
-        continue;
-      }
-
-      // Update tracking and send notification
-      this.notifiedSessionStatus.set(session.id, session.status);
-
-      if (session.status === 'ERROR') {
-        // Errors are actionable
-        clawdbotNotifier.notifySessionError(session, true).catch((err) => {
-          console.error('[pubsub] Error sending clawdbot error notification:', err);
-        });
-      } else if (session.status === 'WAITING_FOR_INPUT') {
-        // waiting_input is NOT actionable (redundant with approval notifications)
-        clawdbotNotifier.notifyWaitingInput(session, false).catch((err) => {
-          console.error('[pubsub] Error sending clawdbot waiting input notification:', err);
-        });
-      } else if (session.status === 'WAITING_FOR_APPROVAL') {
-        // waiting_approval is NOT actionable (redundant with approval notifications)
-        clawdbotNotifier.notifyWaitingApproval(session, false).catch((err) => {
-          console.error('[pubsub] Error sending clawdbot waiting approval notification:', err);
-        });
       }
     }
   }
@@ -553,6 +596,7 @@ class PubSub {
 
     return JSON.stringify([
       session.status,
+      session.attention_reason ?? null,
       session.title ?? null,
       session.cwd ?? null,
       session.repo_root ?? null,
@@ -587,10 +631,11 @@ class PubSub {
     // Determine if this approval is actionable (requires immediate response)
     const actionable = isActionableApproval(approval);
 
-    // Send clawdbot notification for new approvals
-    clawdbotNotifier.notifyApprovalCreated(approval, session ?? null, actionable).catch((err) => {
-      console.error('[pubsub] Error sending clawdbot approval notification:', err);
-    });
+    if (session) {
+      void notificationDispatcher.notifyApproval(approval, session, actionable).catch((error) => {
+        console.error('[pubsub] Failed to send approval notification:', error);
+      });
+    }
   }
 
   // Publish approval updated
@@ -611,6 +656,22 @@ class PubSub {
     });
   }
 
+  publishApprovalTimedOut(approval: Approval): void {
+    this.publishToUI({
+      v: 1,
+      type: 'approvals.updated',
+      ts: new Date().toISOString(),
+      payload: {
+        approval_id: approval.id,
+        session_id: approval.session_id,
+        // Older dashboards understand only allow/deny and will remove this
+        // inactive approval. Newer clients can distinguish timed_out.
+        decision: 'deny',
+        timed_out: true,
+      },
+    });
+  }
+
   // Publish event appended
   publishEventAppended(
     sessionId: string,
@@ -620,9 +681,58 @@ class PubSub {
       v: 1,
       type: 'events.appended',
       ts: new Date().toISOString(),
+      seq: event.id,
       payload: {
         session_id: sessionId,
         event,
+      },
+    });
+  }
+
+  publishAttentionChanged(
+    sessionId: string,
+    event: {
+      id: number;
+      payload: {
+        attention_reason: string | null;
+        question?: string;
+        confidence?: number;
+        capture_hash?: string;
+      };
+    }
+  ): void {
+    this.publishToUI({
+      v: 1,
+      type: 'attention.changed',
+      ts: new Date().toISOString(),
+      seq: event.id,
+      payload: {
+        session_id: sessionId,
+        ...event.payload,
+      },
+    });
+  }
+
+  publishSessionEdgesChanged(sessionId: string, edges: SessionEdge[]): void {
+    this.publishToUI({
+      v: 1,
+      type: 'session_edges.changed',
+      ts: new Date().toISOString(),
+      payload: {
+        session_id: sessionId,
+        edges,
+      },
+    });
+  }
+
+  publishAgentTasksChanged(sessionId: string, agentTasks: AgentTask[]): void {
+    this.publishToUI({
+      v: 1,
+      type: 'agent_tasks.changed',
+      ts: new Date().toISOString(),
+      payload: {
+        session_id: sessionId,
+        agent_tasks: agentTasks,
       },
     });
   }
@@ -700,6 +810,9 @@ class PubSub {
       ts: new Date().toISOString(),
       payload: run,
     });
+    void notificationDispatcher.notifyRun(run).catch((error) => {
+      console.error('[pubsub] Failed to send automation run notification:', error);
+    });
   }
 
   publishAutomationRunEvent(event: AutomationRunEvent): void {
@@ -707,6 +820,7 @@ class PubSub {
       v: 1,
       type: 'automation.run.event',
       ts: new Date().toISOString(),
+      seq: event.seq,
       payload: event,
     });
   }
@@ -736,6 +850,9 @@ class PubSub {
       ts: new Date().toISOString(),
       payload: approval,
     });
+    void notificationDispatcher.notifyGovernance(approval).catch((error) => {
+      console.error('[pubsub] Failed to send governance notification:', error);
+    });
   }
 
   publishWorkItemUpdated(workItem: WorkItem): void {
@@ -749,7 +866,10 @@ class PubSub {
 
   // Check if agent is connected
   isAgentConnected(hostId: string): boolean {
-    return this.agentConnections.has(hostId);
+    const connection = this.agentConnections.get(hostId);
+    return Boolean(
+      connection && Date.now() - connection.lastHeartbeatAt <= WS_HEARTBEAT_TIMEOUT_MS
+    );
   }
 
   // Get stats

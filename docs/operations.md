@@ -16,8 +16,11 @@ This guide covers operational best practices for running Agent Commander.
 
 ## Scaling
 
-- The control plane is stateless and can be scaled horizontally if it shares the same Postgres.
-- Keep WebSocket sticky sessions if you have multiple instances.
+- Run one control-plane replica. Active agent/UI sockets, terminal channels,
+  command routing, and notification delivery state include process-local ownership.
+- PostgreSQL advisory locks prevent duplicate scheduler claims, but they do not
+  coordinate those process-local registries. A shared database and sticky WebSocket
+  sessions are not sufficient for safe horizontal scaling today.
 
 ## Upgrades
 

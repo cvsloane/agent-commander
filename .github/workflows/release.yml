@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -24,6 +26,11 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.22.x'
 
       - name: Install
         run: pnpm install --frozen-lockfile
@@ -43,21 +50,36 @@ jobs:
           NEXT_PUBLIC_CONTROL_PLANE_URL: http://localhost:8080
           NEXT_PUBLIC_CONTROL_PLANE_WS_URL: ws://localhost:8080/v1/ui/stream
 
-      - name: Go tests
+      - name: Go build
+        working-directory: agents/agentd
+        run: go build ./...
+
+      - name: Go vet
+        working-directory: agents/agentd
+        run: go vet ./...
+
+      - name: Go test
         working-directory: agents/agentd
         run: go test ./...
 
-      - name: Extract changelog
-        id: changelog
+      - name: Extract release notes from CHANGELOG
+        shell: bash
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          NOTES=$(awk "/^## \[$VERSION\]/,/^## \[/" CHANGELOG.md | head -n -1 | tail -n +2)
-          echo "notes<<EOF" >> $GITHUB_OUTPUT
-          echo "$NOTES" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          version="${GITHUB_REF_NAME#v}"
+          awk -v version="$version" '
+            $0 ~ "^## \\[" version "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+            END { if (!found) exit 1 }
+          ' CHANGELOG.md > release-notes.md
+          test -s release-notes.md
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+      - name: Build and publish agentd binaries
+        uses: goreleaser/goreleaser-action@v7
         with:
-          body: ${{ steps.changelog.outputs.notes }}
-          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean --release-notes ${{ github.workspace }}/release-notes.md
+          workdir: agents/agentd
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

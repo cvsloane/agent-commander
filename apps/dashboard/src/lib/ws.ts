@@ -1,6 +1,19 @@
-import type { ServerToUIMessage } from '@agent-command/schema';
-import { getRuntimeConfig } from '@/lib/runtimeConfig';
+import {
+  parseServerToUIMessage,
+  type ServerToUIMessage,
+} from '@agent-command/schema';
 import { forceSignIn } from '@/lib/forceSignIn';
+import {
+  initialReconnectState,
+  transitionReconnect,
+  type ReconnectEvent,
+  type ReconnectState,
+} from '@/lib/reconnect';
+import { resolveControlPlaneWebSocketUrl } from '@/lib/wsUrl';
+import {
+  useConnectionStore,
+  type EventConnectionStatus,
+} from '@/stores/connection';
 
 type MessageHandler = (message: ServerToUIMessage) => void;
 
@@ -18,103 +31,219 @@ function stableStringify(value: unknown): string {
 
 class WebSocketClient {
   private ws: WebSocket | null = null;
-  private url: string;
   private handlers: Set<MessageHandler> = new Set();
-  private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
-  private reconnectDelay = 1000;
   private subscriptions: Array<{ type: string; filter?: Record<string, unknown> }> = [];
   private subscriptionMap: Map<string, Array<{ type: string; filter?: Record<string, unknown> }>> =
     new Map();
-  private authToken: string | null = null;
-  private tokenProvider: (() => Promise<string | null>) | null = null;
+  private ticket: string | null = null;
+  private ticketProvider: (() => Promise<string | null>) | null = null;
+  private reconnectState: ReconnectState = initialReconnectState;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+  private connectPromise: Promise<void> | null = null;
+  private stopped = false;
 
-  constructor(url: string) {
-    this.url = url;
+  constructor(private readonly tracksConnectionStatus = true) {
+    if (typeof window !== 'undefined') {
+      document.addEventListener('visibilitychange', this.handleVisibilityChange);
+      window.addEventListener('online', this.handleOnline);
+      window.addEventListener('offline', this.handleOffline);
+      window.addEventListener('pageshow', this.handlePageShow);
+      if (!navigator.onLine) {
+        this.setConnectionStatus('offline');
+      }
+    }
   }
 
-  setToken(token: string | null): void {
-    this.authToken = token;
+  private setConnectionStatus(status: EventConnectionStatus): void {
+    if (this.tracksConnectionStatus) {
+      useConnectionStore.getState().setEventStatus(status);
+    }
   }
 
-  setTokenProvider(provider: (() => Promise<string | null>) | null): void {
-    this.tokenProvider = provider;
+  setTicketProvider(provider: (() => Promise<string | null>) | null): void {
+    this.ticketProvider = provider;
   }
 
-  async connect(): Promise<void> {
+  connect(): Promise<void> {
+    this.stopped = false;
     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
+      return Promise.resolve();
+    }
+    if (this.connectPromise) return this.connectPromise;
+
+    const pending = this.openSocket();
+    this.connectPromise = pending;
+    void pending.finally(() => {
+      if (this.connectPromise === pending) {
+        this.connectPromise = null;
+      }
+    });
+    return pending;
+  }
+
+  private async openSocket(): Promise<void> {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      this.setConnectionStatus('offline');
       return;
     }
 
-    if (this.tokenProvider) {
+    this.setConnectionStatus(
+      this.reconnectState.attempt > 0 ? 'reconnecting' : 'connecting'
+    );
+
+    if (this.ticketProvider) {
       try {
-        const token = await this.tokenProvider();
-        this.authToken = token || null;
-        if (!token) {
-          console.warn('No auth token available for WebSocket connection');
+        const ticket = await this.ticketProvider();
+        this.ticket = ticket || null;
+        if (!ticket) {
+          console.warn('No one-time ticket available for WebSocket connection');
+          this.scheduleReconnect();
           return;
         }
       } catch (error) {
-        console.warn('Failed to refresh WebSocket token', error);
+        console.warn('Failed to mint WebSocket ticket', error);
+        this.ticket = null;
+        this.scheduleReconnect();
+        return;
       }
     }
 
-    const wsUrl = new URL(this.url);
-    if (this.authToken) {
-      wsUrl.searchParams.set('token', this.authToken);
+    const wsUrl = new URL(resolveControlPlaneWebSocketUrl({ type: 'events' }));
+    if (this.ticket) {
+      wsUrl.searchParams.set('ticket', this.ticket);
     }
 
-    this.ws = new WebSocket(wsUrl.toString());
+    const socket = new WebSocket(wsUrl.toString());
+    this.ws = socket;
 
-    this.ws.onopen = () => {
+    socket.onopen = () => {
+      if (this.ws !== socket) return;
       console.log('WebSocket connected');
-      this.reconnectAttempts = 0;
+      this.applyReconnectEvent({ type: 'opened' });
+      this.setConnectionStatus('connected');
+      this.startKeepalive();
 
-      // Re-subscribe to topics
-      if (this.subscriptions.length > 0) {
-        this.sendSubscriptions();
-      }
+      // Re-subscribe and establish a schema-valid application keepalive.
+      this.sendSubscriptions();
     };
 
-    this.ws.onmessage = (event) => {
+    socket.onmessage = (event) => {
       try {
-        const message = JSON.parse(event.data) as ServerToUIMessage;
+        const message = parseServerToUIMessage(JSON.parse(event.data));
+        if (!message) {
+          console.warn('Ignoring an unknown WebSocket message type');
+          return;
+        }
         this.handlers.forEach((handler) => handler(message));
       } catch (err) {
         console.error('Failed to parse WebSocket message:', err);
       }
     };
 
-    this.ws.onclose = (event) => {
+    socket.onclose = (event) => {
+      if (this.ws !== socket) return;
+      this.ws = null;
+      this.stopKeepalive();
       const detail = `code ${event.code}${event.reason ? `: ${event.reason}` : ''}`;
       console.log('WebSocket disconnected', detail);
+      if (this.stopped) return;
       if (event.code === 4001 || event.code === 4002 || event.code === 4003) {
+        this.setConnectionStatus('disconnected');
         forceSignIn('InvalidToken');
         return;
       }
-      this.attemptReconnect();
+      this.scheduleReconnect();
     };
 
-    this.ws.onerror = (error) => {
+    socket.onerror = (error) => {
       console.error('WebSocket error:', error);
     };
   }
 
-  private attemptReconnect(): void {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('Max reconnection attempts reached');
+  private scheduleReconnect(): void {
+    this.setConnectionStatus(
+      typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'reconnecting'
+    );
+    this.applyReconnectEvent({ type: 'closed' });
+  }
+
+  private applyReconnectEvent(event: ReconnectEvent): void {
+    const transition = transitionReconnect(this.reconnectState, event);
+    this.reconnectState = transition.state;
+
+    if (transition.effect.type === 'cancel') {
+      this.clearReconnectTimer();
+      return;
+    }
+    if (transition.effect.type === 'reconnect') {
+      this.clearReconnectTimer();
+      void this.connect();
       return;
     }
 
-    this.reconnectAttempts++;
-    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
-
-    console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
-
-    setTimeout(() => {
-      void this.connect();
-    }, delay);
+    this.clearReconnectTimer();
+    console.log(
+      `Reconnecting in ${transition.effect.delayMs}ms (attempt ${this.reconnectState.attempt})`
+    );
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.applyReconnectEvent({ type: 'timer' });
+    }, transition.effect.delayMs);
   }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  private startKeepalive(): void {
+    this.stopKeepalive();
+    this.keepaliveTimer = setInterval(() => this.sendSubscriptions(), 25_000);
+  }
+
+  private stopKeepalive(): void {
+    if (this.keepaliveTimer) {
+      clearInterval(this.keepaliveTimer);
+      this.keepaliveTimer = null;
+    }
+  }
+
+  private retryImmediately(event: Extract<ReconnectEvent, { type: 'visibility' | 'online' | 'pageshow' }>): void {
+    if (this.stopped) return;
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.setConnectionStatus('connected');
+      this.sendSubscriptions();
+      return;
+    }
+    if (this.ws?.readyState === WebSocket.CONNECTING || this.connectPromise) {
+      this.setConnectionStatus('reconnecting');
+      return;
+    }
+    this.applyReconnectEvent(event);
+  }
+
+  private handleVisibilityChange = (): void => {
+    if (document.visibilityState === 'visible') {
+      this.retryImmediately({ type: 'visibility' });
+    }
+  };
+
+  private handleOnline = (): void => {
+    this.retryImmediately({ type: 'online' });
+  };
+
+  private handleOffline = (): void => {
+    if (!this.stopped) {
+      this.setConnectionStatus('offline');
+    }
+  };
+
+  private handlePageShow = (): void => {
+    this.retryImmediately({ type: 'pageshow' });
+  };
 
   registerSubscription(topics: Array<{ type: string; filter?: Record<string, unknown> }>): string {
     const id = crypto.randomUUID();
@@ -160,10 +289,14 @@ class WebSocketClient {
   }
 
   disconnect(): void {
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
+    this.stopped = true;
+    this.clearReconnectTimer();
+    this.stopKeepalive();
+    this.reconnectState = initialReconnectState;
+    const socket = this.ws;
+    this.ws = null;
+    socket?.close();
+    this.setConnectionStatus('disconnected');
   }
 
   get isConnected(): boolean {
@@ -171,89 +304,13 @@ class WebSocketClient {
   }
 }
 
-// Singleton instance
-let wsClient: WebSocketClient | null = null;
+const wsClients = new Map<string, WebSocketClient>();
 
-function getHost(value: string): string | null {
-  try {
-    return new URL(value).host;
-  } catch {
-    return null;
+export function getWebSocketClient(channel = 'default'): WebSocketClient {
+  let client = wsClients.get(channel);
+  if (!client) {
+    client = new WebSocketClient(channel === 'default');
+    wsClients.set(channel, client);
   }
-}
-
-function resolveWsUrl(): string {
-  const runtime = typeof window !== 'undefined' ? getRuntimeConfig() : {};
-  const base =
-    runtime.controlPlaneUrl ||
-    process.env.NEXT_PUBLIC_CONTROL_PLANE_URL ||
-    process.env.NEXT_PUBLIC_CONTROL_PLANE_BASE_URL ||
-    '';
-  const configuredWs =
-    runtime.controlPlaneWsUrl ||
-    process.env.NEXT_PUBLIC_CONTROL_PLANE_WS_URL ||
-    '';
-  const baseHost = base ? getHost(base.replace(/\/+$/, '')) : null;
-  const wsHost = configuredWs ? getHost(configuredWs) : null;
-  const configured =
-    baseHost && wsHost && baseHost !== wsHost
-      ? ''
-      : configuredWs;
-  if (configured) {
-    try {
-      const url = new URL(configured);
-      const host = url.hostname;
-      if (
-        typeof window !== 'undefined' &&
-        (host === 'control-plane' || (!host.includes('.') && host !== 'localhost' && host !== '127.0.0.1'))
-      ) {
-        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-        return `${protocol}://${window.location.host}/v1/ui/stream`;
-      }
-    } catch {
-      // ignore invalid URL
-    }
-    return configured;
-  }
-
-  if (base) {
-    try {
-      const trimmed = base.replace(/\/+$/, '');
-      const url = new URL(trimmed);
-      const host = url.hostname;
-      if (
-        typeof window !== 'undefined' &&
-        (host === 'control-plane' || (!host.includes('.') && host !== 'localhost' && host !== '127.0.0.1'))
-      ) {
-        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-        return `${protocol}://${window.location.host}/v1/ui/stream`;
-      }
-      const basePath = url.pathname.replace(/\/+$/, '');
-      const wsPath =
-        basePath && basePath !== '/'
-          ? (basePath.endsWith('/v1') ? `${basePath}/ui/stream` : `${basePath}/v1/ui/stream`)
-          : '/v1/ui/stream';
-      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-      url.pathname = wsPath;
-      url.search = '';
-      url.hash = '';
-      return url.toString();
-    } catch {
-      // ignore invalid URL
-    }
-  }
-
-  if (typeof window !== 'undefined') {
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${protocol}://${window.location.host}/v1/ui/stream`;
-  }
-
-  return 'ws://localhost:8080/v1/ui/stream';
-}
-
-export function getWebSocketClient(): WebSocketClient {
-  if (!wsClient) {
-    wsClient = new WebSocketClient(resolveWsUrl());
-  }
-  return wsClient;
+  return client;
 }

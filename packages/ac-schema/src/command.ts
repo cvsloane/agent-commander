@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { CommandTypeSchema, SessionProviderSchema } from './enums.js';
+import { SessionRoleSchema } from './orchestration.js';
+import { SessionSchema } from './session.js';
 
 // Send input command payload
 export const SendInputPayloadSchema = z.object({
@@ -43,6 +45,8 @@ export const SpawnSessionInteractivePayloadSchema = z.object({
   flags: z.array(z.string()).optional(),
   memory_files: z.array(SpawnSessionMemoryFileSchema).optional(),
   group_id: z.string().uuid().optional(),
+  parent_session_id: z.string().uuid().optional(),
+  role: SessionRoleSchema.optional(),
   tmux: z
     .object({
       target_session: z.string().optional(),
@@ -60,6 +64,8 @@ export const SpawnSessionWorktreePayloadSchema = z.object({
   worktree_dir: z.string(),
   title: z.string(),
   memory_files: z.array(SpawnSessionMemoryFileSchema).optional(),
+  parent_session_id: z.string().uuid().optional(),
+  role: SessionRoleSchema.optional(),
   tmux: z.object({
     target_session: z.string().default('agents'),
     window_name: z.string(),
@@ -73,6 +79,38 @@ export const SpawnSessionPayloadSchema = z.union([
   SpawnSessionWorktreePayloadSchema,
 ]);
 export type SpawnSessionPayload = z.infer<typeof SpawnSessionPayloadSchema>;
+
+export const SpawnProviderSchema = z.enum([
+  'claude_code',
+  'codex',
+  'gemini_cli',
+  'opencode',
+  'aider',
+  'shell',
+]);
+export type SpawnProvider = z.infer<typeof SpawnProviderSchema>;
+
+export const DashboardSpawnRequestSchema = z.object({
+  host_id: z.string().uuid(),
+  provider: SpawnProviderSchema,
+  working_directory: z.string().min(1),
+  title: z.string().optional(),
+  flags: z.array(z.string()).optional(),
+  group_id: z.string().uuid().optional(),
+  parent_session_id: z.string().uuid().optional(),
+  role: SessionRoleSchema.optional(),
+  tmux: z.object({
+    target_session: z.string().optional(),
+    window_name: z.string().optional(),
+  }).optional(),
+});
+export type DashboardSpawnRequest = z.infer<typeof DashboardSpawnRequestSchema>;
+
+export const DashboardSpawnResponseSchema = z.object({
+  session: SessionSchema,
+  cmd_id: z.string(),
+});
+export type DashboardSpawnResponse = z.infer<typeof DashboardSpawnResponseSchema>;
 
 // Spawn job command payload
 export const SpawnJobPayloadSchema = z.object({

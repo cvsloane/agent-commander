@@ -1,12 +1,24 @@
 import type { FastifyInstance } from 'fastify';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
   ApprovalDecideRequestSchema,
   ApprovalsDecisionMessageSchema,
 } from '@agent-command/schema';
 import * as db from '../db/index.js';
+import { decideApprovalAndEnqueue } from '../db/commandOutbox.js';
 import { pubsub } from '../services/pubsub.js';
 import { hasRole } from '../auth/rbac.js';
+import { commandRouter } from '../services/commandRouter.js';
+import {
+  assertIdempotencyFingerprint,
+  fingerprintIdempotentRequest,
+  getIdempotencyKey,
+  IdempotencyConflictError,
+  InvalidIdempotencyKeyError,
+  scopeIdempotencyKey,
+} from '../services/idempotency.js';
+import { config } from '../config.js';
 
 // Query schema
 const ApprovalsQuerySchema = z.object({
@@ -51,6 +63,16 @@ export function registerApprovalRoutes(app: FastifyInstance): void {
       }
       const { id } = request.params;
 
+      let rawIdempotencyKey: string | undefined;
+      try {
+        rawIdempotencyKey = getIdempotencyKey(request.headers['idempotency-key']);
+      } catch (error) {
+        if (error instanceof InvalidIdempotencyKeyError) {
+          return reply.status(400).send({ error: error.message });
+        }
+        throw error;
+      }
+
       if (!z.string().uuid().safeParse(id).success) {
         return reply.status(400).send({ error: 'Invalid approval ID' });
       }
@@ -61,11 +83,60 @@ export function registerApprovalRoutes(app: FastifyInstance): void {
       }
 
       const { decision, mode, payload } = bodyResult.data;
+      const idempotencyKey = scopeIdempotencyKey(
+        rawIdempotencyKey,
+        'approvals.decide',
+        request.user.id
+      );
+      const idempotencyFingerprint = rawIdempotencyKey
+        ? fingerprintIdempotentRequest({ approval_id: id, ...bodyResult.data })
+        : undefined;
 
       // Get approval and session
       const approval = await db.getApprovalById(id);
       if (!approval) {
         return reply.status(404).send({ error: 'Approval not found' });
+      }
+
+      const session = await db.getSessionById(approval.session_id);
+      if (!session) {
+        return reply.status(404).send({ error: 'Session not found' });
+      }
+
+      const findIdempotentReplay = async () => {
+        if (!idempotencyKey) return null;
+        const existing = await commandRouter.getByIdempotencyKey(
+          session.host_id,
+          idempotencyKey
+        );
+        if (!existing) return null;
+
+        assertIdempotencyFingerprint(
+          existing.idempotency_fingerprint,
+          idempotencyFingerprint
+        );
+        const wirePayload = existing.payload.payload;
+        const originalApprovalId = wirePayload && typeof wirePayload === 'object'
+          ? (wirePayload as Record<string, unknown>).approval_id
+          : null;
+        if (originalApprovalId !== id || existing.type !== 'approvals.decision') {
+          throw new IdempotencyConflictError('Idempotency-Key was used for another request');
+        }
+        const originalApproval = await db.getApprovalById(originalApprovalId);
+        if (!originalApproval) {
+          throw new IdempotencyConflictError('Original idempotent result is unavailable');
+        }
+        return originalApproval;
+      };
+
+      try {
+        const replay = await findIdempotentReplay();
+        if (replay) return { approval: replay };
+      } catch (error) {
+        if (error instanceof IdempotencyConflictError) {
+          return reply.status(409).send({ error: error.message });
+        }
+        throw error;
       }
 
       if (approval.decision) {
@@ -74,26 +145,11 @@ export function registerApprovalRoutes(app: FastifyInstance): void {
       if (approval.timed_out_at) {
         return reply.status(409).send({ error: 'Approval is no longer active' });
       }
-
-      const session = await db.getSessionById(approval.session_id);
-      if (!session) {
-        return reply.status(404).send({ error: 'Session not found' });
-      }
-      if (!pubsub.isAgentConnected(session.host_id)) {
-        return reply.status(503).send({ error: 'Host agent not connected' });
-      }
-
-      // Update approval in database
-      const decidedPayload = { mode, ...payload };
-      const updatedApproval = await db.decideApproval(
-        id,
-        decision,
-        decidedPayload,
-        request.user.id
+      const expiresAt = new Date(
+        new Date(approval.ts_requested).getTime() + config.APPROVAL_TIMEOUT_MS
       );
-
-      if (!updatedApproval) {
-        return reply.status(409).send({ error: 'Approval already decided' });
+      if (expiresAt.getTime() <= Date.now()) {
+        return reply.status(409).send({ error: 'Approval is no longer active' });
       }
 
       // Build decision message for agent
@@ -110,8 +166,55 @@ export function registerApprovalRoutes(app: FastifyInstance): void {
         },
       });
 
-      // Send to agent
-      pubsub.sendToAgent(session.host_id, decisionMessage);
+      const cmdId = randomUUID();
+      let decided;
+      try {
+        decided = await decideApprovalAndEnqueue({
+          approval_id: id,
+          decision,
+          decided_payload: { mode, ...payload },
+          decided_by_user_id: request.user.id,
+          command: {
+            cmd_id: cmdId,
+            host_id: session.host_id,
+            payload: decisionMessage,
+            type: decisionMessage.type,
+            class: 'durable',
+            session_id: approval.session_id,
+            expires_at: expiresAt,
+            idempotency_key: idempotencyKey,
+            idempotency_fingerprint: idempotencyFingerprint,
+          },
+        });
+      } catch (error) {
+        if ((error as { code?: string }).code !== '23505') throw error;
+      }
+
+      if (!decided) {
+        try {
+          const replay = await findIdempotentReplay();
+          if (replay) return { approval: replay };
+        } catch (error) {
+          if (error instanceof IdempotencyConflictError) {
+            return reply.status(409).send({ error: error.message });
+          }
+          throw error;
+        }
+        return reply.status(409).send({ error: 'Approval already decided' });
+      }
+
+      // The update and enqueue commit together. Delivery happens only after
+      // commit; one-way legacy approvals are completed on their first send.
+      await commandRouter.deliverPersisted(decided.command);
+
+      if (decided.event) {
+        pubsub.publishEventAppended(approval.session_id, {
+          id: decided.event.id!,
+          ts: decided.event.ts,
+          type: decided.event.type,
+          payload: decided.event.payload,
+        });
+      }
 
       // Clear session metadata (approval and status_detail)
       const updatedSession = await db.clearSessionApprovalMetadata(approval.session_id);
@@ -137,7 +240,7 @@ export function registerApprovalRoutes(app: FastifyInstance): void {
         request.user.id
       );
 
-      return { approval: updatedApproval };
+      return { approval: decided.approval };
     }
   );
 }

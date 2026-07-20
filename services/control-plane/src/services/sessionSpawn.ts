@@ -1,13 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { ulid } from 'ulid';
 import {
-  CommandsDispatchMessageSchema,
   type SpawnSessionMemoryFile,
   type Session,
+  type SessionEdge,
   type SessionProvider,
+  type SessionRole,
 } from '@agent-command/schema';
 import * as db from '../db/index.js';
+import { sessionGraph } from '../db/sessionGraph.js';
 import { pubsub } from './pubsub.js';
+import { commandRouter } from './commandRouter.js';
+import { isHostOnline } from './hostPresence.js';
+import { assertIdempotencyFingerprint } from './idempotency.js';
 
 type SpawnSessionOptions = {
   actorUserId: string;
@@ -19,12 +23,16 @@ type SpawnSessionOptions = {
   title?: string;
   flags?: string[];
   group_id?: string;
+  parent_session_id?: string;
+  role?: SessionRole;
   tmux?: {
     target_session?: string;
     window_name?: string;
   };
   auditAction?: string;
   failureAuditAction?: string;
+  idempotencyKey?: string;
+  idempotencyFingerprint?: string;
 };
 
 type SendInputOptions = {
@@ -34,9 +42,14 @@ type SendInputOptions = {
   enter?: boolean;
 };
 
+type QueueInputOptions = Omit<SendInputOptions, 'host_id'> & {
+  idempotencyKey?: string;
+  idempotencyFingerprint?: string;
+};
+
 export async function spawnSessionOnHost(
   options: SpawnSessionOptions
-): Promise<{ session: Session; cmd_id: string }> {
+): Promise<{ session: Session; cmd_id: string; replayed: boolean; queued: boolean }> {
   const host = await db.getHostById(options.host_id);
   if (!host) {
     throw new Error('Host not found');
@@ -56,8 +69,65 @@ export async function spawnSessionOnHost(
   ) {
     throw new Error(`Host does not advertise provider support for ${options.provider}`);
   }
-  if (!pubsub.isAgentConnected(options.host_id)) {
-    throw new Error('Host is offline');
+  if (options.parent_session_id) {
+    const parentSession = await db.getSessionById(options.parent_session_id);
+    if (!parentSession) {
+      throw new Error('Parent session not found');
+    }
+  }
+
+  const applyOrchestrationContract = async (
+    target: Session
+  ): Promise<{ session: Session; edge: SessionEdge | null }> => {
+    let updated = target;
+    let edge: SessionEdge | null = null;
+    if (options.role) {
+      const roleSession = await sessionGraph.setRole(target.id, options.role);
+      if (!roleSession) throw new Error('Spawned session not found while setting role');
+      updated = roleSession;
+    }
+    if (options.parent_session_id) {
+      const edgeResult = await sessionGraph.upsert({
+        parent_session_id: options.parent_session_id,
+        child_session_id: target.id,
+        edge_type: 'spawned',
+      });
+      edge = edgeResult.created ? edgeResult.edge : null;
+    }
+    return { session: updated, edge };
+  };
+
+  const publishOrchestrationEdge = (edge: SessionEdge | null): void => {
+    if (edge && options.parent_session_id) {
+      pubsub.publishSessionEdgesChanged(options.parent_session_id, [edge]);
+    }
+  };
+
+  if (options.idempotencyKey) {
+    const existing = await commandRouter.getByIdempotencyKey(
+      options.host_id,
+      options.idempotencyKey
+    );
+    if (existing) {
+      assertIdempotencyFingerprint(
+        existing.idempotency_fingerprint,
+        options.idempotencyFingerprint
+      );
+      const existingSession = existing.session_id
+        ? await db.getSessionById(existing.session_id)
+        : null;
+      if (!existingSession) {
+        throw new Error('Idempotent spawn session not found');
+      }
+      const linked = await applyOrchestrationContract(existingSession);
+      publishOrchestrationEdge(linked.edge);
+      return {
+        session: linked.session,
+        cmd_id: existing.cmd_id,
+        replayed: true,
+        queued: existing.status === 'queued',
+      };
+    }
   }
 
   const sessionId = randomUUID();
@@ -70,6 +140,9 @@ export async function spawnSessionOnHost(
     status: 'STARTING',
     title: options.title || `${options.provider} session`,
     cwd: options.working_directory,
+    metadata: options.parent_session_id
+      ? { parent_session_id: options.parent_session_id }
+      : undefined,
   });
 
   try {
@@ -90,15 +163,17 @@ export async function spawnSessionOnHost(
     }
   }
 
-  const cmdId = ulid();
-  const dispatchMessage = CommandsDispatchMessageSchema.parse({
-    v: 1,
-    type: 'commands.dispatch',
-    ts: new Date().toISOString(),
-    payload: {
-      cmd_id: cmdId,
-      session_id: sessionId,
-      command: {
+  const prepared = await applyOrchestrationContract(session);
+  session = prepared.session;
+
+  const cmdId = randomUUID();
+  let receipt;
+  try {
+    receipt = await commandRouter.dispatchDetailed(
+      options.host_id,
+      sessionId,
+      cmdId,
+      {
         type: 'spawn_session',
         payload: {
           provider: options.provider,
@@ -107,14 +182,18 @@ export async function spawnSessionOnHost(
           flags: options.flags,
           memory_files: options.memory_files,
           group_id: options.group_id,
+          parent_session_id: options.parent_session_id,
+          role: options.role,
           tmux: options.tmux,
         },
       },
-    },
-  });
-
-  const sent = pubsub.sendToAgent(options.host_id, dispatchMessage);
-  if (!sent) {
+      {
+        class: 'durable',
+        idempotencyKey: options.idempotencyKey,
+        idempotencyFingerprint: options.idempotencyFingerprint,
+      }
+    );
+  } catch (error) {
     const failedSession = await db.upsertSession(options.host_id, {
       id: sessionId,
       user_id: options.actorUserId,
@@ -126,8 +205,12 @@ export async function spawnSessionOnHost(
       cwd: options.working_directory,
       metadata: {
         status_detail: 'Failed to send spawn command to agent',
+        ...(options.parent_session_id
+          ? { parent_session_id: options.parent_session_id }
+          : {}),
       },
     });
+    publishOrchestrationEdge(prepared.edge);
     pubsub.publishSessionsChanged([failedSession]);
     await db.createAuditLog(
       options.failureAuditAction || 'session.spawn_failed',
@@ -140,9 +223,34 @@ export async function spawnSessionOnHost(
       },
       options.actorUserId
     );
-    throw new Error('Failed to send command to agent');
+    throw error;
   }
 
+  if (!receipt.created) {
+    if (receipt.record.session_id !== sessionId) {
+      await db.deleteSession(sessionId);
+    }
+    assertIdempotencyFingerprint(
+      receipt.record.idempotency_fingerprint,
+      options.idempotencyFingerprint
+    );
+    const existingSession = receipt.record.session_id
+      ? await db.getSessionById(receipt.record.session_id)
+      : null;
+    if (!existingSession) {
+      throw new Error('Idempotent spawn session not found');
+    }
+    const linked = await applyOrchestrationContract(existingSession);
+    publishOrchestrationEdge(linked.edge);
+    return {
+      session: linked.session,
+      cmd_id: receipt.record.cmd_id,
+      replayed: true,
+      queued: receipt.record.status === 'queued',
+    };
+  }
+
+  publishOrchestrationEdge(prepared.edge);
   pubsub.publishSessionsChanged([session]);
   await db.createAuditLog(
     options.auditAction || 'session.spawn',
@@ -153,11 +261,13 @@ export async function spawnSessionOnHost(
       host_id: options.host_id,
       provider: options.provider,
       working_directory: options.working_directory,
+      parent_session_id: options.parent_session_id,
+      role: options.role,
     },
     options.actorUserId
   );
 
-  return { session, cmd_id: cmdId };
+  return { session, cmd_id: cmdId, replayed: false, queued: !receipt.delivered };
 }
 
 export async function sendInputToSession(
@@ -167,33 +277,67 @@ export async function sendInputToSession(
   if (!session) {
     throw new Error('Session not found');
   }
-  if (!pubsub.isAgentConnected(options.host_id)) {
+  if (!isHostOnline(options.host_id)) {
     throw new Error('Host is offline');
   }
 
-  const cmdId = ulid();
-  const dispatchMessage = CommandsDispatchMessageSchema.parse({
-    v: 1,
-    type: 'commands.dispatch',
-    ts: new Date().toISOString(),
-    payload: {
-      cmd_id: cmdId,
-      session_id: options.session_id,
-      command: {
-        type: 'send_input',
-        payload: {
-          text: options.text,
-          enter: options.enter ?? true,
-        },
+  const cmdId = randomUUID();
+  const sent = await commandRouter.dispatch(
+    options.host_id,
+    options.session_id,
+    cmdId,
+    {
+      type: 'send_input',
+      payload: {
+        text: options.text,
+        enter: options.enter ?? true,
       },
     },
-  });
+    { class: 'volatile' }
+  );
 
-  if (!pubsub.sendToAgent(options.host_id, dispatchMessage)) {
+  if (!sent) {
     throw new Error('Failed to send input command to agent');
   }
 
   return cmdId;
+}
+
+export async function queueInputToSession(
+  options: QueueInputOptions
+): Promise<{ cmd_id: string; queued: boolean }> {
+  const session = await db.getSessionById(options.session_id);
+  if (!session) {
+    throw new Error('Session not found');
+  }
+
+  const cmdId = randomUUID();
+  const receipt = await commandRouter.dispatchDetailed(
+    session.host_id,
+    session.id,
+    cmdId,
+    {
+      type: 'send_input',
+      payload: {
+        text: options.text,
+        enter: options.enter ?? true,
+      },
+    },
+    {
+      class: 'durable',
+      idempotencyKey: options.idempotencyKey,
+      idempotencyFingerprint: options.idempotencyFingerprint,
+    }
+  );
+  assertIdempotencyFingerprint(
+    receipt.record.idempotency_fingerprint,
+    options.idempotencyFingerprint
+  );
+
+  return {
+    cmd_id: receipt.record.cmd_id,
+    queued: receipt.record.status === 'queued',
+  };
 }
 
 export async function waitForSessionReady(
@@ -206,6 +350,26 @@ export async function waitForSessionReady(
     const session = await db.getSessionById(sessionId);
     if (!session) return null;
     if (session.status !== 'STARTING') {
+      return session;
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+  return db.getSessionById(sessionId);
+}
+
+export async function waitForSessionOpenable(
+  sessionId: string,
+  timeoutMs = 15000,
+  pollMs = 500
+): Promise<Session | null> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const session = await db.getSessionById(sessionId);
+    if (!session) return null;
+    if (session.status === 'ERROR' || session.status === 'DONE') {
+      return session;
+    }
+    if (session.tmux_pane_id) {
       return session;
     }
     await new Promise((resolve) => setTimeout(resolve, pollMs));

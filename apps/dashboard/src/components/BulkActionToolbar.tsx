@@ -5,15 +5,10 @@ import { useQuery } from '@tanstack/react-query';
 import { Archive, ArchiveRestore, Trash2, FolderInput, X, Moon, Sun, Power } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { bulkOperateSessions, getGroups } from '@/lib/api';
-import type { BulkOperationType, Session } from '@agent-command/schema';
-import type { SessionGroup } from '@agent-command/schema';
+import type { BulkOperationType, Session, SessionGroup } from '@agent-command/schema';
 import { useSessionStore } from '@/stores/session';
 import { useNotifications } from '@/stores/notifications';
-
-interface GroupWithChildren extends SessionGroup {
-  children: GroupWithChildren[];
-  session_count: number;
-}
+import type { GroupWithChildren } from '@/lib/groupTypes';
 
 interface BulkActionToolbarProps {
   selectedIds: string[];
@@ -111,7 +106,7 @@ export function BulkActionToolbar({
   }
 
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
+    <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 z-50 -translate-x-1/2">
       <div className="bg-background border shadow-lg rounded-lg px-4 py-3 flex items-center gap-4">
         <span className="text-sm font-medium">
           {selectedIds.length} session{selectedIds.length !== 1 ? 's' : ''} selected

@@ -952,7 +952,7 @@
     left: 0;
     right: 0;
     width: 100%;
-    max-height: 50vh;
+    max-height: 50dvh;
     border-left: none;
     border-top: 2px solid var(--viz-border-default);
     border-radius: var(--viz-border-radius-lg) var(--viz-border-radius-lg) 0 0;
@@ -984,7 +984,7 @@
   }
 
   .civ-territory-list {
-    max-height: calc(50vh - 60px);
+    max-height: calc(50dvh - 60px);
     overflow-y: auto;
   }
 
@@ -1499,11 +1499,11 @@
   }
 
   .civ-sidebar {
-    max-height: 60vh;
+    max-height: 60dvh;
   }
 
   .civ-territory-list {
-    max-height: calc(60vh - 60px);
+    max-height: calc(60dvh - 60px);
   }
 
   .civ-notification {

@@ -79,6 +79,22 @@ export const AutomationWorkerReportSchema = z.object({
 });
 export type AutomationWorkerReport = z.infer<typeof AutomationWorkerReportSchema>;
 
+export const AutomationRunReportRequestSchema = z.object({
+  outcome: z.enum(['succeeded', 'failed', 'blocked']),
+  summary: z.string().trim().min(1),
+  detail: z.string().trim().min(1).optional(),
+  evidence_refs: z.array(z.record(z.unknown())).default([]),
+  suggested_followups: z.array(z.record(z.unknown())).default([]),
+  candidate_memory_promotions: z.array(z.record(z.unknown())).default([]),
+});
+export type AutomationRunReportRequest = z.infer<typeof AutomationRunReportRequestSchema>;
+
+export const AutomationAgentMessageRequestSchema = z.object({
+  message: z.string().min(1),
+  enter: z.boolean().default(true),
+});
+export type AutomationAgentMessageRequest = z.infer<typeof AutomationAgentMessageRequestSchema>;
+
 export const AutomationLogRefSchema = z.object({
   session_id: z.string().uuid().nullable().optional(),
   session_path: z.string().optional(),
@@ -179,6 +195,7 @@ export const WorkItemSchema = z.object({
   id: z.string().uuid(),
   user_id: z.string().uuid(),
   repo_id: z.string().uuid().nullable().optional(),
+  session_id: z.string().uuid().nullable().optional(),
   title: z.string(),
   objective: z.string(),
   status: WorkItemStatusSchema,
@@ -217,9 +234,17 @@ export const WakeAutomationAgentRequestSchema = z.object({
 });
 export type WakeAutomationAgentRequest = z.infer<typeof WakeAutomationAgentRequestSchema>;
 
+export const GovernanceApprovalDecisionPayloadSchema = z.object({
+  budget_grace: z.union([z.boolean(), z.number().int().nonnegative()]).optional(),
+  budget_grace_cents: z.number().int().nonnegative().optional(),
+  host_id: z.string().uuid().optional(),
+  fixed_host_id: z.string().uuid().optional(),
+}).passthrough();
+export type GovernanceApprovalDecisionPayload = z.infer<typeof GovernanceApprovalDecisionPayloadSchema>;
+
 export const GovernanceApprovalDecisionRequestSchema = z.object({
   decision: z.enum(['approved', 'denied']),
-  decision_payload: z.record(z.unknown()).optional(),
+  decision_payload: GovernanceApprovalDecisionPayloadSchema.optional(),
 });
 export type GovernanceApprovalDecisionRequest = z.infer<typeof GovernanceApprovalDecisionRequestSchema>;
 

@@ -21,7 +21,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { cn, getProviderIcon } from '@/lib/utils';
-import { sendCommand, decideApproval } from '@/lib/api';
+import { sendCommand, decideApproval, decideGovernanceApproval } from '@/lib/api';
 import { buildResponse, type DetectedAction } from './DetectionEngine';
 import type { OrchestratorItem as OrchestratorItemType } from '@/stores/orchestrator';
 
@@ -201,14 +201,31 @@ export function OrchestratorItem({
     node.scrollTop = node.scrollHeight;
   }, [previewLines]);
 
-  const renderTerminalShortcut = (label: string = 'Take me to terminal') => (
-    <Link href={`/sessions/${item.sessionId}?view=terminal`}>
-      <Button size="sm" variant="outline" className="w-full gap-1">
-        <Terminal className="h-4 w-4" />
-        {label}
-      </Button>
-    </Link>
-  );
+  const renderTerminalShortcut = (label: string = 'Open terminal') => {
+    if (item.sessionId) {
+      const hostParam = item.sessionHostId
+        ? `host_id=${encodeURIComponent(item.sessionHostId)}&`
+        : '';
+      return (
+        <Link href={`/tmux?${hostParam}session_id=${encodeURIComponent(item.sessionId)}&mode=terminal&attach=1`}>
+          <Button size="sm" variant="outline" className="w-full gap-1">
+            <Terminal className="h-4 w-4" />
+            {label}
+          </Button>
+        </Link>
+      );
+    }
+    return (
+      <Link href={item.automationRunId || item.governanceRunId
+        ? `/automation?run=${encodeURIComponent(item.automationRunId || item.governanceRunId || '')}`
+        : '/automation'}>
+        <Button size="sm" variant="outline" className="w-full gap-1">
+          <ExternalLink className="h-4 w-4" />
+          Open automation
+        </Button>
+      </Link>
+    );
+  };
 
   const handleSendResponse = useCallback(async (choice: string) => {
     if (!item.action) return;
@@ -217,7 +234,14 @@ export function OrchestratorItem({
     setError(null);
 
     try {
-      if (
+      if (item.source === 'governance' && item.governanceApproval) {
+        const normalized = choice.trim().toLowerCase();
+        await decideGovernanceApproval(item.governanceApproval.id, {
+          decision: normalized.startsWith('a') || normalized.startsWith('y')
+            ? 'approved'
+            : 'denied',
+        });
+      } else if (
         mode !== 'waiting' &&
         item.source === 'approval' &&
         item.approval &&
@@ -256,7 +280,7 @@ export function OrchestratorItem({
               : 'deny';
           await decideApproval(item.approval.id, { decision, mode: 'both' });
         }
-      } else {
+      } else if (item.sessionId) {
         // Handle terminal input via send_input
         const response = buildResponse(item.action, choice, false);
         await sendCommand(item.sessionId, {
@@ -266,6 +290,8 @@ export function OrchestratorItem({
             enter: true,
           },
         });
+      } else {
+        throw new Error('No terminal is attached to this attention item.');
       }
 
       setSuccess(true);
@@ -521,6 +547,19 @@ export function OrchestratorItem({
     }
     if (!item.action || success) return null;
 
+    if (item.source === 'governance') {
+      return (
+        <div className="mt-3 flex flex-col gap-2">
+          {renderYesNoButtons('Approve', 'Deny', 'approve', 'deny')}
+          {renderTerminalShortcut()}
+        </div>
+      );
+    }
+
+    if (item.source === 'run') {
+      return <div className="mt-3">{renderTerminalShortcut()}</div>;
+    }
+
     const { type, options, placeholder } = item.action;
 
     // Plan review: Navigate to terminal view
@@ -541,7 +580,7 @@ export function OrchestratorItem({
               size="sm"
               variant="outline"
               className="flex-1 gap-1"
-              onClick={() => onIdle?.(item.sessionId)}
+              onClick={() => item.sessionId && onIdle?.(item.sessionId)}
             >
               <Moon className="h-3 w-3" />
               Mark Idle
@@ -574,7 +613,7 @@ export function OrchestratorItem({
                 size="sm"
                 variant="outline"
                 className="flex-1 gap-1"
-                onClick={() => onIdle?.(item.sessionId)}
+                onClick={() => item.sessionId && onIdle?.(item.sessionId)}
               >
                 <Moon className="h-3 w-3" />
                 Mark Idle
@@ -618,7 +657,7 @@ export function OrchestratorItem({
                 size="sm"
                 variant="outline"
                 className="flex-1 gap-1"
-                onClick={() => onIdle?.(item.sessionId)}
+                onClick={() => item.sessionId && onIdle?.(item.sessionId)}
               >
                 <Moon className="h-3 w-3" />
                 Mark Idle
@@ -674,7 +713,7 @@ export function OrchestratorItem({
               size="sm"
               variant="outline"
               className="flex-1 gap-1"
-              onClick={() => onIdle?.(item.sessionId)}
+              onClick={() => item.sessionId && onIdle?.(item.sessionId)}
             >
               <Moon className="h-3 w-3" />
               Mark Idle
@@ -741,7 +780,7 @@ export function OrchestratorItem({
             size="sm"
             variant="outline"
             className="flex-1 gap-1"
-            onClick={() => onIdle?.(item.sessionId)}
+            onClick={() => item.sessionId && onIdle?.(item.sessionId)}
           >
             <Moon className="h-3 w-3" />
             Mark Idle
@@ -801,7 +840,7 @@ export function OrchestratorItem({
             {previewLines && (
               <div className="mt-2">
                 <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                  Terminal Preview
+                  {item.source === 'run' || item.source === 'governance' ? 'Context' : 'Terminal Preview'}
                 </div>
                 <div
                   ref={previewRef}
@@ -873,12 +912,12 @@ export function OrchestratorItem({
           {showItemActions && (
             <div className="flex flex-col gap-1 shrink-0">
               {/* Idle/Unidle button */}
-              {item.idledAt ? (
+              {item.sessionId && ['snapshot', 'approval', 'status'].includes(item.source) && (item.idledAt ? (
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-6 w-6"
-                  onClick={() => onUnidle?.(item.sessionId)}
+                  onClick={() => item.sessionId && onUnidle?.(item.sessionId)}
                   title="Bring back"
                 >
                   <Sun className="h-3 w-3" />
@@ -888,12 +927,12 @@ export function OrchestratorItem({
                   variant="ghost"
                   size="icon"
                   className="h-6 w-6"
-                  onClick={() => onIdle?.(item.sessionId)}
+                  onClick={() => item.sessionId && onIdle?.(item.sessionId)}
                   title="Mark idle"
                 >
                   <Moon className="h-3 w-3" />
                 </Button>
-              )}
+              ))}
               {/* Dismiss button */}
               <Button
                 variant="ghost"

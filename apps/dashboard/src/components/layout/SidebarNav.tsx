@@ -13,7 +13,6 @@ import {
   Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSettingsStore } from '@/stores/settings';
 
@@ -21,12 +20,10 @@ interface NavItem {
   href: string;
   label: string;
   icon: React.ReactNode;
-  badge?: number;
   prefetch?: boolean;
 }
 
 interface SidebarNavProps {
-  pendingApprovalCount?: number; // Deprecated - kept for backwards compatibility
   collapsed?: boolean;
 }
 
@@ -110,11 +107,6 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
                 )}
               >
                 {item.icon}
-                {item.badge !== undefined && (
-                  <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[10px] text-white font-medium">
-                    {item.badge > 9 ? '9+' : item.badge}
-                  </span>
-                )}
               </a>
             </TooltipTrigger>
             <TooltipContent side="right">
@@ -141,11 +133,6 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
         >
           {item.icon}
           <span className="flex-1 text-sm font-medium">{item.label}</span>
-          {item.badge !== undefined && (
-            <Badge variant="secondary" className="bg-orange-500 text-white text-xs px-1.5">
-              {item.badge}
-            </Badge>
-          )}
         </a>
       ))}
     </nav>

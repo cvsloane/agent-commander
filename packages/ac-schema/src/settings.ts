@@ -13,6 +13,9 @@ export type SessionTemplate = z.infer<typeof SessionTemplateSchema>;
 export const LinkTypeSchema = z.enum(['complement', 'review']);
 export type LinkType = z.infer<typeof LinkTypeSchema>;
 
+export const MobileLaunchDefaultProviderSchema = z.enum(['codex', 'claude_code']);
+export type MobileLaunchDefaultProvider = z.infer<typeof MobileLaunchDefaultProviderSchema>;
+
 export const VisualizerThemeSchema = z.enum(['botspace', 'civilization', 'bridge-control']);
 export type VisualizerTheme = z.infer<typeof VisualizerThemeSchema>;
 
@@ -39,6 +42,10 @@ export const AlertEventSchema = z.enum([
   'snapshot_action',
   'usage_thresholds',
   'approval_decisions',
+  'governance_approval',
+  'run_failed',
+  'run_blocked',
+  'host_offline',
 ]);
 export type AlertEvent = z.infer<typeof AlertEventSchema>;
 
@@ -50,6 +57,10 @@ export const AlertEventTogglesSchema = z.object({
   snapshot_action: z.boolean(),
   usage_thresholds: z.boolean(),
   approval_decisions: z.boolean(),
+  governance_approval: z.boolean().optional(),
+  run_failed: z.boolean().optional(),
+  run_blocked: z.boolean().optional(),
+  host_offline: z.boolean().optional(),
 });
 export type AlertEventToggles = z.infer<typeof AlertEventTogglesSchema>;
 
@@ -156,6 +167,9 @@ export const UserSettingsDataSchema = z.object({
   defaultSessionTemplate: SessionTemplateSchema,
   autoLinkSessions: z.boolean(),
   defaultLinkType: LinkTypeSchema,
+  defaultMobileLaunchProvider: MobileLaunchDefaultProviderSchema.default('codex'),
+  defaultMobileLaunchHostId: z.string().uuid().nullable().default(null),
+  defaultMobileLaunchTmuxTarget: z.string().nullable().default(null),
 });
 export type UserSettingsData = z.infer<typeof UserSettingsDataSchema>;
 

@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import type { ServerToUIMessage } from '@agent-command/schema';
 import { GlobalSidebar } from './GlobalSidebar';
 import { AttentionTitle } from './AttentionTitle';
+import { ConnectionBanner } from './ConnectionBanner';
 import { GroupModal } from '@/components/groups/GroupModal';
 import { NotificationContainer } from '@/components/notifications';
 import { useWebSocket } from '@/hooks/useWebSocket';
@@ -16,12 +17,9 @@ import { useNotifications } from '@/stores/notifications';
 import { useUIStore } from '@/stores/ui';
 import { useSettingsStore } from '@/stores/settings';
 import { shouldTriggerAlertChannel } from '@/lib/alertPolicy';
-import type { SessionGroup } from '@agent-command/schema';
-
-interface GroupWithChildren extends SessionGroup {
-  children: GroupWithChildren[];
-  session_count: number;
-}
+import type { GroupWithChildren } from '@/lib/groupTypes';
+import { PushNotificationPrompt } from '@/components/pwa/PushNotificationPrompt';
+import { MobileBottomNav } from './MobileBottomNav';
 
 interface LayoutShellProps {
   children: React.ReactNode;
@@ -118,34 +116,43 @@ export function LayoutShell({ children }: LayoutShellProps) {
   };
 
   return (
-    <div className="flex h-[calc(100vh-57px)]">
-      {/* Attention surface: tab title with orchestrator count */}
-      <AttentionTitle />
+    <>
+      <ConnectionBanner />
 
-      {/* Desktop sidebar */}
-      <GlobalSidebar
-        onCreateGroup={handleCreateGroup}
-        onEditGroup={handleEditGroup}
-      />
+      <div className="flex min-h-0 flex-1">
+        {/* Attention surface: tab title with orchestrator count */}
+        <AttentionTitle />
 
-      {/* Mobile sidebar overlay */}
-      <GlobalSidebar
-        onCreateGroup={handleCreateGroup}
-        onEditGroup={handleEditGroup}
-        isMobileOverlay
-      />
+        {/* Desktop sidebar */}
+        <GlobalSidebar
+          onCreateGroup={handleCreateGroup}
+          onEditGroup={handleEditGroup}
+        />
 
-      <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">{children}</main>
+        {/* Mobile sidebar overlay */}
+        <GlobalSidebar
+          onCreateGroup={handleCreateGroup}
+          onEditGroup={handleEditGroup}
+          isMobileOverlay
+        />
 
-      {/* Group Modal - shared across all pages */}
-      <GroupModal
-        isOpen={showGroupModal}
-        onClose={() => setShowGroupModal(false)}
-        editGroup={editingGroup}
-      />
+        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-[env(safe-area-inset-bottom)]">{children}</main>
 
-      {/* Notification Toasts */}
-      <NotificationContainer />
-    </div>
+        <MobileBottomNav />
+
+        {/* Group Modal - shared across all pages */}
+        <GroupModal
+          isOpen={showGroupModal}
+          onClose={() => setShowGroupModal(false)}
+          editGroup={editingGroup}
+        />
+
+        {/* Notification Toasts */}
+        <NotificationContainer />
+
+        {/* Mobile first-run prompt for background Web Push */}
+        <PushNotificationPrompt />
+      </div>
+    </>
   );
 }

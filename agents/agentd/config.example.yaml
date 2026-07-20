@@ -19,10 +19,16 @@ tmux:
   snapshot_max_bytes: 65536
   option_session_id: "@ac_session_id"
 
+terminal:
+  # Isolate each browser viewer in a grouped tmux session. Set false to use
+  # the legacy shared PTY bridge.
+  per_viewer_pty: true
+
 spawn:
   tmux_session_name: "agents"
   default_shell: "/bin/bash"
   worktrees_root: "/home/me/repos/.worktrees"
+  max_children_per_parent: 8
 
 security:
   allow_send_input: true
@@ -31,6 +37,15 @@ security:
   allow_console_stream: true
 
 providers:
+  # argv/env launch templates are optional; these examples override built-ins.
+  # Use {{prompt}} in headless_argv where the prompt belongs.
+  launch_templates:
+    claude_code:
+      argv: ["claude"]
+      headless_argv: ["claude", "-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"]
+    codex:
+      argv: ["/usr/local/bin/codex"]
+      headless_argv: ["/usr/local/bin/codex", "exec", "--json", "{{prompt}}"]
   claude:
     hooks_http_listen: "127.0.0.1:7777"
     permission_strategy: "both"  # hook, keystroke, or both

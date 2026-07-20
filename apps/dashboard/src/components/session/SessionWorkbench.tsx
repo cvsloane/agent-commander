@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type MutableRefObject } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import { getGroups } from '@/lib/api';
@@ -8,7 +8,7 @@ import { ActivityTimeline } from '@/components/ActivityTimeline';
 import { ConsoleView } from '@/components/ConsoleView';
 import { LinkedSessionsPanel } from '@/components/LinkedSessionsPanel';
 import { SessionAnalytics } from '@/components/analytics/SessionAnalytics';
-import { TerminalView } from '@/components/TerminalView';
+import { TerminalView, type TerminalController } from '@/components/TerminalView';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useHydrated } from '@/hooks/useHydrated';
@@ -28,6 +28,10 @@ interface SessionWorkbenchProps {
   viewMode?: WorkbenchViewMode;
   onViewModeChange?: (mode: WorkbenchViewMode) => void;
   className?: string;
+  showDetails?: boolean;
+  terminalCardClassName?: string;
+  autoAttachTerminal?: boolean;
+  terminalControllerRef?: MutableRefObject<TerminalController | null>;
 }
 
 export function SessionWorkbench({
@@ -40,6 +44,10 @@ export function SessionWorkbench({
   viewMode,
   onViewModeChange,
   className,
+  showDetails = true,
+  terminalCardClassName,
+  autoAttachTerminal = false,
+  terminalControllerRef,
 }: SessionWorkbenchProps) {
   const [internalViewMode, setInternalViewMode] = useState<WorkbenchViewMode>(initialView);
   const [maximized, setMaximized] = useState(false);
@@ -127,8 +135,9 @@ export function SessionWorkbench({
         className={cn(
           'flex flex-col',
           maximized
-            ? 'fixed inset-0 z-[60] rounded-none border-0 h-screen'
-            : isMobile ? 'h-[66vh] min-h-[360px]' : 'h-[66vh]'
+            ? 'fixed inset-0 z-[60] h-dvh rounded-none border-0 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]'
+            : isMobile ? 'h-[66dvh] min-h-[360px]' : 'h-[66dvh]',
+          terminalCardClassName
         )}
       >
         <CardHeader className="py-3">
@@ -180,11 +189,14 @@ export function SessionWorkbench({
             <TerminalView
               sessionId={session.id}
               paneId={session.tmux_pane_id || undefined}
+              autoAttach={autoAttachTerminal}
+              controllerRef={terminalControllerRef}
             />
           )}
         </CardContent>
       </Card>
 
+      {showDetails && (
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div className="space-y-6">
           <Card>
@@ -298,6 +310,7 @@ export function SessionWorkbench({
           </Card>
         </div>
       </div>
+      )}
     </div>
   );
 }

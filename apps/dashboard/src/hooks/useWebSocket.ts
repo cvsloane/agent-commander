@@ -3,12 +3,13 @@
 import { useEffect, useCallback, useRef, useMemo } from 'react';
 import type { ServerToUIMessage } from '@agent-command/schema';
 import { getWebSocketClient } from '@/lib/ws';
-import { getControlPlaneToken } from '@/lib/wsToken';
+import { getWebSocketTicket } from '@/lib/wsToken';
 
 export function useWebSocket(
   topics: Array<{ type: string; filter?: Record<string, unknown> }>,
   onMessage: (message: ServerToUIMessage) => void,
-  enabled: boolean = true
+  enabled: boolean = true,
+  channel: string = 'default'
 ) {
   const handlerRef = useRef(onMessage);
   handlerRef.current = onMessage;
@@ -21,35 +22,17 @@ export function useWebSocket(
 
   useEffect(() => {
     if (!enabled) return;
-    let active = true;
-    const client = getWebSocketClient();
-    let subscriptionId: string | null = null;
-    let removeHandler: (() => void) | null = null;
-
-    const setup = async () => {
-      const token = await getControlPlaneToken();
-      if (!active) return;
-      if (!token) return;
-      client.setTokenProvider(getControlPlaneToken);
-      client.setToken(token);
-      void client.connect();
-      subscriptionId = client.registerSubscription(topicsRef.current);
-
-      removeHandler = client.addHandler((message) => {
-        handlerRef.current(message);
-      });
-    };
-
-    setup();
+    const client = getWebSocketClient(channel);
+    client.setTicketProvider(getWebSocketTicket);
+    const subscriptionId = client.registerSubscription(topicsRef.current);
+    const removeHandler = client.addHandler((message) => {
+      handlerRef.current(message);
+    });
+    void client.connect();
 
     return () => {
-      active = false;
-      if (removeHandler) {
-        removeHandler();
-      }
-      if (subscriptionId) {
-        client.unregisterSubscription(subscriptionId);
-      }
+      removeHandler();
+      client.unregisterSubscription(subscriptionId);
     };
-  }, [topicsKey, enabled]);
+  }, [topicsKey, enabled, channel]);
 }

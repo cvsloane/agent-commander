@@ -1,3 +1,25 @@
+import {
+  SessionsResponseSchema,
+  TmuxRosterResponseSchema,
+  SessionGraphResponseSchema,
+  LaunchTargetsResponseSchema,
+  LaunchResponseSchema,
+  DashboardSpawnResponseSchema,
+  type SessionsResponse,
+  type SessionGraphResponse,
+  type SessionGraphRollup,
+  type BulkOperationResult,
+  type MCPServer,
+  type MCPEnablement,
+  type SessionMCPConfig,
+  type SessionMetrics,
+  type AnalyticsSummary,
+  type ProviderUsage,
+  type TimeSeriesPoint,
+  type SpawnProvider,
+  type DashboardSpawnRequest,
+  type DashboardSpawnResponse,
+} from '@agent-command/schema';
 import type {
   Session,
   SessionWithSnapshot,
@@ -27,9 +49,51 @@ import type {
   MemoryEntry,
   MemorySearchQuery,
   UpsertMemoryEntry,
+  CaptureMode,
+  LaunchRequest,
+  LaunchResponse,
+  LaunchTargetsResponse,
+  TmuxOpenRequest,
+  TmuxOpenResponse,
+  SessionLinkType,
+  SessionLinkWithSession,
+  ToolEvent,
+  ToolStat,
+  AgentTask,
+  AutomationAgentMessageRequest,
 } from '@agent-command/schema';
+export type {
+  CaptureMode,
+  LaunchRequest,
+  LaunchResponse,
+  LaunchTargetsResponse,
+  TmuxOpenRequest,
+  TmuxOpenResponse,
+  SessionLinkType,
+  SessionLinkWithSession,
+  ToolEvent,
+  ToolStat,
+  BulkOperationResult,
+  MCPServer,
+  MCPEnablement,
+  SessionMCPConfig,
+  SessionMetrics,
+  AnalyticsSummary,
+  ProviderUsage,
+  TimeSeriesPoint,
+  SpawnProvider,
+  SessionGraphResponse,
+  SessionGraphRollup,
+} from '@agent-command/schema';
+
+import type { GroupWithChildren } from '@/lib/groupTypes';
 import { getControlPlaneToken } from '@/lib/wsToken';
 import { getRuntimeConfig } from '@/lib/runtimeConfig';
+
+type RuntimeSchema<T> = {
+  parse(input: unknown): T;
+  safeParse(input: unknown): { success: true; data: T } | { success: false; error: unknown };
+};
 
 function resolveApiBase(): string {
   const runtime = typeof window !== 'undefined' ? getRuntimeConfig() : {};
@@ -63,7 +127,21 @@ function resolveApiBase(): string {
   return 'http://localhost:8080';
 }
 
-async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
+export class APIError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+    this.name = 'APIError';
+  }
+}
+
+async function fetchAPI<T>(
+  path: string,
+  options?: RequestInit,
+  responseSchema?: RuntimeSchema<T>
+): Promise<T> {
   const token = await getControlPlaneToken();
   const apiBase = resolveApiBase();
   const controller = new AbortController();
@@ -80,10 +158,16 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
     });
     if (!res.ok) {
       const error = await res.json().catch(() => ({ error: 'Unknown error' }));
-      throw new Error(error.error || `HTTP ${res.status}`);
+      throw new APIError(error.error || `HTTP ${res.status}`, res.status);
     }
 
-    return res.json();
+    const payload: unknown = await res.json();
+    if (responseSchema) {
+      const result = responseSchema.safeParse(payload);
+      if (result.success) return result.data;
+      console.warn(`API response validation failed for ${path}; using raw payload`, result.error);
+    }
+    return payload as T;
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw new Error('Request timed out');
@@ -140,10 +224,14 @@ export async function getSessions(filters?: {
   archived_only?: boolean;
   limit?: number;
   offset?: number;
-}): Promise<{ sessions: SessionWithSnapshot[]; total?: number; limit?: number; offset?: number }> {
+}): Promise<SessionsResponse> {
   const params = buildSessionsParams(filters, { includePagination: true });
   const query = params.toString();
-  return fetchAPI(`/v1/sessions${query ? `?${query}` : ''}`);
+  return fetchAPI(
+    `/v1/sessions${query ? `?${query}` : ''}`,
+    undefined,
+    SessionsResponseSchema
+  );
 }
 
 const MAX_SESSIONS_PAGE_SIZE = 200;
@@ -182,6 +270,37 @@ export async function getAllSessions(filters?: {
   return { sessions, total };
 }
 
+export async function getTmuxRoster(filters?: {
+  host_id?: string;
+}): Promise<{ sessions: SessionWithSnapshot[]; total: number }> {
+  const params = new URLSearchParams();
+  if (filters?.host_id) params.set('host_id', filters.host_id);
+  const query = params.toString();
+  return fetchAPI(
+    `/v1/tmux/roster${query ? `?${query}` : ''}`,
+    undefined,
+    TmuxRosterResponseSchema
+  );
+}
+
+export async function getLaunchTargets(): Promise<LaunchTargetsResponse> {
+  return fetchAPI('/v1/launch/targets', undefined, LaunchTargetsResponseSchema);
+}
+
+export async function launchAgent(request: LaunchRequest): Promise<LaunchResponse> {
+  return fetchAPI('/v1/launch', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  }, LaunchResponseSchema);
+}
+
+export async function openTmuxTarget(request: TmuxOpenRequest): Promise<TmuxOpenResponse> {
+  return fetchAPI('/v1/tmux/open', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
 export async function getSessionsTotal(filters?: {
   host_id?: string;
   status?: string;
@@ -196,13 +315,6 @@ export async function getSessionsTotal(filters?: {
   const params = buildSessionsParams(filters, { includePagination: false });
   const query = params.toString();
   return fetchAPI(`/v1/sessions/total${query ? `?${query}` : ''}`);
-}
-
-export interface BulkOperationResult {
-  operation: BulkOperationType;
-  success_count: number;
-  error_count: number;
-  errors?: Array<{ session_id: string; error: string }>;
 }
 
 export async function bulkOperateSessions(
@@ -238,6 +350,16 @@ export async function getSessionEvents(
 
   const query = params.toString();
   return fetchAPI(`/v1/sessions/${id}/events${query ? `?${query}` : ''}`);
+}
+
+export async function getSessionGraph(id: string): Promise<SessionGraphResponse> {
+  return fetchAPI(`/v1/sessions/${id}/graph`, undefined, SessionGraphResponseSchema);
+}
+
+export async function getSessionAgentTasks(
+  id: string
+): Promise<{ session_id: string; agent_tasks: AgentTask[] }> {
+  return fetchAPI(`/v1/sessions/${id}/agent-tasks`);
 }
 
 // Session usage (latest per session)
@@ -339,6 +461,52 @@ export async function sendTestNotification(
   });
 }
 
+export interface PushSubscriptionPayload {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  device_label?: string;
+}
+
+export interface PushVapidConfiguration {
+  enabled: boolean;
+  public_key: string | null;
+}
+
+export interface RegisteredPushSubscription {
+  id: string;
+  endpoint: string;
+  device_label: string | null;
+  created_at: string;
+  last_seen_at: string;
+}
+
+export async function getPushVapidPublicKey(): Promise<PushVapidConfiguration> {
+  return fetchAPI('/v1/push/vapid-public-key');
+}
+
+export async function getPushSubscriptions(): Promise<{
+  subscriptions: RegisteredPushSubscription[];
+}> {
+  return fetchAPI('/v1/push/subscriptions');
+}
+
+export async function createPushSubscription(
+  subscription: PushSubscriptionPayload
+): Promise<{ success: boolean }> {
+  return fetchAPI('/v1/push/subscriptions', {
+    method: 'POST',
+    body: JSON.stringify(subscription),
+  });
+}
+
+export async function deletePushSubscription(endpoint: string): Promise<{ success: boolean }> {
+  return fetchAPI('/v1/push/subscriptions', {
+    method: 'DELETE',
+    body: JSON.stringify({ endpoint }),
+  });
+}
+
 // Projects API
 export async function getProjects(filters?: {
   host_id?: string;
@@ -406,6 +574,16 @@ export async function wakeAutomationAgent(
   });
 }
 
+export async function messageAutomationAgent(
+  slug: string,
+  input: AutomationAgentMessageRequest
+): Promise<{ automation_agent_id: string; session_id: string; cmd_id: string }> {
+  return fetchAPI(`/v1/automation-agents/${encodeURIComponent(slug)}/message`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
 export async function getAutomationRuns(filters?: {
   automation_agent_id?: string;
   status?: string;
@@ -417,6 +595,14 @@ export async function getAutomationRuns(filters?: {
   if (filters?.limit) params.set('limit', String(filters.limit));
   const query = params.toString();
   return fetchAPI(`/v1/automation-runs${query ? `?${query}` : ''}`);
+}
+
+export async function getAttentionAutomationRuns(): Promise<{ runs: AutomationRun[] }> {
+  const [failed, blocked] = await Promise.all([
+    getAutomationRuns({ status: 'failed' }),
+    getAutomationRuns({ status: 'blocked' }),
+  ]);
+  return { runs: [...failed.runs, ...blocked.runs] };
 }
 
 export async function getAutomationRunEvents(
@@ -579,12 +765,6 @@ export async function getHealth(): Promise<{
   return fetchAPI('/health');
 }
 
-// Groups API
-interface GroupWithChildren extends SessionGroup {
-  children: GroupWithChildren[];
-  session_count: number;
-}
-
 export async function getGroups(): Promise<{
   groups: GroupWithChildren[];
   flat: SessionGroup[];
@@ -656,8 +836,6 @@ export async function forkSession(
 }
 
 // Copy to session API
-export type CaptureMode = 'visible' | 'last_n' | 'range' | 'full';
-
 export interface CopyToSessionRequest {
   target_session_id: string;
   mode?: CaptureMode;
@@ -680,22 +858,6 @@ export async function copyToSession(
 }
 
 // Session Links API
-export type SessionLinkType = 'complement' | 'review' | 'implement' | 'research';
-
-export interface SessionLinkWithSession {
-  id: string;
-  source_session_id: string;
-  target_session_id: string;
-  link_type: SessionLinkType;
-  created_at: string;
-  linked_session_id: string;
-  linked_session_title: string | null;
-  linked_session_provider: string;
-  linked_session_status: string;
-  linked_session_cwd: string | null;
-  direction: 'outgoing' | 'incoming';
-}
-
 export async function getSessionLinks(
   sessionId: string
 ): Promise<{ links: SessionLinkWithSession[] }> {
@@ -734,31 +896,6 @@ export interface SearchResult {
 }
 
 // MCP API
-export interface MCPServer {
-  name: string;
-  display_name?: string;
-  description?: string;
-  transport: 'stdio' | 'http';
-  command?: string;
-  args?: string[];
-  url?: string;
-  env?: Record<string, string>;
-  has_secrets: boolean;
-  poolable: boolean;
-}
-
-export interface MCPEnablement {
-  enabled: boolean;
-  scope: 'session' | 'project' | 'global';
-}
-
-export interface SessionMCPConfig {
-  session_id: string;
-  servers: MCPServer[];
-  enablement: Record<string, MCPEnablement>;
-  restart_required: boolean;
-}
-
 export async function getMCPServers(hostId: string): Promise<{
   servers: MCPServer[];
   pool_config?: { enabled: boolean; pool_all: boolean; exclude_mcps?: string[] };
@@ -841,65 +978,6 @@ export async function getWeeklyUsage(): Promise<WeeklyUsage> {
 }
 
 // Analytics API
-export interface SessionMetrics {
-  session_id: string;
-  tokens_in: number;
-  tokens_out: number;
-  tokens_cache_read: number;
-  tokens_cache_write: number;
-  tool_calls: number;
-  approvals_requested: number;
-  approvals_granted: number;
-  approvals_denied: number;
-  first_event_at: string | null;
-  last_event_at: string | null;
-  estimated_cost_cents: number;
-}
-
-export interface AnalyticsSummary {
-  total_sessions: number;
-  total_tokens_in: number;
-  total_tokens_out: number;
-  total_tool_calls: number;
-  total_estimated_cost_cents: number;
-  sessions_by_provider: Record<string, number>;
-  sessions_by_status: Record<string, number>;
-}
-
-export interface ProviderUsage {
-  provider: string;
-  host_id: string | null;
-  session_id: string | null;
-  scope: 'account' | 'session';
-  reported_at: string;
-  raw_text: string | null;
-  raw_json: Record<string, unknown> | null;
-  remaining_tokens: number | null;
-  remaining_requests: number | null;
-  weekly_limit_tokens: number | null;
-  weekly_remaining_tokens: number | null;
-  weekly_remaining_cost_cents: number | null;
-  reset_at: string | null;
-  // Utilization percentages (0-100)
-  five_hour_utilization: number | null;
-  five_hour_reset_at: string | null;
-  weekly_utilization: number | null;
-  weekly_reset_at: string | null;
-  weekly_opus_utilization: number | null;
-  weekly_opus_reset_at: string | null;
-  weekly_sonnet_utilization: number | null;
-  weekly_sonnet_reset_at: string | null;
-  daily_utilization: number | null;
-  daily_reset_at: string | null;
-}
-
-export interface TimeSeriesPoint {
-  timestamp: string;
-  tokens_in: number;
-  tokens_out: number;
-  tool_calls: number;
-}
-
 export async function getAnalyticsSummary(filters?: {
   host_id?: string;
   provider?: string;
@@ -946,27 +1024,6 @@ export async function getSessionTimeSeries(
 }
 
 // Tool Events API
-export interface ToolEvent {
-  id: string;
-  session_id: string;
-  provider: string;
-  tool_name: string;
-  tool_input?: Record<string, unknown>;
-  tool_output?: Record<string, unknown>;
-  started_at: string;
-  completed_at?: string;
-  success?: boolean;
-  duration_ms?: number;
-  created_at: string;
-}
-
-export interface ToolStat {
-  tool_name: string;
-  total_calls: number;
-  avg_duration?: number;
-  success_count: number;
-}
-
 export async function getToolEvents(
   sessionId: string,
   cursor?: string,
@@ -985,28 +1042,13 @@ export async function getToolStats(sessionId: string): Promise<{ stats: ToolStat
 }
 
 // Spawn Session API
-export type SpawnProvider = 'claude_code' | 'codex' | 'gemini_cli' | 'opencode' | 'aider' | 'shell';
-
-export interface SpawnSessionRequest {
-  host_id: string;
-  provider: SpawnProvider;
-  working_directory: string;
-  title?: string;
-  flags?: string[];
-  group_id?: string;
-  tmux?: {
-    target_session?: string;
-    window_name?: string;
-  };
-}
-
 export async function spawnSession(
-  request: SpawnSessionRequest
-): Promise<{ session: Session; cmd_id: string }> {
+  request: DashboardSpawnRequest
+): Promise<DashboardSpawnResponse> {
   return fetchAPI('/v1/sessions/spawn', {
     method: 'POST',
     body: JSON.stringify(request),
-  });
+  }, DashboardSpawnResponseSchema);
 }
 
 // Directory Listing API

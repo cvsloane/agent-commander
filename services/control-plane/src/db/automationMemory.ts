@@ -1,5 +1,6 @@
 import type {
   AutomationAgent,
+  AutomationRunReportRequest,
   AutomationRun,
   AutomationRunEvent,
   AutomationRuntimeState,
@@ -16,7 +17,9 @@ import type {
   WakeAutomationAgentRequest,
   WorkItem,
   WorkItemsQuery,
+  OrchestratorWorkItemsQuery,
 } from '@agent-command/schema';
+import { isDeepStrictEqual } from 'node:util';
 import {
   pool,
   getEvents,
@@ -55,6 +58,14 @@ export type ClaimedAutomationWakeup = AutomationWakeup & {
   worker_pool_json: JsonObject;
   max_parallel_runs: number;
   active_run_count?: number;
+};
+
+export type StaleRunningAutomationWakeup = AutomationWakeup & {
+  automation_run_id: string | null;
+};
+
+export type StaleStartingAutomationRun = AutomationRun & {
+  wakeup_context_json: JsonObject;
 };
 
 let vectorColumnSupport: Promise<boolean> | null = null;
@@ -172,7 +183,8 @@ function summarizeWorkItem(item: WorkItem | null): string | null {
 
 export async function createMemoryEntry(
   userId: string,
-  input: UpsertMemoryEntry
+  input: UpsertMemoryEntry,
+  options: { ingestion_key?: string } = {}
 ): Promise<MemoryEntry> {
   const embedding = await resolveEmbedding(input);
   const useVectorColumn = embedding.embedding && await hasVectorColumn();
@@ -190,6 +202,7 @@ export async function createMemoryEntry(
     embedding.embedding ? JSON.stringify(embedding.embedding) : null,
     embedding.embeddingModel,
     embedding.embeddingDimensions,
+    options.ingestion_key || null,
   ];
   const result = useVectorColumn
     ? await pool.query(
@@ -207,9 +220,11 @@ export async function createMemoryEntry(
            embedding,
            embedding_model,
            embedding_dimensions,
+           ingestion_key,
            embedding_vector
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::vector)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::vector)
+         ON CONFLICT (ingestion_key) WHERE ingestion_key IS NOT NULL DO NOTHING
          RETURNING *`,
         [...values, toVectorLiteral(embedding.embedding!)]
       )
@@ -227,13 +242,23 @@ export async function createMemoryEntry(
            expires_at,
            embedding,
            embedding_model,
-           embedding_dimensions
+           embedding_dimensions,
+           ingestion_key
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         ON CONFLICT (ingestion_key) WHERE ingestion_key IS NOT NULL DO NOTHING
          RETURNING *`,
         values
       );
-  return result.rows[0];
+  if (result.rows[0]) return result.rows[0];
+  if (options.ingestion_key) {
+    const existing = await pool.query(
+      `SELECT * FROM memory_entries WHERE ingestion_key = $1 LIMIT 1`,
+      [options.ingestion_key]
+    );
+    if (existing.rows[0]) return existing.rows[0] as MemoryEntry;
+  }
+  throw new Error('Failed to create memory entry');
 }
 
 export async function recordMemoryAccess(entryIds: string[]): Promise<void> {
@@ -249,7 +274,8 @@ export async function recordMemoryAccess(entryIds: string[]): Promise<void> {
 
 export async function searchMemory(
   userId: string,
-  query: MemorySearchQuery
+  query: MemorySearchQuery,
+  sessionScope?: { session_id: string }
 ): Promise<MemoryEntry[]> {
   const vectorSearch = await hasVectorColumn();
   const queryEmbedding = vectorSearch && isEmbeddingAvailable()
@@ -272,8 +298,15 @@ export async function searchMemory(
                $4::uuid IS NULL
                OR repo_id = $4
                OR ($3::text IS NULL AND scope_type = 'global')
+               OR ($8::uuid IS NOT NULL AND scope_type = 'working' AND session_id = $8)
              )
              AND ($5::text IS NULL OR tier = $5)
+             AND (
+               $8::uuid IS NULL
+               OR scope_type = 'global'
+               OR (scope_type = 'repo' AND repo_id = $4)
+               OR (scope_type = 'working' AND session_id = $8)
+             )
              AND (expires_at IS NULL OR expires_at > NOW())
              AND (
                embedding_vector IS NOT NULL
@@ -308,6 +341,7 @@ export async function searchMemory(
           query.tier || null,
           query.limit,
           toVectorLiteral(queryEmbedding),
+          sessionScope?.session_id || null,
         ]
       )
     : await pool.query(
@@ -322,8 +356,15 @@ export async function searchMemory(
                $4::uuid IS NULL
                OR repo_id = $4
                OR ($3::text IS NULL AND scope_type = 'global')
+               OR ($7::uuid IS NOT NULL AND scope_type = 'working' AND session_id = $7)
              )
              AND ($5::text IS NULL OR tier = $5)
+             AND (
+               $7::uuid IS NULL
+               OR scope_type = 'global'
+               OR (scope_type = 'repo' AND repo_id = $4)
+               OR (scope_type = 'working' AND session_id = $7)
+             )
              AND (expires_at IS NULL OR expires_at > NOW())
              AND (
                search_vector @@ plainto_tsquery('english', $2)
@@ -355,12 +396,31 @@ export async function searchMemory(
           query.repo_id || null,
           query.tier || null,
           query.limit,
+          sessionScope?.session_id || null,
         ]
       );
 
   const rows = result.rows as MemoryEntry[];
   await recordMemoryAccess(rows.map((row) => row.id));
   return rows;
+}
+
+export async function searchMemoryForSession(input: {
+  user_id: string;
+  session_id: string;
+  repo_id?: string | null;
+  query: Omit<MemorySearchQuery, 'repo_id'>;
+}): Promise<MemoryEntry[]> {
+  return searchMemory(
+    input.user_id,
+    {
+      ...input.query,
+      repo_id: input.query.scope_type === 'global' || input.query.scope_type === 'working'
+        ? undefined
+        : input.repo_id || undefined,
+    },
+    { session_id: input.session_id }
+  );
 }
 
 export async function getMemoryContextBrief(
@@ -423,6 +483,7 @@ export async function createMemoryTrajectory(input: {
   outcome: string;
   summary: string;
   steps_json: unknown;
+  ingestion_key?: string;
 }): Promise<MemoryTrajectory> {
   const result = await pool.query(
     `INSERT INTO memory_trajectories (
@@ -433,9 +494,11 @@ export async function createMemoryTrajectory(input: {
        objective,
        outcome,
        summary,
-       steps_json
+       steps_json,
+       ingestion_key
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     ON CONFLICT (ingestion_key) WHERE ingestion_key IS NOT NULL DO NOTHING
      RETURNING *`,
     [
       input.user_id,
@@ -446,9 +509,18 @@ export async function createMemoryTrajectory(input: {
       input.outcome,
       input.summary,
       JSON.stringify(input.steps_json ?? []),
+      input.ingestion_key || null,
     ]
   );
-  return result.rows[0];
+  if (result.rows[0]) return result.rows[0];
+  if (input.ingestion_key) {
+    const existing = await pool.query(
+      `SELECT * FROM memory_trajectories WHERE ingestion_key = $1 LIMIT 1`,
+      [input.ingestion_key]
+    );
+    if (existing.rows[0]) return existing.rows[0] as MemoryTrajectory;
+  }
+  throw new Error('Failed to create memory trajectory');
 }
 
 export async function ingestSessionToMemory(options: {
@@ -456,17 +528,29 @@ export async function ingestSessionToMemory(options: {
   automation_run_id?: string | null;
   objective?: string | null;
 }): Promise<{ memory: MemoryEntry | null; trajectory: MemoryTrajectory | null }> {
+  const ingestionKey = `automation-session:${options.session_id}`;
   const session = await getSessionById(options.session_id);
   if (!session?.user_id) {
     return { memory: null, trajectory: null };
   }
 
   const existing = await pool.query(
-    `SELECT id FROM memory_trajectories WHERE session_id = $1 LIMIT 1`,
+    `SELECT * FROM memory_trajectories WHERE session_id = $1 LIMIT 1`,
     [options.session_id]
   );
   if (existing.rows[0]) {
-    return { memory: null, trajectory: null };
+    const existingMemory = await pool.query(
+      `SELECT * FROM memory_entries
+       WHERE session_id = $1
+         AND tier = 'episodic'
+       ORDER BY created_at ASC
+       LIMIT 1`,
+      [options.session_id]
+    );
+    return {
+      memory: (existingMemory.rows[0] as MemoryEntry | undefined) ?? null,
+      trajectory: existing.rows[0] as MemoryTrajectory,
+    };
   }
 
   const [snapshot, events, toolStats, usageRows] = await Promise.all([
@@ -502,22 +586,31 @@ export async function ingestSessionToMemory(options: {
     .filter(Boolean)
     .join('\n\n');
 
-  const memory = await createMemoryEntry(session.user_id, {
-    scope_type: session.repo_id ? 'repo' : 'global',
-    repo_id: session.repo_id || undefined,
-    session_id: session.id,
-    tier: 'episodic',
-    summary: clip(summary, 250),
-    content,
-    metadata: {
-      session_status: session.status,
-      provider: session.provider,
-      tool_stats: toolStats,
-      recent_event_types: eventTypes,
-      usage: usage ?? null,
-    },
-    confidence: session.status === 'DONE' ? 0.7 : session.status === 'ERROR' ? 0.45 : 0.55,
-  });
+  const existingMemory = await pool.query(
+    `SELECT * FROM memory_entries
+     WHERE session_id = $1
+       AND tier = 'episodic'
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    [session.id]
+  );
+  const memory = (existingMemory.rows[0] as MemoryEntry | undefined)
+    ?? await createMemoryEntry(session.user_id, {
+      scope_type: session.repo_id ? 'repo' : 'global',
+      repo_id: session.repo_id || undefined,
+      session_id: session.id,
+      tier: 'episodic',
+      summary: clip(summary, 250),
+      content,
+      metadata: {
+        session_status: session.status,
+        provider: session.provider,
+        tool_stats: toolStats,
+        recent_event_types: eventTypes,
+        usage: usage ?? null,
+      },
+      confidence: session.status === 'DONE' ? 0.7 : session.status === 'ERROR' ? 0.45 : 0.55,
+    }, { ingestion_key: `${ingestionKey}:memory` });
 
   const trajectory = await createMemoryTrajectory({
     user_id: session.user_id,
@@ -539,6 +632,7 @@ export async function ingestSessionToMemory(options: {
       tool_stats: toolStats,
       usage: usage ?? null,
     },
+    ingestion_key: `${ingestionKey}:trajectory`,
   });
 
   return { memory, trajectory };
@@ -836,6 +930,12 @@ export async function claimNextAutomationWakeup(): Promise<ClaimedAutomationWake
        JOIN automation_agents a ON a.id = w.automation_agent_id
        WHERE w.status = 'queued'
          AND a.status = 'active'
+         AND CASE
+           WHEN jsonb_typeof(w.context_json->'automation_deferred_until_ms') = 'number'
+             THEN (w.context_json->>'automation_deferred_until_ms')::numeric
+               <= EXTRACT(EPOCH FROM NOW()) * 1000
+           ELSE TRUE
+         END
          AND NOT (
            COALESCE(a.wake_policy_json->>'concurrency_policy', 'coalesce_if_active') = 'always_enqueue'
            AND (
@@ -1039,6 +1139,25 @@ export async function updateAutomationRun(
   return result.rows[0] || null;
 }
 
+export async function attachAutomationRunSession(input: {
+  id: string;
+  session_id: string;
+  log_ref_json: JsonObject;
+}): Promise<AutomationRun | null> {
+  const result = await pool.query(
+    `UPDATE automation_runs
+     SET session_id = $2,
+         status = 'running',
+         log_ref_json = $3
+     WHERE id = $1
+       AND status = 'starting'
+       AND session_id IS NULL
+     RETURNING *`,
+    [input.id, input.session_id, JSON.stringify(input.log_ref_json)]
+  );
+  return result.rows[0] || null;
+}
+
 export async function getAutomationRunById(
   userId: string,
   runId: string
@@ -1050,6 +1169,16 @@ export async function getAutomationRunById(
      WHERE r.id = $1
        AND a.user_id = $2`,
     [runId, userId]
+  );
+  return result.rows[0] || null;
+}
+
+export async function getAutomationRunByIdUnscoped(
+  runId: string
+): Promise<AutomationRun | null> {
+  const result = await pool.query(
+    `SELECT * FROM automation_runs WHERE id = $1`,
+    [runId]
   );
   return result.rows[0] || null;
 }
@@ -1147,6 +1276,19 @@ export async function countActiveAutomationRuns(automationAgentId: string): Prom
     [automationAgentId]
   );
   return result.rows[0]?.count ?? 0;
+}
+
+export async function countActiveAutomationRunsByHost(): Promise<Record<string, number>> {
+  const result = await pool.query(
+    `SELECT s.host_id, COUNT(*)::int AS count
+     FROM automation_runs ar
+     JOIN sessions s ON s.id = ar.session_id
+     WHERE ar.status IN ('starting', 'running')
+     GROUP BY s.host_id`
+  );
+  return Object.fromEntries(
+    result.rows.map((row) => [row.host_id as string, Number(row.count) || 0])
+  );
 }
 
 export async function listAutomationRuns(userId: string, filters?: {
@@ -1255,6 +1397,144 @@ export async function listActiveAutomationRuns(): Promise<AutomationRun[]> {
   return result.rows;
 }
 
+export async function observeAutomationCompletionFallback(input: {
+  run_id: string;
+  session_status: string;
+}): Promise<string | null> {
+  const updated = await pool.query(
+    `UPDATE automation_runs
+     SET worker_report_json = COALESCE(worker_report_json, '{}'::jsonb)
+       || jsonb_build_object(
+         '_completion_fallback_observed_at', NOW(),
+         '_completion_fallback_status', $2::text
+       )
+     WHERE id = $1
+       AND status IN ('starting', 'running')
+       AND NOT (
+         COALESCE(worker_report_json, '{}'::jsonb)
+         ? '_completion_fallback_observed_at'
+       )
+     RETURNING worker_report_json->>'_completion_fallback_observed_at' AS observed_at`,
+    [input.run_id, input.session_status]
+  );
+  if (updated.rows[0]?.observed_at) return updated.rows[0].observed_at as string;
+
+  const current = await pool.query(
+    `SELECT worker_report_json->>'_completion_fallback_observed_at' AS observed_at
+     FROM automation_runs
+     WHERE id = $1 AND status IN ('starting', 'running')`,
+    [input.run_id]
+  );
+  return typeof current.rows[0]?.observed_at === 'string'
+    ? current.rows[0].observed_at
+    : null;
+}
+
+export async function clearAutomationCompletionFallback(runId: string): Promise<void> {
+  await pool.query(
+    `UPDATE automation_runs
+     SET worker_report_json = COALESCE(worker_report_json, '{}'::jsonb)
+       - '_completion_fallback_observed_at'
+       - '_completion_fallback_status'
+     WHERE id = $1
+       AND status IN ('starting', 'running')
+       AND (
+         COALESCE(worker_report_json, '{}'::jsonb)
+         ? '_completion_fallback_observed_at'
+       )`,
+    [runId]
+  );
+}
+
+export async function listStaleStartingAutomationRuns(
+  startedBefore: string
+): Promise<StaleStartingAutomationRun[]> {
+  const result = await pool.query(
+    `SELECT ar.*, w.context_json AS wakeup_context_json
+     FROM automation_runs ar
+     JOIN automation_wakeups w ON w.id = ar.wakeup_id
+     WHERE ar.status = 'starting'
+       AND ar.session_id IS NULL
+       AND ar.started_at <= $1
+     ORDER BY ar.started_at`,
+    [startedBefore]
+  );
+  return result.rows;
+}
+
+export async function failStaleStartingAutomationRun(input: {
+  id: string;
+  started_before: string;
+  summary: string;
+}): Promise<AutomationRun | null> {
+  const result = await pool.query(
+    `UPDATE automation_runs
+     SET status = 'failed',
+         result_summary = $3,
+         ended_at = NOW()
+     WHERE id = $1
+       AND status = 'starting'
+       AND session_id IS NULL
+       AND started_at <= $2
+     RETURNING *`,
+    [input.id, input.started_before, input.summary]
+  );
+  return result.rows[0] || null;
+}
+
+export async function listStaleRunningAutomationWakeups(
+  claimedBefore: string
+): Promise<StaleRunningAutomationWakeup[]> {
+  const result = await pool.query(
+    `SELECT w.*, latest_run.id AS automation_run_id
+     FROM automation_wakeups w
+     LEFT JOIN LATERAL (
+       SELECT ar.id
+       FROM automation_runs ar
+       WHERE ar.wakeup_id = w.id
+       ORDER BY ar.started_at DESC
+       LIMIT 1
+     ) latest_run ON TRUE
+     WHERE w.status = 'running'
+       AND w.claimed_at <= $1
+       AND NOT EXISTS (
+         SELECT 1
+         FROM automation_runs active_run
+         WHERE active_run.wakeup_id = w.id
+           AND active_run.status IN ('starting', 'running')
+       )
+     ORDER BY w.claimed_at`,
+    [claimedBefore]
+  );
+  return result.rows;
+}
+
+export async function recoverRunningAutomationWakeup(input: {
+  id: string;
+  status: 'queued' | 'failed';
+  contextPatch: JsonObject;
+  claimed_before?: string;
+}): Promise<AutomationWakeup | null> {
+  const result = await pool.query(
+    `UPDATE automation_wakeups
+     SET status = $2,
+         claimed_at = CASE WHEN $2 = 'queued' THEN NULL ELSE claimed_at END,
+         finished_at = CASE WHEN $2 = 'failed' THEN NOW() ELSE NULL END,
+         context_json = context_json || $3::jsonb
+     WHERE id = $1
+       AND status = 'running'
+       AND ($4::timestamptz IS NULL OR claimed_at <= $4)
+     RETURNING *`,
+    [
+      input.id,
+      input.status,
+      JSON.stringify(input.contextPatch),
+      input.claimed_before || null,
+    ]
+  );
+  return result.rows[0] || null;
+}
+
 export async function listFinishedSessionsPendingMemoryIngestion(limit = 10): Promise<Array<{ id: string }>> {
   const result = await pool.query(
     `SELECT s.id
@@ -1293,6 +1573,22 @@ export async function getAutomationRuntimeState(input: {
            = COALESCE($2::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
      LIMIT 1`,
     [input.automation_agent_id, input.repo_id || null]
+  );
+  return result.rows[0] || null;
+}
+
+export async function getActiveAutomationRuntimeForAgent(
+  automationAgentId: string
+): Promise<AutomationRuntimeState | null> {
+  const result = await pool.query(
+    `SELECT *
+     FROM automation_runtime_states
+     WHERE automation_agent_id = $1
+       AND active_session_id IS NOT NULL
+       AND runtime_status = 'attached'
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    [automationAgentId]
   );
   return result.rows[0] || null;
 }
@@ -1447,6 +1743,21 @@ export async function getAutomationRunBySessionId(
   return result.rows[0] || null;
 }
 
+export async function getActiveAutomationRunBySessionId(
+  sessionId: string
+): Promise<AutomationRun | null> {
+  const result = await pool.query(
+    `SELECT *
+     FROM automation_runs
+     WHERE session_id = $1
+       AND status IN ('starting', 'running')
+     ORDER BY started_at DESC
+     LIMIT 1`,
+    [sessionId]
+  );
+  return result.rows[0] || null;
+}
+
 export async function computeAutomationBudgetUsage(
   automationAgentId: string
 ): Promise<{ daily_cents: number; monthly_cents: number }> {
@@ -1556,6 +1867,193 @@ export async function decideGovernanceApproval(
     ]
   );
   return result.rows[0] || null;
+}
+
+export type GovernanceDecisionOutcome = {
+  approval: GovernanceApproval;
+  wakeup: AutomationWakeup | null;
+  run: AutomationRun | null;
+  work_item: WorkItem | null;
+};
+
+function governancePreflightOverride(
+  approvalType: GovernanceApproval['type'],
+  decisionPayload: JsonObject
+): JsonObject {
+  const override: JsonObject = {};
+  const rawBudgetGrace = decisionPayload.budget_grace;
+  if (approvalType === 'budget_override' || rawBudgetGrace !== undefined) {
+    override.budget_grace = typeof rawBudgetGrace === 'number'
+      ? rawBudgetGrace
+      : rawBudgetGrace !== false;
+  }
+  if (typeof decisionPayload.budget_grace_cents === 'number') {
+    override.budget_grace_cents = decisionPayload.budget_grace_cents;
+  }
+  const hostId = typeof decisionPayload.host_id === 'string'
+    ? decisionPayload.host_id
+    : typeof decisionPayload.fixed_host_id === 'string'
+      ? decisionPayload.fixed_host_id
+      : null;
+  if (hostId) override.host_id = hostId;
+  return override;
+}
+
+export async function decideGovernanceApprovalWithOutcome(
+  userId: string,
+  id: string,
+  actorUserId: string,
+  decision: GovernanceApprovalDecisionRequest
+): Promise<GovernanceDecisionOutcome | null> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const selected = await client.query(
+      `SELECT
+         approval.*,
+         run.wakeup_id,
+         run.repo_id AS run_repo_id,
+         wakeup.context_json AS wakeup_context_json,
+         wakeup.repo_id AS wakeup_repo_id,
+         claimed_work_item.id AS claimed_work_item_id
+       FROM governance_approvals AS approval
+       LEFT JOIN automation_runs AS run ON run.id = approval.automation_run_id
+       LEFT JOIN automation_wakeups AS wakeup ON wakeup.id = run.wakeup_id
+       LEFT JOIN LATERAL (
+         SELECT item.id
+         FROM work_items AS item
+         WHERE item.checkout_run_id = run.id
+         ORDER BY item.updated_at DESC
+         LIMIT 1
+       ) AS claimed_work_item ON TRUE
+       WHERE approval.id = $1
+         AND approval.user_id = $2
+         AND approval.status = 'pending'
+       FOR UPDATE OF approval`,
+      [id, userId]
+    );
+    const current = selected.rows[0] as (GovernanceApproval & {
+      wakeup_id?: string | null;
+      run_repo_id?: string | null;
+      wakeup_context_json?: JsonObject | null;
+      wakeup_repo_id?: string | null;
+      claimed_work_item_id?: string | null;
+    }) | undefined;
+    if (!current) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    const status = decision.decision === 'approved' ? 'approved' : 'denied';
+    const decisionPayload = asJson(decision.decision_payload);
+    const updatedApproval = await client.query(
+      `UPDATE governance_approvals
+       SET status = $3,
+           decision_payload = $4,
+           decided_at = NOW(),
+           decided_by_user_id = $5
+       WHERE id = $1 AND user_id = $2 AND status = 'pending'
+       RETURNING *`,
+      [id, userId, status, JSON.stringify(decisionPayload), actorUserId]
+    );
+    const approval = updatedApproval.rows[0] as GovernanceApproval;
+    let wakeup: AutomationWakeup | null = null;
+    let run: AutomationRun | null = null;
+    let workItem: WorkItem | null = null;
+    const originalContext = asJson(current.wakeup_context_json);
+    const workItemId = typeof originalContext.work_item_id === 'string'
+      ? originalContext.work_item_id
+      : current.claimed_work_item_id || null;
+
+    if (decision.decision === 'approved') {
+      const preflightOverride = governancePreflightOverride(current.type, decisionPayload);
+      const resumed = await client.query(
+        `INSERT INTO automation_wakeups (
+           automation_agent_id,
+           repo_id,
+           source,
+           idempotency_key,
+           context_json
+         )
+         VALUES ($1, $2, 'approval_resume', $3, $4)
+         RETURNING *`,
+        [
+          current.automation_agent_id,
+          current.wakeup_repo_id || current.run_repo_id || null,
+          `approval-resume:${current.id}`,
+          JSON.stringify({
+            ...originalContext,
+            ...(workItemId ? { work_item_id: workItemId } : {}),
+            preflight_override: preflightOverride,
+            approval_resume: {
+              approval_id: current.id,
+              approval_type: current.type,
+              original_run_id: current.automation_run_id || null,
+              original_wakeup_id: current.wakeup_id || null,
+              decision_payload: decisionPayload,
+            },
+          }),
+        ]
+      );
+      wakeup = resumed.rows[0] as AutomationWakeup;
+    } else {
+      if (current.automation_run_id) {
+        const cancelledRun = await client.query(
+          `UPDATE automation_runs
+           SET status = 'cancelled',
+               result_summary = 'Governance approval denied',
+               worker_report_json = COALESCE(worker_report_json, '{}'::jsonb)
+                 || jsonb_build_object(
+                   'outcome', 'cancelled',
+                   'summary', 'Governance approval denied',
+                   'governance_approval_id', $2::text
+                 ),
+               ended_at = NOW()
+           WHERE id = $1 AND status = 'blocked'
+           RETURNING *`,
+          [current.automation_run_id, current.id]
+        );
+        run = (cancelledRun.rows[0] as AutomationRun | undefined) || null;
+      }
+      if (current.wakeup_id) {
+        const failedWakeup = await client.query(
+          `UPDATE automation_wakeups
+           SET status = 'failed',
+               context_json = context_json || $2::jsonb,
+               finished_at = NOW()
+           WHERE id = $1 AND status = 'blocked'
+           RETURNING *`,
+          [
+            current.wakeup_id,
+            JSON.stringify({
+              governance_decision: 'denied',
+              governance_approval_id: current.id,
+            }),
+          ]
+        );
+        wakeup = (failedWakeup.rows[0] as AutomationWakeup | undefined) || null;
+      }
+      if (workItemId) {
+        const releasedWorkItem = await client.query(
+          `UPDATE work_items
+           SET status = 'blocked', checkout_run_id = NULL, updated_at = NOW()
+           WHERE id = $1
+             AND (checkout_run_id IS NULL OR checkout_run_id = $2::uuid)
+           RETURNING *`,
+          [workItemId, current.automation_run_id || null]
+        );
+        workItem = (releasedWorkItem.rows[0] as WorkItem | undefined) || null;
+      }
+    }
+
+    await client.query('COMMIT');
+    return { approval, wakeup, run, work_item: workItem };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function createWorkItem(
@@ -1792,6 +2290,118 @@ export async function completeWorkItem(
   return result.rows[0] || null;
 }
 
+export async function listWorkItemsForSession(input: {
+  user_id: string;
+  session_id: string;
+  repo_id?: string | null;
+  query: OrchestratorWorkItemsQuery;
+}): Promise<WorkItem[]> {
+  const result = await pool.query(
+    `SELECT *
+     FROM work_items
+     WHERE user_id = $1
+       AND ($3::text IS NULL OR status = $3)
+       AND (
+         session_id = $2
+         OR (
+           session_id IS NULL
+           AND status IN ('queued', 'blocked')
+           AND ($4::uuid IS NULL OR repo_id = $4 OR repo_id IS NULL)
+         )
+       )
+     ORDER BY
+       CASE WHEN session_id = $2 THEN 0 ELSE 1 END,
+       priority DESC,
+       created_at ASC
+     LIMIT $5`,
+    [
+      input.user_id,
+      input.session_id,
+      input.query.status || null,
+      input.repo_id || null,
+      input.query.limit,
+    ]
+  );
+  return result.rows;
+}
+
+export async function claimWorkItemForSession(input: {
+  user_id: string;
+  session_id: string;
+  repo_id?: string | null;
+  work_item_id?: string;
+}): Promise<WorkItem | null> {
+  if (input.work_item_id) {
+    const existing = await pool.query(
+      `SELECT * FROM work_items
+       WHERE id = $1 AND user_id = $2 AND session_id = $3 AND status = 'in_progress'`,
+      [input.work_item_id, input.user_id, input.session_id]
+    );
+    if (existing.rows[0]) return existing.rows[0];
+  }
+
+  const result = await pool.query(
+    `WITH candidate AS (
+       SELECT id
+       FROM work_items
+       WHERE user_id = $1
+         AND status IN ('queued', 'blocked')
+         AND session_id IS NULL
+         AND ($3::uuid IS NULL OR id = $3)
+         AND ($4::uuid IS NULL OR repo_id = $4 OR repo_id IS NULL)
+       ORDER BY priority DESC, created_at ASC
+       FOR UPDATE SKIP LOCKED
+       LIMIT 1
+     )
+     UPDATE work_items AS item
+     SET status = 'in_progress',
+         session_id = $2,
+         updated_at = NOW()
+     FROM candidate
+     WHERE item.id = candidate.id
+     RETURNING item.*`,
+    [
+      input.user_id,
+      input.session_id,
+      input.work_item_id || null,
+      input.repo_id || null,
+    ]
+  );
+  return result.rows[0] || null;
+}
+
+export async function completeWorkItemForSession(input: {
+  user_id: string;
+  session_id: string;
+  work_item_id: string;
+  status: 'done' | 'blocked' | 'cancelled';
+  result?: JsonObject;
+}): Promise<WorkItem | null> {
+  const result = await pool.query(
+    `UPDATE work_items
+     SET status = $4,
+         checkout_run_id = NULL,
+         payload_json = CASE
+           WHEN $5::jsonb IS NULL THEN payload_json
+           ELSE payload_json || jsonb_build_object('session_result', $5::jsonb)
+         END,
+         updated_at = NOW()
+     WHERE id = $1
+       AND user_id = $2
+       AND session_id = $3
+       AND status IN ('in_progress', 'blocked')
+     RETURNING *`,
+    [
+      input.work_item_id,
+      input.user_id,
+      input.session_id,
+      input.status,
+      input.result ? JSON.stringify(input.result) : null,
+    ]
+  );
+  return result.rows[0] || null;
+}
+
 export async function syncAutomationRunUsageFromSession(
   automationRunId: string,
   sessionId: string
@@ -1914,14 +2524,41 @@ export async function finalizeAutomationRunFromSession(
     : session.status === 'DONE' || session.status === 'WAITING_FOR_INPUT' || session.status === 'IDLE'
       ? 'succeeded'
       : 'cancelled';
-  const finalRun = await updateAutomationRun(automationRun.id, {
-    status: finalStatus,
-    result_summary: session.title || `Session ${session.status}`,
-    ended_at: new Date().toISOString(),
-    usage_json: usageUpdated?.usage_json ? asJson(usageUpdated.usage_json) : undefined,
-  });
+  const heuristicUpdate = await pool.query(
+    `UPDATE automation_runs
+     SET status = $2,
+         result_summary = $3,
+         ended_at = $4,
+         usage_json = CASE
+           WHEN $5::jsonb IS NULL THEN usage_json
+           ELSE $5::jsonb
+         END
+     WHERE id = $1
+       AND status IN ('starting', 'running')
+     RETURNING *`,
+    [
+      automationRun.id,
+      finalStatus,
+      session.title || `Session ${session.status}`,
+      new Date().toISOString(),
+      usageUpdated?.usage_json ? JSON.stringify(asJson(usageUpdated.usage_json)) : null,
+    ]
+  );
+  const finalRun = heuristicUpdate.rows[0] as AutomationRun | undefined;
   if (!finalRun) {
-    throw new Error('Failed to finalize automation run');
+    const current = await pool.query(
+      `SELECT * FROM automation_runs WHERE id = $1`,
+      [automationRun.id]
+    );
+    const alreadyFinalized = current.rows[0] as AutomationRun | undefined;
+    if (!alreadyFinalized) {
+      throw new Error('Failed to finalize automation run');
+    }
+    return {
+      run: alreadyFinalized,
+      ingested: { memory: null, trajectory: null },
+      work_item: null,
+    };
   }
 
   const ingested = await ingestSessionToMemory({
@@ -1972,6 +2609,199 @@ export async function finalizeAutomationRunFromSession(
   );
 
   return { run: finalizedWithArtifacts ?? finalRun, ingested, work_item: completedWorkItem };
+}
+
+export async function finalizeAutomationRunFromReport(
+  automationRun: AutomationRun,
+  report: AutomationRunReportRequest
+): Promise<{
+  run: AutomationRun;
+  ingested: { memory: MemoryEntry | null; trajectory: MemoryTrajectory | null };
+  work_item: WorkItem | null;
+  replayed: boolean;
+}> {
+  if (!automationRun.session_id) {
+    throw new Error('Automation run has no session_id');
+  }
+
+  const finalStatus: AutomationRun['status'] = report.outcome;
+  const initialWorkerReport: JsonObject = {
+    outcome: report.outcome,
+    summary: report.summary,
+    ...(report.detail ? { detail: report.detail } : {}),
+    evidence_refs: report.evidence_refs,
+    suggested_followups: report.suggested_followups,
+    candidate_memory_promotions: report.candidate_memory_promotions,
+    completion_source: 'structured_report',
+    submitted_report: report,
+  };
+  const client = await pool.connect();
+  let finalRun: AutomationRun;
+  let replayed = false;
+  let completedWorkItem: WorkItem | null = null;
+  let workItemId: string | null = null;
+  try {
+    await client.query('BEGIN');
+    const updated = await client.query(
+      `UPDATE automation_runs
+       SET status = $2,
+           result_summary = $3,
+           worker_report_json = $4,
+           ended_at = NOW()
+       WHERE id = $1
+         AND status IN ('starting', 'running')
+       RETURNING *`,
+      [
+        automationRun.id,
+        finalStatus,
+        report.summary,
+        JSON.stringify(initialWorkerReport),
+      ]
+    );
+    const newlyFinalized = updated.rows[0] as AutomationRun | undefined;
+    if (newlyFinalized) {
+      finalRun = newlyFinalized;
+    } else {
+      replayed = true;
+      const current = await client.query(
+        `SELECT * FROM automation_runs WHERE id = $1 FOR UPDATE`,
+        [automationRun.id]
+      );
+      const replayedRun = current.rows[0] as AutomationRun | undefined;
+      const currentReport = asJson(replayedRun?.worker_report_json);
+      if (
+        !replayedRun
+        || replayedRun.status !== finalStatus
+        || replayedRun.result_summary !== report.summary
+        || currentReport.completion_source !== 'structured_report'
+        || !isDeepStrictEqual(currentReport.submitted_report, report)
+      ) {
+        throw new Error('Automation run is not active');
+      }
+      finalRun = replayedRun;
+    }
+
+    const wakeupResult = await client.query(
+      `SELECT context_json
+       FROM automation_wakeups
+       WHERE id = $1
+       FOR UPDATE`,
+      [automationRun.wakeup_id]
+    );
+    const wakeupContext = asJson(wakeupResult.rows[0]?.context_json);
+    workItemId = typeof wakeupContext.work_item_id === 'string'
+      ? wakeupContext.work_item_id
+      : null;
+    if (!workItemId) {
+      const claimed = await client.query(
+        `SELECT id
+         FROM work_items
+         WHERE checkout_run_id = $1
+         ORDER BY updated_at DESC
+         LIMIT 1
+         FOR UPDATE`,
+        [automationRun.id]
+      );
+      workItemId = typeof claimed.rows[0]?.id === 'string' ? claimed.rows[0].id : null;
+    }
+
+    if (workItemId) {
+      const targetWorkItemStatus: WorkItem['status'] = report.outcome === 'succeeded'
+        ? 'done'
+        : 'blocked';
+      const completed = await client.query(
+        `UPDATE work_items
+         SET status = $3,
+             checkout_run_id = NULL,
+             updated_at = NOW()
+         WHERE id = $1
+           AND (
+             checkout_run_id = $2
+             OR (checkout_run_id IS NULL AND status = $3)
+           )
+         RETURNING *`,
+        [workItemId, automationRun.id, targetWorkItemStatus]
+      );
+      completedWorkItem = (completed.rows[0] as WorkItem | undefined) ?? null;
+      if (!completedWorkItem) {
+        throw new Error('Automation run work item checkout is no longer owned by this run');
+      }
+    }
+
+    const wakeupStatus: AutomationWakeup['status'] = report.outcome === 'succeeded'
+      ? 'completed'
+      : report.outcome === 'failed'
+        ? 'failed'
+        : 'blocked';
+    await client.query(
+      `UPDATE automation_wakeups
+       SET status = $2,
+           context_json = COALESCE(context_json, '{}'::jsonb) || $3::jsonb,
+           finished_at = NOW()
+       WHERE id = $1`,
+      [
+        automationRun.wakeup_id,
+        wakeupStatus,
+        JSON.stringify({
+          session_id: automationRun.session_id,
+          completion_source: 'structured_report',
+          reported_outcome: report.outcome,
+          ...(workItemId ? { work_item_id: workItemId } : {}),
+        }),
+      ]
+    );
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  const usageUpdated = await syncAutomationRunUsageFromSession(
+    finalRun.id,
+    automationRun.session_id
+  );
+  if (usageUpdated) finalRun = usageUpdated;
+
+  const ingested = await ingestSessionToMemory({
+    session_id: automationRun.session_id,
+    automation_run_id: automationRun.id,
+    objective: automationRun.objective,
+  });
+
+  const session = await getSessionById(automationRun.session_id);
+  const snapshot = await getLatestSnapshot(automationRun.session_id);
+  const evidenceRefs = [
+    ...report.evidence_refs,
+    { type: 'session', id: automationRun.session_id },
+    { type: 'wakeup', id: automationRun.wakeup_id },
+    ...(workItemId ? [{ type: 'work_item', id: workItemId }] : []),
+  ];
+  const candidateMemoryPromotions = [
+    ...report.candidate_memory_promotions,
+    ...(ingested.memory ? [{
+      memory_id: ingested.memory.id,
+      tier: ingested.memory.tier,
+      confidence: ingested.memory.confidence,
+    }] : []),
+  ];
+  const finalizedWithArtifacts = await updateAutomationRun(finalRun.id, {
+    worker_report_json: {
+      ...initialWorkerReport,
+      evidence_refs: evidenceRefs,
+      candidate_memory_promotions: candidateMemoryPromotions,
+    },
+    log_ref_json: buildLogRefs({ run: finalRun, session, snapshot }),
+  });
+  if (finalizedWithArtifacts) finalRun = finalizedWithArtifacts;
+
+  return {
+    run: finalRun,
+    ingested,
+    work_item: completedWorkItem,
+    replayed,
+  };
 }
 
 export async function describeRepo(repoId?: string | null): Promise<Repo | null> {

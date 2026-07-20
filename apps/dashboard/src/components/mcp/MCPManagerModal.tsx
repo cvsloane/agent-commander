@@ -132,7 +132,7 @@ export function MCPManagerModal({ isOpen, onClose, sessionId, repoRoot }: MCPMan
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-background border rounded-lg shadow-lg w-full max-w-2xl max-h-[80vh] overflow-hidden">
+      <div className="max-h-[80dvh] w-full max-w-2xl overflow-hidden rounded-lg border bg-background shadow-lg">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <div className="flex items-center gap-2">
@@ -178,7 +178,7 @@ export function MCPManagerModal({ isOpen, onClose, sessionId, repoRoot }: MCPMan
         </div>
 
         {/* Content */}
-        <div className="overflow-y-auto p-4" style={{ maxHeight: 'calc(80vh - 180px)' }}>
+        <div className="max-h-[calc(80dvh-180px)] overflow-y-auto p-4">
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>

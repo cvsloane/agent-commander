@@ -1,0 +1,1 @@
+{"v":1,"type":"commands.dispatch","ts":"2026-07-19T20:01:08Z","payload":{"cmd_id":"cmd-spawn-job","session_id":"44444444-4444-4444-8444-444444444444","command":{"type":"spawn_job","payload":{"provider":"codex","cwd":"/home/cvsloane/dev/agent-command","prompt":"Run the gate","env":{"CI":"true"}}}}}

@@ -4,6 +4,7 @@ export const ProjectSchema = z.object({
   id: z.string().uuid(),
   user_id: z.string().uuid(),
   host_id: z.string().uuid(),
+  repo_id: z.string().uuid().nullable().optional(),
   path: z.string(),
   display_name: z.string().nullable().optional(),
   description: z.string().nullable().optional(),

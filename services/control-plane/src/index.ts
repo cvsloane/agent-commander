@@ -1,5 +1,4 @@
 import Fastify from 'fastify';
-import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import { config } from './config.js';
 import * as db from './db/index.js';
@@ -15,6 +14,8 @@ import { registerAnalyticsRoutes } from './routes/analytics.js';
 import { registerLinkRoutes } from './routes/links.js';
 import { registerContextRoutes } from './routes/context.js';
 import { registerTerminalRoutes } from './routes/terminal.js';
+import { registerTmuxRoutes } from './routes/tmux.js';
+import { registerLaunchRoutes } from './routes/launch.js';
 import { registerVoiceRoutes } from './routes/voice.js';
 import { registerProjectRoutes } from './routes/projects.js';
 import { registerRepoRoutes } from './routes/repos.js';
@@ -27,9 +28,16 @@ import { registerAutomationRoutes } from './routes/automation.js';
 import { registerIntegrationRoutes } from './routes/integrations.js';
 import { registerGovernanceApprovalRoutes } from './routes/governanceApprovals.js';
 import { registerWorkItemRoutes } from './routes/workItems.js';
+import { registerOrchestratorRoutes } from './routes/orchestrator.js';
+import { registerPushSubscriptionRoutes } from './routes/pushSubscriptions.js';
+import { registerAuthRoutes } from './routes/auth.js';
+import { registerAuditRoutes } from './routes/audit.js';
 import { pubsub } from './services/pubsub.js';
 import { startAutomationService } from './services/automation.js';
 import { verifyRequestToken } from './auth/verify.js';
+import { commandRouter } from './services/commandRouter.js';
+import { registerHttpSecurity } from './security/httpSecurity.js';
+import { startDataMaintenanceService } from './services/dataMaintenance.js';
 
 const app = Fastify({
   logger: {
@@ -49,6 +57,13 @@ const userCache = new Map<
   { email?: string; name?: string; role?: string }
 >();
 
+function isSessionTokenRoute(url: string): boolean {
+  const path = url.split('?', 1)[0] || url;
+  return path === '/v1/orchestrator'
+    || path.startsWith('/v1/orchestrator/')
+    || /^\/v1\/automation-runs\/[0-9a-f-]+\/report$/i.test(path);
+}
+
 async function start(): Promise<void> {
   db.setPoolErrorReporter((error) => {
     app.log.error({ error }, 'Unexpected idle Postgres client error');
@@ -63,11 +78,10 @@ async function start(): Promise<void> {
   app.log.info('Database connected');
 
   // Register plugins
-  await app.register(cors, {
-    origin: true,
-    credentials: true,
-    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Authorization', 'Content-Type'],
+  await registerHttpSecurity(app, {
+    appBaseUrl: config.APP_BASE_URL,
+    rateLimitMax: config.RATE_LIMIT_MAX,
+    rateLimitTimeWindowMs: config.RATE_LIMIT_WINDOW_MS,
   });
 
   await app.register(websocket);
@@ -83,14 +97,19 @@ async function start(): Promise<void> {
     if (!user) {
       return reply.status(401).send({ error: 'Unauthorized' });
     }
-    const cached = userCache.get(user.id);
-    const next = { email: user.email, name: user.name, role: user.role };
-    if (!cached || cached.email !== next.email || cached.name !== next.name || cached.role !== next.role) {
-      try {
-        await db.upsertUser({ id: user.id, ...next });
-        userCache.set(user.id, next);
-      } catch (error) {
-        app.log.warn({ error, userId: user.id }, 'Failed to upsert user');
+    if (user.auth_type === 'session' && !isSessionTokenRoute(url)) {
+      return reply.status(403).send({ error: 'Session token is not valid for this route' });
+    }
+    if (user.auth_type !== 'session') {
+      const cached = userCache.get(user.id);
+      const next = { email: user.email, name: user.name, role: user.role };
+      if (!cached || cached.email !== next.email || cached.name !== next.name || cached.role !== next.role) {
+        try {
+          await db.upsertUser({ id: user.id, ...next });
+          userCache.set(user.id, next);
+        } catch (error) {
+          app.log.warn({ error, userId: user.id }, 'Failed to upsert user');
+        }
       }
     }
     request.user = user;
@@ -111,6 +130,8 @@ async function start(): Promise<void> {
   registerLinkRoutes(app);
   registerContextRoutes(app);
   registerTerminalRoutes(app);
+  registerTmuxRoutes(app);
+  registerLaunchRoutes(app);
   registerVoiceRoutes(app);
   registerProjectRoutes(app);
   registerRepoRoutes(app);
@@ -123,9 +144,13 @@ async function start(): Promise<void> {
   registerIntegrationRoutes(app);
   registerGovernanceApprovalRoutes(app);
   registerWorkItemRoutes(app);
+  registerOrchestratorRoutes(app);
+  registerPushSubscriptionRoutes(app);
+  registerAuthRoutes(app);
+  registerAuditRoutes(app);
 
   // Health check endpoint
-  app.get('/health', async () => {
+  app.get('/health', { config: { rateLimit: false } }, async () => {
     const stats = pubsub.getStats();
     return {
       status: 'ok',
@@ -139,6 +164,19 @@ async function start(): Promise<void> {
     await app.listen({ host: config.HOST, port: config.PORT });
     app.log.info(`Control plane listening on ${config.HOST}:${config.PORT}`);
     automationService = startAutomationService(app.log);
+    dataMaintenanceService = startDataMaintenanceService({
+      logger: app.log,
+      retentionDays: config.DATA_RETENTION_DAYS,
+      retentionSweepIntervalMs: config.DATA_RETENTION_SWEEP_INTERVAL_MS,
+      approvalTimeoutMs: config.APPROVAL_TIMEOUT_MS,
+      approvalSweepIntervalMs: config.APPROVAL_SWEEP_INTERVAL_MS,
+    });
+    commandOutboxSweepTimer = setInterval(() => {
+      void commandRouter.maintain().catch((error) => {
+        app.log.error({ error }, 'Failed to maintain command outbox rows');
+      });
+    }, 60_000);
+    commandOutboxSweepTimer.unref?.();
   } catch (error) {
     app.log.error(error);
     process.exit(1);
@@ -146,11 +184,15 @@ async function start(): Promise<void> {
 }
 
 let automationService: { stop: () => void } | null = null;
+let dataMaintenanceService: { stop: () => Promise<void> } | null = null;
+let commandOutboxSweepTimer: NodeJS.Timeout | null = null;
 
 // Graceful shutdown
 const shutdown = async (): Promise<void> => {
   app.log.info('Shutting down...');
   automationService?.stop();
+  await dataMaintenanceService?.stop();
+  if (commandOutboxSweepTimer) clearInterval(commandOutboxSweepTimer);
   await app.close();
   process.exit(0);
 };

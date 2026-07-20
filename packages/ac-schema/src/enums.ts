@@ -1,8 +1,14 @@
 import { z } from 'zod';
 
 // Session Kind - what type of session this is
-export const SessionKindSchema = z.enum(['tmux_pane', 'job', 'service']);
+// No current producer emits the unused legacy `service` session kind.
+export const SessionKindSchema = z.enum(['tmux_pane', 'job']);
 export type SessionKind = z.infer<typeof SessionKindSchema>;
+
+// Read compatibility for installations where migration 038 correctly leaves
+// the label in place because historical service rows still exist.
+export const PersistedSessionKindSchema = z.enum(['tmux_pane', 'job', 'service']);
+export type PersistedSessionKind = z.infer<typeof PersistedSessionKindSchema>;
 
 // Session Provider - what AI/tool is running
 export const SessionProviderSchema = z.enum([
@@ -59,16 +65,24 @@ export type CommandType = z.infer<typeof CommandTypeSchema>;
 
 // Event Types
 export const EventTypeSchema = z.enum([
-  'session.created',
-  'session.updated',
-  'session.deleted',
   'approval.requested',
   'approval.decided',
-  'command.dispatched',
   'command.completed',
   'claude.hook',
+  'claude.event',
+  'codex.hook',
   'codex.event',
-  'console.chunk',
-  'error',
+  'workshop.pre_tool_use',
+  'workshop.post_tool_use',
+  'workshop.user_prompt_submit',
+  'workshop.stop',
+  'workshop.notification',
+  'workshop.session_start',
+  'workshop.session_end',
+  'workshop.subagent_start',
+  'workshop.subagent_stop',
+  'workshop.pre_compact',
+  'orchestrator.report',
+  'terminal.audit',
 ]);
 export type EventType = z.infer<typeof EventTypeSchema>;

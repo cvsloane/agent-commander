@@ -1,0 +1,39 @@
+{
+  "v": 1,
+  "type": "sessions.upsert",
+  "ts": "2026-05-19T18:00:01.000Z",
+  "seq": 2,
+  "payload": {
+    "sessions": [
+      {
+        "id": "22222222-2222-4222-8222-222222222222",
+        "host_id": "11111111-1111-4111-8111-111111111111",
+        "kind": "tmux_pane",
+        "provider": "codex",
+        "status": "RUNNING",
+        "title": "Codex implementation",
+        "cwd": "/home/cvsloane/dev/agent-command",
+        "repo_root": "/home/cvsloane/dev/agent-command",
+        "git_branch": "refactor/tmux-command-center",
+        "git_remote": "git@github.com:cvsloane/agent-commander.git",
+        "tmux_pane_id": "%1",
+        "tmux_target": "agents:0.0",
+        "metadata": {
+          "tmux": {
+            "session_name": "agents",
+            "window_name": "agent-command",
+            "window_index": 0,
+            "pane_index": 0
+          },
+          "git_status": {
+            "branch": "refactor/tmux-command-center",
+            "staged": 1,
+            "unstaged": 0,
+            "untracked": 0
+          }
+        },
+        "last_activity_at": "2026-05-19T18:00:00.000Z"
+      }
+    ]
+  }
+}

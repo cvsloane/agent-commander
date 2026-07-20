@@ -12,6 +12,8 @@ It is built for the normal workflow of keeping several tmux windows open across 
 - Repo, branch, provider, cwd, and activity context for each pane
 - An inline workbench for the selected pane
 
+The dashboard loads this surface through `GET /v1/tmux/roster`, which returns active, unarchived tmux pane sessions without snapshot payloads. The broader `/v1/sessions` list remains available for inventory views that need snapshots or mixed session kinds.
+
 ## Why it exists
 
 The original sessions and orchestrator pages are useful operator views, but they mix together several concepts:
@@ -45,7 +47,14 @@ The original sessions and orchestrator pages are useful operator views, but they
 - It does not introduce a second tmux backend model.
 - It does not replace `/sessions`; it simplifies the common workflow.
 - It shows unmanaged panes automatically when they are already present in the session registry.
+- Terminal attach/control requires an operator-capable user and a host with terminal capability enabled.
+- Multiple browser viewers can attach to the same pane; control/read-only state is handled per terminal channel.
+
+## Mobile launch
+
+The mobile launch backend is documented in [Mobile Launch](mobile-launch.md).
+It returns a direct `/tmux?...&mode=terminal&attach=1` URL so the phone workflow can start in a compact launch surface and land back in the tmux manager once the pane is ready.
 
 ## Current scope
 
-The tmux manager is intentionally read/write for pane work, not a full tmux administration surface. It does not yet add tmux-native rename/split/move controls beyond the session actions Agent Commander already supports.
+The tmux manager is intentionally read/write for pane work, not a full tmux administration surface. The mobile terminal includes tmux-native shortcut keys for prefix, window navigation, pane navigation, splits, zoom, and copy mode, but broader tmux administration such as rename or move remains outside this first pass.

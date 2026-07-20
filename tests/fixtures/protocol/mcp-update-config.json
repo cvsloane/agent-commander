@@ -1,0 +1,1 @@
+{"v":1,"type":"mcp.update_config","ts":"2026-07-19T20:00:13Z","payload":{"cmd_id":"01JMCP000000000000000000003","session_id":"22222222-2222-4222-8222-222222222222","enablement":{"github":{"enabled":true,"scope":"session"}}}}

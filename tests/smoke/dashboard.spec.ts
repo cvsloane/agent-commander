@@ -3,6 +3,287 @@ import { expect, test, type Page, type Route } from '@playwright/test';
 const accessCode = process.env.PLAYWRIGHT_ACCESS_CODE || 'playwright-access';
 
 const emptySessionResponse = { sessions: [], total: 0, limit: 200, offset: 0 };
+const tmuxHost = {
+  id: '11111111-1111-4111-8111-111111111111',
+  name: 'heavisidelinux',
+  tailscale_name: 'heavisidelinux',
+  tailscale_ip: '100.64.0.10',
+  capabilities: {
+    tmux: true,
+    spawn: true,
+    kill: true,
+    console_stream: true,
+    terminal: true,
+    claude_hooks: true,
+    codex_exec_json: true,
+    list_directory: true,
+    list_directory_roots: ['/home/cvsloane/dev'],
+    list_directory_show_hidden: false,
+    providers: { claude_code: true, codex: true, shell: true },
+  },
+  agent_version: 'test',
+  last_seen_at: new Date().toISOString(),
+  last_acked_seq: 10,
+  created_at: '2026-05-19T17:00:00.000Z',
+  updated_at: '2026-05-19T18:00:00.000Z',
+};
+
+const secondTmuxHost = {
+  ...tmuxHost,
+  id: '12121212-1212-4121-8121-121212121212',
+  name: 'homelinux',
+  tailscale_name: 'homelinux',
+  tailscale_ip: '100.64.0.11',
+};
+
+const tmuxSessions = [
+  {
+    id: '22222222-2222-4222-8222-222222222222',
+    host_id: tmuxHost.id,
+    user_id: null,
+    repo_id: null,
+    kind: 'tmux_pane',
+    provider: 'codex',
+    status: 'RUNNING',
+    title: 'Codex implementation',
+    cwd: '/home/cvsloane/dev/agent-command',
+    repo_root: '/home/cvsloane/dev/agent-command',
+    git_remote: 'git@github.com:cvsloane/agent-commander.git',
+    git_branch: 'refactor/tmux-command-center',
+    tmux_pane_id: '%1',
+    tmux_target: 'agents:0.0',
+    metadata: {
+      tmux: {
+        session_name: 'agents',
+        window_name: 'agent-command',
+        window_index: 0,
+        pane_index: 0,
+      },
+    },
+    created_at: '2026-05-19T17:00:00.000Z',
+    updated_at: '2026-05-19T18:00:00.000Z',
+    last_activity_at: '2026-05-19T18:00:00.000Z',
+    idled_at: null,
+    group_id: null,
+    forked_from: null,
+    fork_depth: 0,
+    archived_at: null,
+    latest_snapshot: {
+      created_at: '2026-05-19T18:00:00.000Z',
+      capture_text: 'pnpm test:ci',
+    },
+  },
+  {
+    id: '33333333-3333-4333-8333-333333333333',
+    host_id: tmuxHost.id,
+    user_id: null,
+    repo_id: null,
+    kind: 'tmux_pane',
+    provider: 'claude_code',
+    status: 'WAITING_FOR_INPUT',
+    title: 'Mobile UX review',
+    cwd: '/home/cvsloane/dev/agent-command',
+    repo_root: '/home/cvsloane/dev/agent-command',
+    git_remote: 'git@github.com:cvsloane/agent-commander.git',
+    git_branch: 'mobile-tmux',
+    tmux_pane_id: '%2',
+    tmux_target: 'agents:0.1',
+    metadata: {
+      tmux: {
+        session_name: 'agents',
+        window_name: 'agent-command',
+        window_index: 0,
+        pane_index: 1,
+      },
+    },
+    created_at: '2026-05-19T17:05:00.000Z',
+    updated_at: '2026-05-19T17:55:00.000Z',
+    last_activity_at: '2026-05-19T17:55:00.000Z',
+    idled_at: null,
+    group_id: null,
+    forked_from: null,
+    fork_depth: 0,
+    archived_at: null,
+    latest_snapshot: {
+      created_at: '2026-05-19T17:55:00.000Z',
+      capture_text: 'Need input',
+    },
+  },
+  {
+    id: '44444444-4444-4444-8444-444444444444',
+    host_id: tmuxHost.id,
+    user_id: null,
+    repo_id: null,
+    kind: 'tmux_pane',
+    provider: 'shell',
+    status: 'IDLE',
+    title: 'Deploy logs',
+    cwd: '/home/cvsloane/dev/heaviside',
+    repo_root: '/home/cvsloane/dev/heaviside',
+    git_remote: null,
+    git_branch: 'main',
+    tmux_pane_id: '%3',
+    tmux_target: 'ops:2.0',
+    metadata: {
+      unmanaged: true,
+      tmux: {
+        session_name: 'ops',
+        window_name: 'deploy',
+        window_index: 2,
+        pane_index: 0,
+      },
+    },
+    created_at: '2026-05-19T16:00:00.000Z',
+    updated_at: '2026-05-19T17:00:00.000Z',
+    last_activity_at: '2026-05-19T17:00:00.000Z',
+    idled_at: '2026-05-19T17:00:00.000Z',
+    group_id: null,
+    forked_from: null,
+    fork_depth: 0,
+    archived_at: null,
+    latest_snapshot: {
+      created_at: '2026-05-19T17:00:00.000Z',
+      capture_text: 'tail -f logs',
+    },
+  },
+];
+
+const orchestratorSessions = [
+  {
+    ...tmuxSessions[0],
+    id: '77777777-7777-4777-8777-777777777777',
+    role: 'orchestrator',
+    title: 'Release orchestrator',
+    status: 'WAITING_FOR_APPROVAL',
+    tmux_pane_id: '%7',
+    tmux_target: 'orchestrators:0.0',
+    metadata: {
+      tmux: {
+        session_name: 'orchestrators',
+        window_name: 'release-lead',
+        window_index: 0,
+        pane_index: 0,
+      },
+    },
+    latest_snapshot: {
+      created_at: '2026-05-19T18:00:00.000Z',
+      capture_text: 'Approve the production verification command?',
+    },
+  },
+  {
+    ...tmuxSessions[1],
+    id: '88888888-8888-4888-8888-888888888888',
+    role: 'worker',
+    title: 'Verification worker',
+    status: 'RUNNING',
+    tmux_pane_id: '%8',
+    tmux_target: 'workers:4.0',
+    metadata: {
+      tmux: {
+        session_name: 'workers',
+        window_name: 'verification',
+        window_index: 4,
+        pane_index: 0,
+      },
+    },
+  },
+];
+
+const remoteTmuxSession = {
+  ...tmuxSessions[2],
+  id: '13131313-1313-4131-8131-131313131313',
+  host_id: secondTmuxHost.id,
+  title: 'Remote deploy watch',
+  status: 'WAITING_FOR_INPUT',
+  tmux_pane_id: '%13',
+  tmux_target: 'remote:0.0',
+  metadata: {
+    tmux: {
+      session_name: 'remote',
+      window_name: 'deploy-watch',
+      window_index: 0,
+      pane_index: 0,
+    },
+  },
+};
+
+const pendingApproval = {
+  id: '99999999-9999-4999-8999-999999999999',
+  session_id: orchestratorSessions[0].id,
+  provider: 'codex',
+  ts_requested: '2026-05-19T18:00:00.000Z',
+  requested_payload: {
+    reason: 'Run production verification?',
+    command: 'pnpm test:smoke:dashboard',
+  },
+  decision: null,
+  ts_decided: null,
+};
+
+const structuredRun = {
+  id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  automation_agent_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  wakeup_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+  repo_id: null,
+  session_id: orchestratorSessions[0].id,
+  status: 'succeeded',
+  objective: 'Verify the release',
+  memory_snapshot_json: {},
+  pending_followups_json: [],
+  result_summary: 'Release checks passed.',
+  usage_json: { estimated_cost_cents: 42 },
+  worker_report_json: {
+    summary: 'All release checks passed on both machines.',
+    evidence_refs: [],
+    suggested_followups: [],
+    candidate_memory_promotions: [],
+  },
+  log_ref_json: {},
+  started_at: '2026-05-19T17:30:00.000Z',
+  ended_at: '2026-05-19T17:45:00.000Z',
+};
+
+const automationAgent = {
+  id: structuredRun.automation_agent_id,
+  user_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+  role: 'orchestrator',
+  name: 'Release automation',
+  slug: 'release-automation',
+  status: 'active',
+  reports_to_automation_agent_id: null,
+  provider: 'codex',
+  default_cwd: '/home/cvsloane/dev/agent-command',
+  fixed_host_id: tmuxHost.id,
+  wake_policy_json: { interval_minutes: 60, scheduler_mode: 'native' },
+  memory_policy_json: {},
+  budget_policy_json: { daily_limit_cents: 1000, warn_percent: 80 },
+  worker_pool_json: {},
+  max_parallel_runs: 1,
+  runtime_state: {
+    id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+    automation_agent_id: structuredRun.automation_agent_id,
+    repo_id: null,
+    active_session_id: orchestratorSessions[0].id,
+    active_host_id: tmuxHost.id,
+    last_session_id: orchestratorSessions[0].id,
+    last_run_id: structuredRun.id,
+    runtime_status: 'attached',
+    state_json: {},
+    usage_rollup_json: structuredRun.usage_json,
+  },
+  preflight: { status: 'ok', issues: [] },
+};
+
+function sessionDetail(id: string): unknown {
+  const session = [...tmuxSessions, ...orchestratorSessions].find((candidate) => candidate.id === id);
+  if (!session) return {};
+  return {
+    session,
+    snapshot: session.latest_snapshot,
+    events: [],
+    approvals: [],
+  };
+}
 
 function apiBody(pathname: string): unknown {
   if (pathname === '/health') {
@@ -14,15 +295,139 @@ function apiBody(pathname: string): unknown {
   }
   if (pathname === '/v1/sessions/total') return { total: 0 };
   if (pathname === '/v1/sessions/usage-latest') return { usage: [] };
-  if (pathname === '/v1/sessions') return emptySessionResponse;
+  if (pathname === '/v1/sessions') {
+    return {
+      sessions: [...tmuxSessions, ...orchestratorSessions],
+      total: tmuxSessions.length + orchestratorSessions.length,
+      limit: 200,
+      offset: 0,
+    };
+  }
+  if (pathname === '/v1/tmux/roster') {
+    return {
+      sessions: tmuxSessions,
+      total: tmuxSessions.length,
+    };
+  }
+  if (pathname === '/v1/launch/targets') {
+    return {
+      targets: [
+        {
+          host_id: tmuxHost.id,
+          alias: 'heavisidelinux',
+          display_name: 'heavisidelinux',
+          online: true,
+          supports_terminal: true,
+          supports_spawn: true,
+          supports_directory_listing: true,
+          providers: { codex: true, claude_code: true },
+          roots: ['/home/cvsloane/dev'],
+          recent_projects: [
+            {
+              id: '55555555-5555-4555-8555-555555555555',
+              path: '/home/cvsloane/dev/agent-command',
+              display_name: 'agent-command',
+              last_used_at: '2026-05-19T18:00:00.000Z',
+            },
+          ],
+          recent_tmux: tmuxSessions.slice(0, 2).map((session) => ({
+            session_id: session.id,
+            title: session.title,
+            tmux_target: session.tmux_target,
+            pane_id: session.tmux_pane_id,
+            cwd: session.cwd,
+            provider: session.provider,
+            status: session.status,
+          })),
+          recent_launches: [
+            {
+              id: '66666666-6666-4666-8666-666666666666',
+              host_id: tmuxHost.id,
+              provider: 'codex',
+              working_directory: '/home/cvsloane/dev/agent-command',
+              tmux_target: 'agents',
+              title: 'Codex in agent-command',
+              launch_count: 2,
+              last_launched_at: '2026-05-19T18:00:00.000Z',
+            },
+          ],
+        },
+      ],
+    };
+  }
+  if (/^\/v1\/sessions\/[^/]+\/analytics$/.test(pathname)) {
+    const [, , , id] = pathname.split('/');
+    return {
+      session_id: id,
+      tokens_in: 0,
+      tokens_out: 0,
+      tokens_cache_read: 0,
+      tokens_cache_write: 0,
+      tool_calls: 0,
+      approvals_requested: 0,
+      approvals_granted: 0,
+      approvals_denied: 0,
+      first_event_at: null,
+      last_event_at: null,
+      estimated_cost_cents: 0,
+    };
+  }
+  if (/^\/v1\/sessions\/[^/]+\/analytics\/timeseries$/.test(pathname)) {
+    return { data: [] };
+  }
+  if (/^\/v1\/sessions\/[^/]+\/events$/.test(pathname)) return { events: [] };
+  if (/^\/v1\/sessions\/[^/]+\/tool-events$/.test(pathname)) return { events: [] };
+  if (/^\/v1\/sessions\/[^/]+\/tool-stats$/.test(pathname)) return { stats: [] };
+  if (/^\/v1\/sessions\/[^/]+\/graph$/.test(pathname)) {
+    const [, , , id] = pathname.split('/');
+    return {
+      session_id: id,
+      edges: id === orchestratorSessions[0].id ? [
+        {
+          parent_session_id: orchestratorSessions[0].id,
+          child_session_id: orchestratorSessions[1].id,
+          edge_type: 'orchestrates',
+          created_at: '2026-05-19T17:00:00.000Z',
+        },
+      ] : [],
+      rollup: {
+        session_id: id,
+        child_sessions: { total: id === orchestratorSessions[0].id ? 1 : 0, by_status: { RUNNING: 1 } },
+        agent_tasks: { total: 1, running: 1, completed: 0, failed: 0 },
+      },
+    };
+  }
+  if (/^\/v1\/sessions\/[^/]+\/agent-tasks$/.test(pathname)) {
+    const [, , , id] = pathname.split('/');
+    return {
+      session_id: id,
+      agent_tasks: id === orchestratorSessions[0].id ? [
+        {
+          id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+          session_id: id,
+          tool_use_id: 'task-smoke',
+          description: 'Audit mobile release flow',
+          status: 'running',
+          started_at: '2026-05-19T17:50:00.000Z',
+          ended_at: null,
+          metadata: {},
+        },
+      ] : [],
+    };
+  }
+  if (pathname.startsWith('/v1/sessions/')) {
+    const [, , , id] = pathname.split('/');
+    return sessionDetail(id || '');
+  }
   if (pathname === '/v1/groups') return { groups: [], flat: [] };
-  if (pathname === '/v1/hosts') return { hosts: [] };
+  if (pathname === '/v1/hosts') return { hosts: [tmuxHost, secondTmuxHost] };
   if (pathname === '/v1/projects') return { projects: [] };
   if (pathname === '/v1/repos') return { repos: [] };
   if (pathname === '/v1/settings') return { settings: null };
-  if (pathname === '/v1/approvals') return { approvals: [] };
-  if (pathname === '/v1/automation-agents') return { agents: [] };
-  if (pathname === '/v1/automation-runs') return { runs: [] };
+  if (pathname === '/v1/approvals') return { approvals: [pendingApproval] };
+  if (pathname === '/v1/automation-agents') return { agents: [automationAgent] };
+  if (pathname === '/v1/automation-runs') return { runs: [structuredRun] };
+  if (/^\/v1\/automation-runs\/[^/]+\/events$/.test(pathname)) return { events: [] };
   if (pathname === '/v1/automation-wakeups') return { wakeups: [] };
   if (pathname === '/v1/governance-approvals') return { approvals: [] };
   if (pathname === '/v1/work-items') return { work_items: [] };
@@ -37,7 +442,7 @@ function apiBody(pathname: string): unknown {
       by_provider: {},
     };
   }
-  return {};
+  return undefined;
 }
 
 async function fulfillJson(route: Route, body: unknown): Promise<void> {
@@ -49,6 +454,10 @@ async function fulfillJson(route: Route, body: unknown): Promise<void> {
 }
 
 async function mockControlPlane(page: Page): Promise<void> {
+  await page.routeWebSocket(/\/v1\/ui\/stream\?ticket=/, () => {
+    // Keep the mocked event stream open; REST fixtures drive these smoke tests.
+  });
+
   await page.route('**/api/control-plane-token', async (route) => {
     await fulfillJson(route, {
       token: 'dashboard-smoke-token',
@@ -58,7 +467,122 @@ async function mockControlPlane(page: Page): Promise<void> {
 
   await page.route('**/{v1,health}{,/**}', async (route) => {
     const url = new URL(route.request().url());
-    await fulfillJson(route, apiBody(url.pathname));
+    if (route.request().method() === 'POST' && url.pathname === '/v1/auth/ws-ticket') {
+      await fulfillJson(route, {
+        ticket: 'dashboard-smoke-ws-ticket',
+        expires_at: new Date(Date.now() + 30_000).toISOString(),
+      });
+      return;
+    }
+    if (route.request().method() === 'GET' && url.pathname === '/v1/tmux/roster') {
+      const sessions = url.searchParams.get('host_id') === secondTmuxHost.id
+        ? [remoteTmuxSession]
+        : tmuxSessions;
+      await fulfillJson(route, { sessions, total: sessions.length });
+      return;
+    }
+    if (route.request().method() === 'POST' && url.pathname === '/v1/launch') {
+      await fulfillJson(route, {
+        session_id: tmuxSessions[0].id,
+        cmd_id: '01JLAUNCHSMOKE0000000000000',
+        status: 'ready',
+        href: `/tmux?host_id=${tmuxHost.id}&session_id=${tmuxSessions[0].id}&mode=terminal&attach=1`,
+        session: tmuxSessions[0],
+        terminal: {
+          openable: true,
+          pane_id: tmuxSessions[0].tmux_pane_id,
+        },
+      });
+      return;
+    }
+    if (route.request().method() === 'POST' && url.pathname === '/v1/tmux/open') {
+      await fulfillJson(route, {
+        session_id: tmuxSessions[1].id,
+        href: `/tmux?host_id=${tmuxHost.id}&session_id=${tmuxSessions[1].id}&mode=terminal&attach=1`,
+        session: tmuxSessions[1],
+        adopted: false,
+        terminal: {
+          openable: true,
+          pane_id: tmuxSessions[1].tmux_pane_id,
+        },
+      });
+      return;
+    }
+    if (
+      route.request().method() === 'POST'
+      && /^\/v1\/sessions\/[^/]+\/commands$/.test(url.pathname)
+    ) {
+      await fulfillJson(route, { cmd_id: '01JCOMMANDSMOKE000000000000' });
+      return;
+    }
+    if (
+      route.request().method() === 'POST'
+      && /^\/v1\/approvals\/[^/]+\/decide$/.test(url.pathname)
+    ) {
+      await fulfillJson(route, { approval: { ...pendingApproval, status: 'decided' } });
+      return;
+    }
+    if (
+      route.request().method() === 'POST'
+      && /^\/v1\/automation-agents\/[^/]+\/message$/.test(url.pathname)
+    ) {
+      await fulfillJson(route, {
+        automation_agent_id: automationAgent.id,
+        session_id: automationAgent.runtime_state?.active_session_id,
+        cmd_id: '01JNUDGESMOKE00000000000000',
+      });
+      return;
+    }
+    if (
+      route.request().method() === 'POST'
+      && /^\/v1\/automation-agents\/[^/]+\/wake$/.test(url.pathname)
+    ) {
+      await fulfillJson(route, { wakeup: { id: 'mock-wakeup', status: 'queued' } });
+      return;
+    }
+    if (route.request().method() === 'POST' && url.pathname === '/v1/automation-agents') {
+      await fulfillJson(route, { agent: automationAgent });
+      return;
+    }
+    if (
+      route.request().method() === 'PATCH'
+      && /^\/v1\/automation-agents\/[^/]+$/.test(url.pathname)
+    ) {
+      await fulfillJson(route, { agent: automationAgent });
+      return;
+    }
+    if (
+      route.request().method() === 'POST'
+      && /^\/v1\/governance-approvals\/[^/]+\/decide$/.test(url.pathname)
+    ) {
+      await fulfillJson(route, { approval: { id: 'mock-governance-approval', status: 'approved' } });
+      return;
+    }
+    if (route.request().method() === 'POST' && url.pathname === '/v1/work-items') {
+      await fulfillJson(route, { work_item: { id: 'mock-work-item', status: 'queued' } });
+      return;
+    }
+    if (
+      route.request().method() === 'PATCH'
+      && /^\/v1\/work-items\/[^/]+$/.test(url.pathname)
+    ) {
+      await fulfillJson(route, { work_item: { id: 'mock-work-item', status: 'done' } });
+      return;
+    }
+    if (route.request().method() === 'GET') {
+      const body = apiBody(url.pathname);
+      if (body !== undefined) {
+        await fulfillJson(route, body);
+        return;
+      }
+    }
+    await route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: `Unhandled smoke API request: ${route.request().method()} ${url.pathname}`,
+      }),
+    });
   });
 }
 
@@ -100,4 +624,246 @@ test('renders key operator pages with mocked control-plane data', async ({ page 
     await page.goto(path);
     await expect(page.locator('body')).toContainText(text);
   }
+});
+
+test('renders tmux roster with windows and panes, supports selection and filtering', async ({ page }) => {
+  await signIn(page);
+
+  await page.goto('/tmux');
+
+  await expect(page.getByRole('heading', { name: 'tmux', exact: true })).toBeVisible();
+  await expect(page.getByText('2 sessions · 3 panes')).toBeVisible();
+  await expect(page.getByText('agents')).toBeVisible();
+  await expect(page.getByText('ops')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Waiting', exact: true })).toBeVisible();
+
+  await page.getByText('agents').click();
+  await expect(page.getByText('0 · agent-command')).toBeVisible();
+  await expect(page.getByText('Codex implementation')).toBeVisible();
+  await expect(page.getByText('Mobile UX review')).toBeVisible();
+
+  await page.getByText('Mobile UX review').click();
+  await expect(page).toHaveURL(/session_id=33333333-3333-4333-8333-333333333333/);
+  await expect(page.getByRole('heading', { name: 'Mobile UX review' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Waiting', exact: true }).click();
+  await expect(page).toHaveURL(/filter=waiting/);
+  await expect(page.getByText('1 sessions · 1 panes')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Mobile UX review' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'All', exact: true }).click();
+  await page.getByPlaceholder('Filter by tmux session, cwd, branch, repo, provider...').fill('deploy');
+  await expect(page.getByText('1 sessions · 1 panes')).toBeVisible();
+  await expect(page.getByText('ops')).toBeVisible();
+});
+
+test('keeps the tmux roster usable on mobile viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page);
+
+  await page.goto('/tmux');
+
+  await expect(page.getByRole('heading', { name: 'tmux', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Roster', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Terminal', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Actions', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Untracked', exact: true })).toBeVisible();
+  await expect(page.getByPlaceholder('Filter by tmux session, cwd, branch, repo, provider...')).toBeVisible();
+  await expect(page.getByText('2 sessions · 3 panes')).toBeVisible();
+  await expect(page.getByText('agents')).toBeVisible();
+
+  await page.getByText('agents').click();
+  await expect(page.getByText('Codex implementation')).toBeVisible();
+
+  await page.getByText('Mobile UX review').click();
+  await expect(page).toHaveURL(/session_id=33333333-3333-4333-8333-333333333333/);
+  await expect(page.getByText('agents:0.1').first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Actions', exact: true })).toBeEnabled();
+
+  await page.getByRole('button', { name: 'Actions', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Pane actions');
+  await expect(dialog).toContainText('Mobile UX review');
+  await expect(dialog.getByRole('button', { name: 'Attach', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Detach' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Take Control' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Copy selection' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Copy last 50' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Copy all' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Paste' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Terminate pane session' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Close actions' })).toBeVisible();
+});
+
+test('opens mobile launch sheet and launches a coding agent from a recent project', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page);
+
+  await page.goto('/tmux');
+
+  await page.getByRole('button', { name: 'Launch agent' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Launch agent' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'heavisidelinux' })).toBeVisible();
+  await expect(dialog.getByText('/home/cvsloane/dev/agent-command').first()).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Codex', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Claude', exact: true })).toBeVisible();
+
+  await dialog.getByPlaceholder('Optional first instruction').fill('Check the failing mobile launch test.');
+  await dialog.getByRole('button', { name: 'Launch Codex' }).click();
+
+  await expect(page).toHaveURL(/session_id=22222222-2222-4222-8222-222222222222/);
+  await expect(page).toHaveURL(/mode=terminal/);
+  await expect(page.getByText('Codex implementation').first()).toBeVisible();
+});
+
+test('offers repeat-last launch on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page);
+  await page.evaluate(() => {
+    window.localStorage.setItem('agent-command:last-launch', JSON.stringify({
+      host_id: '11111111-1111-4111-8111-111111111111',
+      provider: 'codex',
+      working_directory: '/home/cvsloane/dev/agent-command',
+      tmux_target: 'agents',
+    }));
+  });
+
+  await page.goto('/tmux');
+
+  await page.getByRole('button', { name: 'Launch agent' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Launch agent' });
+  await expect(dialog.getByRole('button', { name: /Repeat Codex in agent-command/ })).toBeVisible();
+
+  await dialog.getByRole('button', { name: /Repeat Codex in agent-command/ }).click();
+  await expect(page).toHaveURL(/session_id=22222222-2222-4222-8222-222222222222/);
+  await expect(page).toHaveURL(/mode=terminal/);
+});
+
+test('opens an existing tmux target from the mobile launch sheet', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page);
+
+  await page.goto('/tmux');
+
+  await page.getByRole('button', { name: 'Launch agent' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Launch agent' });
+  await dialog.getByRole('button', { name: 'Existing' }).click();
+  await expect(dialog.getByRole('button', { name: /Mobile UX review/ })).toBeVisible();
+
+  await dialog.getByPlaceholder('agents:0.0 or %1').fill('agents:0.1');
+  await dialog.getByRole('button', { name: 'Open' }).click();
+
+  await expect(page).toHaveURL(/session_id=33333333-3333-4333-8333-333333333333/);
+  await expect(page).toHaveURL(/mode=terminal/);
+});
+
+test('uses bottom navigation to steer an orchestrator card on mobile', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page);
+
+  const mobileNav = page.getByRole('navigation', { name: 'Primary mobile navigation' });
+  await expect(mobileNav.getByRole('link', { name: 'tmux' })).toBeVisible();
+  await expect(mobileNav.getByRole('link', { name: 'Orchestrator' })).toBeVisible();
+  await expect(mobileNav.getByRole('link', { name: 'Sessions' })).toBeVisible();
+  await expect(mobileNav.getByRole('button', { name: 'More' })).toBeVisible();
+
+  await mobileNav.getByRole('link', { name: 'Orchestrator' }).click();
+  await expect(page).toHaveURL(/\/orchestrator/);
+  const card = page.getByTestId('orchestrator-card');
+  await expect(card).toContainText('Release orchestrator');
+  await expect(card).toContainText('Verification worker');
+  await expect(card).toContainText('Audit mobile release flow');
+  await expect(card).toContainText('All release checks passed on both machines.');
+  await expect(card.getByRole('button', { name: 'Approve' })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Deny' })).toBeVisible();
+  await expect(card.getByRole('link', { name: 'Open terminal' })).toBeVisible();
+
+  const approvalRequest = page.waitForRequest((request) => (
+    request.method() === 'POST'
+    && request.url().includes(`/v1/approvals/${pendingApproval.id}/decide`)
+  ));
+  await card.getByRole('button', { name: 'Approve' }).click();
+  expect((await approvalRequest).postDataJSON()).toEqual({ decision: 'allow', mode: 'both' });
+
+  const commandRequest = page.waitForRequest((request) => (
+    request.method() === 'POST'
+    && request.url().includes(`/v1/sessions/${orchestratorSessions[0].id}/commands`)
+  ));
+  await card.getByPlaceholder('Steer this orchestrator without opening its terminal…').fill('Summarize remaining release risk.');
+  await card.getByRole('button', { name: 'Send prompt' }).click();
+  const request = await commandRequest;
+  expect(request.postDataJSON()).toMatchObject({
+    type: 'send_input',
+    payload: { text: 'Summarize remaining release risk.', enter: true },
+  });
+  await expect(card).toContainText('Prompt sent to orchestrator.');
+
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.getByRole('main').evaluate((element) => { element.scrollTop = 0; });
+    await page.screenshot({ path: testInfo.outputPath('orchestrator-mobile-top.png') });
+    await card.getByPlaceholder('Steer this orchestrator without opening its terminal…').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath('orchestrator-mobile.png'), fullPage: true });
+  }
+
+  const moreButton = mobileNav.getByRole('button', { name: 'More' });
+  await moreButton.click();
+  await expect(page.getByRole('dialog', { name: 'Navigation' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Navigation' })).not.toBeVisible();
+  await expect(moreButton).toBeFocused();
+});
+
+test('aggregates every online tmux machine and sorts waiting work first', async ({ page }, testInfo) => {
+  await signIn(page);
+  await page.goto('/tmux');
+
+  await page.getByRole('button', { name: /All machines 2 online/ }).click();
+  await expect(page).toHaveURL(/host_id=all/);
+  await expect(page.getByText('Every online tmux machine · waiting work first')).toBeVisible();
+  await expect(page.getByText('Remote deploy watch')).not.toBeVisible();
+  await page.getByText('remote').click();
+  await expect(page.getByText('Remote deploy watch')).toBeVisible();
+  await expect(page.getByText('homelinux').last()).toBeVisible();
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.screenshot({ path: testInfo.outputPath('tmux-all-machines-desktop.png'), fullPage: true });
+  }
+});
+
+test('keeps URL tabs, sheets, and budget context usable at tablet width', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await signIn(page);
+  await page.goto(`/automation?run=${structuredRun.id}`);
+
+  await expect(page.getByRole('tab', { name: 'Runs' })).toHaveAttribute('data-state', 'active');
+  await expect(page.getByRole('button', { name: 'Hide timeline' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Agents' }).click();
+  await expect(page).toHaveURL(/\/automation$/);
+  await expect(page.getByRole('progressbar', { name: 'Release automation daily budget' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Nudge' })).toBeEnabled();
+
+  const nudgeRequest = page.waitForRequest((request) => (
+    request.method() === 'POST'
+    && request.url().includes(`/v1/automation-agents/${automationAgent.slug}/message`)
+  ));
+  await page.getByRole('button', { name: 'Nudge' }).click();
+  const nudgeSheet = page.getByRole('dialog', { name: `Nudge ${automationAgent.name}` });
+  await nudgeSheet.getByLabel('Message').fill('Summarize the release queue.');
+  await nudgeSheet.getByRole('button', { name: 'Send nudge' }).click();
+  expect((await nudgeRequest).postDataJSON()).toEqual({
+    message: 'Summarize the release queue.',
+    enter: true,
+  });
+  await expect(nudgeSheet).not.toBeVisible();
+
+  await page.getByRole('button', { name: 'New agent' }).click();
+  const sheet = page.getByRole('dialog', { name: 'New automation agent' });
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByLabel('Name')).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Create agent' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.screenshot({ path: testInfo.outputPath('automation-tablet-sheet.png'), fullPage: true });
+  }
+  await sheet.getByRole('button', { name: 'Close New automation agent' }).click();
 });

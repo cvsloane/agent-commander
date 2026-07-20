@@ -1,10 +1,6 @@
 import { create } from 'zustand';
 import type { SessionGroup } from '@agent-command/schema';
-
-interface GroupWithChildren extends SessionGroup {
-  children: GroupWithChildren[];
-  session_count: number;
-}
+import type { GroupWithChildren } from '@/lib/groupTypes';
 
 interface GroupsStore {
   groups: GroupWithChildren[];
