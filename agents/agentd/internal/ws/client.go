@@ -371,7 +371,7 @@ func (c *Client) SendHello(payload any) error {
 
 func isVolatile(msgType string) bool {
 	switch msgType {
-	case "terminal.output", "terminal.lag", "sessions.snapshot", "console.chunk":
+	case "terminal.output", "terminal.lag", "sessions.snapshot", "console.chunk", protocol.TypeTmuxTopology:
 		return true
 	default:
 		return false

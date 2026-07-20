@@ -74,6 +74,14 @@ type Agent struct {
 	launchTemplates   *providers.LaunchTemplates
 
 	commandExecutor *commands.Executor
+
+	tmuxTopologyMu          sync.Mutex
+	tmuxTopologyTimer       *time.Timer
+	pendingTmuxTopology     *protocol.TmuxTopologyPayload
+	pendingTmuxTopologyHash string
+	lastTmuxTopologyHash    string
+	tmuxTopologyGeneration  uint64
+	tmuxTopologyStopped     bool
 }
 
 type toolEventPending struct {
@@ -496,6 +504,7 @@ func (a *Agent) Run() error {
 	if a.terminalManager != nil {
 		a.terminalManager.Close()
 	}
+	a.stopTmuxTopology()
 	a.claudeProvider.Stop()
 	a.wsClient.Close()
 
@@ -4619,23 +4628,31 @@ func (a *Agent) handleConsoleChunk(subscriptionID, sessionID string, data []byte
 }
 
 func (a *Agent) pollTmux() {
+	a.reconcileTmux("startup")
+	a.retryBufferedHooks()
+
 	ticker := time.NewTicker(time.Duration(a.cfg.Tmux.PollIntervalMs) * time.Millisecond)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		a.topologyMu.Lock()
-		panes, err := a.tmuxClient.ListPanes()
-		if err != nil {
-			a.topologyMu.Unlock()
-			log.Printf("Failed to list tmux panes: %v", err)
-			continue
-		}
-
-		procSnap := proc.TakeSnapshot()
-		a.syncPanes(panes, procSnap)
-		a.topologyMu.Unlock()
+		a.reconcileTmux("poll")
 		a.retryBufferedHooks()
 	}
+}
+
+func (a *Agent) reconcileTmux(reason string) {
+	a.topologyMu.Lock()
+	panes, err := a.tmuxClient.ListPanes()
+	if err != nil {
+		a.topologyMu.Unlock()
+		log.Printf("Failed to list tmux panes: %v", err)
+		return
+	}
+
+	procSnap := proc.TakeSnapshot()
+	a.syncPanes(panes, procSnap)
+	a.topologyMu.Unlock()
+	a.queueTmuxTopology(reason, panes)
 }
 
 func (a *Agent) syncPanes(panes []tmux.Pane, procSnap *proc.Snapshot) {

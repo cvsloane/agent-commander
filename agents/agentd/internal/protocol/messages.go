@@ -41,6 +41,7 @@ const (
 	TypeTerminalReadOnly    = "terminal.readonly"
 	TypeTerminalLag         = "terminal.lag"
 	TypeTerminalAudit       = "terminal.audit"
+	TypeTmuxTopology        = "tmux.topology"
 )
 
 // EnvelopeHeader supports direction-agnostic inspection before decoding a

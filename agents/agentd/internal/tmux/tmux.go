@@ -34,6 +34,7 @@ type Pane struct {
 	PaneHeight       int
 	WindowBell       bool
 	WindowActivity   bool
+	SessionAttached  bool
 }
 
 type Client struct {
@@ -55,7 +56,7 @@ func (c *Client) ListPanes() ([]Pane, error) {
 	if sessionOption == "" {
 		sessionOption = "@ac_session_id"
 	}
-	format := "#{pane_id}\t#{pane_pid}\t#{session_name}\t#{window_name}\t#{window_index}\t#{pane_index}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_title}\t#{@ac_provider}\t#{" + sessionOption + "}\t#{@ac_parent_session_id}\t#{pane_active}\t#{window_active}\t#{window_zoomed_flag}\t#{window_layout}\t#{pane_width}\t#{pane_height}\t#{window_bell_flag}\t#{window_activity_flag}"
+	format := "#{pane_id}\t#{pane_pid}\t#{session_name}\t#{window_name}\t#{window_index}\t#{pane_index}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_title}\t#{@ac_provider}\t#{" + sessionOption + "}\t#{@ac_parent_session_id}\t#{pane_active}\t#{window_active}\t#{window_zoomed_flag}\t#{window_layout}\t#{pane_width}\t#{pane_height}\t#{window_bell_flag}\t#{window_activity_flag}\t#{session_attached}"
 
 	args := []string{"list-panes", "-a", "-F", format}
 	if c.cfg.Socket != "" {
@@ -138,6 +139,11 @@ func parsePaneLine(line string) (Pane, bool) {
 	}
 	if len(fields) > 19 {
 		pane.WindowActivity = fields[19] == "1"
+	}
+	if len(fields) > 20 {
+		var attachedClients int
+		fmt.Sscanf(fields[20], "%d", &attachedClients)
+		pane.SessionAttached = attachedClients > 0
 	}
 	return pane, true
 }
