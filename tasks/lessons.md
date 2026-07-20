@@ -27,3 +27,7 @@
 - Date: 2026-03-28
   Correction: User clarified the tmux manager should behave like a condensed accordion list of tmux sessions, not a broad card wall that leaves windows/panes visually expanded by default.
   Rule: On the `/tmux` page, default the roster to one compact row per tmux session with explicit expand/collapse behavior that reveals windows and panes only for the open session.
+
+- Date: 2026-07-19
+  Correction: AI Lead directed Next build/Playwright smoke verification to use polling when concurrent agent sessions exhaust the host's 128 inotify-instance limit, without stopping other tmux sessions.
+  Rule: On this host, run the Next build and dashboard smoke gate with `CHOKIDAR_USEPOLLING=1 WATCHPACK_POLLING=true`; track raising `fs.inotify.max_user_instances` to 1024 as the durable ops fix.

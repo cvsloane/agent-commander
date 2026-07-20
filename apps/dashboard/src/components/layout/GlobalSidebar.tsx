@@ -18,7 +18,6 @@ import type { GroupWithChildren } from '@/lib/groupTypes';
 interface GlobalSidebarProps {
   onCreateGroup?: () => void;
   onEditGroup?: (group: GroupWithChildren) => void;
-  pendingApprovalCount?: number; // Deprecated - kept for backwards compatibility
   isMobileOverlay?: boolean;
 }
 
@@ -64,38 +63,40 @@ export function GlobalSidebar({
               document.getElementById('mobile-more-navigation')?.focus();
             }}
           >
-          {/* Header with close button */}
-          <div className="flex items-center justify-between p-2 border-b h-12">
-            <Dialog.Title className="px-2 text-sm font-medium">Navigation</Dialog.Title>
-            <Dialog.Description className="sr-only">Navigate to the rest of Agent Commander.</Dialog.Description>
-            <Dialog.Close asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8" title="Close menu">
-                <X className="h-4 w-4" />
-              </Button>
-            </Dialog.Close>
-          </div>
+            {/* Header with close button */}
+            <div className="flex items-center justify-between p-2 border-b h-12">
+              <Dialog.Title className="px-2 text-sm font-medium">Navigation</Dialog.Title>
+              <Dialog.Description className="sr-only">
+                Navigate to the rest of Agent Commander.
+              </Dialog.Description>
+              <Dialog.Close asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8" title="Close menu">
+                  <X className="h-4 w-4" />
+                </Button>
+              </Dialog.Close>
+            </div>
 
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <SidebarNav />
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <SidebarNav />
 
-            {isSessionsPage && onCreateGroup && onEditGroup && (
-              <div className="flex-1 border-t overflow-hidden">
-                <GroupTree onCreateGroup={onCreateGroup} onEditGroup={onEditGroup} />
+              {isSessionsPage && onCreateGroup && onEditGroup && (
+                <div className="flex-1 border-t overflow-hidden">
+                  <GroupTree onCreateGroup={onCreateGroup} onEditGroup={onEditGroup} />
+                </div>
+              )}
+
+              <div className="border-t">
+                <RecentSessions />
               </div>
-            )}
 
-            <div className="border-t">
-              <RecentSessions />
-            </div>
+              <div className="border-t p-3">
+                <QuickSpawn />
+              </div>
 
-            <div className="border-t p-3">
-              <QuickSpawn />
+              <div className="border-t p-3">
+                <AttentionSettings />
+              </div>
             </div>
-
-            <div className="border-t p-3">
-              <AttentionSettings />
-            </div>
-          </div>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
@@ -116,9 +117,7 @@ export function GlobalSidebar({
     >
       {/* Collapse toggle header */}
       <div className="flex items-center justify-between p-2 border-b h-12">
-        {!sidebarCollapsed && (
-          <span className="text-sm font-medium px-2">Navigation</span>
-        )}
+        {!sidebarCollapsed && <span className="text-sm font-medium px-2">Navigation</span>}
         <Button
           variant="ghost"
           size="icon"
@@ -142,10 +141,7 @@ export function GlobalSidebar({
           {/* Session Groups - only show on sessions page */}
           {isSessionsPage && onCreateGroup && onEditGroup && (
             <div className="flex-1 border-t overflow-hidden">
-              <GroupTree
-                onCreateGroup={onCreateGroup}
-                onEditGroup={onEditGroup}
-              />
+              <GroupTree onCreateGroup={onCreateGroup} onEditGroup={onEditGroup} />
             </div>
           )}
 

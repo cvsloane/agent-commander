@@ -1,6 +1,7 @@
 # Documentation
 
 Start here:
+
 - [Overview](overview.md)
 - [Releases](releases.md)
 - [Getting Started](getting-started.md)
@@ -11,19 +12,23 @@ Start here:
 - Public feature site: `deploy/Dockerfile.site`
 
 Core guides:
+
 - [Tmux Manager](tmux-manager.md)
 - [Mobile Launch](mobile-launch.md)
 - [Sessions](sessions.md)
 - [Console Streaming](console.md)
 - [Orchestrator](orchestrator.md)
+- [Orchestrator Control Channel](control-channel.md)
 - [Automation and Memory](automation-memory.md)
 - [Approvals](approvals.md)
 - [Visualizer](visualizer.md)
 - [Alerts and Notifications](alerts.md)
 - [Settings](settings.md)
+- [PWA and Web Push](pwa-push.md)
 - [Search and Projects](search-and-projects.md)
 
 Agents and integrations:
+
 - [agentd](agentd.md)
 - [Provider Hooks](hooks.md)
 - [MCP Integration](mcp.md)
@@ -31,13 +36,16 @@ Agents and integrations:
 - [OpenClaw](clawdbot.md)
 
 Reference:
+
 - [API Reference](api.md)
 - [WebSockets](websockets.md)
+- [Per-viewer Terminal](per-viewer-terminal.md)
 - [Events](events.md)
 - [Data Model](data-model.md)
 - [Security](security.md)
 
 Operations:
+
 - [Operations](operations.md)
 - [Reliability Primitives](reliability-primitives.md)
 - [Troubleshooting](troubleshooting.md)
