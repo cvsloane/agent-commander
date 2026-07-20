@@ -1,7 +1,7 @@
 'use client';
 
 import type { TmuxPaneView } from '@/lib/tmuxRoster';
-import { Badge } from '@/components/ui/badge';
+import { SessionHealthBadges } from '@/components/session/SessionHealthBadges';
 import {
   cn,
   formatRelativeTime,
@@ -16,9 +16,10 @@ interface TmuxPaneRowProps {
   hydrated: boolean;
   onSelectSession: (sessionId: string) => void;
   onOpenActions?: (sessionId: string) => void;
+  hostOnline?: boolean;
 }
 
-export function TmuxPaneRow({ pane, selectedSessionId, hydrated, onSelectSession, onOpenActions }: TmuxPaneRowProps) {
+export function TmuxPaneRow({ pane, selectedSessionId, hydrated, onSelectSession, onOpenActions, hostOnline }: TmuxPaneRowProps) {
   const paneActive = pane.session.id === selectedSessionId;
   const status = getStatusIndicator(pane.session.status);
 
@@ -49,11 +50,11 @@ export function TmuxPaneRow({ pane, selectedSessionId, hydrated, onSelectSession
           <span className="truncate text-sm font-medium">
             {getSessionDisplayName(pane.session)}
           </span>
-          {pane.isUnmanaged && (
-            <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
-              Untracked
-            </Badge>
-          )}
+          <SessionHealthBadges
+            session={pane.session}
+            hostOnline={hostOnline}
+            selected={paneActive}
+          />
         </div>
         <div
           className={cn(

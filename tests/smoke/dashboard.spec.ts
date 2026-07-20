@@ -36,6 +36,15 @@ const secondTmuxHost = {
   tailscale_ip: '100.64.0.11',
 };
 
+const enrolledHost = {
+  ...tmuxHost,
+  id: '15151515-1515-4151-8151-151515151515',
+  name: 'buildbox',
+  tailscale_name: 'buildbox.tailnet-name.ts.net',
+  tailscale_ip: null,
+  last_seen_at: null,
+};
+
 const tmuxSessions = [
   {
     id: '22222222-2222-4222-8222-222222222222',
@@ -314,6 +323,50 @@ function apiBody(pathname: string): unknown {
       groups: [],
     };
   }
+  if (pathname === '/v1/orchestrator/fleet') {
+    return {
+      orchestrators: [{
+        session: orchestratorSessions[0],
+        children: [orchestratorSessions[1]],
+        edges: [{
+          parent_session_id: orchestratorSessions[0].id,
+          child_session_id: orchestratorSessions[1].id,
+          edge_type: 'orchestrates',
+          created_at: '2026-05-19T17:00:00.000Z',
+        }],
+        agent_tasks: [{
+          id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+          session_id: orchestratorSessions[0].id,
+          tool_use_id: 'task-smoke',
+          description: 'Audit mobile release flow',
+          status: 'running',
+          started_at: '2026-05-19T17:50:00.000Z',
+          ended_at: null,
+          metadata: {},
+        }],
+        rollup: {
+          session_id: orchestratorSessions[0].id,
+          child_sessions: { total: 1, by_status: { RUNNING: 1 } },
+          agent_tasks: { total: 1, running: 1, completed: 0, failed: 0 },
+        },
+        work_item_counts: {
+          total: 0,
+          by_status: { queued: 0, in_progress: 0, blocked: 0, done: 0, cancelled: 0 },
+        },
+        automation_agent: automationAgent,
+        latest_run: structuredRun,
+        latest_report: {
+          run_id: structuredRun.id,
+          status: structuredRun.status,
+          summary: 'All release checks passed on both machines.',
+          reported_at: structuredRun.ended_at,
+        },
+        budget_policy: automationAgent.budget_policy_json,
+        budget_usage: { daily_cents: 42, monthly_cents: 42 },
+        usage_rollup: structuredRun.usage_json,
+      }],
+    };
+  }
   if (pathname === '/v1/launch/targets') {
     return {
       targets: [
@@ -458,9 +511,29 @@ async function fulfillJson(route: Route, body: unknown): Promise<void> {
   });
 }
 
-async function mockControlPlane(page: Page): Promise<void> {
+async function mockControlPlane(
+  page: Page,
+  options: { terminalReadOnly?: boolean } = {}
+): Promise<void> {
   await page.routeWebSocket(/\/v1\/ui\/stream\?ticket=/, () => {
     // Keep the mocked event stream open; REST fixtures drive these smoke tests.
+  });
+  await page.routeWebSocket(/\/v1\/ui\/terminal\/[^?]+\?/, (socket) => {
+    socket.onMessage((message) => {
+      if (typeof message !== 'string') return;
+      const parsed = JSON.parse(message) as { type?: string };
+      if (parsed.type === 'hello') {
+        socket.send(JSON.stringify({
+          type: 'attached',
+          readonly: options.terminalReadOnly ?? false,
+          resumed: false,
+          resume_token: 'dashboard-smoke-terminal-resume',
+        }));
+      }
+      if (parsed.type === 'control') {
+        socket.send(JSON.stringify({ type: 'control' }));
+      }
+    });
   });
 
   await page.route('**/api/control-plane-token', async (route) => {
@@ -477,6 +550,17 @@ async function mockControlPlane(page: Page): Promise<void> {
         ticket: 'dashboard-smoke-ws-ticket',
         expires_at: new Date(Date.now() + 30_000).toISOString(),
       });
+      return;
+    }
+    if (route.request().method() === 'POST' && url.pathname === '/v1/hosts') {
+      await fulfillJson(route, { host: enrolledHost, token: 'ac_agent_created_once' });
+      return;
+    }
+    if (
+      route.request().method() === 'POST'
+      && /^\/v1\/hosts\/[^/]+\/token$/.test(url.pathname)
+    ) {
+      await fulfillJson(route, { token: 'ac_agent_rotated_once' });
       return;
     }
     if (route.request().method() === 'GET' && url.pathname === '/v1/tmux/roster') {
@@ -614,8 +698,10 @@ async function signIn(page: Page): Promise<void> {
   await page.waitForURL('**/');
 }
 
-test.beforeEach(async ({ page }) => {
-  await mockControlPlane(page);
+test.beforeEach(async ({ page }, testInfo) => {
+  await mockControlPlane(page, {
+    terminalReadOnly: testInfo.title.includes('gates terminal input while read-only'),
+  });
 });
 
 test('protects operator routes behind credentials sign-in', async ({ page }) => {
@@ -627,7 +713,7 @@ test('protects operator routes behind credentials sign-in', async ({ page }) => 
   await expect(page.getByRole('heading', { name: 'Command Center' })).toBeVisible();
 });
 
-test('renders key operator pages with mocked control-plane data', async ({ page }) => {
+test('renders key operator pages with mocked control-plane data', async ({ page }, testInfo) => {
   await signIn(page);
 
   const pages = [
@@ -643,7 +729,172 @@ test('renders key operator pages with mocked control-plane data', async ({ page 
   for (const [path, text] of pages) {
     await page.goto(path);
     await expect(page.locator('body')).toContainText(text);
+    if (
+      process.env.PLAYWRIGHT_CAPTURE_UI === '1'
+      && ['/sessions', '/automation', '/memory', '/hosts', '/settings'].includes(path)
+    ) {
+      await page.screenshot({
+        path: testInfo.outputPath(`${path.slice(1)}-desktop.png`),
+        fullPage: true,
+      });
+    }
   }
+});
+
+test('opens the global command palette and navigates to a fuzzy session result', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/sessions');
+
+  const searchButton = page
+    .getByTestId('sessions-desktop-toolbar')
+    .getByRole('button', { name: /Search/ });
+  await expect(searchButton).toBeVisible();
+  await searchButton.click();
+  await expect(page.getByRole('dialog', { name: 'Command Center' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Control+k');
+  let palette = page.getByRole('dialog', { name: 'Command Center' });
+  await expect(palette).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  const editableTarget = page.getByLabel('Terminal shortcut target');
+  await page.evaluate(() => {
+    const textarea = document.createElement('textarea');
+    textarea.setAttribute('aria-label', 'Terminal shortcut target');
+    document.body.appendChild(textarea);
+    textarea.focus();
+  });
+  await editableTarget.dispatchEvent('keydown', {
+    key: 'k',
+    code: 'KeyK',
+    ctrlKey: true,
+    bubbles: true,
+  });
+  await expect(page.getByRole('dialog', { name: 'Command Center' })).not.toBeVisible();
+  await editableTarget.dispatchEvent('keydown', {
+    key: 'k',
+    code: 'KeyK',
+    metaKey: true,
+    bubbles: true,
+  });
+  palette = page.getByRole('dialog', { name: 'Command Center' });
+  await expect(palette).toBeVisible();
+  const input = palette.getByRole('combobox');
+  await expect(input).toBeFocused();
+  await input.fill('Mobile UX heaviside');
+  await expect(palette.getByRole('option', { name: /Mobile UX review/ })).toBeVisible();
+  await input.press('Enter');
+
+  await expect(page).toHaveURL(new RegExp(`/sessions/${tmuxSessions[1].id}$`));
+});
+
+test('keeps primary session actions usable at 390x844 and opens overflow plus long-press search', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page);
+  await page.goto('/sessions');
+
+  const toolbar = page.getByTestId('sessions-mobile-toolbar');
+  await expect(toolbar).toBeVisible();
+  for (const name of ['Select', 'Search sessions', 'New', 'More session actions']) {
+    await expect(toolbar.getByRole('button', { name, exact: true })).toBeVisible();
+  }
+  await expect(page.getByTestId('sessions-desktop-toolbar')).toBeHidden();
+  const targetSizes = await toolbar.getByRole('button').evaluateAll((targets) => (
+    targets.map((target) => {
+      const { width, height } = target.getBoundingClientRect();
+      return { width, height };
+    })
+  ));
+  expect(targetSizes.every(({ width, height }) => width >= 44 && height >= 44)).toBe(true);
+
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.screenshot({ path: testInfo.outputPath('sessions-mobile-toolbar.png'), fullPage: true });
+  }
+
+  await toolbar.getByRole('button', { name: 'More session actions' }).click();
+  const overflow = page.getByRole('dialog', { name: 'Session actions' });
+  await expect(overflow).toBeVisible();
+  await expect(overflow.getByRole('link', { name: 'Workflow' })).toBeVisible();
+  await expect(overflow.getByRole('button', { name: 'Import orphan panes' })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  const search = toolbar.getByRole('button', { name: 'Search sessions' });
+  await search.dispatchEvent('pointerdown', { pointerType: 'touch' });
+  await page.waitForTimeout(550);
+  await expect(page.getByRole('dialog', { name: 'Command Center' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.screenshot({ path: testInfo.outputPath('sessions-mobile-command-palette.png'), fullPage: true });
+  }
+});
+
+test('enrolls a host and rotates its token with one-time installation guidance', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/hosts');
+
+  await page.getByRole('button', { name: 'Add host' }).click();
+  const addDialog = page.getByRole('dialog', { name: 'Add host' });
+  await addDialog.getByLabel('Name', { exact: true }).fill('buildbox');
+  await addDialog.getByLabel('Tailscale name (optional)').fill('buildbox.tailnet-name.ts.net');
+  const createRequest = page.waitForRequest((request) => (
+    request.method() === 'POST' && new URL(request.url()).pathname === '/v1/hosts'
+  ));
+  await addDialog.getByRole('button', { name: 'Create host' }).click();
+  expect((await createRequest).postDataJSON()).toEqual({
+    name: 'buildbox',
+    tailscale_name: 'buildbox.tailnet-name.ts.net',
+  });
+
+  const created = page.getByRole('dialog', { name: 'Host created' });
+  await expect(created.getByText(enrolledHost.id, { exact: true })).toBeVisible();
+  await expect(created.getByText('ac_agent_created_once', { exact: true })).toBeVisible();
+  await expect(created).toContainText('Copy the token now.');
+  await expect(created).toContainText('deploy/install-agentd.sh');
+  await expect(created).toContainText('~/.config/agentd/config.yaml');
+  await expect(created).toContainText('/v1/agent/connect');
+  await expect(created).toContainText('systemctl --user enable --now agentd.service');
+  await created.getByRole('button', { name: 'I saved the token' }).click();
+  await expect(created).not.toBeVisible();
+  await expect(page.getByText('ac_agent_created_once', { exact: true })).toHaveCount(0);
+
+  const rotateRequest = page.waitForRequest((request) => (
+    request.method() === 'POST'
+    && new URL(request.url()).pathname === `/v1/hosts/${tmuxHost.id}/token`
+  ));
+  await page.getByRole('button', { name: 'Rotate agent token' }).first().click();
+  await rotateRequest;
+  const rotated = page.getByRole('dialog', { name: 'Agent token rotated' });
+  await expect(rotated.getByText(tmuxHost.id, { exact: true })).toBeVisible();
+  await expect(rotated.getByText('ac_agent_rotated_once', { exact: true })).toBeVisible();
+  await rotated.getByRole('button', { name: 'I saved the token' }).click();
+  await expect(rotated).not.toBeVisible();
+  await expect(page.getByText('ac_agent_rotated_once', { exact: true })).toHaveCount(0);
+});
+
+test('hides host enrollment actions when the control plane rejects admin access', async ({ page }) => {
+  await page.route('**/v1/hosts', async (route) => {
+    if (route.request().method() === 'POST') {
+      await route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Forbidden' }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+  await signIn(page);
+  await page.goto('/hosts');
+
+  await page.getByRole('button', { name: 'Add host' }).click();
+  const addDialog = page.getByRole('dialog', { name: 'Add host' });
+  await addDialog.getByLabel('Name', { exact: true }).fill('viewer-host');
+  await addDialog.getByRole('button', { name: 'Create host' }).click();
+
+  await expect(addDialog.getByRole('alert')).toContainText('administrators only');
+  await expect(page.getByRole('button', { name: 'Add host' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Rotate agent token' })).toHaveCount(0);
 });
 
 test('renders Command Center at mobile and desktop widths and redirects legacy tmux links', async ({ page }, testInfo) => {
@@ -778,7 +1029,84 @@ test('renders tmux roster with windows and panes, supports selection and filteri
   await expect(page.getByText('ops')).toBeVisible();
 });
 
-test('keeps the tmux roster usable on mobile viewport', async ({ page }) => {
+test('opens the terminal composer from attention and submits one newline-safe prompt', async ({ page }, testInfo) => {
+  await signIn(page);
+  await page.goto('/tmux');
+  await page.getByText('agents', { exact: true }).click();
+  await page.getByText('Mobile UX review', { exact: true }).click();
+
+  const overlay = page.getByTestId('terminal-attention-overlay');
+  await expect(overlay).toBeVisible();
+  await expect(overlay).toContainText('Needs attention');
+  await overlay.getByRole('button', { name: 'Respond' }).click();
+
+  const composer = page.getByTestId('prompt-composer');
+  const input = composer.getByLabel('Prompt Mobile UX review');
+  await expect(composer).toBeVisible();
+  await expect(input).toBeFocused();
+  await input.fill('Inspect the mobile terminal state.');
+
+  const commandRequest = page.waitForRequest((request) => (
+    request.method() === 'POST'
+    && request.url().includes(`/v1/sessions/${tmuxSessions[1].id}/commands`)
+  ));
+  await input.press('Control+Enter');
+  expect((await commandRequest).postDataJSON()).toEqual({
+    type: 'send_input',
+    payload: { text: 'Inspect the mobile terminal state.\n', enter: false },
+  });
+  await expect(composer.getByRole('status')).toHaveText('Prompt sent.');
+
+  const workspaceBox = await page.getByTestId('tmux-terminal-workspace').boundingBox();
+  const composerBox = await composer.boundingBox();
+  expect(workspaceBox).not.toBeNull();
+  expect(composerBox).not.toBeNull();
+  expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(
+    workspaceBox!.y + workspaceBox!.height + 1
+  );
+
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.screenshot({ path: testInfo.outputPath('terminal-attention-composer-desktop.png') });
+  }
+});
+
+test('gates terminal input while read-only until the viewer takes control', async ({ page }, testInfo) => {
+  await signIn(page);
+  await page.goto('/tmux');
+  await page.getByText('agents', { exact: true }).click();
+  await page.getByText('Mobile UX review', { exact: true }).click();
+  await page.getByRole('button', { name: 'Attach Terminal', exact: true }).click();
+
+  await expect(page.getByText('Read-only', { exact: true })).toBeVisible();
+  const overlay = page.getByTestId('terminal-attention-overlay');
+  await expect(overlay.getByRole('button', { name: 'Respond' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Send a prompt', exact: true })).toBeDisabled();
+  await expect(page.getByText('Read-only — take control to type')).toHaveCount(2);
+
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.screenshot({ path: testInfo.outputPath('terminal-readonly-desktop.png') });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobileSegments = page.getByRole('button', { name: 'Roster', exact: true }).locator('..');
+  await mobileSegments.getByRole('button', { name: 'Terminal', exact: true }).click();
+  await expect(page.getByText('Read-only — take control to type')).toHaveCount(2);
+  for (const name of ['Take Control', 'Focus']) {
+    const box = await page.getByRole('button', { name, exact: true }).boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  }
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.getByTestId('tmux-terminal-workspace').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath('terminal-readonly-mobile.png') });
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
+
+  await page.getByRole('button', { name: 'Take Control', exact: true }).click();
+  await expect(overlay.getByRole('button', { name: 'Respond' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Send a prompt', exact: true })).toBeEnabled();
+});
+
+test('keeps the tmux roster usable on mobile viewport', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await signIn(page);
 
@@ -805,6 +1133,17 @@ test('keeps the tmux roster usable on mobile viewport', async ({ page }) => {
   await terminalSegment.click();
   await expect(page.getByText('agents:0.1').first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Actions', exact: true })).toBeEnabled();
+
+  const overlay = page.getByTestId('terminal-attention-overlay');
+  await expect(overlay).toBeVisible();
+  await overlay.getByRole('button', { name: 'Respond' }).click();
+  const composer = page.getByTestId('prompt-composer');
+  await expect(composer).toBeVisible();
+  await expect(composer.getByLabel('Prompt Mobile UX review')).toBeFocused();
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.screenshot({ path: testInfo.outputPath('terminal-attention-composer-mobile.png') });
+  }
+  await composer.getByRole('button', { name: 'Collapse prompt composer' }).click();
 
   await page.getByRole('button', { name: 'Actions', exact: true }).click();
   const dialog = page.getByRole('dialog');

@@ -21,6 +21,7 @@ import type { GroupWithChildren } from '@/lib/groupTypes';
 import { PushNotificationPrompt } from '@/components/pwa/PushNotificationPrompt';
 import { MobileBottomNav } from './MobileBottomNav';
 import { PersistentTerminalHost } from '@/components/terminal/PersistentTerminalHost';
+import { GlobalCommandPalette } from '@/components/search/CommandPalette';
 
 interface LayoutShellProps {
   children: React.ReactNode;
@@ -140,6 +141,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
         <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-[env(safe-area-inset-bottom)]">{children}</main>
 
         <PersistentTerminalHost />
+        <GlobalCommandPalette />
 
         <MobileBottomNav />
 

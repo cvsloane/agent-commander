@@ -12,6 +12,7 @@ interface TmuxWindowRowProps {
   hydrated: boolean;
   onSelectSession: (sessionId: string) => void;
   onOpenActions?: (sessionId: string) => void;
+  hostOnline?: boolean;
 }
 
 export function TmuxWindowRow({
@@ -21,6 +22,7 @@ export function TmuxWindowRow({
   hydrated,
   onSelectSession,
   onOpenActions,
+  hostOnline,
 }: TmuxWindowRowProps) {
   const windowSelected = window.key === selectedWindowKey;
   const paneCount = window.panes.length;
@@ -79,6 +81,7 @@ export function TmuxWindowRow({
             hydrated={hydrated}
             onSelectSession={onSelectSession}
             onOpenActions={onOpenActions}
+            hostOnline={hostOnline}
           />
         ))}
       </div>

@@ -187,11 +187,11 @@ export default function AutomationPageClient() {
   const busy = wakeMutation.isPending || toggleMutation.isPending || approvalMutation.isPending || workMutation.isPending;
 
   if (agentsQuery.isLoading && agents.length === 0) {
-    return <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">Loading automation agents…</div>;
+    return <div className="mx-auto flex w-full max-w-7xl items-center justify-center px-3 py-16 text-sm text-muted-foreground sm:px-4" role="status">Loading automation agents…</div>;
   }
   if (agentsQuery.error) {
     return (
-      <div className="container mx-auto px-4 py-12 text-center">
+      <div className="mx-auto w-full max-w-7xl px-3 py-12 text-center sm:px-4">
         <p className="font-medium text-destructive">Failed to load automation data</p>
         <p className="mt-1 text-sm text-muted-foreground">{agentsQuery.error.message}</p>
         <Button size="mobile" className="mt-4" onClick={() => void refetchAll()}>Retry</Button>
@@ -200,7 +200,7 @@ export default function AutomationPageClient() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-6 px-3 py-4 sm:px-4 sm:py-6">
+    <div className="mx-auto w-full max-w-7xl space-y-5 px-3 py-4 sm:px-4 sm:py-6">
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">

@@ -11,6 +11,7 @@ export type ConnectionStatus =
   | 'error';
 
 export interface TerminalController {
+  readOnly: boolean;
   attach: () => void;
   detach: () => void;
   suspend: () => boolean;

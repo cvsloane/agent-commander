@@ -13,6 +13,7 @@ export interface TerminalHostSnapshot {
   target: HTMLDivElement | null;
   visible: boolean;
   terminalInstance: XTerminal | null;
+  readOnly: boolean;
 }
 
 interface SurfaceRegistration {
@@ -30,6 +31,7 @@ const EMPTY_SNAPSHOT: TerminalHostSnapshot = {
   target: null,
   visible: false,
   terminalInstance: null,
+  readOnly: false,
 };
 
 export function getTerminalDescriptorKey(descriptor: TerminalHostDescriptor): string {
@@ -89,6 +91,7 @@ export function createTerminalHostStore() {
       target: activeSurface.target,
       visible: activeSurface.visible,
       terminalInstance: descriptorChanged ? null : snapshot.terminalInstance,
+      readOnly: descriptorChanged ? false : snapshot.readOnly,
     };
     emit();
   };
@@ -127,6 +130,11 @@ export function createTerminalHostStore() {
       controller = nextController;
       if (activeControllerRef) {
         activeControllerRef.current = nextController;
+      }
+      const readOnly = nextController?.readOnly ?? false;
+      if (snapshot.readOnly !== readOnly) {
+        snapshot = { ...snapshot, readOnly };
+        emit();
       }
     },
     setTerminalInstance(descriptorKey: string, instance: XTerminal | null) {

@@ -7,13 +7,15 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { MobileLaunchSheet } from '@/components/launch/MobileLaunchSheet';
 import type { TerminalController } from '@/components/TerminalView';
 import { Button } from '@/components/ui/button';
-import type { TmuxRosterFilter } from '@/lib/tmuxRoster';
 import type { FleetRosterGroup } from '@/lib/fleetRoster';
 import { cn, getSessionDisplayName, isHostOnline } from '@/lib/utils';
 import { TmuxActionSheet } from './TmuxActionSheet';
 import { TmuxQuickSwitchStrip } from './TmuxQuickSwitchStrip';
 import { TmuxRoster } from './TmuxRoster';
-import { ALL_TMUX_HOSTS_ID } from '@/hooks/useTmuxRosterData';
+import {
+  ALL_TMUX_HOSTS_ID,
+  type FleetRosterFilter,
+} from '@/hooks/useTmuxRosterData';
 
 type TmuxMobileMode = 'roster' | 'terminal' | 'actions';
 
@@ -50,8 +52,8 @@ interface TmuxMobileShellProps {
   onSelectHost: (hostId: string) => void;
   query: string;
   onQueryChange: (query: string) => void;
-  activeFilter: TmuxRosterFilter;
-  onFilterChange: (filter: TmuxRosterFilter) => void;
+  activeFilter: FleetRosterFilter;
+  onFilterChange: (filter: FleetRosterFilter) => void;
   groups: FleetRosterGroup[];
   filteredSessions: SessionWithSnapshot[];
   sessionsLoading: boolean;

@@ -191,6 +191,7 @@ export function SessionWorkbench({
               primarySession={session}
               autoAttachPrimary={autoAttachTerminal}
               primaryControllerRef={terminalControllerRef}
+              onSendToOtherSession={onSendToLinkedSession}
             />
           )}
         </CardContent>

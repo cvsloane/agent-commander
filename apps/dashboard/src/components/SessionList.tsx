@@ -8,9 +8,12 @@ import { useSessionStore } from '@/stores/session';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useSessionUsageStream } from '@/hooks/useSessionUsageStream';
 import { markSessionListRender } from '@/lib/sessionsPerf';
-import { SessionCard } from './SessionCard';
-import { DraggableSessionCard } from './DraggableSessionCard';
 import { Button } from '@/components/ui/button';
+import { SessionListGrid } from '@/app/(dashboard)/sessions/components/SessionListGrid';
+import {
+  NewSessionsNotice,
+  SessionWorkflowList,
+} from '@/app/(dashboard)/sessions/components/SessionWorkflowList';
 
 interface SessionListProps {
   filters?: {
@@ -544,100 +547,31 @@ export function SessionList({
     );
   }
 
-  const SessionCardComponent = dragEnabled ? DraggableSessionCard : SessionCard;
-
-  const renderGrid = (sessionsToRender: SessionWithSnapshot[]) => (
-    <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
-      {sessionsToRender.map((session) => (
-        <SessionCardComponent
-          key={session.id}
-          session={session}
-          groupName={session.group_id ? groupNameById.get(session.group_id) : undefined}
-          host={hostById.get(session.host_id)}
-          selectionMode={selectionMode}
-          isSelected={selectedIds.has(session.id)}
-          onSelect={selectionMode ? onSelectSession : undefined}
-          showSnapshotPreview={showSnapshotPreview}
-        />
-      ))}
-    </div>
-  );
+  const gridProps = {
+    groupNameById,
+    hostById,
+    selectionMode,
+    selectedIds,
+    onSelectSession,
+    dragEnabled,
+    showSnapshotPreview,
+  };
 
   if (workflowView) {
-    const isManualIdle = (session: SessionWithSnapshot) => !!session.idled_at;
-    const isIdle = (session: SessionWithSnapshot) =>
-      isManualIdle(session) || session.status === 'IDLE';
-    const needsAttention = filteredSessions.filter(
-      (session) =>
-        !isIdle(session) &&
-        ['WAITING_FOR_INPUT', 'WAITING_FOR_APPROVAL', 'ERROR'].includes(session.status)
-    );
-    const active = filteredSessions.filter(
-      (session) =>
-        !isIdle(session) && ['RUNNING', 'STARTING'].includes(session.status)
-    );
-    const idle = filteredSessions.filter((session) => isIdle(session));
-
     return (
-      <div className="space-y-6">
-        {hasNewSessions && (
-          <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2 text-sm">
-            <span>New sessions available.</span>
-            <Button variant="outline" size="sm" onClick={() => refetch()}>
-              Refresh
-            </Button>
-          </div>
-        )}
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold">Active</h3>
-            <span className="text-xs text-muted-foreground">{active.length}</span>
-          </div>
-          {active.length > 0 ? (
-            renderGrid(active)
-          ) : (
-            <div className="text-xs text-muted-foreground py-4">No active sessions</div>
-          )}
-        </div>
-
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold">Needs Attention</h3>
-            <span className="text-xs text-muted-foreground">{needsAttention.length}</span>
-          </div>
-          {needsAttention.length > 0 ? (
-            renderGrid(needsAttention)
-          ) : (
-            <div className="text-xs text-muted-foreground py-4">No sessions need attention</div>
-          )}
-        </div>
-
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold">Idle</h3>
-            <span className="text-xs text-muted-foreground">{idle.length}</span>
-          </div>
-          {idle.length > 0 ? (
-            renderGrid(idle)
-          ) : (
-            <div className="text-xs text-muted-foreground py-4">No idle sessions</div>
-          )}
-        </div>
-      </div>
+      <SessionWorkflowList
+        sessions={filteredSessions}
+        hasNewSessions={hasNewSessions}
+        onRefresh={() => void refetch()}
+        {...gridProps}
+      />
     );
   }
 
   return (
     <>
-      {hasNewSessions && (
-        <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2 text-sm mb-4">
-          <span>New sessions available.</span>
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            Refresh
-          </Button>
-        </div>
-      )}
-      {renderGrid(filteredSessions)}
+      {hasNewSessions && <NewSessionsNotice className="mb-4" onRefresh={() => void refetch()} />}
+      <SessionListGrid sessions={filteredSessions} {...gridProps} />
     </>
   );
 }

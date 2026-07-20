@@ -5,6 +5,7 @@ import {
   LaunchTargetsResponseSchema,
   LaunchResponseSchema,
   DashboardSpawnResponseSchema,
+  OrchestratorFleetResponseSchema,
   type SessionsResponse,
   type SessionGraphResponse,
   type SessionGraphRollup,
@@ -19,6 +20,7 @@ import {
   type SpawnProvider,
   type DashboardSpawnRequest,
   type DashboardSpawnResponse,
+  type OrchestratorFleetResponse,
 } from '@agent-command/schema';
 import type {
   Session,
@@ -86,6 +88,7 @@ export type {
   SpawnProvider,
   SessionGraphResponse,
   SessionGraphRollup,
+  OrchestratorFleetResponse,
 } from '@agent-command/schema';
 
 import type { GroupWithChildren } from '@/lib/groupTypes';
@@ -356,6 +359,10 @@ export async function getSessionEvents(
 
 export async function getSessionGraph(id: string): Promise<SessionGraphResponse> {
   return fetchAPI(`/v1/sessions/${id}/graph`, undefined, SessionGraphResponseSchema);
+}
+
+export async function getOrchestratorFleet(): Promise<OrchestratorFleetResponse> {
+  return fetchAPI('/v1/orchestrator/fleet', undefined, OrchestratorFleetResponseSchema);
 }
 
 export async function getSessionAgentTasks(

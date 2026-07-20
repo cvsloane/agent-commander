@@ -2,8 +2,15 @@
 
 import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { createGroup, updateGroup, getGroups } from '@/lib/api';
 import type { GroupWithChildren } from '@/lib/groupTypes';
 
@@ -57,9 +64,7 @@ export function GroupModal({ isOpen, onClose, editGroup }: GroupModalProps) {
   };
 
   const availableParents = groupsData
-    ? flattenGroups(groupsData.groups).filter(
-        (g) => !editGroup || g.id !== editGroup.id
-      )
+    ? flattenGroups(groupsData.groups).filter((g) => !editGroup || g.id !== editGroup.id)
     : [];
 
   // Reset form when modal opens/closes or editGroup changes
@@ -95,12 +100,7 @@ export function GroupModal({ isOpen, onClose, editGroup }: GroupModalProps) {
   });
 
   const updateMutation = useMutation({
-    mutationFn: (data: {
-      id: string;
-      name: string;
-      color: string;
-      parent_id?: string | null;
-    }) =>
+    mutationFn: (data: { id: string; name: string; color: string; parent_id?: string | null }) =>
       updateGroup(data.id, {
         name: data.name,
         color: data.color,
@@ -142,33 +142,26 @@ export function GroupModal({ isOpen, onClose, editGroup }: GroupModalProps) {
 
   const isLoading = createMutation.isPending || updateMutation.isPending;
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-background border rounded-lg shadow-lg w-full max-w-md p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">
-            {editGroup ? 'Edit Group' : 'Create Group'}
-          </h2>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-accent rounded"
-            disabled={isLoading}
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{editGroup ? 'Edit Group' : 'Create Group'}</DialogTitle>
+          <DialogDescription>
+            Organize related sessions into a reusable sidebar group.
+          </DialogDescription>
+        </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Name */}
           <div>
-            <label className="block text-sm font-medium mb-1">Name</label>
+            <label htmlFor="group-name" className="mb-1 block text-sm font-medium">Name</label>
             <input
+              id="group-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full px-3 py-2 border rounded-md bg-background"
+              className="h-11 w-full rounded-md border bg-background px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               placeholder="Group name"
               autoFocus
               disabled={isLoading}
@@ -183,26 +176,31 @@ export function GroupModal({ isOpen, onClose, editGroup }: GroupModalProps) {
                 <button
                   key={c}
                   type="button"
-                  className={`w-6 h-6 rounded-full border-2 ${
+                  className={`h-11 w-11 rounded-full border-2 p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                     color === c ? 'border-foreground' : 'border-transparent'
                   }`}
-                  style={{ backgroundColor: c }}
+                  aria-label={`Use ${c} as the group color`}
+                  aria-pressed={color === c}
                   onClick={() => setColor(c)}
                   disabled={isLoading}
-                />
+                >
+                  <span
+                    className="block h-full w-full rounded-full"
+                    style={{ backgroundColor: c }}
+                  />
+                </button>
               ))}
             </div>
           </div>
 
           {/* Parent */}
           <div>
-            <label className="block text-sm font-medium mb-1">
-              Parent Group (optional)
-            </label>
+            <label htmlFor="group-parent" className="mb-1 block text-sm font-medium">Parent Group (optional)</label>
             <select
+              id="group-parent"
               value={parentId || ''}
               onChange={(e) => setParentId(e.target.value || null)}
-              className="w-full px-3 py-2 border rounded-md bg-background"
+              className="h-11 w-full rounded-md border bg-background px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               disabled={isLoading}
             >
               <option value="">No parent (root level)</option>
@@ -222,21 +220,16 @@ export function GroupModal({ isOpen, onClose, editGroup }: GroupModalProps) {
           )}
 
           {/* Actions */}
-          <div className="flex justify-end gap-2 pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onClose}
-              disabled={isLoading}
-            >
+          <DialogFooter className="pt-2">
+            <Button type="button" variant="outline" size="mobile" onClick={onClose} disabled={isLoading}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isLoading}>
+            <Button type="submit" size="mobile" disabled={isLoading}>
               {isLoading ? 'Saving...' : editGroup ? 'Save' : 'Create'}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

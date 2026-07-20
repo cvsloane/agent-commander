@@ -23,6 +23,7 @@ import { InlineApproval } from './InlineApproval';
 import { sendCommand, type SessionGraphRollup } from '@/lib/api';
 import { cn, formatRelativeTime, getProviderDisplayName, getSessionDisplayName } from '@/lib/utils';
 import type { OrchestratorItem } from '@/stores/orchestrator';
+import { SessionHealthBadges } from '@/components/session/SessionHealthBadges';
 
 interface OrchestratorFleetCardProps {
   session: SessionWithSnapshot;
@@ -33,6 +34,7 @@ interface OrchestratorFleetCardProps {
   attentionItems: OrchestratorItem[];
   isLoading: boolean;
   errors: Error[];
+  hostOnlineById: Record<string, boolean>;
   onRefresh: () => void;
 }
 
@@ -66,6 +68,7 @@ export function OrchestratorFleetCard({
   attentionItems,
   isLoading,
   errors,
+  hostOnlineById,
   onRefresh,
 }: OrchestratorFleetCardProps) {
   const [prompt, setPrompt] = useState('');
@@ -115,9 +118,11 @@ export function OrchestratorFleetCard({
               {getProviderDisplayName(session.provider)} · {session.cwd || 'No working directory'}
             </p>
           </div>
-          <Badge variant={statusVariant(session.status)} className="shrink-0 text-[10px] sm:text-xs">
-            {session.status.replaceAll('_', ' ')}
-          </Badge>
+          <SessionHealthBadges
+            session={session}
+            hostOnline={hostOnlineById[session.host_id]}
+            className="shrink-0"
+          />
         </div>
         <div className="grid grid-cols-3 gap-2 text-center">
           <div className="rounded-md border bg-background px-2 py-2">
@@ -174,9 +179,11 @@ export function OrchestratorFleetCard({
                     <span className="block truncate text-sm font-medium">{getSessionDisplayName(child)}</span>
                     <span className="block truncate text-xs text-muted-foreground">Worker session · {child.tmux_target || child.cwd}</span>
                   </span>
-                  <Badge variant={statusVariant(child.status)} className="shrink-0 text-[10px]">
-                    {child.status.replaceAll('_', ' ')}
-                  </Badge>
+                  <SessionHealthBadges
+                    session={child}
+                    hostOnline={hostOnlineById[child.host_id]}
+                    className="shrink-0 justify-end"
+                  />
                 </Link>
               ))}
               {agentTasks.map((task) => (

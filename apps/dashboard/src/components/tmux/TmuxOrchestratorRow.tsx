@@ -4,8 +4,9 @@ import { Bot, ChevronDown, ChevronRight, Network } from 'lucide-react';
 import type { Host } from '@agent-command/schema';
 import type { OrchestratorFleetGroup } from '@/lib/fleetRoster';
 import { Badge } from '@/components/ui/badge';
-import { cn, formatRelativeTime, getStatusIndicator } from '@/lib/utils';
+import { cn, formatRelativeTime, getStatusIndicator, isHostOnline } from '@/lib/utils';
 import { TmuxPaneRow } from './TmuxPaneRow';
+import { SessionHealthBadges } from '@/components/session/SessionHealthBadges';
 
 interface TmuxOrchestratorRowProps {
   group: OrchestratorFleetGroup;
@@ -58,6 +59,13 @@ export function TmuxOrchestratorRow({
             <Network className="h-4 w-4 shrink-0 text-cyan-600 dark:text-cyan-400" />
             <span className="truncate font-medium">{group.title}</span>
             <Badge variant="outline" className="h-5 shrink-0 px-1.5 text-[10px]">Orchestrator</Badge>
+            <SessionHealthBadges
+              session={group.orchestrator.session}
+              hostOnline={isHostOnline(
+                hosts.find((host) => host.id === group.orchestrator.session.host_id)?.last_seen_at ?? null
+              )}
+              compact
+            />
           </div>
           <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
             <span className="shrink-0 whitespace-nowrap">{group.workers.length} worker{group.workers.length === 1 ? '' : 's'}</span>
@@ -88,6 +96,9 @@ export function TmuxOrchestratorRow({
             hydrated={hydrated}
             onSelectSession={onSelectSession}
             onOpenActions={onOpenActions}
+            hostOnline={isHostOnline(
+              hosts.find((host) => host.id === group.orchestrator.session.host_id)?.last_seen_at ?? null
+            )}
           />
           <div className="px-3 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             Workers
@@ -100,6 +111,9 @@ export function TmuxOrchestratorRow({
               hydrated={hydrated}
               onSelectSession={onSelectSession}
               onOpenActions={onOpenActions}
+              hostOnline={isHostOnline(
+                hosts.find((host) => host.id === worker.session.host_id)?.last_seen_at ?? null
+              )}
             />
           ))}
         </div>

@@ -43,3 +43,9 @@
 - Date: 2026-07-20
   Correction: Wave 3 review found that live topology never expired, child roster consumers duplicated fetches and rebuilds, and destructive/version-gated actions trusted non-authoritative signals.
   Rule: Expire optional live feeds back to polling, share page-level query results with child consumers, and gate destructive copy or protocol flags only on authoritative source metadata.
+
+- Date: 2026-07-20
+  Correction: Wave 4 review found that Ctrl+K collided with an editable terminal target, one-time host tokens lingered in mutation state, and enrollment config hard-coded a TLS WebSocket scheme.
+  Rule: Exempt Ctrl-based global shortcuts inside editable targets, reset mutation state when secret-bearing UI closes, and derive dependent connection schemes from the configured transport with HTTP and HTTPS coverage.
+  Correction: Wave 4 review also found that a late fleet reconcile could overwrite fresher WebSocket state, canonical session entries were not bounded by current aggregate/roster membership, and new prompt/Respond paths bypassed terminal read-only permissions.
+  Rule: Merge asynchronous snapshots monotonically by authoritative freshness, prune canonical maps during reconciliation, and propagate terminal control state to every PTY-input-equivalent affordance while keeping non-PTY governance actions independently available.

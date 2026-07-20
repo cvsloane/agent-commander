@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useEffect, useMemo, useCallback } from 'react';
 import {
   ChevronRight,
   ChevronDown,
@@ -15,6 +15,12 @@ import {
   FileStack,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { getGroups, deleteGroup as deleteGroupApi } from '@/lib/api';
 import { useGroupsStore } from '@/stores/groups';
@@ -33,8 +39,6 @@ function GroupTreeItem({ group, depth, onEdit, onDelete }: GroupTreeItemProps) {
   const searchParams = useSearchParams();
   const { selectedGroupId, setSelectedGroup, expandedGroups, toggleGroupExpanded } =
     useGroupsStore();
-  const [showMenu, setShowMenu] = useState(false);
-
   const isExpanded = expandedGroups.has(group.id);
   const isSelected = selectedGroupId === group.id;
   const hasChildren = group.children.length > 0;
@@ -56,65 +60,75 @@ function GroupTreeItem({ group, depth, onEdit, onDelete }: GroupTreeItemProps) {
     <DroppableGroup groupId={group.id}>
       <div
         className={cn(
-          'flex items-center gap-1 px-2 py-1.5 rounded-md cursor-pointer group hover:bg-accent',
+          'group flex min-h-11 items-center gap-1 rounded-md px-1 hover:bg-accent',
           isSelected && 'bg-accent'
         )}
-        style={{ paddingLeft: `${depth * 12 + 8}px` }}
-        onClick={handleSelect}
-        onMouseEnter={() => setShowMenu(true)}
-        onMouseLeave={() => setShowMenu(false)}
+        style={{ paddingLeft: `${depth * 12 + 4}px` }}
       >
         {hasChildren ? (
           <button
+            type="button"
             onClick={handleToggleExpand}
-            className="p-0.5 hover:bg-background rounded"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${group.name}`}
+            aria-expanded={isExpanded}
           >
             {isExpanded ? (
-              <ChevronDown className="h-3 w-3 text-muted-foreground" />
+              <ChevronDown className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
             ) : (
-              <ChevronRight className="h-3 w-3 text-muted-foreground" />
+              <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
             )}
           </button>
         ) : (
-          <span className="w-4" />
+          <span className="h-11 w-11 shrink-0" aria-hidden="true" />
         )}
-        {isExpanded && hasChildren ? (
-          <FolderOpen
-            className="h-4 w-4 flex-shrink-0"
-            style={{ color: group.color }}
-          />
-        ) : (
-          <Folder
-            className="h-4 w-4 flex-shrink-0"
-            style={{ color: group.color }}
-          />
-        )}
-        <span className="flex-1 text-sm truncate">{group.name}</span>
-        <span className="text-xs text-muted-foreground">
-          {group.session_count}
-        </span>
-        {showMenu && (
-          <div className="flex gap-0.5">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onEdit(group);
-              }}
-              className="p-1 hover:bg-background rounded opacity-0 group-hover:opacity-100 transition-opacity"
+        <button
+          type="button"
+          className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-md px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={handleSelect}
+          aria-current={isSelected ? 'page' : undefined}
+        >
+          {isExpanded && hasChildren ? (
+            <FolderOpen
+              className="h-4 w-4 flex-shrink-0"
+              style={{ color: group.color }}
+              aria-hidden="true"
+            />
+          ) : (
+            <Folder
+              className="h-4 w-4 flex-shrink-0"
+              style={{ color: group.color }}
+              aria-hidden="true"
+            />
+          )}
+          <span className="flex-1 truncate text-sm">{group.name}</span>
+          <span className="text-xs text-muted-foreground">{group.session_count}</span>
+        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="mobile-icon"
+              className="shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:data-[state=open]:opacity-100"
+              aria-label={`Actions for ${group.name}`}
             >
-              <Pencil className="h-3 w-3 text-muted-foreground" />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(group);
-              }}
-              className="p-1 hover:bg-background rounded opacity-0 group-hover:opacity-100 transition-opacity"
+              <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => onEdit(group)}>
+              <Pencil className="h-4 w-4" aria-hidden="true" />
+              Edit group
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onSelect={() => onDelete(group)}
             >
-              <Trash2 className="h-3 w-3 text-muted-foreground" />
-            </button>
-          </div>
-        )}
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+              Delete group
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       {isExpanded &&
         hasChildren &&
@@ -231,36 +245,45 @@ export function GroupTree({ onCreateGroup, onEditGroup }: GroupTreeProps) {
     <div className="h-full flex flex-col">
       <div className="flex items-center justify-between px-3 py-2 border-b">
         <span className="text-sm font-medium">Groups</span>
-        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onCreateGroup}>
-          <Plus className="h-4 w-4" />
+        <Button
+          variant="ghost"
+          size="mobile-icon"
+          onClick={onCreateGroup}
+          aria-label="Create group"
+        >
+          <Plus className="h-4 w-4" aria-hidden="true" />
         </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto py-2">
         {/* All Sessions */}
-        <div
+        <button
+          type="button"
           className={cn(
-            'flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-accent rounded-md mx-2',
+            'mx-2 flex min-h-11 w-[calc(100%-1rem)] items-center gap-2 rounded-md px-3 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             isAllSelected && 'bg-accent'
           )}
           onClick={handleSelectAll}
+          aria-current={isAllSelected ? 'page' : undefined}
         >
-          <FileStack className="h-4 w-4 text-muted-foreground" />
+          <FileStack className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
           <span className="text-sm">All Sessions</span>
-        </div>
+        </button>
 
         {/* Ungrouped */}
         <DroppableGroup groupId={null} className="mx-2">
-          <div
+          <button
+            type="button"
             className={cn(
-              'flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-accent rounded-md',
+              'flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               isUngroupedSelected && 'bg-accent'
             )}
             onClick={handleSelectUngrouped}
+            aria-current={isUngroupedSelected ? 'page' : undefined}
           >
-            <Folder className="h-4 w-4 text-muted-foreground" />
+            <Folder className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
             <span className="text-sm text-muted-foreground">Ungrouped</span>
-          </div>
+          </button>
         </DroppableGroup>
 
         {/* Divider */}
@@ -276,7 +299,11 @@ export function GroupTree({ onCreateGroup, onEditGroup }: GroupTreeProps) {
             ) : (
               <>
                 No groups yet.{' '}
-                <button onClick={onCreateGroup} className="text-primary hover:underline">
+                <button
+                  type="button"
+                  onClick={onCreateGroup}
+                  className="min-h-11 rounded px-1 text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
                   Create one
                 </button>
               </>

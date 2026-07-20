@@ -14,6 +14,15 @@ export type SessionNamingPattern = 'repo_name' | 'branch_name' | 'repo_branch';
 export type SessionTemplate = 'single' | 'claude_codex' | 'full_dev';
 export type LinkType = 'complement' | 'review';
 export type MobileLaunchDefaultProvider = 'codex' | 'claude_code';
+export type TmuxSavedRosterFilter =
+  | 'all'
+  | 'waiting'
+  | 'errors'
+  | 'active'
+  | 'dirty'
+  | 'untracked'
+  | 'this_host'
+  | 'recent';
 export const ALERT_PROVIDER_KEYS = [
   'claude_code',
   'codex',
@@ -383,6 +392,12 @@ interface SettingsStore {
   setTmuxKeyBarExpanded: (expanded: boolean) => void;
   tmuxSecondaryByPrimary: Record<string, string>;
   setTmuxSecondary: (primarySessionId: string, secondarySessionId: string | null) => void;
+  promptHistoryBySession: Record<string, string[]>;
+  addPromptHistory: (sessionId: string, prompt: string) => void;
+  tmuxRosterFilter: TmuxSavedRosterFilter;
+  setTmuxRosterFilter: (filter: TmuxSavedRosterFilter) => void;
+  tmuxThisHostId: string | null;
+  setTmuxThisHostId: (hostId: string | null) => void;
 
   // Repo Picker settings
   devFolders: DevFolder[];
@@ -640,6 +655,26 @@ export const useSettingsStore = create<SettingsStore>()(
           else delete next[primarySessionId];
           return { tmuxSecondaryByPrimary: next };
         }),
+      promptHistoryBySession: {},
+      addPromptHistory: (sessionId, prompt) =>
+        set((state) => {
+          const normalized = prompt.trim();
+          if (!normalized) return state;
+          const recent = state.promptHistoryBySession[sessionId] ?? [];
+          return {
+            promptHistoryBySession: {
+              ...state.promptHistoryBySession,
+              [sessionId]: [
+                normalized,
+                ...recent.filter((entry) => entry !== normalized),
+              ].slice(0, 20),
+            },
+          };
+        }),
+      tmuxRosterFilter: 'all',
+      setTmuxRosterFilter: (filter) => set({ tmuxRosterFilter: filter }),
+      tmuxThisHostId: null,
+      setTmuxThisHostId: (hostId) => set({ tmuxThisHostId: hostId }),
 
       // Repo Picker defaults
       devFolders: [],
