@@ -1,4 +1,7 @@
-# Mobile tmux UX Program — Plan for Owner Assessment (2026-07-20)
+# Mobile tmux UX — WAVE 6 of the Frontend Command Center UX program (2026-07-20)
+
+**OWNER-LOCKED 2026-07-20 (decision interview):** run as Wave 6 of the existing program (not a separate one). Rail = ultra-minimal DEFAULT (Esc · sticky-Ctrl · ↑↓←→) with the fuller preset + macro keys available via config. Font default 14px (+ slider 11–18 + pinch). Grid = letterbox-when-desktop-attached, settled-only resizes solo. Attach everywhere + cold-open restore. Full-bleed = one status row + compact 28px window strip. Command marks in the second batch. Next program after Wave 6: **Hermes deep integration**. Device verification: ONE guided S25-Ultra/Brave check before the final merge.
+Execution: batch 1 lanes FW6-CANVAS (homelinux) + FW6-FLOW (heavisidelinux, cross-stack); batch 2 lanes FW6-PRECISION + FW6-VERIFY after batch-1 integration.
 
 Evidence: three-agent deep study at main `6e928a4` (v0.4.0) — element-by-element mobile terminal audit, tap-by-tap journey traces, known-issues + backlog inventory. Target device (owner facts, 2026-07-20): **Samsung Galaxy S25 Ultra, Brave browser (Chromium), thumb-only (no S Pen), single user**. All prior verification assumed iPhone 390×844 in headless Chromium; the actual target is ~412×915 with Android keyboard semantics and adb-debuggable.
 
