@@ -1,5 +1,6 @@
 - Start here
   - [Overview](/docs/overview.md)
+  - [Command Center](/docs/command-center.md)
   - [Releases](/docs/releases.md)
   - [Getting Started](/docs/getting-started.md)
   - [Configuration](/docs/configuration.md)
@@ -7,7 +8,8 @@
   - [Coolify Deployment](/docs/deployment-coolify.md)
 
 - Core guides
-  - [Tmux Manager](/docs/tmux-manager.md)
+  - [Tmux Workspace](/docs/tmux-manager.md)
+  - [Launch and Reopen](/docs/mobile-launch.md)
   - [Sessions](/docs/sessions.md)
   - [Console Streaming](/docs/console.md)
   - [Orchestrator](/docs/orchestrator.md)
@@ -27,6 +29,7 @@
 - Reference
   - [API Reference](/docs/api.md)
   - [WebSockets](/docs/websockets.md)
+  - [Frontend Performance Contract](/docs/performance.md)
   - [Events](/docs/events.md)
   - [Data Model](/docs/data-model.md)
   - [Security](/docs/security.md)

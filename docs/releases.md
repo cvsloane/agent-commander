@@ -2,11 +2,15 @@
 
 ## v0.2.0
 
-`v0.2.0` is the release where Agent Commander became more than a tmux dashboard.
+`v0.2.0` is the historical release where Agent Commander became more than a
+tmux dashboard. Its `/tmux` landing has since been replaced by the v0.4 Command
+Center at `/`; `/tmux` now redirects there for compatibility.
 
 ### Highlights
 
-- **tmux-first manager**: `/tmux` is now the primary pane-and-window workflow, with an inline workbench for real terminal control.
+- **tmux-first manager**: at release time, `/tmux` introduced the primary
+  pane-and-window workflow and inline terminal workbench. The current equivalent
+  is the Command Center at `/`.
 - **Autonomous orchestration**: `/automation` adds orchestrators, workers, wakeups, governance approvals, work items, concurrency controls, and runtime reuse.
 - **Scoped memory**: `/memory` adds repo and global memory for every session, with `working`, `episodic`, `semantic`, and `procedural` tiers.
 - **Trajectory-backed learning**: successful runs can distill into reusable procedural knowledge instead of leaving everything as raw session history.
@@ -24,7 +28,7 @@ Agent Commander keeps its own core advantage: everything still runs through norm
 
 ### Product surfaces added or expanded
 
-- `/tmux`
+- `/tmux` (historical landing; now a compatibility redirect to `/`)
 - `/automation`
 - `/memory`
 - Hermes integration endpoints and summaries
