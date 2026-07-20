@@ -48,6 +48,7 @@ type Agent struct {
 	streamer         *console.Streamer
 	terminalManager  *tmux.TerminalManager
 	pipeMux          *tmux.PipeMux
+	tmuxHooks        *tmux.HookManager
 	lastPruneAt      time.Time
 	orchestratorTmux TmuxRunner
 	sendMessage      func(string, any) error
@@ -471,6 +472,16 @@ func (a *Agent) Run() error {
 	// Initialize pipe mux for console + terminal output
 	a.pipeMux = tmux.NewPipeMux(a.tmuxClient, a.cfg.Storage.StateDir+"/console")
 
+	// Register additive topology hooks when the host tmux supports them. The
+	// reconciliation poll remains active as the fallback and correctness pass.
+	a.tmuxHooks, err = a.tmuxClient.StartTopologyHooks(a.handleTmuxTopologyHook)
+	if err != nil {
+		log.Printf("tmux hooks unavailable; using poll-only topology: %v", err)
+	} else {
+		defer a.tmuxHooks.Close()
+		log.Printf("tmux topology hooks active")
+	}
+
 	// Connect to control plane
 	if err := a.wsClient.Connect(); err != nil {
 		return fmt.Errorf("failed to connect to control plane: %w", err)
@@ -503,6 +514,9 @@ func (a *Agent) Run() error {
 	}
 	if a.terminalManager != nil {
 		a.terminalManager.Close()
+	}
+	if a.tmuxHooks != nil {
+		a.tmuxHooks.Close()
 	}
 	a.stopTmuxTopology()
 	a.claudeProvider.Stop()
@@ -4653,6 +4667,17 @@ func (a *Agent) reconcileTmux(reason string) {
 	a.syncPanes(panes, procSnap)
 	a.topologyMu.Unlock()
 	a.queueTmuxTopology(reason, panes)
+}
+
+func (a *Agent) handleTmuxTopologyHook(hookName string) {
+	a.topologyMu.Lock()
+	panes, err := a.tmuxClient.ListPanes()
+	a.topologyMu.Unlock()
+	if err != nil {
+		log.Printf("Failed to list tmux panes after hook %s: %v", hookName, err)
+		return
+	}
+	a.queueTmuxTopology("hook:"+hookName, panes)
 }
 
 func (a *Agent) syncPanes(panes []tmux.Pane, procSnap *proc.Snapshot) {
