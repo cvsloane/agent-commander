@@ -9,12 +9,12 @@
 
 Agent Commander is a mission-control dashboard for managing AI agent sessions across multiple hosts. It combines a Next.js dashboard, a Fastify control plane, and a Go-based agent daemon (`agentd`).
 
-## New in v0.2.0
+## Command Center UX
 
-- **tmux-first manager** — `/tmux` is now the primary day-to-day surface for live windows and panes across hosts
-- **Paperclip-inspired autonomy** — autonomous orchestrators and workers with wake queues, governance approvals, budgets, concurrency policy, and runtime reuse
-- **Ruflo-inspired memory** — repo and global memory for every session, plus trajectory capture and procedural knowledge
-- **Hermes integration** — external wake triggers, summaries, and watchdog/digest hooks for the broader Heaviside automation stack
+- **Fleet-to-terminal landing** — `/` combines fleet health, the host roster, tmux windows and panes, and a persistent live terminal
+- **Structured tmux control** — create, rename, and close windows; split, zoom, select, and terminate panes
+- **Focused intervention** — use the prompt composer and terminal attention overlay without leaving the active pane
+- **Fast navigation** — launch or reopen work, add hosts, and search routes, sessions, and actions from the command palette
 
 ## Screenshots
 
@@ -25,12 +25,12 @@ Agent Commander is a mission-control dashboard for managing AI agent sessions ac
 <details>
 <summary>More screenshots</summary>
 
-| Sessions | Approvals |
-| --- | --- |
+| Sessions                                   | Approvals                                  |
+| ------------------------------------------ | ------------------------------------------ |
 | ![Sessions](docs/images/sessions-view.png) | ![Approvals](docs/images/orchestrator.png) |
 
-| Session Detail | Visualizer |
-| --- | --- |
+| Session Detail                                    | Visualizer                                |
+| ------------------------------------------------- | ----------------------------------------- |
 | ![Session Detail](docs/images/session-detail.png) | ![Visualizer](docs/images/visualizer.png) |
 
 ![Settings](docs/images/settings-alerts.png)
@@ -54,20 +54,22 @@ cp apps/dashboard/.env.example apps/dashboard/.env
 ```
 
 Run migrations:
+
 ```bash
 pnpm db:migrate
 ```
 
 ## Features
 
-- **tmux-first manager** — work directly from `/tmux` with windows-first navigation and inline terminal control
+- **Command Center** — work from `/` with fleet context, windows-first navigation, and inline terminal control
 - **tmux-native sessions** — discover and manage real tmux panes across hosts
-- **Interactive console** — live streaming with full terminal control and read-only viewers
+- **Interactive console** — persistent live streaming, searchable scrollback and history, full terminal control, and read-only viewers
+- **Multi-terminal workspace** — use two panes side by side on desktop or quick-switch on compact layouts
 - **Orchestrator + approvals** — attention queue for input, approvals, and errors
 - **Autonomous agents** — scheduled or manual orchestrators and workers with runtime reuse, preflight, and governance
 - **Scoped memory** — repo and global memory for every session, with procedural knowledge and trajectory-backed learning
 - **Hermes-ready integration** — service-auth wake triggers, webhook wakes, governance summaries, and external scheduler support
-- **Session generator** — spawn multi-session templates with groups and links
+- **Unified launch** — start new provider sessions, repeat recent launches, or open existing panes
 - **Visualizer** — immersive full-screen activity view
 - **Search + analytics** — global search and usage tracking
 - **Alerts** — browser, audio, in-app toasts, and OpenClaw notifications
@@ -75,23 +77,25 @@ pnpm db:migrate
 
 ## Documentation
 
-| Guide | Description |
-| --- | --- |
-| [Docs Index](docs/README.md) | Full documentation map |
-| [Overview](docs/overview.md) | Concepts and workflows |
-| [Releases](docs/releases.md) | Public release notes and milestones |
-| [Getting Started](docs/getting-started.md) | Install and run locally |
-| [Tmux Manager](docs/tmux-manager.md) | The tmux-first working surface |
-| [Sessions](docs/sessions.md) | Session lifecycle and actions |
-| [Console Streaming](docs/console.md) | Interactive tmux in the browser |
-| [Orchestrator](docs/orchestrator.md) | Attention queue and summaries |
-| [Automation and Memory](docs/automation-memory.md) | Autonomous runs, work queue, and scoped memory |
-| [Approvals](docs/approvals.md) | Permission requests and decisions |
-| [Coolify Deployment](docs/deployment-coolify.md) | Production setup on Coolify + Cloudflare |
-| [API Reference](docs/api.md) | REST + WS endpoints |
-| [Security](docs/security.md) | Security best practices |
+| Guide                                              | Description                                           |
+| -------------------------------------------------- | ----------------------------------------------------- |
+| [Docs Index](docs/README.md)                       | Full documentation map                                |
+| [Overview](docs/overview.md)                       | Concepts and workflows                                |
+| [Command Center](docs/command-center.md)           | Fleet, tmux, terminal, launch, palette, and shortcuts |
+| [Releases](docs/releases.md)                       | Public release notes and milestones                   |
+| [Getting Started](docs/getting-started.md)         | Install and run locally                               |
+| [Tmux Workspace](docs/tmux-manager.md)             | Window and pane management in the Command Center      |
+| [Sessions](docs/sessions.md)                       | Session lifecycle and actions                         |
+| [Console Streaming](docs/console.md)               | Interactive tmux in the browser                       |
+| [Orchestrator](docs/orchestrator.md)               | Attention queue and summaries                         |
+| [Automation and Memory](docs/automation-memory.md) | Autonomous runs, work queue, and scoped memory        |
+| [Approvals](docs/approvals.md)                     | Permission requests and decisions                     |
+| [Coolify Deployment](docs/deployment-coolify.md)   | Production setup on Coolify + Cloudflare              |
+| [API Reference](docs/api.md)                       | REST + WS endpoints                                   |
+| [Security](docs/security.md)                       | Security best practices                               |
 
 Public site:
+
 - Feature site (apex) + docs site: `docs/deployment-coolify.md`
 
 ## Architecture

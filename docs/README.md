@@ -3,6 +3,7 @@
 Start here:
 
 - [Overview](overview.md)
+- [Command Center](command-center.md)
 - [Releases](releases.md)
 - [Getting Started](getting-started.md)
 - [Configuration](configuration.md)
@@ -13,7 +14,7 @@ Start here:
 
 Core guides:
 
-- [Tmux Manager](tmux-manager.md)
+- [Tmux Workspace](tmux-manager.md)
 - [Mobile Launch](mobile-launch.md)
 - [Sessions](sessions.md)
 - [Console Streaming](console.md)

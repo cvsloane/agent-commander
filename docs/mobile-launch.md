@@ -1,65 +1,57 @@
-# Mobile Launch
+# Launch and Reopen
 
-Mobile launch is the workflow for starting or reopening coding work from a phone.
-It is built around launch targets instead of the full desktop session generator.
+The Command Center uses one launch contract across desktop and compact layouts.
+Desktop presents it as a launch rail; mobile presents the same choices in a
+sheet.
 
-## Operator Flow
+## Operator flow
 
-1. Open Agent Commander on a phone.
-2. Choose a machine by alias, such as `heavisidelinux` or `homelinux`.
-3. Pick a recent project or enter an allowed working directory.
-4. Choose Codex or Claude Code.
-5. Optionally enter an initial prompt.
-6. Launch and land on `/tmux?host_id=...&session_id=...&mode=terminal&attach=1`.
+1. Open Agent Commander.
+2. Choose **New**, **Recent**, or **Open existing**.
+3. For a new launch, select a machine, an allowed directory or recent project,
+   and Codex or Claude Code. An initial prompt is optional.
+4. For an existing target, select a tracked pane or enter a tmux target/pane ID.
+5. Launch or open the pane and land on
+   `/?host_id=...&session_id=...&mode=terminal&attach=1`.
 
-The server waits briefly for the new tmux pane to become openable. If the pane is
-ready, the response includes `terminal.openable: true`; if not, the dashboard can
-still navigate to the returned tmux URL and continue normal roster refresh.
+The server waits briefly for a newly spawned tmux pane to become openable. When
+it is ready, the response includes `terminal.openable: true`; otherwise the
+dashboard can still navigate to the canonical URL and let normal roster
+reconciliation select the pane when it appears.
 
-## API Shape
+## API shape
 
 - `GET /v1/launch/targets` returns host aliases, online state, terminal/spawn
-  support, provider support, allowed directory roots, recent projects, and recent
-  tmux panes, and recent launches.
-- `POST /v1/launch` starts a provider in tmux through the existing session spawn
-  service, waits up to `wait_timeout_ms` for `tmux_pane_id`, optionally sends the
-  initial prompt after the pane is ready, and returns a tmux navigation URL.
-- `POST /v1/tmux/open` opens an existing tmux pane by target or pane id, adopts
-  unmanaged panes that are already in the session registry, and returns the same
-  terminal navigation URL.
+  support, providers, allowed directory roots, recent projects, recent tmux
+  panes, and recent launches.
+- `POST /v1/launch` starts a provider through the existing session spawn
+  service, waits up to `wait_timeout_ms` for `tmux_pane_id`, optionally sends an
+  initial prompt, and returns a Command Center navigation URL.
+- `POST /v1/tmux/open` opens an existing pane by target or pane ID, adopts an
+  unmanaged pane already in the registry, and returns the same navigation URL.
 
-The launch path reuses the normal session, memory, terminal, audit, and agentd
+The path reuses the normal session, memory, terminal, audit, and `agentd`
 command runtime. It does not create a second tmux model.
 
-## Policy Notes
+## Recent launches and defaults
 
-Launch is an operator action. Discovery of launch targets is available to viewer
-roles, but starting a provider requires operator permissions.
+Successful launches are recorded by the control plane and shown by the launch
+surface when a matching host is available. Browser state retains the most recent
+launch target, while synced settings retain default provider, machine, and tmux
+target preferences.
+
+## Permissions and command routing
+
+Launch-target discovery is available to viewers. Starting a provider or opening
+a controllable terminal requires operator permission.
 
 Privileged commands such as `spawn_session`, `spawn_job`, `list_directory`, and
-`kill_session` are blocked from generic session command dispatch. They must go
-through dedicated capability-checked endpoints.
+`kill_session` are blocked from generic session command dispatch. They use
+dedicated capability-checked endpoints. Host-level commands use the shared
+command router with host command session ID
+`00000000-0000-0000-0000-000000000000`.
 
-Host-level commands, such as directory listing, use the shared command router
-with the host command session id `00000000-0000-0000-0000-000000000000`.
+## Verification
 
-## Current State
-
-- The backend launch contract is in place.
-- The `/tmux` mobile header has a plus button that opens a launch sheet for
-  recent projects, manual paths, Codex/Claude selection, optional prompts, and
-  tracked existing panes.
-- Successful launches are remembered in browser local storage for the planned
-  repeat-last fallback, recorded in the control plane recent launch store, and
-  exposed in the launch sheet when a matching host is available.
-- Successful launches also update synced settings for default mobile launch
-  provider, machine, and tmux target.
-- Opening an existing tmux target uses `POST /v1/tmux/open`; tracked panes can be
-  opened from the list, and a manual target or pane id can be entered.
-- Mobile pane actions use a typed terminal controller ref instead of a
-  window-level custom event bridge.
-- The terminal view has started moving into smaller pieces: the toolbar,
-  surface, and clipboard behavior are now separated from the main terminal
-  runtime.
-- `pnpm verify:launch` runs the focused schema, control-plane, dashboard
-  typecheck, and dashboard smoke checks for this workflow.
+`pnpm verify:launch` runs the focused schema, control-plane, dashboard
+typecheck, and dashboard smoke checks for this workflow.
