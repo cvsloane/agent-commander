@@ -24,3 +24,4 @@
 {"ts":"2026-07-21T05:25:00Z","event":"wave_launched","wave":5,"lanes":["FW5-POLISH","FW5-QA"]}
 {"ts":"2026-07-21T05:40:00Z","event":"wave_deployed","wave":4,"sha":"fa0ba72"}
 {"ts":"2026-07-21T06:30:00Z","event":"lane_frozen","lane":"FW5-POLISH","attempt":1,"frozen_sha":"9ceed37","verdict":"accepted"}
+{"ts":"2026-07-21T07:50:00Z","event":"wave_complete","wave":5,"reviewer_verdict":"SHIP-WITH-NOTES","gate":"green","program":"final gate green"}
