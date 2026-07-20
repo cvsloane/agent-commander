@@ -6,3 +6,4 @@
 {"ts":"2026-07-20T18:20:00Z","event":"wave_merged","wave":1,"main_sha":"d565b00","pr":86}
 {"ts":"2026-07-20T18:25:00Z","event":"wave_launched","wave":2,"lanes":["FW2-CONTRACTS","FW2-TERM"]}
 {"ts":"2026-07-20T18:30:00Z","event":"wave_deployed","wave":1,"sha":"d565b00"}
+{"ts":"2026-07-20T19:10:00Z","event":"lane_frozen","lane":"FW2-CONTRACTS","attempt":1,"frozen_sha":"40bbd14","verdict":"accepted"}
