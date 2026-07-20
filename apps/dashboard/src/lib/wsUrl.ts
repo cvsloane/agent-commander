@@ -2,7 +2,8 @@ import { getRuntimeConfig, type RuntimeConfig } from '@/lib/runtimeConfig';
 
 type WebSocketEndpoint =
   | { type: 'events' }
-  | { type: 'terminal'; sessionId: string; token: string };
+  | { type: 'terminal'; sessionId: string; ticket: string }
+  | { type: 'voice'; ticket: string };
 
 interface WebSocketUrlEnvironment {
   NEXT_PUBLIC_CONTROL_PLANE_URL?: string;
@@ -37,6 +38,14 @@ function terminalPathFromEventPath(eventPath: string, sessionId: string): string
     ? eventPath.slice(0, -eventSuffix.length)
     : '';
   return `${prefix}/v1/ui/terminal/${sessionId}`;
+}
+
+function voicePathFromEventPath(eventPath: string): string {
+  const eventSuffix = '/v1/ui/stream';
+  const prefix = eventPath.endsWith(eventSuffix)
+    ? eventPath.slice(0, -eventSuffix.length)
+    : '';
+  return `${prefix}/v1/voice/transcribe`;
 }
 
 function urlHost(value: string): string | null {
@@ -108,7 +117,11 @@ export function resolveControlPlaneWebSocketUrl(
   if (endpoint.type === 'terminal') {
     url.pathname = terminalPathFromEventPath(url.pathname, endpoint.sessionId);
     url.search = '';
-    url.searchParams.set('token', endpoint.token);
+    url.searchParams.set('ticket', endpoint.ticket);
+  } else if (endpoint.type === 'voice') {
+    url.pathname = voicePathFromEventPath(url.pathname);
+    url.search = '';
+    url.searchParams.set('ticket', endpoint.ticket);
   } else if (source === 'fallback') {
     url.pathname = '/v1/ui/stream';
   }

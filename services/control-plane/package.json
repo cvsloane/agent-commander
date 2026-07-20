@@ -18,6 +18,7 @@
     "@agent-command/schema": "workspace:*",
     "@deepgram/sdk": "^4.11.3",
     "@fastify/cors": "^11.2.0",
+    "@fastify/rate-limit": "^11.1.0",
     "@fastify/websocket": "^11.0.0",
     "bcryptjs": "^3.0.3",
     "dotenv": "^17.2.3",

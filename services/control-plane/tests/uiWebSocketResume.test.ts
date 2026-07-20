@@ -67,7 +67,9 @@ describe('UI WebSocket resume', () => {
     await app.register(websocket);
     registerUIWebSocket(app);
     const address = await app.listen({ host: '127.0.0.1', port: 0 });
-    const socket = new WebSocket(`${address.replace(/^http/, 'ws')}/v1/ui/stream?token=test`);
+    const socket = new WebSocket(`${address.replace(/^http/, 'ws')}/v1/ui/stream?token=test`, {
+      headers: { Origin: address },
+    });
     await new Promise<void>((resolve) => socket.once('open', resolve));
 
     const firstMessages = waitForMessages(socket, 2);

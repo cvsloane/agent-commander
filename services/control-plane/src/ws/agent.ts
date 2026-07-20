@@ -31,6 +31,7 @@ import { recordAgentMessageHandlerFailure } from '../metrics.js';
 import { agentTasks, agentTaskUpdateFromEvent } from '../db/agentTasks.js';
 import { sessionGraph } from '../db/sessionGraph.js';
 import { reportAutomationRunForSession } from '../services/automation.js';
+import { enforceAgentWebSocketOrigin } from '../security/webSocketAuth.js';
 
 interface AgentState {
   hostId: string | null;
@@ -51,8 +52,9 @@ interface AgentState {
 export function registerAgentWebSocket(app: FastifyInstance): void {
   app.get(
     '/v1/agent/connect',
-    { websocket: true },
+    { websocket: true, config: { rateLimit: false } },
     async (socket: WebSocket, request: FastifyRequest) => {
+      if (!enforceAgentWebSocketOrigin(app, socket, request)) return;
       const state: AgentState = {
         hostId: null,
         lastProcessedSeq: 0,

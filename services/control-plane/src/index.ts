@@ -1,5 +1,4 @@
 import Fastify from 'fastify';
-import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import { config } from './config.js';
 import * as db from './db/index.js';
@@ -31,10 +30,13 @@ import { registerGovernanceApprovalRoutes } from './routes/governanceApprovals.j
 import { registerWorkItemRoutes } from './routes/workItems.js';
 import { registerOrchestratorRoutes } from './routes/orchestrator.js';
 import { registerPushSubscriptionRoutes } from './routes/pushSubscriptions.js';
+import { registerAuthRoutes } from './routes/auth.js';
+import { registerAuditRoutes } from './routes/audit.js';
 import { pubsub } from './services/pubsub.js';
 import { startAutomationService } from './services/automation.js';
 import { verifyRequestToken } from './auth/verify.js';
 import { commandRouter } from './services/commandRouter.js';
+import { registerHttpSecurity } from './security/httpSecurity.js';
 
 const app = Fastify({
   logger: {
@@ -75,11 +77,10 @@ async function start(): Promise<void> {
   app.log.info('Database connected');
 
   // Register plugins
-  await app.register(cors, {
-    origin: true,
-    credentials: true,
-    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Authorization', 'Content-Type', 'Idempotency-Key'],
+  await registerHttpSecurity(app, {
+    appBaseUrl: config.APP_BASE_URL,
+    rateLimitMax: config.RATE_LIMIT_MAX,
+    rateLimitTimeWindowMs: config.RATE_LIMIT_WINDOW_MS,
   });
 
   await app.register(websocket);
@@ -144,9 +145,11 @@ async function start(): Promise<void> {
   registerWorkItemRoutes(app);
   registerOrchestratorRoutes(app);
   registerPushSubscriptionRoutes(app);
+  registerAuthRoutes(app);
+  registerAuditRoutes(app);
 
   // Health check endpoint
-  app.get('/health', async () => {
+  app.get('/health', { config: { rateLimit: false } }, async () => {
     const stats = pubsub.getStats();
     return {
       status: 'ok',

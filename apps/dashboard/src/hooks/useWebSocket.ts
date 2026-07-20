@@ -3,7 +3,7 @@
 import { useEffect, useCallback, useRef, useMemo } from 'react';
 import type { ServerToUIMessage } from '@agent-command/schema';
 import { getWebSocketClient } from '@/lib/ws';
-import { getControlPlaneToken } from '@/lib/wsToken';
+import { getWebSocketTicket } from '@/lib/wsToken';
 
 export function useWebSocket(
   topics: Array<{ type: string; filter?: Record<string, unknown> }>,
@@ -23,7 +23,7 @@ export function useWebSocket(
   useEffect(() => {
     if (!enabled) return;
     const client = getWebSocketClient(channel);
-    client.setTokenProvider(getControlPlaneToken);
+    client.setTicketProvider(getWebSocketTicket);
     const subscriptionId = client.registerSubscription(topicsRef.current);
     const removeHandler = client.addHandler((message) => {
       handlerRef.current(message);

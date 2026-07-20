@@ -2,30 +2,20 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from '@fastify/websocket';
 import { UISubscribeMessageSchema } from '@agent-command/schema';
 import { pubsub } from '../services/pubsub.js';
-import { verifyTokenString } from '../auth/verify.js';
 import { installWebSocketHeartbeat } from '../services/webSocketHeartbeat.js';
 import { uiStreamResume } from '../services/uiStreamResume.js';
+import { authenticateBrowserWebSocket } from '../security/webSocketAuth.js';
 
 export function registerUIWebSocket(app: FastifyInstance): void {
   app.get(
     '/v1/ui/stream',
-    { websocket: true },
+    { websocket: true, config: { rateLimit: false } },
     async (socket: WebSocket, request: FastifyRequest) => {
+      const user = await authenticateBrowserWebSocket(app, socket, request);
+      if (!user) return;
       const heartbeat = installWebSocketHeartbeat(socket, {
         onStale: () => app.log.warn('Terminating stale UI WebSocket'),
       });
-      const url = new URL(request.url, 'http://localhost');
-      const token = url.searchParams.get('token');
-      if (!token) {
-        socket.close(4001, 'Missing auth token');
-        return;
-      }
-
-      const user = await verifyTokenString(token);
-      if (!user) {
-        socket.close(4003, 'Invalid auth token');
-        return;
-      }
 
       const clientId = crypto.randomUUID();
       pubsub.addUIClient(clientId, socket);

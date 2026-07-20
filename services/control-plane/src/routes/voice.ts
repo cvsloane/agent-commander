@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from '@fastify/websocket';
 import { createClient, LiveTranscriptionEvents, LiveClient } from '@deepgram/sdk';
-import { verifyRequestToken } from '../auth/verify.js';
+import { authenticateBrowserWebSocket } from '../security/webSocketAuth.js';
 
 // Environment variable for Deepgram API key
 const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
@@ -35,27 +35,10 @@ export function registerVoiceRoutes(app: FastifyInstance): void {
   // WebSocket route for voice transcription
   app.get(
     '/v1/voice/transcribe',
-    { websocket: true },
+    { websocket: true, config: { rateLimit: false } },
     async (socket: WebSocket, request: FastifyRequest) => {
-      // Verify authentication (token from query param for WebSocket)
-      const url = new URL(request.url, `http://${request.headers.host}`);
-      const token = url.searchParams.get('token');
-
-      if (!token) {
-        socket.close(4002, 'Missing authentication token');
-        return;
-      }
-
-      // Create mock request with authorization header for verification
-      const mockRequest = {
-        headers: { authorization: `Bearer ${token}` },
-      } as FastifyRequest;
-
-      const user = await verifyRequestToken(mockRequest);
-      if (!user) {
-        socket.close(4003, 'Invalid authentication token');
-        return;
-      }
+      const user = await authenticateBrowserWebSocket(app, socket, request);
+      if (!user) return;
 
       // Generate session ID
       const sessionId = crypto.randomUUID();

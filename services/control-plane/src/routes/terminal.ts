@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from '@fastify/websocket';
 import { z } from 'zod';
 import {
@@ -9,25 +9,69 @@ import {
 import { randomUUID } from 'crypto';
 import * as db from '../db/index.js';
 import { pubsub } from '../services/pubsub.js';
-import { verifyRequestToken } from '../auth/verify.js';
 import { canAttachTerminal, canControlTerminal, hostSupportsTerminal } from '../services/terminalPolicy.js';
 import type { AuthUser } from '../auth/types.js';
 import { installWebSocketHeartbeat } from '../services/webSocketHeartbeat.js';
+import { authenticateBrowserWebSocket } from '../security/webSocketAuth.js';
+
+interface ActiveTerminalChannel {
+  channelId: string;
+  uiSocket: WebSocket;
+  hostId: string;
+  paneId: string;
+  sessionId: string;
+  user: AuthUser;
+  binary: boolean;
+  resumeToken?: string;
+  idleTimeout?: NodeJS.Timeout;
+  attachedAt: number;
+  attached: boolean;
+  detachAudited: boolean;
+  log: FastifyBaseLogger;
+}
 
 // Track active terminal channels
-const activeChannels = new Map<
-  string,
-  {
-    uiSocket: WebSocket;
-    hostId: string;
-    paneId: string;
-    sessionId: string;
-    user: AuthUser;
-    binary: boolean;
-    resumeToken?: string;
-    idleTimeout?: NodeJS.Timeout;
+const activeChannels = new Map<string, ActiveTerminalChannel>();
+
+function auditPayload(
+  channel: ActiveTerminalChannel,
+  extra: Record<string, unknown> = {}
+): Record<string, unknown> {
+  return {
+    user_id: channel.user.id,
+    user_email: channel.user.email,
+    user_name: channel.user.name,
+    user_role: channel.user.role,
+    session_id: channel.sessionId,
+    host_id: channel.hostId,
+    pane_id: channel.paneId,
+    channel_id: channel.channelId,
+    duration_ms: Math.max(0, Date.now() - channel.attachedAt),
+    source: 'control_plane',
+    ...extra,
+  };
+}
+
+async function recordTerminalAudit(
+  channel: ActiveTerminalChannel,
+  action: 'terminal.attach' | 'terminal.control_grant' | 'terminal.detach',
+  extra: Record<string, unknown> = {}
+): Promise<void> {
+  try {
+    await db.createAuditLog(
+      action,
+      'session',
+      channel.sessionId,
+      auditPayload(channel, extra),
+      channel.user.id
+    );
+  } catch (error) {
+    channel.log.error(
+      { error, action, sessionId: channel.sessionId, hostId: channel.hostId },
+      'Failed to persist terminal audit event'
+    );
   }
->();
+}
 
 // Called by agent WebSocket handler when terminal output is received
 export function handleTerminalOutput(
@@ -75,12 +119,15 @@ export function handleTerminalStatus(
       ...(message ? { message } : {}),
       ...details,
     };
+    if (status === 'control' && channel.attached) {
+      void recordTerminalAudit(channel, 'terminal.control_grant');
+    }
     channel.uiSocket.send(JSON.stringify(browserMessage));
     if (status === 'detached' || status === 'error') {
-      cleanupChannel(channelId);
+      cleanupChannel(channelId, `agent_${status}`);
     }
   } catch {
-    cleanupChannel(channelId);
+    cleanupChannel(channelId, 'status_delivery_error');
   }
 }
 
@@ -103,14 +150,18 @@ function resetIdleTimeout(channelId: string): void {
       } catch {
         // Ignore send errors on idle timeout
       }
-      detachChannel(channelId);
+      detachChannel(channelId, 'idle_timeout');
     }
   }, 10 * 60 * 1000);
 }
 
-function cleanupChannel(channelId: string): void {
+function cleanupChannel(channelId: string, detachReason?: string): void {
   const channel = activeChannels.get(channelId);
   if (channel) {
+    if (detachReason && channel.attached && !channel.detachAudited) {
+      channel.detachAudited = true;
+      void recordTerminalAudit(channel, 'terminal.detach', { reason: detachReason });
+    }
     if (channel.idleTimeout) {
       clearTimeout(channel.idleTimeout);
     }
@@ -118,7 +169,7 @@ function cleanupChannel(channelId: string): void {
   }
 }
 
-function detachChannel(channelId: string): void {
+function detachChannel(channelId: string, reason = 'server_request'): void {
   const channel = activeChannels.get(channelId);
   if (!channel) return;
 
@@ -130,7 +181,7 @@ function detachChannel(channelId: string): void {
     payload: { channel_id: channelId },
   });
 
-  cleanupChannel(channelId);
+  cleanupChannel(channelId, reason);
 }
 
 function retireResumedChannel(resumeToken: string, sessionId: string, userId: string): void {
@@ -142,7 +193,7 @@ function retireResumedChannel(resumeToken: string, sessionId: string, userId: st
     ) {
       continue;
     }
-    detachChannel(channelId);
+    detachChannel(channelId, 'resume_replaced');
     if (channel.uiSocket.readyState === 1) {
       channel.uiSocket.close(4000, 'Terminal resumed in another connection');
     }
@@ -163,7 +214,7 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
   // WebSocket route for terminal
   app.get<{ Params: { sessionId: string } }>(
     '/v1/ui/terminal/:sessionId',
-    { websocket: true },
+    { websocket: true, config: { rateLimit: false } },
     async (socket: WebSocket, request: FastifyRequest<{ Params: { sessionId: string } }>) => {
       const { sessionId } = request.params;
       const heartbeat = installWebSocketHeartbeat(socket, {
@@ -196,14 +247,14 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
         socketClosed = true;
         if (channelId) {
           app.log.info({ channelId, sessionId }, 'Terminal WebSocket closed');
-          detachChannel(channelId);
+          detachChannel(channelId, 'socket_closed');
         }
       });
 
       socket.on('error', (error: unknown) => {
         app.log.error({ error, channelId, sessionId }, 'Terminal WebSocket error');
         if (channelId) {
-          detachChannel(channelId);
+          detachChannel(channelId, 'socket_error');
         }
       });
 
@@ -213,28 +264,13 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Verify authentication (token from query param for WebSocket)
       const url = new URL(request.url, `http://${request.headers.host}`);
-      const token = url.searchParams.get('token');
       const parsedCols = TerminalDimensionSchema.safeParse(Number(url.searchParams.get('cols')));
       const parsedRows = TerminalDimensionSchema.safeParse(Number(url.searchParams.get('rows')));
       const resumeToken = url.searchParams.get('resume_token') || undefined;
 
-      if (!token) {
-        socket.close(4002, 'Missing authentication token');
-        return;
-      }
-
-      // Create mock request with authorization header for verification
-      const mockRequest = {
-        headers: { authorization: `Bearer ${token}` },
-      } as FastifyRequest;
-
-      const user = await verifyRequestToken(mockRequest);
-      if (!user) {
-        socket.close(4003, 'Invalid authentication token');
-        return;
-      }
+      const user = await authenticateBrowserWebSocket(app, socket, request);
+      if (!user) return;
 
       if (!canAttachTerminal(user)) {
         socket.close(4008, 'Terminal access requires operator role');
@@ -279,6 +315,7 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
       channelId = activeChannelId;
 
       activeChannels.set(activeChannelId, {
+        channelId: activeChannelId,
         uiSocket: socket,
         hostId: session.host_id,
         paneId: session.tmux_pane_id,
@@ -286,6 +323,10 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
         user,
         binary: false,
         resumeToken,
+        attachedAt: Date.now(),
+        attached: false,
+        detachAudited: false,
+        log: app.log,
       });
 
       let attachedToAgent = false;
@@ -341,7 +382,7 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
               break;
 
             case 'detach':
-              detachChannel(activeChannelId);
+              detachChannel(activeChannelId, 'client_request');
               break;
             case 'control':
               if (!canControlTerminal(channel.user)) {
@@ -389,6 +430,11 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
       }
 
       attachedToAgent = true;
+      const activeChannel = activeChannels.get(activeChannelId);
+      if (activeChannel) {
+        activeChannel.attached = true;
+        await recordTerminalAudit(activeChannel, 'terminal.attach');
+      }
       for (const data of deferredMessages.splice(0)) {
         processBrowserMessage(data);
       }
