@@ -40,3 +40,4 @@
 - WAVE 4 COMPLETE. Reviewer SHIP-WITH-NOTES → all three warnings closed in R2s; nitpicks closed (rotate reset, scheme) or accepted. PR next.
 - ~05:20Z Wave-4 PR #89 MERGED (fa0ba72; CodeRabbit was rate-limited — no findings, our own review chain already ran). Deploy watcher armed. Wave-4 tmux windows + worktrees cleaned (both machines policy). WAVE 5 LAUNCHED: FW5-POLISH (homelinux) + FW5-QA (heavisidelinux, per machine-split directive) — both verified active. Watch item: heavisidelinux codex weekly quota at 10%.
 - Wave-4 DEPLOYED (fa0ba72 verified, health ok). Add Host flow, fleet unification, attention overlay, composer, palette all live.
+- ~06:30Z FW5-POLISH froze at `9ceed37` (attempt 1): gate re-run green in tmux TTY (20/20 smoke, 145 dashboard tests), firewall clean, web-vitals the only (allowed) dep. INTEGRATED (squash). Gate window killed post-run per owner reuse-panes directive.
