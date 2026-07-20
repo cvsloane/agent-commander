@@ -10,3 +10,4 @@
 {"ts":"2026-07-20T20:50:00Z","event":"wave_complete","wave":2,"reviewer_verdict":"SHIP-WITH-NOTES","notes_closed_in":"FW2-CONTRACTS-R2","gate":"green"}
 {"ts":"2026-07-20T21:20:00Z","event":"wave_deployed","wave":2,"sha":"effab04"}
 {"ts":"2026-07-20T21:25:00Z","event":"wave_launched","wave":3,"lanes":["FW3-SHELL","FW3-TMUX-UI"]}
+{"ts":"2026-07-20T22:20:00Z","event":"lane_frozen","lane":"FW3-SHELL","attempt":1,"frozen_sha":"5bba177","verdict":"accepted","integrated_sha":"a5788af"}
