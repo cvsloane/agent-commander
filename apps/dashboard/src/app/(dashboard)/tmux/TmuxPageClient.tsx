@@ -19,14 +19,14 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn, getSessionDisplayName } from '@/lib/utils';
 import { useHydrated } from '@/hooks/useHydrated';
-import { useIsMobile } from '@/hooks/useIsMobile';
+import { COMMAND_CENTER_SHELL_BREAKPOINT, useIsMobile } from '@/hooks/useIsMobile';
 import { useTmuxRosterData } from '@/hooks/useTmuxRosterData';
 
 export default function TmuxPageClient() {
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const hydrated = useHydrated();
-  const isMobileLayout = useIsMobile(1024);
+  const isMobileLayout = useIsMobile(COMMAND_CENTER_SHELL_BREAKPOINT);
   const mcpManager = useMCPManager();
   const terminalControllerRef = useRef<TerminalController | null>(null);
   const { setSessionIdle, isSessionIdlePending } = useSessionIdle();

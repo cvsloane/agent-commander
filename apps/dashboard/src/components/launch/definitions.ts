@@ -1,4 +1,30 @@
-import type { SpawnProvider, SessionLinkType } from '@/lib/api';
+import type { MobileLaunchProvider } from '@agent-command/schema';
+import type { SessionLinkType, SpawnProvider } from '@/lib/api';
+
+export interface LaunchProviderDefinition {
+  id: SpawnProvider;
+  name: string;
+  shortName: string;
+  mobile: boolean;
+}
+
+export const LAUNCH_PROVIDERS = [
+  { id: 'claude_code', name: 'Claude Code', shortName: 'Claude', mobile: true },
+  { id: 'codex', name: 'Codex', shortName: 'Codex', mobile: true },
+  { id: 'gemini_cli', name: 'Gemini CLI', shortName: 'Gemini', mobile: false },
+  { id: 'opencode', name: 'OpenCode', shortName: 'OpenCode', mobile: false },
+  { id: 'aider', name: 'Aider', shortName: 'Aider', mobile: false },
+  { id: 'shell', name: 'Shell', shortName: 'Shell', mobile: false },
+] as const satisfies readonly LaunchProviderDefinition[];
+
+export const MOBILE_LAUNCH_PROVIDERS = LAUNCH_PROVIDERS.filter(
+  (provider): provider is (typeof LAUNCH_PROVIDERS)[number] & { id: MobileLaunchProvider } =>
+    provider.mobile
+);
+
+export function getLaunchProvider(providerId: SpawnProvider) {
+  return LAUNCH_PROVIDERS.find((provider) => provider.id === providerId);
+}
 
 export interface SessionTemplateSession {
   provider: SpawnProvider;

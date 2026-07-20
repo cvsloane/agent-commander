@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
@@ -9,7 +10,6 @@ import {
   Boxes,
   Workflow,
   Brain,
-  Rows3,
   Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -34,13 +34,18 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
   const navItems: NavItem[] = [
     {
       href: '/',
-      label: 'Dashboard',
+      label: 'Command Center',
       icon: <LayoutDashboard className="h-4 w-4" />,
     },
     {
-      href: '/orchestrator',
-      label: 'Orchestrator',
+      href: '/orchestrator?tab=attention',
+      label: 'Attention',
       icon: <Bell className="h-4 w-4" />,
+    },
+    {
+      href: '/sessions',
+      label: 'Sessions',
+      icon: <Layers className="h-4 w-4" />,
     },
     {
       href: '/automation',
@@ -51,16 +56,6 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
       href: '/memory',
       label: 'Memory',
       icon: <Brain className="h-4 w-4" />,
-    },
-    {
-      href: '/tmux',
-      label: 'tmux',
-      icon: <Rows3 className="h-4 w-4" />,
-    },
-    {
-      href: '/sessions',
-      label: 'Sessions',
-      icon: <Layers className="h-4 w-4" />,
     },
     ...(showVisualizerInSidebar
       ? [
@@ -85,10 +80,11 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
   ];
 
   const isActive = (href: string) => {
-    if (href === '/') {
+    const path = href.split('?')[0];
+    if (path === '/') {
       return pathname === '/';
     }
-    return pathname.startsWith(href);
+    return pathname.startsWith(path);
   };
 
   if (collapsed) {
@@ -97,17 +93,18 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
         {navItems.map((item) => (
           <Tooltip key={item.href} delayDuration={0}>
             <TooltipTrigger asChild>
-              <a
+              <Link
                 href={item.href}
+                prefetch={item.prefetch}
                 className={cn(
-                  'relative flex items-center justify-center h-10 w-10 rounded-md transition-colors',
+                  'relative flex h-11 w-11 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   isActive(item.href)
                     ? 'bg-primary text-primary-foreground'
                     : 'text-muted-foreground hover:bg-accent hover:text-foreground'
                 )}
               >
                 {item.icon}
-              </a>
+              </Link>
             </TooltipTrigger>
             <TooltipContent side="right">
               <p>{item.label}</p>
@@ -121,11 +118,12 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
   return (
     <nav className="p-2 space-y-1">
       {navItems.map((item) => (
-        <a
+        <Link
           key={item.href}
           href={item.href}
+          prefetch={item.prefetch}
           className={cn(
-            'flex items-center gap-3 px-3 py-2 rounded-md transition-colors',
+            'flex min-h-11 items-center gap-3 rounded-md px-3 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             isActive(item.href)
               ? 'bg-primary text-primary-foreground'
               : 'text-muted-foreground hover:bg-accent hover:text-foreground'
@@ -133,7 +131,7 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
         >
           {item.icon}
           <span className="flex-1 text-sm font-medium">{item.label}</span>
-        </a>
+        </Link>
       ))}
     </nav>
   );

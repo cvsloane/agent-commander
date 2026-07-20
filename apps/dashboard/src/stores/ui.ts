@@ -20,7 +20,6 @@ interface UIStore {
   setSidebarCollapsed: (collapsed: boolean) => void;
   mobileMenuOpen: boolean;
   setMobileMenuOpen: (open: boolean) => void;
-  toggleMobileMenu: () => void;
   recentSessions: RecentSession[];
   addRecentSession: (session: {
     id: string;
@@ -48,7 +47,6 @@ export const useUIStore = create<UIStore>()(
 
       mobileMenuOpen: false,
       setMobileMenuOpen: (open) => set({ mobileMenuOpen: open }),
-      toggleMobileMenu: () => set((state) => ({ mobileMenuOpen: !state.mobileMenuOpen })),
 
       recentSessions: [],
       addRecentSession: (session) =>

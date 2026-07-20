@@ -9,16 +9,12 @@ import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { getGroups, type SpawnProvider, type SessionLinkType } from '@/lib/api';
 import { useSettingsStore, type SessionTemplate, type LinkType } from '@/stores/settings';
-import { SESSION_TEMPLATES, TEMPLATE_OPTIONS, type SessionTemplateSession } from './templates';
-
-const PROVIDERS: Array<{ id: SpawnProvider; name: string }> = [
-  { id: 'claude_code', name: 'Claude Code' },
-  { id: 'codex', name: 'Codex' },
-  { id: 'gemini_cli', name: 'Gemini CLI' },
-  { id: 'opencode', name: 'OpenCode' },
-  { id: 'aider', name: 'Aider' },
-  { id: 'shell', name: 'Shell' },
-];
+import {
+  LAUNCH_PROVIDERS,
+  SESSION_TEMPLATES,
+  TEMPLATE_OPTIONS,
+  type SessionTemplateSession,
+} from '@/components/launch/definitions';
 
 export interface SessionConfig {
   provider: SpawnProvider;
@@ -180,7 +176,7 @@ export function SessionConfigStep({
                     }
                     className="text-sm px-2 py-1 border rounded bg-background"
                   >
-                    {PROVIDERS.map((p) => (
+                    {LAUNCH_PROVIDERS.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name}
                       </option>
@@ -189,7 +185,7 @@ export function SessionConfigStep({
                 )}
                 {selectedTemplate !== 'single' && (
                   <span className="text-sm text-muted-foreground">
-                    {PROVIDERS.find((p) => p.id === session.provider)?.name}
+                    {LAUNCH_PROVIDERS.find((p) => p.id === session.provider)?.name}
                   </span>
                 )}
               </div>

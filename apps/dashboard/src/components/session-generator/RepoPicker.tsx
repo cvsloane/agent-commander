@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Server, FolderPlus, ChevronRight, Home, Settings } from 'lucide-react';
+import { Server, FolderGit, FolderPlus, ChevronRight, Home, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { getHosts, type DirectoryEntry } from '@/lib/api';
@@ -66,6 +66,19 @@ export function RepoPicker({
     () => devFolders.filter((f) => f.hostId === hostId),
     [devFolders, hostId]
   );
+  const recentRepos = useMemo(() => Object.entries(repoLastUsed)
+    .filter(([key]) => key.startsWith(`${hostId}:`))
+    .sort(([, left], [, right]) => right - left)
+    .slice(0, 5)
+    .map(([key]) => {
+      const path = key.slice(hostId.length + 1);
+      return {
+        name: path.split('/').filter(Boolean).pop() || path,
+        path,
+        is_directory: true,
+        is_git_repo: true,
+      } satisfies DirectoryEntry;
+    }), [hostId, repoLastUsed]);
 
   // Current path to browse
   const currentPath = useMemo(() => {
@@ -222,6 +235,33 @@ export function RepoPicker({
         </div>
       )}
 
+      {hostId && recentRepos.length > 0 && (
+        <section className="border-b p-3" aria-labelledby="recent-repositories-title">
+          <div id="recent-repositories-title" className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Recent repositories
+          </div>
+          <div className="grid gap-1 sm:grid-cols-2">
+            {recentRepos.map((repo) => (
+              <button
+                key={repo.path}
+                type="button"
+                onClick={() => handleSelectRepo(repo)}
+                className={cn(
+                  'flex min-h-11 items-center gap-2 rounded-md border px-3 py-2 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  selectedPath === repo.path && 'border-primary bg-primary/10'
+                )}
+              >
+                <FolderGit className="h-4 w-4 shrink-0 text-orange-500" />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium">{repo.name}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{repo.path}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Breadcrumb */}
       {hostId && currentPath && (
         <div className="flex items-center gap-1 px-3 py-2 text-sm text-muted-foreground border-b overflow-x-auto">
@@ -246,6 +286,11 @@ export function RepoPicker({
 
       {/* Directory tree */}
       <div className="flex-1 overflow-auto">
+        {hostId && (
+          <div className="border-b px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Browse folders
+          </div>
+        )}
         {hostId && currentPath ? (
           <DirectoryTree
             hostId={hostId}

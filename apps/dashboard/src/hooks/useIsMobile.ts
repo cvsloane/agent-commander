@@ -2,12 +2,15 @@
 
 import { useState, useEffect } from 'react';
 
+export const NAV_MOBILE_BREAKPOINT = 768;
+export const COMMAND_CENTER_SHELL_BREAKPOINT = 1024;
+
 /**
  * Hook to detect mobile viewport.
  * @param breakpoint - The max-width breakpoint in pixels (default: 768)
  * @returns true if viewport is below the breakpoint
  */
-export function useIsMobile(breakpoint = 768) {
+export function useIsMobile(breakpoint = NAV_MOBILE_BREAKPOINT) {
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {

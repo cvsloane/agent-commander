@@ -1,4 +1,4 @@
-export { OrchestratorModal } from './OrchestratorModal';
+export { OrchestratorSheet, OrchestratorSurface } from './OrchestratorSurface';
 export { OrchestratorItem } from './OrchestratorItem';
 export { OrchestratorButton } from './OrchestratorButton';
 export {

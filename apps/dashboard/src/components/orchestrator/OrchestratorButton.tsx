@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useCallback } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { Bell } from 'lucide-react';
 import type {
   Approval,
@@ -18,6 +19,7 @@ import {
   getSessions,
 } from '@/lib/api';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { useOrchestratorStore } from '@/stores/orchestrator';
 
 /**
@@ -25,8 +27,12 @@ import { useOrchestratorStore } from '@/stores/orchestrator';
  * Also handles background session monitoring via WebSocket.
  */
 export function OrchestratorButton() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const isMobile = useIsMobile();
   const attentionStatusFilter = 'RUNNING,STARTING,WAITING_FOR_INPUT,WAITING_FOR_APPROVAL,ERROR,IDLE';
   const toggle = useOrchestratorStore((s) => s.toggle);
+  const close = useOrchestratorStore((s) => s.close);
   const isOpen = useOrchestratorStore((s) => s.isOpen);
   const itemCount = useOrchestratorStore((s) => s.getItemCount());
   const ingestSessions = useOrchestratorStore((s) => s.ingestSessions);
@@ -204,6 +210,15 @@ export function OrchestratorButton() {
     'attention'
   );
 
+  const openAttention = useCallback(() => {
+    if (isMobile || pathname.startsWith('/orchestrator')) {
+      close();
+      router.push('/orchestrator?tab=attention');
+      return;
+    }
+    toggle();
+  }, [close, isMobile, pathname, router, toggle]);
+
   // Shift+O keyboard shortcut
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -221,25 +236,26 @@ export function OrchestratorButton() {
       // Shift+O to toggle orchestrator
       if (e.key === 'O' && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
-        toggle();
+        openAttention();
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [toggle]);
+  }, [openAttention]);
 
   return (
     <Button
+      id="attention-bell"
       variant="ghost"
       size="icon"
       className={cn(
-        'relative h-9 w-9',
+        'relative h-11 w-11',
         isOpen && 'bg-accent'
       )}
-      onClick={toggle}
-      title="Orchestrator (Shift+O)"
-      aria-label={`Orchestrator - ${itemCount} items need attention`}
+      onClick={openAttention}
+      title="Attention (Shift+O)"
+      aria-label={`Attention - ${itemCount} items need attention`}
     >
       <Bell className="h-5 w-5" />
       {itemCount > 0 && (
