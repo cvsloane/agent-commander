@@ -190,6 +190,7 @@ function AddHostDialog({ open, onOpenChange, onCreated, onForbidden }: AddHostDi
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: ['hosts'] });
       onCreated(result);
+      createMutation.reset();
       onOpenChange(false);
     },
     onError: (error) => {
@@ -449,7 +450,10 @@ export default function HostsPage() {
 
   const handleEnrollmentOpenChange = (open: boolean) => {
     setEnrollmentOpen(open);
-    if (!open) setEnrollment(null);
+    if (!open) {
+      setEnrollment(null);
+      rotateMutation.reset();
+    }
   };
 
   if (isLoading) {

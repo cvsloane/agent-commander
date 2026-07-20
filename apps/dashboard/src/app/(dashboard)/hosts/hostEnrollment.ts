@@ -100,7 +100,8 @@ function yamlString(value: string): string {
 
 export function enrollmentWebSocketUrl(apiBase: string): string {
   const url = new URL(apiBase);
-  url.protocol = 'wss:';
+  if (url.protocol === 'http:') url.protocol = 'ws:';
+  if (url.protocol === 'https:') url.protocol = 'wss:';
   url.pathname = `${url.pathname.replace(/\/+$/, '')}/v1/agent/connect`;
   url.search = '';
   url.hash = '';

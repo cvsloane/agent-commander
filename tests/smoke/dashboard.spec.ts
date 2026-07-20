@@ -731,7 +731,31 @@ test('opens the global command palette and navigates to a fuzzy session result',
   await expect(page.getByRole('dialog', { name: 'Command Center' })).toBeVisible();
   await page.keyboard.press('Escape');
   await page.keyboard.press('Control+k');
-  const palette = page.getByRole('dialog', { name: 'Command Center' });
+  let palette = page.getByRole('dialog', { name: 'Command Center' });
+  await expect(palette).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  const editableTarget = page.getByLabel('Terminal shortcut target');
+  await page.evaluate(() => {
+    const textarea = document.createElement('textarea');
+    textarea.setAttribute('aria-label', 'Terminal shortcut target');
+    document.body.appendChild(textarea);
+    textarea.focus();
+  });
+  await editableTarget.dispatchEvent('keydown', {
+    key: 'k',
+    code: 'KeyK',
+    ctrlKey: true,
+    bubbles: true,
+  });
+  await expect(page.getByRole('dialog', { name: 'Command Center' })).not.toBeVisible();
+  await editableTarget.dispatchEvent('keydown', {
+    key: 'k',
+    code: 'KeyK',
+    metaKey: true,
+    bubbles: true,
+  });
+  palette = page.getByRole('dialog', { name: 'Command Center' });
   await expect(palette).toBeVisible();
   const input = palette.getByRole('combobox');
   await expect(input).toBeFocused();
@@ -810,6 +834,7 @@ test('enrolls a host and rotates its token with one-time installation guidance',
   await expect(created).toContainText('systemctl --user enable --now agentd.service');
   await created.getByRole('button', { name: 'I saved the token' }).click();
   await expect(created).not.toBeVisible();
+  await expect(page.getByText('ac_agent_created_once', { exact: true })).toHaveCount(0);
 
   const rotateRequest = page.waitForRequest((request) => (
     request.method() === 'POST'
@@ -820,6 +845,9 @@ test('enrolls a host and rotates its token with one-time installation guidance',
   const rotated = page.getByRole('dialog', { name: 'Agent token rotated' });
   await expect(rotated.getByText(tmuxHost.id, { exact: true })).toBeVisible();
   await expect(rotated.getByText('ac_agent_rotated_once', { exact: true })).toBeVisible();
+  await rotated.getByRole('button', { name: 'I saved the token' }).click();
+  await expect(rotated).not.toBeVisible();
+  await expect(page.getByText('ac_agent_rotated_once', { exact: true })).toHaveCount(0);
 });
 
 test('hides host enrollment actions when the control plane rejects admin access', async ({ page }) => {

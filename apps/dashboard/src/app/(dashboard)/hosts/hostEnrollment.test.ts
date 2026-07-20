@@ -87,6 +87,20 @@ describe('host enrollment', () => {
     ).toContain('ws_url: "wss://command.example/v1/agent/connect"');
   });
 
+  it('uses ws for a non-TLS control-plane URL', () => {
+    expect(enrollmentWebSocketUrl('http://localhost:8080')).toBe(
+      'ws://localhost:8080/v1/agent/connect'
+    );
+    expect(
+      buildAgentdConfig({
+        hostId: host.id,
+        hostName: host.name,
+        token: 'ac_agent_once',
+        apiBase: 'http://localhost:8080',
+      })
+    ).toContain('ws_url: "ws://localhost:8080/v1/agent/connect"');
+  });
+
   it('maps an internal configured host back to the browser origin', () => {
     expect(
       resolveHostApiBase(

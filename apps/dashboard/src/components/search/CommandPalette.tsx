@@ -106,8 +106,27 @@ function hostLabel(host: Host): string {
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+  if (!target || typeof target !== 'object') return false;
+  const element = target as EventTarget & { isContentEditable?: boolean; tagName?: string };
+  return Boolean(
+    element.isContentEditable ||
+      (element.tagName && ['INPUT', 'TEXTAREA', 'SELECT'].includes(element.tagName))
+  );
+}
+
+type CommandPaletteKeyboardAction = 'open' | 'toggle' | null;
+
+export function getCommandPaletteKeyboardAction(
+  event: Pick<KeyboardEvent, 'altKey' | 'ctrlKey' | 'key' | 'metaKey' | 'target'>
+): CommandPaletteKeyboardAction {
+  const commandKey = event.key.toLocaleLowerCase() === 'k' && (event.metaKey || event.ctrlKey);
+  const searchKey = event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey;
+  const editableTarget = isEditableTarget(event.target);
+
+  if (commandKey) {
+    return event.ctrlKey && !event.metaKey && editableTarget ? null : 'toggle';
+  }
+  return searchKey && !editableTarget ? 'open' : null;
 }
 
 export function GlobalCommandPalette() {
@@ -147,11 +166,10 @@ export function GlobalCommandPalette() {
   useEffect(() => {
     const open = () => setIsOpen(true);
     const handleKeyDown = (event: KeyboardEvent) => {
-      const commandKey = event.key.toLocaleLowerCase() === 'k' && (event.metaKey || event.ctrlKey);
-      const searchKey = event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey;
-      if (!commandKey && (!searchKey || isEditableTarget(event.target))) return;
+      const action = getCommandPaletteKeyboardAction(event);
+      if (!action) return;
       event.preventDefault();
-      setIsOpen((current) => (commandKey ? !current : true));
+      setIsOpen((current) => (action === 'toggle' ? !current : true));
     };
 
     window.addEventListener('keydown', handleKeyDown);
