@@ -35,6 +35,7 @@ type ControlPlaneConfig struct {
 type TmuxConfig struct {
 	Bin                string `yaml:"bin"`
 	Socket             string `yaml:"socket"`
+	TopologyEvents     bool   `yaml:"topology_events"`
 	PollIntervalMs     int    `yaml:"poll_interval_ms"`
 	SnapshotLines      int    `yaml:"snapshot_lines"`
 	SnapshotIntervalMs int    `yaml:"snapshot_interval_ms"`

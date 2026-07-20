@@ -1,13 +1,18 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/agent-command/agentd/internal/config"
 	"github.com/agent-command/agentd/internal/protocol"
 	"github.com/agent-command/agentd/internal/tmux"
+	"github.com/agent-command/agentd/internal/ws"
+	"github.com/gorilla/websocket"
 )
 
 func TestSyncPanesIncludesExtendedTmuxMetadata(t *testing.T) {
@@ -92,7 +97,7 @@ func TestBuildTmuxTopologySortsSessionsWindowsAndPanes(t *testing.T) {
 
 func TestQueueTmuxTopologyDebouncesHooksAndPollsOnlyOnDrift(t *testing.T) {
 	messages := make(chan protocol.TmuxTopologyPayload, 3)
-	agent := &Agent{sendMessage: func(messageType string, payload any) error {
+	agent := &Agent{cfg: &config.Config{Tmux: config.TmuxConfig{TopologyEvents: true}}, sendMessage: func(messageType string, payload any) error {
 		if messageType == protocol.TypeTmuxTopology {
 			messages <- payload.(protocol.TmuxTopologyPayload)
 		}
@@ -137,5 +142,46 @@ func TestQueueTmuxTopologyDebouncesHooksAndPollsOnlyOnDrift(t *testing.T) {
 		}
 	case <-time.After(750 * time.Millisecond):
 		t.Fatal("timed out waiting for poll drift topology")
+	}
+}
+
+func TestQueueTmuxTopologyDefaultOffWritesNoWebSocketFrame(t *testing.T) {
+	messages := make(chan string, 1)
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			var message struct {
+				Type string `json:"type"`
+			}
+			if err := conn.ReadJSON(&message); err != nil {
+				return
+			}
+			messages <- message.Type
+		}
+	}))
+	defer server.Close()
+
+	wsClient := ws.NewClient("ws"+strings.TrimPrefix(server.URL, "http"), "token", "host", []int{1})
+	if err := wsClient.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer wsClient.Close()
+	if err := wsClient.ResendQueued(); err != nil {
+		t.Fatal(err)
+	}
+
+	agent := &Agent{cfg: &config.Config{}, wsClient: wsClient}
+	defer agent.stopTmuxTopology()
+	agent.queueTmuxTopology("startup", []tmux.Pane{{SessionName: "agents", WindowIndex: 0, PaneID: "%1"}})
+
+	select {
+	case messageType := <-messages:
+		t.Fatalf("default-off topology wrote websocket frame %q", messageType)
+	case <-time.After(tmuxTopologyDebounce + 150*time.Millisecond):
 	}
 }

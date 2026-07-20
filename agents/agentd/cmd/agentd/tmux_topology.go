@@ -88,6 +88,10 @@ func tmuxTopologyHash(payload protocol.TmuxTopologyPayload) string {
 }
 
 func (a *Agent) queueTmuxTopology(reason string, panes []tmux.Pane) {
+	if a.cfg == nil || !a.cfg.Tmux.TopologyEvents {
+		return
+	}
+
 	payload := buildTmuxTopology(reason, panes)
 	hash := tmuxTopologyHash(payload)
 
