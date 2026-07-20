@@ -189,6 +189,57 @@ export const SessionUsageMessageSchema = AgentMessageEnvelopeSchema.extend({
 });
 export type SessionUsageMessage = z.infer<typeof SessionUsageMessageSchema>;
 
+export const TmuxTopologyPaneSchema = z.object({
+  pane_id: z.string().min(1),
+  pane_index: z.number().int().nonnegative(),
+  active: z.boolean(),
+  width: z.number().int().nonnegative(),
+  height: z.number().int().nonnegative(),
+  title: z.string(),
+  current_command: z.string(),
+  current_path: z.string(),
+});
+export type TmuxTopologyPane = z.infer<typeof TmuxTopologyPaneSchema>;
+
+export const TmuxTopologyWindowSchema = z.object({
+  window_index: z.number().int().nonnegative(),
+  window_name: z.string(),
+  active: z.boolean(),
+  zoomed: z.boolean(),
+  layout: z.string(),
+  bell: z.boolean(),
+  activity: z.boolean(),
+  panes: z.array(TmuxTopologyPaneSchema),
+});
+export type TmuxTopologyWindow = z.infer<typeof TmuxTopologyWindowSchema>;
+
+export const TmuxTopologySessionSchema = z.object({
+  session_name: z.string().min(1),
+  attached: z.boolean(),
+  windows: z.array(TmuxTopologyWindowSchema),
+});
+export type TmuxTopologySession = z.infer<typeof TmuxTopologySessionSchema>;
+
+export const TmuxTopologyPayloadSchema = z.object({
+  reason: z.union([
+    z.literal('startup'),
+    z.literal('poll'),
+    z.string().regex(/^hook:.+$/),
+  ]),
+  tmux_sessions: z.array(TmuxTopologySessionSchema),
+});
+export type TmuxTopologyPayload = z.infer<typeof TmuxTopologyPayloadSchema>;
+
+// Topology snapshots are volatile and intentionally omit the durable seq cursor.
+// Keep the field order aligned with the frozen cross-language fixture.
+export const TmuxTopologyMessageSchema = z.object({
+  v: z.literal(1),
+  type: z.literal('tmux.topology'),
+  ts: z.string().datetime({ offset: true }),
+  payload: TmuxTopologyPayloadSchema,
+});
+export type TmuxTopologyMessage = z.infer<typeof TmuxTopologyMessageSchema>;
+
 // Union of all agent messages
 export const AgentMessageSchema = z.discriminatedUnion('type', [
   AgentHelloMessageSchema,
@@ -205,12 +256,26 @@ export const AgentMessageSchema = z.discriminatedUnion('type', [
   ToolEventCompletedMessageSchema,
   ProviderUsageReportMessageSchema,
   SessionUsageMessageSchema,
+  TmuxTopologyMessageSchema,
   MCPServersResponseMessageSchema,
   MCPConfigResponseMessageSchema,
   MCPProjectConfigResponseMessageSchema,
   MCPUpdateResultMessageSchema,
 ]);
 export type AgentMessage = z.infer<typeof AgentMessageSchema>;
+
+const agentMessageTypes = new Set<string>(
+  AgentMessageSchema.options.flatMap((schema) => {
+    const typeSchema = schema.shape.type;
+    if (typeSchema instanceof z.ZodEnum) return [...typeSchema.options];
+    if (typeSchema instanceof z.ZodLiteral) return [String(typeSchema.value)];
+    return [];
+  })
+);
+
+export function isKnownAgentMessageType(type: string): boolean {
+  return agentMessageTypes.has(type);
+}
 
 // =====================
 // Control Plane -> Agent Messages
@@ -228,8 +293,10 @@ export const AgentAckMessageSchema = ServerMessageEnvelopeSchema.extend({
 export type AgentAckMessage = z.infer<typeof AgentAckMessageSchema>;
 
 // Commands dispatch
-export const CommandsDispatchMessageSchema = ServerMessageEnvelopeSchema.extend({
+export const CommandsDispatchMessageSchema = z.object({
+  v: z.literal(1),
   type: z.literal('commands.dispatch'),
+  ts: z.string().datetime({ offset: true }),
   payload: CommandDispatchSchema,
 });
 export type CommandsDispatchMessage = z.infer<typeof CommandsDispatchMessageSchema>;
@@ -308,6 +375,7 @@ export type ServerToAgentMessage = z.infer<typeof ServerToAgentMessageSchema>;
 // =====================
 
 export const UISubscriptionTopicSchema = z.enum([
+  'tmux.topology',
   'sessions',
   'approvals',
   'events',
@@ -334,13 +402,13 @@ export const UISubscribeMessageSchema = MessageEnvelopeBaseSchema.extend({
     topics: z.array(
       z.object({
         type: UISubscriptionTopicSchema,
-        filter: z.record(z.unknown()).optional(),
+        filter: z.record(z.string(), z.unknown()).optional(),
       })
     ),
     since: z
       .union([
         z.number().int().nonnegative(),
-        z.record(z.number().int().nonnegative()),
+        z.record(z.string(), z.number().int().nonnegative()),
       ])
       .optional(),
   }),
@@ -375,6 +443,14 @@ export const AgentTasksChangedMessageSchema = ServerToUIEnvelopeSchema.extend({
 });
 export type AgentTasksChangedMessage = z.infer<typeof AgentTasksChangedMessageSchema>;
 
+export const UITmuxTopologyMessageSchema = ServerToUIEnvelopeSchema.extend({
+  type: z.literal('tmux.topology'),
+  payload: TmuxTopologyPayloadSchema.extend({
+    host_id: z.string().uuid(),
+  }),
+});
+export type UITmuxTopologyMessage = z.infer<typeof UITmuxTopologyMessageSchema>;
+
 // Approvals created
 export const ApprovalsCreatedMessageSchema = ServerToUIEnvelopeSchema.extend({
   type: z.literal('approvals.created'),
@@ -382,7 +458,7 @@ export const ApprovalsCreatedMessageSchema = ServerToUIEnvelopeSchema.extend({
     approval_id: z.string().uuid(),
     session_id: z.string().uuid(),
     provider: z.string(),
-    requested_payload: z.record(z.unknown()),
+    requested_payload: z.record(z.string(), z.unknown()),
   }),
 });
 export type ApprovalsCreatedMessage = z.infer<typeof ApprovalsCreatedMessageSchema>;
@@ -409,7 +485,7 @@ export const EventsAppendedMessageSchema = ServerToUIEnvelopeSchema.extend({
       id: z.number(),
       ts: z.string().datetime({ offset: true }),
       type: z.string(),
-      payload: z.record(z.unknown()),
+      payload: z.record(z.string(), z.unknown()),
     }),
   }),
 });
@@ -525,6 +601,7 @@ export type UIAttentionChangedMessage = z.infer<typeof UIAttentionChangedMessage
 
 // Union of all UI messages from server
 export const ServerToUIMessageSchema = z.discriminatedUnion('type', [
+  UITmuxTopologyMessageSchema,
   SessionsChangedMessageSchema,
   SessionEdgesChangedMessageSchema,
   AgentTasksChangedMessageSchema,

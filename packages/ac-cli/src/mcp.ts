@@ -5,7 +5,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { AgentCommandClient } from './operations.js';
 
-export interface McpTool<Schema extends z.AnyZodObject> {
+export interface McpTool<Schema extends z.ZodObject> {
   description: string;
   inputSchema: Schema;
   execute(input: z.input<Schema>): Promise<CallToolResult>;
@@ -29,7 +29,7 @@ function failure(error: unknown): CallToolResult {
   };
 }
 
-function tool<Schema extends z.AnyZodObject>(
+function tool<Schema extends z.ZodObject>(
   description: string,
   inputSchema: Schema,
   operation: (input: z.output<Schema>) => Promise<unknown>,
@@ -54,7 +54,7 @@ const SpawnWorkerInputSchema = z.object({
   placement: z.enum(['window', 'split']).default('window'),
   split_target: z.string().optional(),
   name: z.string().optional(),
-  env: z.record(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
   flags: z.array(z.string()).optional(),
   host_id: z.string().optional(),
   host_alias: z.string().optional(),
@@ -100,7 +100,7 @@ const ClaimWorkItemInputSchema = z.object({
 const CompleteWorkItemInputSchema = z.object({
   work_item_id: z.string().min(1),
   status: z.enum(['done', 'blocked', 'cancelled']).default('done'),
-  result: z.record(z.unknown()).optional(),
+  result: z.record(z.string(), z.unknown()).optional(),
 });
 
 const MemorySearchInputSchema = z.object({
@@ -118,7 +118,7 @@ const MemoryWriteInputSchema = z.object({
   tier: z.enum(['working', 'episodic', 'semantic', 'procedural']),
   summary: z.string().min(1),
   content: z.string().min(1),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   confidence: z.number().min(0).max(1).optional(),
   expires_at: z.string().optional(),
 });
@@ -187,15 +187,16 @@ export function createMcpTools(client: AgentCommandClient) {
   };
 }
 
-function register<Schema extends z.AnyZodObject>(
+function register<Schema extends z.ZodObject>(
   server: McpServer,
   name: string,
   definition: McpTool<Schema>,
 ): void {
+  const inputSchema = definition.inputSchema.shape;
   server.registerTool(name, {
     description: definition.description,
-    inputSchema: definition.inputSchema.shape,
-  }, (input: z.output<Schema>) => definition.execute(input));
+    inputSchema,
+  }, (input) => definition.execute(input as z.input<Schema>));
 }
 
 export function createMcpServer(client: AgentCommandClient): McpServer {

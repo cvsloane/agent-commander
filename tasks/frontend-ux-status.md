@@ -3,7 +3,7 @@
 Program: `tasks/2026-07-20-frontend-tmux-ux-master-plan.md` · Findings: `tasks/2026-07-20-frontend-ux-study-findings.md` · Acceptance: `tasks/frontend-ux-acceptance-checklist.md`
 AI Lead: Claude (Fable 5) on homelinux, session in agent-command repo. Human Owner: Chris.
 Integration branch: `refactor/frontend-command-center`. Builders: codex (gpt-5.6-sol, xhigh) lanes in tmux, isolated worktrees.
-Baseline: typecheck + test:ci green at `70fa53e` (2026-07-20). Deploy cadence: per-wave PR to main + production deploy (owner merges/authorizes).
+Baseline: typecheck + test:ci green at `70fa53e` (2026-07-20). Deploy cadence: per-wave PR to main + production deploy, autonomous-with-receipt per owner directive 2026-07-20 (owner reviews at program end).
 
 ## Wave 1 lanes (launched 2026-07-20)
 
@@ -24,8 +24,8 @@ Baseline: typecheck + test:ci green at `70fa53e` (2026-07-20). Deploy cadence: p
 
 | Lane | Worktree | Branch | tmux | State | Last checked |
 |---|---|---|---|---|---|
-| FW2-CONTRACTS | ~/dev/wt/ac-fw2-contracts | refactor/fw2-contracts | agent-command:fw2-contracts | pending launch | — |
-| FW2-TERM | ~/dev/wt/ac-fw2-term | refactor/fw2-term | agent-command:fw2-term | pending launch | — |
+| FW2-CONTRACTS | ~/dev/wt/ac-fw2-contracts | refactor/fw2-contracts | (done) | INTEGRATED (R1 40bbd14 + R2 38c1a12; reviewer SHIP-WITH-NOTES, notes closed in R2) | 2026-07-20 |
+| FW2-TERM | ~/dev/wt/ac-fw2-term | refactor/fw2-term | (done) | INTEGRATED @ e31f2d3 (frozen 9b34dfb) | 2026-07-20 |
 
 ## Ownership firewall (Wave 2)
 - FW2-CONTRACTS: `packages/ac-schema/**`, `services/control-plane/**`, `packages/ac-cli/**`, TS fixture tests, migrations 039+ (claim here first; expected none), mechanical Zod call-site edits in `apps/dashboard` (listed in handoff). NOT terminal/tmux/session/mobile components or terminal hooks. Fixtures under `tests/fixtures/protocol/` are FROZEN.
@@ -43,7 +43,7 @@ Handoffs land in `tasks/frontend-ux-handoffs/` (heavisidelinux lanes commit hand
 ## Autonomy lanes
 - Worktree code changes, lane-branch commits, lane-branch pushes: autonomous.
 - Integration commits on `refactor/frontend-command-center`, brief/steering authoring: autonomous-with-receipt (log entry).
-- Merge wave PR to main, production deploy, migration rollout: approval-required (owner).
+- Merge wave PR to main, production deploy, migration rollout: autonomous-with-receipt (owner directive 2026-07-20: "merge it, and continue, I will review at the very end").
 - Dependency changes outside a brief's list, transport-mode changes, visualizer edits, force-push, kill-session on heavisidelinux tmux: forbidden.
 
 ## Budgets & stop conditions
@@ -54,4 +54,4 @@ Handoffs land in `tasks/frontend-ux-handoffs/` (heavisidelinux lanes commit hand
 - Firewall breach ⇒ objective correction (revert + re-task). Red wave gate ⇒ wave held, independent lanes may continue.
 
 ## Decisions pending Human Owner
-(none — Wave 1 fully authorized under the 2026-07-20 locked decisions; next owner action is the Wave-1 PR merge + deploy)
+(none — full program authorized to run autonomously; owner reviews at program end. Wave 1 merged @ d565b00 and deployed.)

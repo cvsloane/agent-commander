@@ -1,8 +1,10 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
+import { Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ConnectionStatus } from './types';
+import { TerminalSearchInline, type TerminalSearchControlsProps } from './TerminalSearch';
 
 const statusColors: Record<ConnectionStatus, string> = {
   disconnected: 'bg-gray-500',
@@ -29,6 +31,8 @@ interface TerminalToolbarProps {
   onDisconnect: () => void;
   onTakeControl: () => void;
   onFocus: () => void;
+  search: TerminalSearchControlsProps;
+  isMobile: boolean;
 }
 
 export function TerminalToolbar({
@@ -40,6 +44,8 @@ export function TerminalToolbar({
   onDisconnect,
   onTakeControl,
   onFocus,
+  search,
+  isMobile,
 }: TerminalToolbarProps) {
   const connectionPending = status === 'connecting' || status === 'reconnecting';
 
@@ -84,6 +90,24 @@ export function TerminalToolbar({
       )}
 
       <div className="flex-1" />
+
+      {status === 'connected' && !isMobile && search.open && (
+        <TerminalSearchInline {...search} />
+      )}
+
+      {status === 'connected' && (!search.open || isMobile) && (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={search.open ? search.onClose : search.onOpen}
+          className="gap-1.5"
+          aria-label={search.open ? 'Close terminal search' : 'Search terminal scrollback'}
+          aria-expanded={search.open}
+        >
+          <Search className="h-4 w-4" aria-hidden="true" />
+          <span className="hidden xl:inline">Search</span>
+        </Button>
+      )}
 
       {status === 'connected' && readOnly && (
         <Button

@@ -29,6 +29,8 @@ interface TerminalContextMenuProps {
   canPaste?: boolean;
   /** Whether a selection is currently active */
   selectionActive?: boolean;
+  /** Live terminal selection, read when the menu opens without rerendering its parent. */
+  selectionRef?: React.RefObject<string>;
   /** Additional class names */
   className?: string;
 }
@@ -53,6 +55,7 @@ export function TerminalContextMenu({
   onClear,
   canPaste = true,
   selectionActive,
+  selectionRef,
   className,
 }: TerminalContextMenuProps) {
   const [visible, setVisible] = useState(false);
@@ -67,6 +70,9 @@ export function TerminalContextMenu({
 
   const showMenu = useCallback((x: number, y: number) => {
     // Check if there's an active selection - if so, don't show context menu
+    if (selectionRef?.current) {
+      return;
+    }
     if (selectionActive !== undefined) {
       if (selectionActive) {
         return; // Let SelectionPopup handle this instead
@@ -93,7 +99,7 @@ export function TerminalContextMenu({
     if ('vibrate' in navigator) {
       navigator.vibrate(20);
     }
-  }, [selectionActive]);
+  }, [selectionActive, selectionRef]);
 
   // Handle long press start
   const handleTouchStart = useCallback((e: TouchEvent) => {
@@ -208,6 +214,9 @@ export function TerminalContextMenu({
 
   // Check if there's a selection
   const hasSelection = (() => {
+    if (selectionRef) {
+      return !!selectionRef.current;
+    }
     if (selectionActive !== undefined) {
       return selectionActive;
     }

@@ -31,7 +31,7 @@ export const AgentTaskSchema = z.object({
   status: AgentTaskStatusSchema,
   started_at: z.string().datetime({ offset: true }),
   ended_at: z.string().datetime({ offset: true }).nullable().optional(),
-  metadata: z.record(z.unknown()).default({}),
+  metadata: z.record(z.string(), z.unknown()).default({}),
 });
 export type AgentTask = z.infer<typeof AgentTaskSchema>;
 
@@ -39,7 +39,7 @@ export const SessionGraphRollupSchema = z.object({
   session_id: z.string().uuid(),
   child_sessions: z.object({
     total: z.number().int().nonnegative(),
-    by_status: z.record(z.number().int().nonnegative()),
+    by_status: z.record(z.string(), z.number().int().nonnegative()),
   }),
   agent_tasks: z.object({
     total: z.number().int().nonnegative(),

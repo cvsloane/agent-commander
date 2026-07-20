@@ -92,6 +92,26 @@ export class SessionGraphRepository {
     return result.rows;
   }
 
+  async listMany(sessionIds: string[], pageSize = 1000): Promise<SessionEdge[]> {
+    if (sessionIds.length === 0) return [];
+    const edges: SessionEdge[] = [];
+    let offset = 0;
+    while (true) {
+      const result = await this.database.query<SessionEdge>(
+        `SELECT *
+         FROM session_edges
+         WHERE parent_session_id = ANY($1::uuid[])
+            OR child_session_id = ANY($1::uuid[])
+         ORDER BY created_at ASC, parent_session_id ASC, child_session_id ASC, edge_type ASC
+         LIMIT $2 OFFSET $3`,
+        [sessionIds, pageSize, offset]
+      );
+      edges.push(...result.rows);
+      if (result.rows.length < pageSize) return edges;
+      offset += result.rows.length;
+    }
+  }
+
   async delete(edge: SessionEdgeKey): Promise<boolean> {
     const result = await this.database.query<SessionEdge>(
       `DELETE FROM session_edges
@@ -176,6 +196,74 @@ export class SessionGraphRepository {
         failed: Number(row?.agent_task_failed ?? 0),
       },
     };
+  }
+
+  async rollupMany(parentSessionIds: string[]): Promise<Map<string, SessionGraphRollup>> {
+    if (parentSessionIds.length === 0) return new Map();
+    const result = await this.database.query<RollupRow & { session_id: string }>(
+      `WITH requested AS (
+         SELECT unnest($1::uuid[]) AS session_id
+       ),
+       child_status_counts AS (
+         SELECT
+           requested.session_id,
+           child.status::text AS status,
+           COUNT(DISTINCT child.id)::int AS count
+         FROM requested
+         JOIN session_edges AS edge ON edge.parent_session_id = requested.session_id
+         JOIN sessions AS child ON child.id = edge.child_session_id
+         GROUP BY requested.session_id, child.status
+       ),
+       child_rollup AS (
+         SELECT
+           requested.session_id,
+           COALESCE(SUM(child_status_counts.count), 0)::int AS total,
+           COALESCE(
+             jsonb_object_agg(child_status_counts.status, child_status_counts.count)
+               FILTER (WHERE child_status_counts.status IS NOT NULL),
+             '{}'::jsonb
+           ) AS by_status
+         FROM requested
+         LEFT JOIN child_status_counts USING (session_id)
+         GROUP BY requested.session_id
+       ),
+       task_rollup AS (
+         SELECT
+           requested.session_id,
+           COUNT(agent_tasks.id)::int AS total,
+           COUNT(agent_tasks.id) FILTER (WHERE agent_tasks.status = 'running')::int AS running,
+           COUNT(agent_tasks.id) FILTER (WHERE agent_tasks.status = 'completed')::int AS completed,
+           COUNT(agent_tasks.id) FILTER (WHERE agent_tasks.status = 'failed')::int AS failed
+         FROM requested
+         LEFT JOIN agent_tasks ON agent_tasks.session_id = requested.session_id
+         GROUP BY requested.session_id
+       )
+       SELECT
+         requested.session_id,
+         child_rollup.total AS child_session_total,
+         child_rollup.by_status AS child_sessions_by_status,
+         task_rollup.total AS agent_task_total,
+         task_rollup.running AS agent_task_running,
+         task_rollup.completed AS agent_task_completed,
+         task_rollup.failed AS agent_task_failed
+       FROM requested
+       JOIN child_rollup USING (session_id)
+       JOIN task_rollup USING (session_id)`,
+      [parentSessionIds]
+    );
+    return new Map(result.rows.map((row) => [row.session_id, {
+      session_id: row.session_id,
+      child_sessions: {
+        total: Number(row.child_session_total ?? 0),
+        by_status: row.child_sessions_by_status ?? {},
+      },
+      agent_tasks: {
+        total: Number(row.agent_task_total ?? 0),
+        running: Number(row.agent_task_running ?? 0),
+        completed: Number(row.agent_task_completed ?? 0),
+        failed: Number(row.agent_task_failed ?? 0),
+      },
+    }]));
   }
 }
 

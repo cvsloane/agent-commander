@@ -60,6 +60,14 @@ export const CommandTypeSchema = z.enum([
   'copy_to_session',
   'capture_pane',
   'list_directory',
+  'new_window',
+  'kill_window',
+  'rename_window',
+  'split_pane',
+  'select_window',
+  'select_pane',
+  'resize_pane',
+  'zoom_pane',
 ]);
 export type CommandType = z.infer<typeof CommandTypeSchema>;
 

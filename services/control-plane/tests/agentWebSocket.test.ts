@@ -44,6 +44,9 @@ async function buildServer(
   upsertSession: ReturnType<typeof vi.fn>;
   upsertEdge: ReturnType<typeof vi.fn>;
   publishSessionEdgesChanged: ReturnType<typeof vi.fn>;
+  publishToUI: ReturnType<typeof vi.fn>;
+  subscribeToTmuxTopology: (send: ReturnType<typeof vi.fn>) => () => void;
+  publishTmuxTopology: (authenticatedHostId: string, message: Record<string, unknown>) => void;
   handleTerminalStatus: ReturnType<typeof vi.fn>;
   createAuditLog: ReturnType<typeof vi.fn>;
 }> {
@@ -108,6 +111,17 @@ async function buildServer(
   const { registerAgentWebSocket } = await import('../src/ws/agent.js');
   const { pubsub } = await import('../src/services/pubsub.js');
   const publishSessionEdgesChanged = vi.spyOn(pubsub, 'publishSessionEdgesChanged');
+  const publishToUI = vi.spyOn(pubsub, 'publishToUI');
+  const subscribeToTmuxTopology = (send: ReturnType<typeof vi.fn>) => {
+    const clientId = crypto.randomUUID();
+    pubsub.addUIClient(clientId, { send } as never);
+    pubsub.setUISubscriptions(clientId, [{ type: 'tmux.topology' }]);
+    return () => pubsub.removeUIClient(clientId);
+  };
+  const publishTmuxTopology = (
+    authenticatedHostId: string,
+    message: Record<string, unknown>
+  ) => pubsub.publishTmuxTopology(authenticatedHostId, message as never);
   const app = Fastify({ logger: false });
   await app.register(websocket);
   registerAgentWebSocket(app);
@@ -118,6 +132,9 @@ async function buildServer(
     upsertSession,
     upsertEdge,
     publishSessionEdgesChanged,
+    publishToUI,
+    subscribeToTmuxTopology,
+    publishTmuxTopology,
     handleTerminalStatus,
     createAuditLog,
   };
@@ -218,6 +235,161 @@ describe('agent websocket ingest', () => {
     );
 
     socket.close();
+    await app.close();
+  });
+
+  it('relays unsequenced tmux topology snapshots without persisting or acknowledging them', async () => {
+    const { app, url, publishToUI, subscribeToTmuxTopology } = await buildServer(
+      vi.fn(async () => undefined)
+    );
+    const uiSend = vi.fn();
+    const unsubscribe = subscribeToTmuxTopology(uiSend);
+    const socket = new WebSocket(`${url}/v1/agent/connect`, {
+      headers: { Authorization: 'Bearer test-agent-token' },
+    });
+    await new Promise<void>((resolve) => socket.once('open', resolve));
+    socket.send(JSON.stringify(hello()));
+    await waitForMessage(socket);
+
+    const ts = '2026-07-20T14:00:00Z';
+    const payload = {
+      reason: 'hook:window-renamed',
+      tmux_sessions: [],
+    };
+    socket.send(JSON.stringify({
+      v: 1,
+      type: 'tmux.topology',
+      ts,
+      payload,
+    }));
+
+    await vi.waitFor(() => {
+      const relayed = {
+        v: 1,
+        type: 'tmux.topology',
+        ts,
+        payload: { ...payload, host_id: hostId },
+      };
+      expect(publishToUI).toHaveBeenCalledWith(relayed);
+      expect(uiSend).toHaveBeenCalledWith(JSON.stringify(relayed));
+    });
+    expect(socket.readyState).toBe(WebSocket.OPEN);
+
+    unsubscribe();
+    socket.close();
+    await app.close();
+  });
+
+  it('keeps the authenticated topology host authoritative over agent payload fields', async () => {
+    const { app, subscribeToTmuxTopology, publishTmuxTopology } = await buildServer(
+      vi.fn(async () => undefined)
+    );
+    const uiSend = vi.fn();
+    const unsubscribe = subscribeToTmuxTopology(uiSend);
+    const forgedHostId = '99999999-9999-4999-8999-999999999999';
+
+    publishTmuxTopology(hostId, {
+      v: 1,
+      type: 'tmux.topology',
+      ts: '2026-07-20T14:00:00Z',
+      payload: {
+        reason: 'hook:window-renamed',
+        tmux_sessions: [],
+        host_id: forgedHostId,
+      },
+    });
+
+    expect(uiSend).toHaveBeenCalledWith(expect.stringContaining(`"host_id":"${hostId}"`));
+    expect(uiSend).not.toHaveBeenCalledWith(expect.stringContaining(forgedHostId));
+    unsubscribe();
+    await app.close();
+  });
+
+  it('rate-limits warnings and drops unknown string message types without disconnecting', async () => {
+    const { app, url, handleTerminalStatus } = await buildServer(vi.fn(async () => undefined));
+    const warn = vi.spyOn(app.log, 'warn');
+    const socket = new WebSocket(`${url}/v1/agent/connect`, {
+      headers: { Authorization: 'Bearer test-agent-token' },
+    });
+    await new Promise<void>((resolve) => socket.once('open', resolve));
+    socket.send(JSON.stringify(hello()));
+    await waitForMessage(socket);
+
+    const futureMessage = {
+      v: 1,
+      type: 'agent.future-capability',
+      ts: new Date().toISOString(),
+      seq: 2,
+      payload: { additive: true },
+    };
+    socket.send(JSON.stringify(futureMessage));
+    socket.send(JSON.stringify(futureMessage));
+    socket.send(JSON.stringify({
+      v: 1,
+      type: 'terminal.lag',
+      ts: new Date().toISOString(),
+      seq: 2,
+      payload: {
+        channel_id: '33333333-3333-4333-8333-333333333333',
+        dropped: 1,
+      },
+    }));
+
+    await expect(waitForMessage(socket)).resolves.toMatchObject({
+      payload: { ack_seq: 2, status: 'ok' },
+    });
+    expect(handleTerminalStatus).toHaveBeenCalledOnce();
+    expect(
+      warn.mock.calls.filter((call) => call[1] === 'Dropping unknown agent message type')
+    ).toHaveLength(1);
+    expect(socket.readyState).toBe(WebSocket.OPEN);
+
+    socket.close();
+    await app.close();
+  });
+
+  it('terminates for a known message type whose payload violates its schema', async () => {
+    const { app, url } = await buildServer(vi.fn(async () => undefined));
+    const socket = new WebSocket(`${url}/v1/agent/connect`, {
+      headers: { Authorization: 'Bearer test-agent-token' },
+    });
+    await new Promise<void>((resolve) => socket.once('open', resolve));
+    socket.send(JSON.stringify(hello()));
+    await waitForMessage(socket);
+
+    const closed = waitForClose(socket);
+    socket.send(JSON.stringify({
+      v: 1,
+      type: 'sessions.upsert',
+      ts: new Date().toISOString(),
+      seq: 2,
+      payload: { sessions: 'garbage' },
+    }));
+
+    await expect(closed).resolves.toBeTypeOf('number');
+    await app.close();
+  });
+
+  it.each([
+    ['invalid JSON', '{'],
+    ['a missing type', JSON.stringify({ v: 1, ts: new Date().toISOString(), payload: {} })],
+    [
+      'an oversized frame',
+      JSON.stringify({ type: 'agent.future-capability', padding: 'x'.repeat(1024 * 1024) }),
+    ],
+  ])('terminates the socket for %s', async (_case, frame) => {
+    const { app, url } = await buildServer(vi.fn(async () => undefined));
+    const socket = new WebSocket(`${url}/v1/agent/connect`, {
+      headers: { Authorization: 'Bearer test-agent-token' },
+    });
+    await new Promise<void>((resolve) => socket.once('open', resolve));
+    socket.send(JSON.stringify(hello()));
+    await waitForMessage(socket);
+
+    const closed = waitForClose(socket);
+    socket.send(frame);
+    await expect(closed).resolves.toBeTypeOf('number');
+
     await app.close();
   });
 

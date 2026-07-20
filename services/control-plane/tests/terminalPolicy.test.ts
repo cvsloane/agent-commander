@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Host } from '@agent-command/schema';
 import type { AuthUser } from '../src/auth/types.js';
-import { canAttachTerminal, canControlTerminal, hostSupportsTerminal } from '../src/services/terminalPolicy.js';
+import {
+  canAttachTerminal,
+  canControlTerminal,
+  hostSupportsTerminal,
+  hostSupportsTmuxCommands,
+} from '../src/services/terminalPolicy.js';
 
 function user(role: AuthUser['role']): AuthUser {
   return {
@@ -56,5 +61,15 @@ describe('terminal policy', () => {
     expect(hostSupportsTerminal(host(true))).toBe(true);
     expect(hostSupportsTerminal(host(false))).toBe(false);
     expect(hostSupportsTerminal(null)).toBe(false);
+  });
+
+  it('requires both tmux and terminal capabilities for pane and window commands', () => {
+    expect(hostSupportsTmuxCommands(host(true))).toBe(true);
+    expect(hostSupportsTmuxCommands({
+      ...host(true),
+      capabilities: { ...host(true).capabilities, tmux: false },
+    })).toBe(false);
+    expect(hostSupportsTmuxCommands(host(false))).toBe(false);
+    expect(hostSupportsTmuxCommands(null)).toBe(false);
   });
 });

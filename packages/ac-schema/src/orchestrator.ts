@@ -30,7 +30,7 @@ export type OrchestratorWorkItemClaimRequest = z.infer<typeof OrchestratorWorkIt
 
 export const OrchestratorWorkItemCompleteRequestSchema = z.object({
   status: z.enum(['done', 'blocked', 'cancelled']).default('done'),
-  result: z.record(z.unknown()).optional(),
+  result: z.record(z.string(), z.unknown()).optional(),
 });
 export type OrchestratorWorkItemCompleteRequest = z.infer<typeof OrchestratorWorkItemCompleteRequestSchema>;
 
@@ -53,7 +53,7 @@ export const OrchestratorMemoryWriteRequestSchema = z.object({
   tier: MemoryTierSchema,
   summary: z.string().min(1),
   content: z.string().min(1),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   confidence: z.number().min(0).max(1).optional(),
   expires_at: z.string().datetime({ offset: true }).optional(),
 });

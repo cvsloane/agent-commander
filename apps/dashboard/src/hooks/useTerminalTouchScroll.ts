@@ -37,12 +37,10 @@ export function useTerminalTouchScroll({
   enabled,
   termRef,
   terminalRef,
-  hasSelection,
 }: {
   enabled: boolean;
   termRef: RefObject<HTMLDivElement | null>;
   terminalRef: RefObject<XTerminal | null>;
-  hasSelection: boolean;
 }) {
   const touchScrollRef = useRef<TouchScrollState>(createTouchScrollState());
 
@@ -92,7 +90,7 @@ export function useTerminalTouchScroll({
       if (!touchState.active) return;
       const terminal = terminalRef.current;
       if (!terminal) return;
-      if (hasSelection || terminal.hasSelection()) return;
+      if (terminal.hasSelection()) return;
       if (event.touches.length !== 1) return;
       const touch = event.touches[0];
       if (!touch) return;
@@ -231,7 +229,7 @@ export function useTerminalTouchScroll({
         touchState.momentumRaf = null;
       }
     };
-  }, [enabled, hasSelection, termRef, terminalRef]);
+  }, [enabled, termRef, terminalRef]);
 
   return touchScrollRef;
 }

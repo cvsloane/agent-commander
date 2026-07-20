@@ -66,7 +66,7 @@ export type TmuxMetadata = z.infer<typeof TmuxMetadataSchema>;
 export const SessionMetadataSchema = z.object({
   tmux: TmuxMetadataSchema.optional(),
   parent_session_id: z.string().uuid().optional(),
-  child_status_rollup: z.record(z.number().int().nonnegative()).optional(),
+  child_status_rollup: z.record(z.string(), z.number().int().nonnegative()).optional(),
   unmanaged: z.boolean().optional(),
   claude_session_id: z.string().optional(),
   codex_thread_id: z.string().optional(),

@@ -10,8 +10,8 @@ export const ApprovalSchema = z.object({
   ts_decided: z.string().datetime({ offset: true }).nullable().optional(),
   timed_out_at: z.string().datetime({ offset: true }).nullable().optional(),
   decision: ApprovalDecisionSchema.nullable().optional(),
-  requested_payload: z.record(z.unknown()),
-  decided_payload: z.record(z.unknown()).nullable().optional(),
+  requested_payload: z.record(z.string(), z.unknown()),
+  decided_payload: z.record(z.string(), z.unknown()).nullable().optional(),
   decided_by_user_id: z.string().uuid().nullable().optional(),
 });
 export type Approval = z.infer<typeof ApprovalSchema>;
@@ -22,7 +22,7 @@ export const ApprovalRequestPayloadSchema = z.object({
   session_id: z.string().uuid(),
   provider: SessionProviderSchema,
   reason: z.string(),
-  details: z.record(z.unknown()),
+  details: z.record(z.string(), z.unknown()),
 });
 export type ApprovalRequestPayload = z.infer<typeof ApprovalRequestPayloadSchema>;
 
@@ -32,7 +32,7 @@ export const ApprovalDecideRequestSchema = z.object({
   mode: ApprovalModeSchema.default('both'),
   payload: z
     .object({
-      updatedInput: z.record(z.unknown()).optional(),
+      updatedInput: z.record(z.string(), z.unknown()).optional(),
     })
     .optional(),
 });
@@ -44,7 +44,7 @@ export const ApprovalDecisionPayloadSchema = z.object({
   session_id: z.string().uuid(),
   decision: ApprovalDecisionSchema,
   mode: ApprovalModeSchema,
-  updated_input: z.record(z.unknown()).optional(),
+  updated_input: z.record(z.string(), z.unknown()).optional(),
 });
 export type ApprovalDecisionPayload = z.infer<typeof ApprovalDecisionPayloadSchema>;
 
@@ -54,7 +54,7 @@ export const ClaudePermissionDecisionSchema = z.object({
     hookEventName: z.literal('PermissionRequest'),
     decision: z.object({
       behavior: ApprovalDecisionSchema,
-      updatedInput: z.record(z.unknown()).optional(),
+      updatedInput: z.record(z.string(), z.unknown()).optional(),
     }),
   }),
 });
@@ -132,7 +132,7 @@ export const ApprovalRequestedPayloadSchema = z.object({
   approval_id: z.string().uuid(),
   provider: SessionProviderSchema,
   reason: z.string(),
-  details: z.record(z.unknown()),
+  details: z.record(z.string(), z.unknown()),
   approval_type: ApprovalTypeSchema.default('binary'),
   input_schema: ApprovalInputSchema.optional(),
 });

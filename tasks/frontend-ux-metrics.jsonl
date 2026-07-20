@@ -3,3 +3,8 @@
 {"ts":"2026-07-20T15:20:00Z","event":"reviewer_verdict","wave":1,"verdict":"HOLD","findings":{"critical":1,"warning":3,"cleared":"FW1-MODERN clean"},"action":"FW1-TMUX-GO R2 correction round"}
 {"ts":"2026-07-20T17:00:00Z","event":"lane_frozen","lane":"FW1-TMUX-GO","attempt":2,"frozen_sha":"7a8e6ee","verdict":"accepted","integrated_sha":"76d7a12"}
 {"ts":"2026-07-20T17:05:00Z","event":"wave_complete","wave":1,"reviewer_verdict":"SHIP","gate":"green","held_for_owner":"PR merge + deploy"}
+{"ts":"2026-07-20T18:20:00Z","event":"wave_merged","wave":1,"main_sha":"d565b00","pr":86}
+{"ts":"2026-07-20T18:25:00Z","event":"wave_launched","wave":2,"lanes":["FW2-CONTRACTS","FW2-TERM"]}
+{"ts":"2026-07-20T18:30:00Z","event":"wave_deployed","wave":1,"sha":"d565b00"}
+{"ts":"2026-07-20T19:10:00Z","event":"lane_frozen","lane":"FW2-CONTRACTS","attempt":1,"frozen_sha":"40bbd14","verdict":"accepted"}
+{"ts":"2026-07-20T20:50:00Z","event":"wave_complete","wave":2,"reviewer_verdict":"SHIP-WITH-NOTES","notes_closed_in":"FW2-CONTRACTS-R2","gate":"green"}

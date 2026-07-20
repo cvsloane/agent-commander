@@ -2,12 +2,14 @@
 
 import { useState, useRef, useEffect, useCallback, type MutableRefObject } from 'react';
 import { cn } from '@/lib/utils';
+import type { SelectionPopupHandle } from '@/components/mobile';
 import { TerminalSurface } from '@/components/terminal/TerminalSurface';
 import { TerminalToolbar } from '@/components/terminal/TerminalToolbar';
-import type { TerminalController } from '@/components/terminal/types';
+import type { TerminalController, XSearchResult, XTerminal } from '@/components/terminal/types';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useTerminalClipboard } from '@/hooks/useTerminalClipboard';
 import { useTerminalConnection } from '@/hooks/useTerminalConnection';
+import { useTerminalScrollAnchor } from '@/hooks/useTerminalScrollAnchor';
 import { useTerminalTouchScroll } from '@/hooks/useTerminalTouchScroll';
 import { useXtermTerminal } from '@/hooks/useXtermTerminal';
 
@@ -17,42 +19,133 @@ interface TerminalViewProps {
   className?: string;
   autoAttach?: boolean;
   controllerRef?: MutableRefObject<TerminalController | null>;
+  onControllerChange?: (controller: TerminalController | null) => void;
+  onTerminalInstanceChange?: (terminal: XTerminal | null) => void;
 }
+
+const noopTerminalInstanceChange = () => undefined;
 
 export type { TerminalController } from '@/components/terminal/types';
 
-export function TerminalView({ sessionId, paneId, className, autoAttach = false, controllerRef }: TerminalViewProps) {
+export function TerminalView({
+  sessionId,
+  paneId,
+  className,
+  autoAttach = false,
+  controllerRef,
+  onControllerChange,
+  onTerminalInstanceChange = noopTerminalInstanceChange,
+}: TerminalViewProps) {
   const termRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const [hasSelection, setHasSelection] = useState(false);
-  const [selectionText, setSelectionText] = useState('');
-  const [selectionAnchor, setSelectionAnchor] = useState<{ x: number; y: number } | null>(null);
+  const sendInputRef = useRef<(data: string) => void>(() => undefined);
+  const [hasCommittedSelection, setHasCommittedSelection] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<XSearchResult>({
+    resultIndex: -1,
+    resultCount: 0,
+  });
+  const selectionTextRef = useRef('');
+  const selectionAnchorRef = useRef<{ x: number; y: number } | null>(null);
+  const selectionPopupRef = useRef<SelectionPopupHandle>(null);
+  const hasCommittedSelectionRef = useRef(false);
   const isMobile = useIsMobile();
   const handleTerminalSelectionChange = useCallback((selection: string) => {
-    const hasText = selection.length > 0;
-    setHasSelection(hasText);
-    setSelectionText(hasText ? selection : '');
+    selectionTextRef.current = selection;
+    if (selection || !hasCommittedSelectionRef.current) return;
+    hasCommittedSelectionRef.current = false;
+    setHasCommittedSelection(false);
+    selectionPopupRef.current?.hide();
   }, []);
+
+  const handleSelectionStart = useCallback((anchor: { x: number; y: number }) => {
+    selectionAnchorRef.current = anchor;
+    selectionPopupRef.current?.hide();
+  }, []);
+  const openSearch = useCallback(() => setSearchOpen(true), []);
+  const handleSearchResultsChange = useCallback((results: XSearchResult) => {
+    setSearchResults(results);
+  }, []);
+
+  const scrollAnchor = useTerminalScrollAnchor();
   const {
     terminalRef,
     ensureTerminal,
     fitAndResize,
     getDimensions,
+    findNext,
+    findPrevious,
+    clearSearch,
     disposeTerminal,
   } = useXtermTerminal({
     termRef,
     wsRef,
+    sendInputRef,
     onSelectionChange: handleTerminalSelectionChange,
+    onViewportScroll: scrollAnchor.handleViewportScroll,
+    onTerminalInstanceChange,
+    onSearchRequested: openSearch,
+    onSearchResultsChange: handleSearchResultsChange,
   });
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQuery('');
+    setSearchResults({ resultIndex: -1, resultCount: 0 });
+    clearSearch();
+    terminalRef.current?.focus();
+  }, [clearSearch, terminalRef]);
+  const handleSearchQueryChange = useCallback((query: string) => {
+    setSearchQuery(query);
+    if (!query) {
+      clearSearch();
+      setSearchResults({ resultIndex: -1, resultCount: 0 });
+      return;
+    }
+    findNext(query, true);
+  }, [clearSearch, findNext]);
+  const handleSearchNext = useCallback(() => {
+    if (searchQuery) findNext(searchQuery);
+  }, [findNext, searchQuery]);
+  const handleSearchPrevious = useCallback(() => {
+    if (searchQuery) findPrevious(searchQuery);
+  }, [findPrevious, searchQuery]);
+  const searchControls = {
+    open: searchOpen,
+    query: searchQuery,
+    resultIndex: searchResults.resultIndex,
+    resultCount: searchResults.resultCount,
+    onOpen: openSearch,
+    onClose: closeSearch,
+    onQueryChange: handleSearchQueryChange,
+    onNext: handleSearchNext,
+    onPrevious: handleSearchPrevious,
+  };
+  const handleSelectionCommit = useCallback(() => {
+    window.setTimeout(() => {
+      const selection = terminalRef.current?.getSelection() || '';
+      selectionTextRef.current = selection;
+      const hasSelection = selection.length > 0;
+      if (hasCommittedSelectionRef.current !== hasSelection) {
+        hasCommittedSelectionRef.current = hasSelection;
+        setHasCommittedSelection(hasSelection);
+      }
+      if (hasSelection) {
+        selectionPopupRef.current?.showSelection(selection, selectionAnchorRef.current ?? undefined);
+      } else {
+        selectionPopupRef.current?.hide();
+      }
+    }, 0);
+  }, [terminalRef]);
   const {
-    readOnlyRef,
     status,
     errorMessage,
     lagMessage,
     readOnly,
     connect,
     disconnect,
+    suspend,
     takeControl,
     sendInput,
   } = useTerminalConnection({
@@ -65,12 +158,15 @@ export function TerminalView({ sessionId, paneId, className, autoAttach = false,
     ensureTerminal,
     fitAndResize,
     getDimensions,
+    onOutputWritten: scrollAnchor.handleOutputWritten,
   });
+  useEffect(() => {
+    sendInputRef.current = sendInput;
+  }, [sendInput]);
   const touchScrollRef = useTerminalTouchScroll({
     enabled: isMobile,
     termRef,
     terminalRef,
-    hasSelection,
   });
 
   // Virtual keyboard handlers
@@ -84,15 +180,15 @@ export function TerminalView({ sessionId, paneId, className, autoAttach = false,
 
   const terminalClipboard = useTerminalClipboard({
     terminalRef,
-    readOnlyRef,
-    wsRef,
+    sendInput,
   });
 
   useEffect(() => {
-    if (!controllerRef) return;
+    if (!controllerRef && !onControllerChange) return;
     const controller: TerminalController = {
       attach: () => void connect(),
       detach: disconnect,
+      suspend,
       takeControl,
       focus: () => terminalRef.current?.focus(),
       copySelection: terminalClipboard.copySelection,
@@ -100,18 +196,24 @@ export function TerminalView({ sessionId, paneId, className, autoAttach = false,
       copyAll: terminalClipboard.copyAll,
       paste: () => void terminalClipboard.paste(),
     };
-    controllerRef.current = controller;
+    if (controllerRef) {
+      controllerRef.current = controller;
+    }
+    onControllerChange?.(controller);
     return () => {
-      if (controllerRef.current === controller) {
+      if (controllerRef?.current === controller) {
         controllerRef.current = null;
       }
+      onControllerChange?.(null);
     };
   }, [
     connect,
     controllerRef,
     disconnect,
+    onControllerChange,
     terminalRef,
     terminalClipboard,
+    suspend,
     takeControl,
   ]);
 
@@ -147,6 +249,8 @@ export function TerminalView({ sessionId, paneId, className, autoAttach = false,
         onDisconnect={disconnect}
         onTakeControl={takeControl}
         onFocus={() => terminalRef.current?.focus()}
+        search={searchControls}
+        isMobile={isMobile}
       />
       <TerminalSurface
         termRef={termRef}
@@ -155,10 +259,11 @@ export function TerminalView({ sessionId, paneId, className, autoAttach = false,
         status={status}
         readOnly={readOnly}
         paneId={paneId}
-        hasSelection={hasSelection}
-        selectionText={selectionText}
-        selectionAnchor={selectionAnchor}
-        onSelectionAnchorChange={setSelectionAnchor}
+        hasSelection={hasCommittedSelection}
+        selectionTextRef={selectionTextRef}
+        selectionPopupRef={selectionPopupRef}
+        onSelectionStart={handleSelectionStart}
+        onSelectionCommit={handleSelectionCommit}
         onVirtualInput={handleVirtualInput}
         onVirtualInterrupt={handleVirtualInterrupt}
         onCopySelection={terminalClipboard.copySelection}
@@ -167,6 +272,9 @@ export function TerminalView({ sessionId, paneId, className, autoAttach = false,
         onPaste={terminalClipboard.paste}
         onClear={terminalClipboard.clear}
         onCopySelectionText={terminalClipboard.copyText}
+        jumpToLiveButtonRef={scrollAnchor.jumpToLiveButtonRef}
+        onJumpToLive={() => scrollAnchor.jumpToLive(terminalRef.current)}
+        search={searchControls}
       />
     </div>
   );

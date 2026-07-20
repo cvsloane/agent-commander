@@ -6,6 +6,7 @@ import type {
   AutomationRuntimeState,
   AutomationWakeup,
   CreateWorkItem,
+  FleetWorkItemCount,
   GovernanceApproval,
   GovernanceApprovalDecisionRequest,
   MemoryEntry,
@@ -1322,6 +1323,23 @@ export async function listAutomationRuns(userId: string, filters?: {
   return result.rows;
 }
 
+export async function listLatestAutomationRunsForAgents(
+  userId: string,
+  automationAgentIds: string[]
+): Promise<AutomationRun[]> {
+  if (automationAgentIds.length === 0) return [];
+  const result = await pool.query(
+    `SELECT DISTINCT ON (r.automation_agent_id) r.*
+     FROM automation_runs r
+     JOIN automation_agents a ON a.id = r.automation_agent_id
+     WHERE a.user_id = $1
+       AND r.automation_agent_id = ANY($2::uuid[])
+     ORDER BY r.automation_agent_id, r.started_at DESC`,
+    [userId, automationAgentIds]
+  );
+  return result.rows;
+}
+
 export async function listAutomationWakeups(userId: string, filters?: {
   automation_agent_id?: string;
   status?: string;
@@ -1787,6 +1805,39 @@ export async function computeAutomationBudgetUsage(
   };
 }
 
+export async function computeAutomationBudgetUsageForAgents(
+  automationAgentIds: string[]
+): Promise<Map<string, { daily_cents: number; monthly_cents: number }>> {
+  if (automationAgentIds.length === 0) return new Map();
+  const result = await pool.query(
+    `SELECT
+       requested.automation_agent_id,
+       COALESCE(SUM(
+         CASE
+           WHEN runs.started_at >= date_trunc('day', NOW())
+             THEN COALESCE(NULLIF(runs.usage_json->>'estimated_cost_cents', '')::int, 0)
+           ELSE 0
+         END
+       ), 0)::int AS daily_cents,
+       COALESCE(SUM(
+         CASE
+           WHEN runs.started_at >= date_trunc('month', NOW())
+             THEN COALESCE(NULLIF(runs.usage_json->>'estimated_cost_cents', '')::int, 0)
+           ELSE 0
+         END
+       ), 0)::int AS monthly_cents
+     FROM unnest($1::uuid[]) AS requested(automation_agent_id)
+     LEFT JOIN automation_runs AS runs
+       ON runs.automation_agent_id = requested.automation_agent_id
+     GROUP BY requested.automation_agent_id`,
+    [automationAgentIds]
+  );
+  return new Map(result.rows.map((row) => [row.automation_agent_id as string, {
+    daily_cents: Number(row.daily_cents) || 0,
+    monthly_cents: Number(row.monthly_cents) || 0,
+  }]));
+}
+
 export async function createGovernanceApproval(input: {
   user_id: string;
   automation_agent_id: string;
@@ -2127,6 +2178,29 @@ export async function listWorkItems(
   params.push(query.limit);
 
   const result = await pool.query(sql, params);
+  return result.rows;
+}
+
+export async function listFleetWorkItemCounts(
+  userId: string,
+  scope: { session_ids: string[]; automation_agent_ids: string[] }
+): Promise<FleetWorkItemCount[]> {
+  if (scope.session_ids.length === 0 && scope.automation_agent_ids.length === 0) return [];
+  const result = await pool.query(
+    `SELECT
+       session_id,
+       assigned_automation_agent_id,
+       status,
+       COUNT(*)::int AS count
+     FROM work_items
+     WHERE user_id = $1
+       AND (
+         session_id = ANY($2::uuid[])
+         OR assigned_automation_agent_id = ANY($3::uuid[])
+       )
+     GROUP BY session_id, assigned_automation_agent_id, status`,
+    [userId, scope.session_ids, scope.automation_agent_ids]
+  );
   return result.rows;
 }
 

@@ -12,6 +12,7 @@ import type {
   WorkItem,
   SessionEdge,
   AgentTask,
+  TmuxTopologyMessage,
   UISubscriptionTopic,
 } from '@agent-command/schema';
 import { notificationDispatcher } from './notificationDispatcher.js';
@@ -199,6 +200,7 @@ class PubSub {
   ): ServerToUIMessage | null {
     // Map message type to topic
     const topicMap: Record<string, UISubscriptionTopic> = {
+      'tmux.topology': 'tmux.topology',
       'sessions.changed': 'sessions',
       'approvals.created': 'approvals',
       'approvals.updated': 'approvals',
@@ -225,6 +227,16 @@ class PubSub {
 
     const relevantSubs = subscriptions.filter((sub) => sub.type === topic);
     if (relevantSubs.length === 0) return null;
+
+    if (message.type === 'tmux.topology') {
+      for (const sub of relevantSubs) {
+        const filter = sub.filter || {};
+        if (!filter.host_id || filter.host_id === message.payload.host_id) {
+          return message;
+        }
+      }
+      return null;
+    }
 
     if (message.type === 'sessions.changed') {
       const payload = message.payload as { sessions: Session[]; deleted?: string[] };
@@ -533,6 +545,17 @@ class PubSub {
     } catch {
       return false;
     }
+  }
+
+  // Relay the authenticated host's latest volatile topology snapshot.
+  publishTmuxTopology(hostId: string, message: TmuxTopologyMessage): void {
+    this.publishToUI({
+      ...message,
+      payload: {
+        ...message.payload,
+        host_id: hostId,
+      },
+    });
   }
 
   // Publish sessions changed
