@@ -13,6 +13,13 @@ import { runTmuxWindowAction, type TmuxWindowAction } from './windowActions';
 interface TmuxWindowStripProps {
   session: Session;
   className?: string;
+  onSelectSession?: (sessionId: string) => void;
+}
+
+export function getWindowViewerSessionId(window: TmuxWindowTopologyView): string | null {
+  return window.panes.find((pane) => pane.active && pane.sessionId)?.sessionId
+    ?? window.panes.find((pane) => pane.sessionId)?.sessionId
+    ?? null;
 }
 
 function sessionIdentity(session: Session) {
@@ -93,7 +100,7 @@ function optimisticWindows(
   }
 }
 
-export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
+export function TmuxWindowStrip({ session, className, onSelectSession }: TmuxWindowStripProps) {
   const identity = useMemo(() => sessionIdentity(session), [session]);
   const hostTopology = useTmuxHostTopology(session.host_id);
   const topologySession = hostTopology?.sessions.find(
@@ -163,6 +170,12 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
     }
   };
 
+  const selectWindow = (window: TmuxWindowTopologyView) => {
+    void dispatchAction({ type: 'select', windowIndex: window.windowIndex });
+    const nextSessionId = getWindowViewerSessionId(window);
+    if (nextSessionId) onSelectSession?.(nextSessionId);
+  };
+
   const beginRename = (window: TmuxWindowTopologyView) => {
     setContextWindowIndex(null);
     setEditingWindowIndex(window.windowIndex);
@@ -198,7 +211,8 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
     if (!nextTab || Number.isNaN(nextWindowIndex)) return;
     event.preventDefault();
     nextTab.focus();
-    void dispatchAction({ type: 'select', windowIndex: nextWindowIndex });
+    const nextWindow = windows.find((window) => window.windowIndex === nextWindowIndex);
+    if (nextWindow) selectWindow(nextWindow);
   };
 
   if (!session.tmux_pane_id) return null;
@@ -259,7 +273,7 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
                       longPressTriggeredRef.current = false;
                       return;
                     }
-                    void dispatchAction({ type: 'select', windowIndex: window.windowIndex });
+                    selectWindow(window);
                   }}
                   onContextMenu={(event) => {
                     event.preventDefault();

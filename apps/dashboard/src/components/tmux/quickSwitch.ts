@@ -16,6 +16,7 @@ export function getRecentTmuxPanes(
   const orderedIds = [
     ...(selectedSessionId ? [selectedSessionId] : []),
     ...recentSessions.map((session) => session.id),
+    ...liveSessions.map((session) => session.id),
   ];
   const seen = new Set<string>();
   const panes: SessionWithSnapshot[] = [];

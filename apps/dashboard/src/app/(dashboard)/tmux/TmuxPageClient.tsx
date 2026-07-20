@@ -48,6 +48,7 @@ export default function TmuxPageClient() {
     sessionsError,
     sessionsFetching,
     filteredSessions,
+    quickSwitchSessions,
     groups,
     allHostsSelected,
     partialHostFailureCount,
@@ -173,6 +174,7 @@ export default function TmuxPageClient() {
           session={selectedSession}
           snapshot={snapshot}
           events={events}
+          onSelectTmuxSession={selectSession}
           onAssignGroup={handleAssignGroup}
           onSendToLinkedSession={handleSendToFromLinks}
           viewMode={workbenchViewMode}
@@ -237,6 +239,7 @@ export default function TmuxPageClient() {
           onFilterChange={(nextFilter) => updateTmuxParams({ filter: nextFilter === 'all' ? null : nextFilter })}
           groups={groups}
           filteredSessions={filteredSessions}
+          quickSwitchSessions={quickSwitchSessions}
           sessionsLoading={sessionsLoading}
           sessionsError={sessionsError}
           sessionsFetching={sessionsFetching}

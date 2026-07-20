@@ -19,6 +19,7 @@ import {
 import { isHostOnline } from '@/lib/utils';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useTmuxTopologyFeed } from '@/hooks/useTmuxTopology';
+import { getAttachedTmuxSelectionUpdates } from '@/hooks/tmuxNavigation';
 import { selectFleetRosterGroups, useFleetStore } from '@/stores/fleet';
 import {
   useSettingsStore,
@@ -261,6 +262,14 @@ export function useTmuxRosterData() {
         .map((session) => [session.id, session])
     ).values(),
   ], [rosterByHost, trackedHostIds]);
+  const quickSwitchSessions = useMemo(() => [
+    ...new Map(
+      Object.values(rosterByHost)
+        .flat()
+        .filter((session) => Boolean(session.tmux_pane_id) && !session.archived_at)
+        .map((session) => [session.id, session])
+    ).values(),
+  ], [rosterByHost]);
   useTmuxTopologyFeed(
     trackedHostIds,
     tmuxSessions
@@ -410,9 +419,13 @@ export function useTmuxRosterData() {
       if (clusterKey) {
         setExpandedClusterKey(clusterKey);
       }
-      updateTmuxParams({ session_id: sessionId });
+      const session = quickSwitchSessions.find((candidate) => candidate.id === sessionId);
+      updateTmuxParams(getAttachedTmuxSelectionUpdates({
+        sessionId,
+        hostId: session?.host_id,
+      }));
     },
-    [sessionToClusterKey, updateTmuxParams]
+    [quickSwitchSessions, sessionToClusterKey, updateTmuxParams]
   );
 
   return {
@@ -427,6 +440,7 @@ export function useTmuxRosterData() {
     sessionsError,
     sessionsFetching,
     tmuxSessions,
+    quickSwitchSessions,
     filteredSessions,
     groups,
     allHostsSelected,

@@ -60,6 +60,7 @@ interface TmuxMobileShellProps {
   onFilterChange: (filter: FleetRosterFilter) => void;
   groups: FleetRosterGroup[];
   filteredSessions: SessionWithSnapshot[];
+  quickSwitchSessions: SessionWithSnapshot[];
   sessionsLoading: boolean;
   sessionsError: unknown;
   sessionsFetching: boolean;
@@ -99,6 +100,7 @@ export function TmuxMobileShell({
   onFilterChange,
   groups,
   filteredSessions,
+  quickSwitchSessions,
   sessionsLoading,
   sessionsError,
   sessionsFetching,
@@ -306,7 +308,7 @@ export function TmuxMobileShell({
 
       <PersistentTerminalRegion visible={terminalVisible}>
           <TmuxQuickSwitchStrip
-            sessions={filteredSessions}
+            sessions={quickSwitchSessions}
             selectedSessionId={selectedSessionId}
             onSelectSession={handleSelectSession}
           />

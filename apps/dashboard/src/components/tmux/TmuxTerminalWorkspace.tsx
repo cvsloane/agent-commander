@@ -26,6 +26,7 @@ interface TmuxTerminalWorkspaceProps {
   primaryControllerRef?: MutableRefObject<TerminalController | null>;
   onAttentionRespond?: (item: OrchestratorItem) => void;
   onSendToOtherSession?: (targetSessionId: string) => void;
+  onSelectSession?: (sessionId: string) => void;
 }
 
 function TerminalLabel({
@@ -67,6 +68,7 @@ export function TmuxTerminalWorkspace({
   primaryControllerRef,
   onAttentionRespond,
   onSendToOtherSession,
+  onSelectSession,
 }: TmuxTerminalWorkspaceProps) {
   const promptComposerRef = useRef<PromptComposerHandle>(null);
   const terminalHostSnapshot = useSyncExternalStore(
@@ -160,7 +162,7 @@ export function TmuxTerminalWorkspace({
       >
         <section className="flex h-full min-h-0 min-w-0 flex-col" aria-label="Primary terminal">
           {showSecondary && <TerminalLabel label="Primary" session={primarySession} />}
-          <TmuxWindowStrip session={primarySession} />
+          <TmuxWindowStrip session={primarySession} onSelectSession={onSelectSession} />
           <TmuxPaneControls session={primarySession} />
           <div className="relative min-h-0 flex-1">
             <PersistentTerminalSlot
