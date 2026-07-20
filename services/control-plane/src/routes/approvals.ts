@@ -18,8 +18,7 @@ import {
   InvalidIdempotencyKeyError,
   scopeIdempotencyKey,
 } from '../services/idempotency.js';
-
-const APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
+import { config } from '../config.js';
 
 // Query schema
 const ApprovalsQuerySchema = z.object({
@@ -147,7 +146,7 @@ export function registerApprovalRoutes(app: FastifyInstance): void {
         return reply.status(409).send({ error: 'Approval is no longer active' });
       }
       const expiresAt = new Date(
-        new Date(approval.ts_requested).getTime() + APPROVAL_TIMEOUT_MS
+        new Date(approval.ts_requested).getTime() + config.APPROVAL_TIMEOUT_MS
       );
       if (expiresAt.getTime() <= Date.now()) {
         return reply.status(409).send({ error: 'Approval is no longer active' });
@@ -207,6 +206,15 @@ export function registerApprovalRoutes(app: FastifyInstance): void {
       // The update and enqueue commit together. Delivery happens only after
       // commit; one-way legacy approvals are completed on their first send.
       await commandRouter.deliverPersisted(decided.command);
+
+      if (decided.event) {
+        pubsub.publishEventAppended(approval.session_id, {
+          id: decided.event.id!,
+          ts: decided.event.ts,
+          type: decided.event.type,
+          payload: decided.event.payload,
+        });
+      }
 
       // Clear session metadata (approval and status_detail)
       const updatedSession = await db.clearSessionApprovalMetadata(approval.session_id);

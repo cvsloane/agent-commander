@@ -41,6 +41,13 @@ Example service-token shape (use a real secret outside version control):
 { "hermes": { "token": "replace-with-strong-secret", "role": "operator" } }
 ```
 
+Data maintenance:
+
+- `DATA_RETENTION_DAYS` - deletes events and session snapshots older than this many days. Omit it to disable retention; production installations normally use `30`.
+- `DATA_RETENTION_SWEEP_INTERVAL_MS` - retention sweep interval (default 6 hours).
+- `APPROVAL_TIMEOUT_MS` - pending approval lifetime (default 10 minutes).
+- `APPROVAL_SWEEP_INTERVAL_MS` - stale approval sweep interval (default 1 minute).
+
 ## Dashboard
 
 File: `apps/dashboard/.env`

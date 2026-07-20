@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import { CommandRequestSchema, CommandPayloadSchema, UpdateSessionRequestSchema, BulkOperationRequestSchema, CopyToSessionPayloadSchema } from '@agent-command/schema';
+import { CommandRequestSchema, CommandPayloadSchema, UpdateSessionRequestSchema, BulkOperationRequestSchema, CopyToSessionPayloadSchema, DashboardSpawnRequestSchema } from '@agent-command/schema';
 import * as db from '../db/index.js';
 import { sessionGraph } from '../db/sessionGraph.js';
 import { agentTasks } from '../db/agentTasks.js';
@@ -716,23 +716,6 @@ export function registerSessionRoutes(app: FastifyInstance): void {
   });
 
   // POST /v1/sessions/spawn - Spawn a new session from dashboard
-  const DashboardSpawnRequestSchema = z.object({
-    host_id: z.string().uuid(),
-    provider: z.enum(['claude_code', 'codex', 'gemini_cli', 'opencode', 'aider', 'shell']),
-    working_directory: z.string().min(1),
-    title: z.string().optional(),
-    flags: z.array(z.string()).optional(),
-    group_id: z.string().uuid().optional(),
-    parent_session_id: z.string().uuid().optional(),
-    role: z.enum(['orchestrator', 'worker', 'standalone']).optional(),
-    tmux: z
-      .object({
-        target_session: z.string().optional(),
-        window_name: z.string().optional(),
-      })
-      .optional(),
-  });
-
   app.post<{ Body: unknown }>('/v1/sessions/spawn', async (request, reply) => {
     if (!request.user || !hasRole(request.user, 'operator')) {
       return reply.status(403).send({ error: 'Forbidden' });

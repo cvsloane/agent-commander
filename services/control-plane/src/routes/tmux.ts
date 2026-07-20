@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   TmuxOpenRequestSchema,
   TmuxOpenResponseSchema,
+  TmuxRosterResponseSchema,
   type Host,
   type Session,
 } from '@agent-command/schema';
@@ -50,12 +51,14 @@ export function registerTmuxRoutes(app: FastifyInstance): void {
       return reply.status(400).send({ error: 'Invalid query parameters' });
     }
 
-    const sessions = await db.getTmuxRosterSessions(query.data.host_id);
+    const groups = await db.getTmuxRosterGroups(query.data.host_id);
+    const sessions = groups.flatMap((group) => group.sessions);
 
-    return {
+    return TmuxRosterResponseSchema.parse({
+      groups,
       sessions,
       total: sessions.length,
-    };
+    });
   });
 
   app.post<{ Body: unknown }>('/v1/tmux/open', async (request, reply) => {

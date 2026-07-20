@@ -55,6 +55,29 @@ describe('parseTargetIndexes', () => {
 });
 
 describe('getPaneData', () => {
+  it('prefers promoted server identity over metadata and target reconstruction', () => {
+    const pane = getPaneData(session({
+      tmux_target: 'fallback:1.2',
+      tmux_session_name: 'server-agents',
+      tmux_window_index: 6,
+      tmux_pane_index: 4,
+      metadata: {
+        tmux: {
+          session_name: 'metadata-agents',
+          window_name: 'data-contracts',
+          window_index: 3,
+          pane_index: 2,
+        },
+      },
+    }));
+
+    expect(pane).toMatchObject({
+      tmuxSessionName: 'server-agents',
+      windowIndex: 6,
+      paneIndex: 4,
+    });
+  });
+
   it('prefers structured tmux metadata over parsed target fallback', () => {
     const pane = getPaneData(session({
       tmux_target: 'fallback:1.2',

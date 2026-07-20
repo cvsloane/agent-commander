@@ -1,3 +1,25 @@
+import {
+  SessionsResponseSchema,
+  TmuxRosterResponseSchema,
+  SessionGraphResponseSchema,
+  LaunchTargetsResponseSchema,
+  LaunchResponseSchema,
+  DashboardSpawnResponseSchema,
+  type SessionsResponse,
+  type SessionGraphResponse,
+  type SessionGraphRollup,
+  type BulkOperationResult,
+  type MCPServer,
+  type MCPEnablement,
+  type SessionMCPConfig,
+  type SessionMetrics,
+  type AnalyticsSummary,
+  type ProviderUsage,
+  type TimeSeriesPoint,
+  type SpawnProvider,
+  type DashboardSpawnRequest,
+  type DashboardSpawnResponse,
+} from '@agent-command/schema';
 import type {
   Session,
   SessionWithSnapshot,
@@ -37,7 +59,6 @@ import type {
   SessionLinkWithSession,
   ToolEvent,
   ToolStat,
-  SessionEdge,
   AgentTask,
   AutomationAgentMessageRequest,
 } from '@agent-command/schema';
@@ -52,10 +73,24 @@ export type {
   SessionLinkWithSession,
   ToolEvent,
   ToolStat,
+  BulkOperationResult,
+  MCPServer,
+  MCPEnablement,
+  SessionMCPConfig,
+  SessionMetrics,
+  AnalyticsSummary,
+  ProviderUsage,
+  TimeSeriesPoint,
+  SpawnProvider,
+  SessionGraphResponse,
+  SessionGraphRollup,
 } from '@agent-command/schema';
+
 import type { GroupWithChildren } from '@/lib/groupTypes';
 import { getControlPlaneToken } from '@/lib/wsToken';
 import { getRuntimeConfig } from '@/lib/runtimeConfig';
+
+type RuntimeSchema<T> = { parse(input: unknown): T };
 
 function resolveApiBase(): string {
   const runtime = typeof window !== 'undefined' ? getRuntimeConfig() : {};
@@ -99,7 +134,11 @@ export class APIError extends Error {
   }
 }
 
-async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
+async function fetchAPI<T>(
+  path: string,
+  options?: RequestInit,
+  responseSchema?: RuntimeSchema<T>
+): Promise<T> {
   const token = await getControlPlaneToken();
   const apiBase = resolveApiBase();
   const controller = new AbortController();
@@ -119,7 +158,8 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
       throw new APIError(error.error || `HTTP ${res.status}`, res.status);
     }
 
-    return res.json();
+    const payload: unknown = await res.json();
+    return responseSchema ? responseSchema.parse(payload) : payload as T;
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw new Error('Request timed out');
@@ -176,10 +216,14 @@ export async function getSessions(filters?: {
   archived_only?: boolean;
   limit?: number;
   offset?: number;
-}): Promise<{ sessions: SessionWithSnapshot[]; total?: number; limit?: number; offset?: number }> {
+}): Promise<SessionsResponse> {
   const params = buildSessionsParams(filters, { includePagination: true });
   const query = params.toString();
-  return fetchAPI(`/v1/sessions${query ? `?${query}` : ''}`);
+  return fetchAPI(
+    `/v1/sessions${query ? `?${query}` : ''}`,
+    undefined,
+    SessionsResponseSchema
+  );
 }
 
 const MAX_SESSIONS_PAGE_SIZE = 200;
@@ -224,18 +268,22 @@ export async function getTmuxRoster(filters?: {
   const params = new URLSearchParams();
   if (filters?.host_id) params.set('host_id', filters.host_id);
   const query = params.toString();
-  return fetchAPI(`/v1/tmux/roster${query ? `?${query}` : ''}`);
+  return fetchAPI(
+    `/v1/tmux/roster${query ? `?${query}` : ''}`,
+    undefined,
+    TmuxRosterResponseSchema
+  );
 }
 
 export async function getLaunchTargets(): Promise<LaunchTargetsResponse> {
-  return fetchAPI('/v1/launch/targets');
+  return fetchAPI('/v1/launch/targets', undefined, LaunchTargetsResponseSchema);
 }
 
 export async function launchAgent(request: LaunchRequest): Promise<LaunchResponse> {
   return fetchAPI('/v1/launch', {
     method: 'POST',
     body: JSON.stringify(request),
-  });
+  }, LaunchResponseSchema);
 }
 
 export async function openTmuxTarget(request: TmuxOpenRequest): Promise<TmuxOpenResponse> {
@@ -259,13 +307,6 @@ export async function getSessionsTotal(filters?: {
   const params = buildSessionsParams(filters, { includePagination: false });
   const query = params.toString();
   return fetchAPI(`/v1/sessions/total${query ? `?${query}` : ''}`);
-}
-
-export interface BulkOperationResult {
-  operation: BulkOperationType;
-  success_count: number;
-  error_count: number;
-  errors?: Array<{ session_id: string; error: string }>;
 }
 
 export async function bulkOperateSessions(
@@ -303,28 +344,8 @@ export async function getSessionEvents(
   return fetchAPI(`/v1/sessions/${id}/events${query ? `?${query}` : ''}`);
 }
 
-export interface SessionGraphRollup {
-  session_id: string;
-  child_sessions: {
-    total: number;
-    by_status: Record<string, number>;
-  };
-  agent_tasks: {
-    total: number;
-    running: number;
-    completed: number;
-    failed: number;
-  };
-}
-
-export interface SessionGraphResponse {
-  session_id: string;
-  edges: SessionEdge[];
-  rollup: SessionGraphRollup;
-}
-
 export async function getSessionGraph(id: string): Promise<SessionGraphResponse> {
-  return fetchAPI(`/v1/sessions/${id}/graph`);
+  return fetchAPI(`/v1/sessions/${id}/graph`, undefined, SessionGraphResponseSchema);
 }
 
 export async function getSessionAgentTasks(
@@ -867,31 +888,6 @@ export interface SearchResult {
 }
 
 // MCP API
-export interface MCPServer {
-  name: string;
-  display_name?: string;
-  description?: string;
-  transport: 'stdio' | 'http';
-  command?: string;
-  args?: string[];
-  url?: string;
-  env?: Record<string, string>;
-  has_secrets: boolean;
-  poolable: boolean;
-}
-
-export interface MCPEnablement {
-  enabled: boolean;
-  scope: 'session' | 'project' | 'global';
-}
-
-export interface SessionMCPConfig {
-  session_id: string;
-  servers: MCPServer[];
-  enablement: Record<string, MCPEnablement>;
-  restart_required: boolean;
-}
-
 export async function getMCPServers(hostId: string): Promise<{
   servers: MCPServer[];
   pool_config?: { enabled: boolean; pool_all: boolean; exclude_mcps?: string[] };
@@ -974,65 +970,6 @@ export async function getWeeklyUsage(): Promise<WeeklyUsage> {
 }
 
 // Analytics API
-export interface SessionMetrics {
-  session_id: string;
-  tokens_in: number;
-  tokens_out: number;
-  tokens_cache_read: number;
-  tokens_cache_write: number;
-  tool_calls: number;
-  approvals_requested: number;
-  approvals_granted: number;
-  approvals_denied: number;
-  first_event_at: string | null;
-  last_event_at: string | null;
-  estimated_cost_cents: number;
-}
-
-export interface AnalyticsSummary {
-  total_sessions: number;
-  total_tokens_in: number;
-  total_tokens_out: number;
-  total_tool_calls: number;
-  total_estimated_cost_cents: number;
-  sessions_by_provider: Record<string, number>;
-  sessions_by_status: Record<string, number>;
-}
-
-export interface ProviderUsage {
-  provider: string;
-  host_id: string | null;
-  session_id: string | null;
-  scope: 'account' | 'session';
-  reported_at: string;
-  raw_text: string | null;
-  raw_json: Record<string, unknown> | null;
-  remaining_tokens: number | null;
-  remaining_requests: number | null;
-  weekly_limit_tokens: number | null;
-  weekly_remaining_tokens: number | null;
-  weekly_remaining_cost_cents: number | null;
-  reset_at: string | null;
-  // Utilization percentages (0-100)
-  five_hour_utilization: number | null;
-  five_hour_reset_at: string | null;
-  weekly_utilization: number | null;
-  weekly_reset_at: string | null;
-  weekly_opus_utilization: number | null;
-  weekly_opus_reset_at: string | null;
-  weekly_sonnet_utilization: number | null;
-  weekly_sonnet_reset_at: string | null;
-  daily_utilization: number | null;
-  daily_reset_at: string | null;
-}
-
-export interface TimeSeriesPoint {
-  timestamp: string;
-  tokens_in: number;
-  tokens_out: number;
-  tool_calls: number;
-}
-
 export async function getAnalyticsSummary(filters?: {
   host_id?: string;
   provider?: string;
@@ -1097,28 +1034,13 @@ export async function getToolStats(sessionId: string): Promise<{ stats: ToolStat
 }
 
 // Spawn Session API
-export type SpawnProvider = 'claude_code' | 'codex' | 'gemini_cli' | 'opencode' | 'aider' | 'shell';
-
-export interface SpawnSessionRequest {
-  host_id: string;
-  provider: SpawnProvider;
-  working_directory: string;
-  title?: string;
-  flags?: string[];
-  group_id?: string;
-  tmux?: {
-    target_session?: string;
-    window_name?: string;
-  };
-}
-
 export async function spawnSession(
-  request: SpawnSessionRequest
-): Promise<{ session: Session; cmd_id: string }> {
+  request: DashboardSpawnRequest
+): Promise<DashboardSpawnResponse> {
   return fetchAPI('/v1/sessions/spawn', {
     method: 'POST',
     body: JSON.stringify(request),
-  });
+  }, DashboardSpawnResponseSchema);
 }
 
 // Directory Listing API

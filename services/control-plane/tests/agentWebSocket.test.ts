@@ -375,6 +375,46 @@ describe('agent websocket ingest', () => {
     await app.close();
   });
 
+  it.each([
+    ['provider.future_event', {}],
+    ['approval.requested', {}],
+  ])('retains and acknowledges unknown or invalid event payloads for %s', async (eventType, payload) => {
+    const insertEvent = vi.fn(async () => ({
+      id: 9,
+      session_id: sessionId,
+      ts: new Date().toISOString(),
+      type: eventType,
+      payload,
+    }));
+    const { app, url } = await buildServer(insertEvent);
+    const socket = new WebSocket(`${url}/v1/agent/connect`, {
+      headers: { Authorization: 'Bearer test-agent-token' },
+    });
+    await new Promise<void>((resolve) => socket.once('open', resolve));
+    socket.send(JSON.stringify(hello()));
+    await waitForMessage(socket);
+
+    socket.send(JSON.stringify({
+      v: 1,
+      type: 'events.append',
+      ts: new Date().toISOString(),
+      seq: 2,
+      payload: {
+        session_id: sessionId,
+        event_type: eventType,
+        payload,
+      },
+    }));
+
+    await expect(waitForMessage(socket)).resolves.toMatchObject({
+      payload: { ack_seq: 2, status: 'ok' },
+    });
+    expect(insertEvent).toHaveBeenCalledWith(sessionId, eventType, payload, undefined);
+    expect(socket.readyState).toBe(WebSocket.OPEN);
+    socket.close();
+    await app.close();
+  });
+
   it('delivers queued commands after initial inventory and before its acknowledgement', async () => {
     const queued = {
       cmd_id: '55555555-5555-4555-8555-555555555555',

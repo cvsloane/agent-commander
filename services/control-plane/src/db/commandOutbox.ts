@@ -1,5 +1,5 @@
 import { pool } from './index.js';
-import type { Approval, ApprovalDecision } from '@agent-command/schema';
+import type { Approval, ApprovalDecision, Event } from '@agent-command/schema';
 
 export type CommandClass = 'durable' | 'volatile';
 export type CommandStatus = 'queued' | 'sent' | 'completed' | 'failed' | 'expired';
@@ -226,7 +226,7 @@ export async function decideApprovalAndEnqueue(input: {
   decided_payload: Record<string, unknown>;
   decided_by_user_id: string;
   command: EnqueueCommand;
-}): Promise<{ approval: Approval; command: CommandRecord } | null> {
+}): Promise<{ approval: Approval; command: CommandRecord; event: Event | null } | null> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -273,8 +273,30 @@ export async function decideApprovalAndEnqueue(input: {
     const command = commandResult.rows[0];
     if (!command) throw new Error('Approval command was not enqueued');
 
+    if (!input.command.session_id) {
+      throw new Error('Approval decision command is missing its session');
+    }
+    const eventPayload = {
+      approval_id: input.approval_id,
+      session_id: input.command.session_id,
+      decision: input.decision,
+      mode: input.decided_payload.mode,
+      decided_by_user_id: input.decided_by_user_id,
+    };
+    const eventResult = await client.query<Event>(
+      `INSERT INTO events (session_id, type, event_id, payload)
+       VALUES ($1, 'approval.decided', $2, $3)
+       ON CONFLICT (session_id, event_id) WHERE event_id IS NOT NULL DO NOTHING
+       RETURNING *`,
+      [
+        input.command.session_id,
+        `approval:${input.approval_id}:decided`,
+        JSON.stringify(eventPayload),
+      ]
+    );
+
     await client.query('COMMIT');
-    return { approval, command };
+    return { approval, command, event: eventResult.rows[0] ?? null };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

@@ -65,4 +65,24 @@ describe('approval decision outbox transaction', () => {
     ]);
     expect(database.release).toHaveBeenCalledOnce();
   });
+
+  it('commits the approval decision event with the decision and outbox row', async () => {
+    database.clientQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: approvalId, session_id: sessionId }] })
+      .mockResolvedValueOnce({ rows: [{ cmd_id: cmdId, session_id: sessionId }] })
+      .mockResolvedValueOnce({ rows: [{ id: 1, session_id: sessionId, type: 'approval.decided' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(decideApprovalAndEnqueue(input())).resolves.toMatchObject({
+      event: { type: 'approval.decided', session_id: sessionId },
+    });
+    expect(database.clientQuery.mock.calls.map(([sql]) => String(sql).trim())).toEqual([
+      'BEGIN',
+      expect.stringContaining('UPDATE approvals SET'),
+      expect.stringContaining('INSERT INTO commands'),
+      expect.stringContaining("VALUES ($1, 'approval.decided'"),
+      'COMMIT',
+    ]);
+  });
 });

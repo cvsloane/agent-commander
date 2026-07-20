@@ -1,4 +1,7 @@
-import type { ServerToUIMessage } from '@agent-command/schema';
+import {
+  parseServerToUIMessage,
+  type ServerToUIMessage,
+} from '@agent-command/schema';
 import { forceSignIn } from '@/lib/forceSignIn';
 import {
   initialReconnectState,
@@ -127,7 +130,11 @@ class WebSocketClient {
 
     socket.onmessage = (event) => {
       try {
-        const message = JSON.parse(event.data) as ServerToUIMessage;
+        const message = parseServerToUIMessage(JSON.parse(event.data));
+        if (!message) {
+          console.warn('Ignoring an unknown WebSocket message type');
+          return;
+        }
         this.handlers.forEach((handler) => handler(message));
       } catch (err) {
         console.error('Failed to parse WebSocket message:', err);
