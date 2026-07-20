@@ -30,7 +30,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.22.x"
+          go-version: '1.22.x'
 
       - name: Install
         run: pnpm install --frozen-lockfile
@@ -62,12 +62,24 @@ jobs:
         working-directory: agents/agentd
         run: go test ./...
 
+      - name: Extract release notes from CHANGELOG
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v version="$version" '
+            $0 ~ "^## \\[" version "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+            END { if (!found) exit 1 }
+          ' CHANGELOG.md > release-notes.md
+          test -s release-notes.md
+
       - name: Build and publish agentd binaries
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
-          version: "~> v2"
-          args: release --clean
+          version: '~> v2'
+          args: release --clean --release-notes ${{ github.workspace }}/release-notes.md
           workdir: agents/agentd
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

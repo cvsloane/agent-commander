@@ -42,7 +42,7 @@ jobs:
           NEXT_PUBLIC_CONTROL_PLANE_URL: http://localhost:8080
           NEXT_PUBLIC_CONTROL_PLANE_WS_URL: ws://localhost:8080/v1/ui/stream
 
-      - name: Test
+      - name: Workspace tests (schema, control plane, CLI, dashboard)
         run: pnpm test:ci
 
       - name: Install Playwright browser
@@ -60,7 +60,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.22.x"
+          go-version: '1.22.x'
 
       - name: Build
         working-directory: agents/agentd

@@ -1,7 +1,7 @@
 'use client';
 
 import { DRAW_COLORS } from '@/lib/workshop/draw';
-import { useWorkshopVibeStore } from '@/stores/workshopVibe';
+import { useVisualizerStateStore } from '@/stores/visualizerState';
 
 export function DrawPalette() {
   const {
@@ -12,7 +12,7 @@ export function DrawPalette() {
     decreaseBrush,
     toggle3DMode,
     clearPaintedHexes,
-  } = useWorkshopVibeStore();
+  } = useVisualizerStateStore();
 
   return (
     <div id="draw-palette" className={draw.enabled ? 'visible' : ''}>
@@ -39,9 +39,13 @@ export function DrawPalette() {
         <span className="draw-clear-icon">✕</span>
       </button>
       <div className="draw-brush-size">
-        <button type="button" className="draw-brush-btn" onClick={decreaseBrush}>−</button>
+        <button type="button" className="draw-brush-btn" onClick={decreaseBrush}>
+          −
+        </button>
         <span className="draw-brush-size-value">{draw.brushSize}</span>
-        <button type="button" className="draw-brush-btn" onClick={increaseBrush}>+</button>
+        <button type="button" className="draw-brush-btn" onClick={increaseBrush}>
+          +
+        </button>
       </div>
       <button
         type="button"

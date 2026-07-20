@@ -1,21 +1,9 @@
 'use client';
 
-import { Suspense, lazy, useEffect, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useVisualizerThemeStore } from '@/stores/visualizerTheme';
 import { ThemeSwitcher } from './shared/ThemeSwitcher';
-
-// Lazy load theme components for code splitting
-// This ensures heavy themes (like Botspace with Three.js) only load when needed
-const BotspaceTheme = lazy(() =>
-  import('./themes/botspace/BotspaceTheme').then((mod) => ({ default: mod.BotspaceTheme }))
-);
-const CivilizationTheme = lazy(() =>
-  import('./themes/civilization/CivilizationTheme').then((mod) => ({ default: mod.CivilizationTheme }))
-);
-const BridgeControlTheme = lazy(() =>
-  import('./themes/bridge-control/BridgeControlTheme').then((mod) => ({ default: mod.BridgeControlTheme }))
-);
 
 function LoadingFallback() {
   return (
@@ -25,18 +13,21 @@ function LoadingFallback() {
   );
 }
 
+const BotspaceTheme = dynamic(
+  () => import('./themes/botspace/BotspaceTheme').then((mod) => mod.BotspaceTheme),
+  { ssr: false, loading: LoadingFallback }
+);
+const CivilizationTheme = dynamic(
+  () => import('./themes/civilization/CivilizationTheme').then((mod) => mod.CivilizationTheme),
+  { ssr: false, loading: LoadingFallback }
+);
+const BridgeControlTheme = dynamic(
+  () => import('./themes/bridge-control/BridgeControlTheme').then((mod) => mod.BridgeControlTheme),
+  { ssr: false, loading: LoadingFallback }
+);
+
 export function VisualizerPage() {
   const { theme } = useVisualizerThemeStore();
-  const previousThemeRef = useRef(theme);
-
-  // Track theme changes for cleanup purposes
-  useEffect(() => {
-    if (previousThemeRef.current !== theme) {
-      // Theme changed - cleanup will be handled by individual theme components
-      // via their useEffect cleanup functions
-      previousThemeRef.current = theme;
-    }
-  }, [theme]);
 
   // Render the appropriate theme component based on current selection
   const renderTheme = () => {
@@ -64,10 +55,7 @@ export function VisualizerPage() {
         </Link>
       </div>
 
-      {/* Theme-specific content with suspense boundary */}
-      <Suspense fallback={<LoadingFallback />}>
-        {renderTheme()}
-      </Suspense>
+      {renderTheme()}
     </>
   );
 }

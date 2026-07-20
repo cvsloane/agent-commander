@@ -1,12 +1,14 @@
 # Deployment
 
-Agent Commander ships as two services (dashboard + control plane) plus Postgres.
-The host agent (agentd) runs separately on each machine you want to manage.
+Agent Commander ships as two application services (dashboard + control plane) and
+requires Postgres. The host agent (agentd) runs separately on each machine you
+want to manage.
 
 See [Coolify Deployment](deployment-coolify.md) for a production setup with
 `app.yourdomain.com` and `api.yourdomain.com` subdomains.
 
 **Example URLs:**
+
 - Production: `app.yourdomain.com`, `api.yourdomain.com`
 - Local: `localhost:3000` (dashboard), `localhost:8080` (control plane)
 
@@ -15,17 +17,18 @@ See [Coolify Deployment](deployment-coolify.md) for a production setup with
 ```bash
 cp deploy/.env.example deploy/.env
 # edit deploy/.env
-cd deploy
-
-docker compose up -d
+docker compose --project-directory . --env-file deploy/.env -f deploy/docker-compose.yml up -d
 ```
 
-For subdomains, set `APP_DOMAIN` and `API_DOMAIN` in `deploy/.env`.
+Set `DATABASE_URL` to a reachable Postgres instance. For subdomains, set
+`APP_DOMAIN` and `API_DOMAIN` in `deploy/.env`.
 
 This starts:
+
 - Control plane (Fastify)
 - Dashboard (Next.js)
-- PostgreSQL
+
+The supplied Compose file does **not** provision PostgreSQL.
 
 ## Production notes
 
@@ -39,7 +42,8 @@ This starts:
 
 ## Postgres
 
-For production, run Postgres externally and point `DATABASE_URL` at it.
+Run Postgres externally and point `DATABASE_URL` at it. This is required for
+both the Compose quick start and production deployments.
 Apply migrations after updates:
 
 ```bash
