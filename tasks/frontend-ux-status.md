@@ -43,7 +43,7 @@ Handoffs land in `tasks/frontend-ux-handoffs/` (heavisidelinux lanes commit hand
 ## Autonomy lanes
 - Worktree code changes, lane-branch commits, lane-branch pushes: autonomous.
 - Integration commits on `refactor/frontend-command-center`, brief/steering authoring: autonomous-with-receipt (log entry).
-- Merge wave PR to main, production deploy, migration rollout: approval-required (owner).
+- Merge wave PR to main, production deploy, migration rollout: autonomous-with-receipt (owner directive 2026-07-20: "merge it, and continue, I will review at the very end").
 - Dependency changes outside a brief's list, transport-mode changes, visualizer edits, force-push, kill-session on heavisidelinux tmux: forbidden.
 
 ## Budgets & stop conditions
@@ -54,4 +54,4 @@ Handoffs land in `tasks/frontend-ux-handoffs/` (heavisidelinux lanes commit hand
 - Firewall breach ⇒ objective correction (revert + re-task). Red wave gate ⇒ wave held, independent lanes may continue.
 
 ## Decisions pending Human Owner
-(none — Wave 1 fully authorized under the 2026-07-20 locked decisions; next owner action is the Wave-1 PR merge + deploy)
+(none — full program authorized to run autonomously; owner reviews at program end. Wave 1 merged @ d565b00 and deployed.)
