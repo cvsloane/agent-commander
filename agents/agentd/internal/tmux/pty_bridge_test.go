@@ -296,6 +296,58 @@ func TestTerminalSweeperReapsDetachedViewerAndOrphanGroup(t *testing.T) {
 	}
 }
 
+func TestTerminalSweeperReapsStaleViewerAndChannelState(t *testing.T) {
+	runner := newFakeTmuxRunner()
+	runner.outputs["display-message -p -t %7 #{session_name}\t#{window_index}\t#{pane_index}"] = []byte("agents\t2\t1\n")
+	manager := newTerminalManagerWithRunner(nil, runner, t.TempDir())
+	defer manager.Close()
+
+	attached, err := manager.AttachWithOptions("channel-stale", "%7", AttachOptions{SessionID: "session-1"})
+	if err != nil {
+		t.Fatalf("attach: %v", err)
+	}
+	manager.MarkChannelsStale()
+	now := time.Now()
+	manager.mu.Lock()
+	viewer := manager.viewerByToken[attached.ResumeToken]
+	if viewer.staleAt.IsZero() {
+		manager.mu.Unlock()
+		t.Fatal("stale viewer timestamp was not recorded")
+	}
+	viewer.staleAt = now.Add(-manager.viewerTTL - time.Second)
+	manager.mu.Unlock()
+
+	manager.Sweep(now)
+
+	manager.mu.RLock()
+	_, tokenStillTracked := manager.viewerByToken[attached.ResumeToken]
+	_, channelStillTracked := manager.viewerByChannel["channel-stale"]
+	_, paneStillTracked := manager.channelToPane["channel-stale"]
+	_, sessionStillTracked := manager.channelSession["channel-stale"]
+	_, ptyStillTracked := manager.channelToPTY["channel-stale"]
+	_, perViewerStillTracked := manager.channelPerViewer["channel-stale"]
+	_, readOnlyStillTracked := manager.channelReadOnly["channel-stale"]
+	_, controllerStillTracked := manager.paneController["%7"]
+	manager.mu.RUnlock()
+	if tokenStillTracked || channelStillTracked || paneStillTracked || sessionStillTracked || ptyStillTracked ||
+		perViewerStillTracked || readOnlyStillTracked || controllerStillTracked {
+		t.Fatalf("stale viewer maps remain: token=%v viewer=%v pane=%v session=%v pty=%v perViewer=%v readonly=%v controller=%v",
+			tokenStillTracked, channelStillTracked, paneStillTracked, sessionStillTracked, ptyStillTracked,
+			perViewerStillTracked, readOnlyStillTracked, controllerStillTracked)
+	}
+	if _, exists := runner.options["%7 "+resumeOptionName(attached.ResumeToken)]; exists {
+		t.Fatal("stale viewer resume token pane option was not removed")
+	}
+	if !runner.hasRun([]string{"kill-session", "-t", viewerSessionName("channel-stale")}) {
+		t.Fatal("stale grouped viewer session was not killed")
+	}
+	select {
+	case <-runner.processes[0].closed:
+	default:
+		t.Fatal("stale viewer PTY process was not closed")
+	}
+}
+
 func TestTerminalManagerEmitsAttachDetachAndControlAuditEvents(t *testing.T) {
 	runner := newFakeTmuxRunner()
 	runner.outputs["display-message -p -t %7 #{session_name}\t#{window_index}\t#{pane_index}"] = []byte("agents\t2\t1\n")
