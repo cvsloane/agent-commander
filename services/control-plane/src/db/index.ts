@@ -535,7 +535,10 @@ function buildSessionsFilter(filters?: SessionFilters): { where: string; params:
     paramIndex++;
   }
   if (filters?.needs_attention) {
-    query += ` AND status IN ('WAITING_FOR_INPUT', 'WAITING_FOR_APPROVAL', 'ERROR')`;
+    query += ` AND (
+      attention_reason IS NOT NULL
+      OR status IN ('WAITING_FOR_INPUT', 'WAITING_FOR_APPROVAL', 'ERROR')
+    )`;
   }
   // Group filtering
   if (filters?.group_id !== undefined) {

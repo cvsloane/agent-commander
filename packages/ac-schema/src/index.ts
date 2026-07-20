@@ -12,6 +12,7 @@ export * from './session.js';
 
 // Orchestration schemas
 export * from './orchestration.js';
+export * from './notification.js';
 
 // Session-scoped orchestrator API schemas
 export * from './orchestrator.js';

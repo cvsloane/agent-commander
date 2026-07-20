@@ -23,7 +23,7 @@ export function registerNotificationRoutes(app: FastifyInstance): void {
     const userId = request.user.id;
     const { channel } = request.body || {};
 
-    // Only clawdbot test is supported for now
+    // The legacy channel key remains `clawdbot`; the integration is branded OpenClaw.
     if (channel && channel !== 'clawdbot') {
       return reply.status(400).send({ error: 'Unsupported channel' });
     }
@@ -38,11 +38,11 @@ export function registerNotificationRoutes(app: FastifyInstance): void {
     const clawdbotConfig = data?.alertSettings?.clawdbot;
 
     if (!clawdbotConfig?.enabled) {
-      return reply.status(400).send({ error: 'Clawdbot not enabled' });
+      return reply.status(400).send({ error: 'OpenClaw not enabled' });
     }
 
     if (!clawdbotConfig.baseUrl || !clawdbotConfig.token) {
-      return reply.status(400).send({ error: 'Clawdbot URL or token not configured' });
+      return reply.status(400).send({ error: 'OpenClaw URL or token not configured' });
     }
 
     const success = await clawdbotNotifier.sendTest(clawdbotConfig);

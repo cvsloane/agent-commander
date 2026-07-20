@@ -25,6 +25,7 @@ import { handleTerminalOutput, handleTerminalStatus } from '../routes/terminal.j
 import * as db from '../db/index.js';
 import { consoleSubscriptions } from '../services/consoleSubscriptions.js';
 import { installWebSocketHeartbeat } from '../services/webSocketHeartbeat.js';
+import { attentionService } from '../services/attention.js';
 import { hostProgress } from '../services/hostProgress.js';
 import { recordAgentMessageHandlerFailure } from '../metrics.js';
 import { agentTasks, agentTaskUpdateFromEvent } from '../db/agentTasks.js';
@@ -469,6 +470,7 @@ async function handleSessionsUpsert(
         }
       }
 
+      updated = await attentionService.evaluateStatus(updated);
       updatedSessions.push(updated);
     } catch (error) {
       app.log.error({ error, sessionId: session.id }, 'Failed to upsert session');
@@ -500,6 +502,14 @@ async function handleSessionSnapshot(
   captureText: string
 ): Promise<void> {
   const snapshot = await db.insertSnapshot(sessionId, captureHash, captureText);
+  const session = await db.getSessionById(sessionId);
+  if (session) {
+    await attentionService.evaluateSnapshot(
+      session,
+      snapshot.capture_text,
+      snapshot.capture_hash
+    );
+  }
   pubsub.publishSnapshotUpdated(
     sessionId,
     snapshot.capture_text,

@@ -104,6 +104,7 @@ export const SessionSchema = z.object({
   kind: SessionKindSchema,
   provider: SessionProviderSchema,
   status: SessionStatusSchema,
+  attention_reason: z.string().nullable().optional(),
   role: SessionRoleSchema.optional(),
   title: z.string().nullable().optional(),
   cwd: z.string().nullable().optional(),

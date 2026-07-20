@@ -1,7 +1,8 @@
-import type { Session, Approval } from '@agent-command/schema';
+import type { Approval, Session } from '@agent-command/schema';
 import * as db from '../db/index.js';
+import { notificationRepository, type NotificationReservationInput } from '../db/notifications.js';
 import { pool } from '../db/index.js';
-import { recordClawdbotNotificationDecision, type ClawdbotReason } from '../metrics.js';
+import { recordClawdbotNotificationDecision } from '../metrics.js';
 
 interface ClawdbotThrottleSettings {
   maxPerHour: number;
@@ -9,7 +10,7 @@ interface ClawdbotThrottleSettings {
   sessionCooldownMs: number;
 }
 
-interface ClawdbotConfig {
+export interface ClawdbotConfig {
   enabled: boolean;
   baseUrl?: string;
   token?: string;
@@ -21,33 +22,60 @@ interface ClawdbotConfig {
   actionableOnly?: boolean;
 }
 
+interface NotificationOptions {
+  isActionable?: boolean;
+  sessionId?: string;
+  approvalId?: string;
+  status?: string;
+  url?: string;
+}
+
 interface QueuedNotification {
   userId: string;
+  eventType: string;
+  dedupeKey: string;
   message: string;
   config: ClawdbotConfig;
-  timestamp: number;
+  options: NotificationOptions;
 }
 
-interface RateLimitEntry {
-  count: number;
-  windowStart: number;
+interface NotificationStore {
+  reserve(input: NotificationReservationInput): Promise<{ allowed: boolean; reason?: string }>;
+  recordSuccess(
+    input: Pick<
+      NotificationReservationInput,
+      'userId' | 'channel' | 'dedupeKey' | 'sessionId' | 'actionable'
+    >
+  ): Promise<void>;
+  recordFailure(
+    input: Pick<NotificationReservationInput, 'userId' | 'channel' | 'dedupeKey'>
+  ): Promise<void>;
+  recordLog(input: {
+    userId: string;
+    channel: 'openclaw';
+    eventType: string;
+    dedupeKey: string;
+    target?: string;
+    status: 'sent' | 'failed' | 'throttled';
+    attemptCount?: number;
+    responseStatus?: number;
+    error?: string;
+    payload?: Record<string, unknown>;
+  }): Promise<void>;
 }
 
-type NotifyBlockReason = Exclude<ClawdbotReason, 'allowed'>;
-
-type NotifyDecision =
-  | { allowed: true }
-  | { allowed: false; reason: { code: NotifyBlockReason; detail: string } };
-
-// Default events: only critical ones enabled
 const DEFAULT_CLAWDBOT_EVENTS: Record<string, boolean> = {
   approvals: true,
-  waiting_input: false,      // OFF by default (noisy)
-  waiting_approval: false,   // OFF by default (redundant with approvals)
+  waiting_input: false,
+  waiting_approval: false,
   error: true,
   snapshot_action: true,
   usage_thresholds: true,
-  approval_decisions: false, // OFF by default (noisy)
+  approval_decisions: false,
+  governance_approval: true,
+  run_failed: true,
+  run_blocked: true,
+  host_offline: true,
 };
 
 const DEFAULT_THROTTLE: ClawdbotThrottleSettings = {
@@ -56,193 +84,158 @@ const DEFAULT_THROTTLE: ClawdbotThrottleSettings = {
   sessionCooldownMs: 30000,
 };
 
-class ClawdbotNotifier {
-  private queue: QueuedNotification[] = [];
-  private flushTimer: NodeJS.Timeout | null = null;
-  private rateLimits: Map<string, RateLimitEntry> = new Map();
+const RETRY_DELAYS_MS = [250, 1000] as const;
 
-  // Deduplication tracking
-  private notificationHistory: Map<string, number> = new Map(); // dedupeKey -> timestamp
-  private approvalNotified: Map<string, number> = new Map(); // userId|approvalId -> timestamp
-  private sessionLastNotified: Map<string, number> = new Map(); // userId|sessionId -> timestamp
+function dedupeKey(eventType: string, options: NotificationOptions): string {
+  return [eventType, options.sessionId ?? '', options.approvalId ?? '', options.status ?? ''].join(
+    '|'
+  );
+}
 
-  // Clear old deduplication entries periodically
-  private cleanupInterval: NodeJS.Timeout | null = null;
+function isTransient(status: number | undefined): boolean {
+  return status === undefined || status === 408 || status === 429 || status >= 500;
+}
 
-  constructor() {
-    // Clean up stale entries every 5 minutes
-    this.cleanupInterval = setInterval(() => {
-      this.cleanupStaleEntries();
-    }, 5 * 60 * 1000);
-  }
+export function createClawdbotNotifier(dependencies: {
+  notifications: NotificationStore;
+  fetch: typeof fetch;
+  getSettings: (userId: string) => Promise<Record<string, unknown> | null>;
+  sleep?: (milliseconds: number) => Promise<void>;
+}) {
+  let queue: QueuedNotification[] = [];
+  let flushTimer: NodeJS.Timeout | null = null;
+  const sleep =
+    dependencies.sleep ??
+    ((milliseconds: number) =>
+      new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, milliseconds);
+        timer.unref?.();
+      }));
 
-  private cleanupStaleEntries(): void {
-    const now = Date.now();
-    const maxAge = 60 * 60 * 1000; // 1 hour
-
-    for (const [key, timestamp] of this.notificationHistory) {
-      if (now - timestamp > maxAge) {
-        this.notificationHistory.delete(key);
-      }
-    }
-
-    for (const [key, timestamp] of this.approvalNotified) {
-      if (now - timestamp > maxAge) {
-        this.approvalNotified.delete(key);
-      }
-    }
-
-    // Clean up old session last notified entries
-    for (const [sessionId, timestamp] of this.sessionLastNotified) {
-      if (now - timestamp > maxAge) {
-        this.sessionLastNotified.delete(sessionId);
-      }
+  async function getUserConfig(userId: string): Promise<ClawdbotConfig | null> {
+    try {
+      const settings = await dependencies.getSettings(userId);
+      const data = (settings as { data?: { alertSettings?: { clawdbot?: ClawdbotConfig } } } | null)
+        ?.data;
+      return data?.alertSettings?.clawdbot ?? null;
+    } catch (error) {
+      console.error('[openclaw] Failed to read notification settings:', error);
+      return null;
     }
   }
 
-  private generateDedupeKey(
-    userId: string,
-    eventType: string,
-    sessionId?: string,
-    approvalId?: string,
-    status?: string
-  ): string {
-    return [
-      userId,
-      eventType,
-      sessionId ?? '',
-      approvalId ?? '',
-      status ?? '',
-    ].join('|');
-  }
-
-  private approvalKey(userId: string, approvalId: string): string {
-    return `${userId}|${approvalId}`;
-  }
-
-  private sessionKey(userId: string, sessionId: string): string {
-    return `${userId}|${sessionId}`;
-  }
-
-  private shouldNotify(
-    userId: string,
-    eventType: string,
+  async function sendOnce(
     config: ClawdbotConfig,
-    options: {
-      isActionable?: boolean;
-      sessionId?: string;
-      approvalId?: string;
-      status?: string;
-    } = {}
-  ): NotifyDecision {
-    const { isActionable, sessionId, approvalId, status } = options;
-    const throttle = config.throttle ?? DEFAULT_THROTTLE;
-    const actionable = isActionable !== false;
-    const actionableOnly = config.actionableOnly ?? true;
-
-    // 1. Check actionableOnly filter
-    if (actionableOnly && !actionable) {
+    message: string
+  ): Promise<{
+    ok: boolean;
+    status?: number;
+    error?: string;
+  }> {
+    if (!config.baseUrl || !config.token) return { ok: false, error: 'OpenClaw is not configured' };
+    try {
+      const response = await dependencies.fetch(
+        `${config.baseUrl.replace(/\/+$/, '')}/hooks/agent`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${config.token}`,
+          },
+          body: JSON.stringify({
+            message,
+            channel: config.channel,
+            to: config.recipient,
+            sessionKey: 'agent-command-alerts',
+          }),
+          signal: AbortSignal.timeout(10000),
+        }
+      );
       return {
-        allowed: false,
-        reason: { code: 'actionable_only', detail: 'actionableOnly filter (not actionable)' },
+        ok: response.ok || response.status === 202,
+        status: response.status,
+        ...(!response.ok && response.status !== 202 ? { error: `HTTP ${response.status}` } : {}),
       };
-    }
-
-    // 2. Check event type filter
-    const eventEnabled = config.events[eventType] ?? DEFAULT_CLAWDBOT_EVENTS[eventType] ?? true;
-    if (!eventEnabled) {
-      return {
-        allowed: false,
-        reason: { code: 'event_disabled', detail: `event type '${eventType}' disabled` },
-      };
-    }
-
-    // 3. Check rate limit (non-mutating)
-    if (!this.canSend(userId, throttle.maxPerHour)) {
-      return {
-        allowed: false,
-        reason: { code: 'rate_limit', detail: 'rate limit exceeded' },
-      };
-    }
-
-    // 4. Approval-specific deduplication
-    if (approvalId && this.approvalNotified.has(this.approvalKey(userId, approvalId))) {
-      return {
-        allowed: false,
-        reason: { code: 'approval_dedup', detail: `approval ${approvalId} already notified` },
-      };
-    }
-
-    // 5. Strong deduplication by dedupeKey
-    const dedupeKey = this.generateDedupeKey(userId, eventType, sessionId, approvalId, status);
-    const lastNotified = this.notificationHistory.get(dedupeKey);
-    if (lastNotified) {
-      const dedupeWindowMs = 5 * 60 * 1000; // 5 minutes
-      if (Date.now() - lastNotified < dedupeWindowMs) {
-        return {
-          allowed: false,
-          reason: { code: 'dedupe_key', detail: `duplicate notification (key: ${dedupeKey})` },
-        };
-      }
-    }
-
-    // 6. Session cooldown check
-    if (sessionId && !actionable) {
-      const sessionLastTime = this.sessionLastNotified.get(this.sessionKey(userId, sessionId));
-      if (sessionLastTime && Date.now() - sessionLastTime < throttle.sessionCooldownMs) {
-        return {
-          allowed: false,
-          reason: { code: 'session_cooldown', detail: `session ${sessionId} cooldown active` },
-        };
-      }
-    }
-
-    return { allowed: true };
-  }
-
-  private recordNotification(
-    userId: string,
-    eventType: string,
-    sessionId?: string,
-    approvalId?: string,
-    status?: string,
-    isActionable?: boolean
-  ): void {
-    const now = Date.now();
-    const dedupeKey = this.generateDedupeKey(userId, eventType, sessionId, approvalId, status);
-    this.notificationHistory.set(dedupeKey, now);
-
-    if (approvalId) {
-      this.approvalNotified.set(this.approvalKey(userId, approvalId), now);
-    }
-
-    if (sessionId && isActionable === false) {
-      this.sessionLastNotified.set(this.sessionKey(userId, sessionId), now);
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
 
-  async queueNotification(
-    userId: string,
-    eventType: string,
-    provider: string | null,
-    message: string,
-    options: {
-      isActionable?: boolean;
-      sessionId?: string;
-      approvalId?: string;
-      status?: string;
-    } = {}
-  ): Promise<void> {
-    const config = await this.getUserClawdbotConfig(userId);
-    if (!config) return;
+  async function deliver(notification: QueuedNotification): Promise<void> {
+    let attempts = 0;
+    let result: Awaited<ReturnType<typeof sendOnce>> = { ok: false };
+    for (;;) {
+      attempts += 1;
+      result = await sendOnce(notification.config, notification.message);
+      if (result.ok) break;
+      const delay = RETRY_DELAYS_MS[attempts - 1];
+      if (!delay || !isTransient(result.status)) break;
+      await sleep(delay);
+    }
 
-    if (!config.enabled) return;
-    if (!config.baseUrl || !config.token) return;
+    const state = {
+      userId: notification.userId,
+      channel: 'openclaw' as const,
+      dedupeKey: notification.dedupeKey,
+    };
+    if (result.ok) {
+      await dependencies.notifications.recordSuccess({
+        ...state,
+        sessionId: notification.options.sessionId,
+        actionable: notification.options.isActionable,
+      });
+    } else {
+      await dependencies.notifications.recordFailure(state);
+    }
+    await dependencies.notifications.recordLog({
+      ...state,
+      eventType: notification.eventType,
+      target: notification.config.baseUrl,
+      status: result.ok ? 'sent' : 'failed',
+      attemptCount: attempts,
+      responseStatus: result.status,
+      error: result.error,
+      payload: {
+        url: notification.options.url,
+        session_id: notification.options.sessionId,
+        approval_id: notification.options.approvalId,
+      },
+    });
+  }
 
-    // Check provider filter
-    if (provider) {
-      const providerEnabled = config.providers[provider] ?? true;
-      if (!providerEnabled) {
+  async function flushPending(): Promise<void> {
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+    const pending = queue;
+    queue = [];
+    for (const notification of pending) {
+      await deliver(notification);
+    }
+  }
+
+  function scheduleFlush(delayMs: number): void {
+    if (flushTimer) return;
+    flushTimer = setTimeout(() => {
+      void flushPending().catch((error) => {
+        console.error('[openclaw] Flush failed:', error);
+      });
+    }, delayMs);
+    flushTimer.unref?.();
+  }
+
+  return {
+    async queueNotification(
+      userId: string,
+      eventType: string,
+      provider: string | null,
+      message: string,
+      options: NotificationOptions = {}
+    ): Promise<void> {
+      const config = await getUserConfig(userId);
+      if (!config?.enabled || !config.baseUrl || !config.token) return;
+      if (provider && config.providers[provider] === false) {
         recordClawdbotNotificationDecision({
           decision: 'blocked',
           reason: 'provider_disabled',
@@ -251,291 +244,160 @@ class ClawdbotNotifier {
         });
         return;
       }
-    }
+      if ((config.actionableOnly ?? true) && options.isActionable === false) {
+        recordClawdbotNotificationDecision({
+          decision: 'blocked',
+          reason: 'actionable_only',
+          eventType,
+          provider,
+        });
+        return;
+      }
+      if ((config.events[eventType] ?? DEFAULT_CLAWDBOT_EVENTS[eventType] ?? true) === false) {
+        recordClawdbotNotificationDecision({
+          decision: 'blocked',
+          reason: 'event_disabled',
+          eventType,
+          provider,
+        });
+        return;
+      }
 
-    // Run shouldNotify checks
-    const decision = this.shouldNotify(userId, eventType, config, options);
-    if (!decision.allowed) {
+      const throttle = config.throttle ?? DEFAULT_THROTTLE;
+      const key = dedupeKey(eventType, options);
+      const reservation = await dependencies.notifications.reserve({
+        userId,
+        channel: 'openclaw',
+        dedupeKey: key,
+        sessionId: options.sessionId,
+        actionable: options.isActionable,
+        maxPerHour: throttle.maxPerHour,
+        dedupeWindowMs: options.approvalId ? 60 * 60_000 : 5 * 60_000,
+        sessionCooldownMs: throttle.sessionCooldownMs,
+        payload: { message, url: options.url },
+      });
+      if (!reservation.allowed) {
+        recordClawdbotNotificationDecision({
+          decision: 'blocked',
+          reason:
+            reservation.reason === 'rate_limit'
+              ? 'rate_limit'
+              : reservation.reason === 'session_cooldown'
+                ? 'session_cooldown'
+                : 'dedupe_key',
+          eventType,
+          provider,
+        });
+        await dependencies.notifications.recordLog({
+          userId,
+          channel: 'openclaw',
+          eventType,
+          dedupeKey: key,
+          target: config.baseUrl,
+          status: 'throttled',
+          error: reservation.reason,
+          payload: { url: options.url },
+        });
+        return;
+      }
+
       recordClawdbotNotificationDecision({
-        decision: 'blocked',
-        reason: decision.reason.code,
+        decision: 'allowed',
+        reason: 'allowed',
         eventType,
         provider,
       });
-      console.log(`[clawdbot] Notification blocked for user ${userId}: ${decision.reason.detail}`);
-      return;
-    }
+      queue.push({ userId, eventType, dedupeKey: key, message, config, options });
+      scheduleFlush(throttle.batchDelayMs);
+    },
 
-    recordClawdbotNotificationDecision({
-      decision: 'allowed',
-      reason: 'allowed',
-      eventType,
-      provider,
-    });
+    flushPending,
 
-    const throttle = config.throttle ?? DEFAULT_THROTTLE;
-
-    // Consume rate limit only after passing all checks
-    this.consumeRateLimit(userId);
-
-    // Record this notification for deduplication
-    this.recordNotification(
-      userId,
-      eventType,
-      options.sessionId,
-      options.approvalId,
-      options.status,
-      options.isActionable
-    );
-
-    this.queue.push({
-      userId,
-      message,
-      config,
-      timestamp: Date.now(),
-    });
-
-    this.scheduleFlush(throttle.batchDelayMs);
-  }
-
-  private canSend(userId: string, maxPerHour: number): boolean {
-    const now = Date.now();
-    const hourMs = 60 * 60 * 1000;
-    const entry = this.rateLimits.get(userId);
-
-    if (!entry || now - entry.windowStart > hourMs) {
-      return true;
-    }
-
-    return entry.count < maxPerHour;
-  }
-
-  private consumeRateLimit(userId: string): void {
-    const now = Date.now();
-    const hourMs = 60 * 60 * 1000;
-    const entry = this.rateLimits.get(userId);
-
-    if (!entry || now - entry.windowStart > hourMs) {
-      this.rateLimits.set(userId, { count: 1, windowStart: now });
-      return;
-    }
-
-    entry.count++;
-  }
-
-  private scheduleFlush(delayMs: number = DEFAULT_THROTTLE.batchDelayMs): void {
-    if (this.flushTimer) return;
-    this.flushTimer = setTimeout(() => {
-      this.flush().catch((err) => {
-        console.error('[clawdbot] Flush error:', err);
-      });
-    }, delayMs);
-  }
-
-  private async flush(): Promise<void> {
-    this.flushTimer = null;
-    const toSend = this.queue.splice(0, this.queue.length);
-
-    for (const notification of toSend) {
-      try {
-        const success = await this.sendToClawdbot(
-          notification.config,
-          notification.message
-        );
-        if (!success) {
-          console.warn(`[clawdbot] Failed to send notification for user ${notification.userId}`);
-        }
-      } catch (err) {
-        console.error(`[clawdbot] Error sending notification:`, err);
-      }
-    }
-  }
-
-  private async sendToClawdbot(config: ClawdbotConfig, message: string): Promise<boolean> {
-    if (!config.baseUrl || !config.token) return false;
-
-    const url = `${config.baseUrl}/hooks/agent`;
-    const body = {
-      message,
-      channel: config.channel,
-      to: config.recipient,
-      sessionKey: 'agent-command-alerts',
-    };
-
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.token}`,
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(10000),
-      });
-
-      return response.ok || response.status === 202;
-    } catch (err) {
-      console.error('[clawdbot] HTTP error:', err);
-      return false;
-    }
-  }
-
-  private async getUserClawdbotConfig(userId: string): Promise<ClawdbotConfig | null> {
-    try {
-      const settings = await db.getUserSettings(userId);
-      if (!settings) return null;
-
-      const data = (settings as { data?: { alertSettings?: { clawdbot?: ClawdbotConfig } } }).data;
-      return data?.alertSettings?.clawdbot ?? null;
-    } catch (err) {
-      console.error('[clawdbot] Error fetching user settings:', err);
-      return null;
-    }
-  }
-
-  async sendTest(config: ClawdbotConfig): Promise<boolean> {
-    const message = `Agent Command Test Notification
-
-This is a test from Agent Command. If you received this message, your Clawdbot integration is working correctly.`;
-
-    return this.sendToClawdbot(config, message);
-  }
-
-  // Clear state for a deleted session
-  clearSessionState(sessionId: string): void {
-    const sessionSuffix = `|${sessionId}`;
-    for (const key of this.sessionLastNotified.keys()) {
-      if (key.endsWith(sessionSuffix)) {
-        this.sessionLastNotified.delete(key);
-      }
-    }
-    // Clean up any deduplication entries for this session
-    for (const key of this.notificationHistory.keys()) {
-      const parts = key.split('|');
-      if (parts[2] === sessionId) {
-        this.notificationHistory.delete(key);
-      }
-    }
-  }
-
-  // Notification formatters
-  formatApprovalMessage(approval: Approval, session: Session | null): string {
-    const sessionTitle = session?.title || session?.id?.slice(0, 8) || 'Unknown';
-    const tool = (approval.requested_payload as Record<string, unknown>)?.tool as string || 'Permission';
-    const reason = (approval.requested_payload as Record<string, unknown>)?.reason as string || 'N/A';
-
-    return `Approval Required
-
-Session: ${sessionTitle}
-Tool: ${tool}
-Reason: ${reason}
-
-Respond in Agent Command`;
-  }
-
-  formatErrorMessage(session: Session): string {
-    const sessionTitle = session.title || session.id.slice(0, 8);
-    const metadata = session.metadata as Record<string, unknown> | null;
-    const errorDetail = metadata?.status_detail as string || 'Unknown error';
-
-    return `Session Error
-
-Session: ${sessionTitle}
-Error: ${errorDetail}`;
-  }
-
-  formatWaitingInputMessage(session: Session): string {
-    const sessionTitle = session.title || session.id.slice(0, 8);
-
-    return `Waiting for Input
-
-Session: ${sessionTitle}
-
-The session is waiting for your input.`;
-  }
-
-  formatWaitingApprovalMessage(session: Session): string {
-    const sessionTitle = session.title || session.id.slice(0, 8);
-
-    return `Waiting for Approval
-
-Session: ${sessionTitle}
-
-The session is waiting for an approval decision.`;
-  }
-
-  // Get all user IDs with clawdbot enabled
-  private async getUsersWithClawdbot(): Promise<string[]> {
-    try {
-      const result = await pool.query(
-        `SELECT user_subject FROM user_settings
-         WHERE (settings->'data'->'alertSettings'->'clawdbot'->>'enabled')::boolean = true`
+    async sendTest(config: ClawdbotConfig): Promise<boolean> {
+      const result = await sendOnce(
+        config,
+        'Agent Command Test Notification\n\nThis is a test from Agent Command to OpenClaw.'
       );
-      return result.rows.map((row) => row.user_subject);
-    } catch (err) {
-      console.error('[clawdbot] Error fetching users with clawdbot:', err);
-      return [];
-    }
-  }
+      return result.ok;
+    },
 
-  // Notify all users with clawdbot enabled for a specific event
-  async notifyAllUsers(
-    eventType: string,
-    provider: string | null,
-    message: string,
-    options: {
-      isActionable?: boolean;
-      sessionId?: string;
-      approvalId?: string;
-      status?: string;
-    } = {}
-  ): Promise<void> {
-    const userIds = await this.getUsersWithClawdbot();
-    for (const userId of userIds) {
-      await this.queueNotification(userId, eventType, provider, message, options);
-    }
-  }
+    clearSessionState(_sessionId: string): void {
+      // Dedupe and cooldown state is durable in PostgreSQL and expires by timestamp.
+    },
 
-  // High-level notification methods for pubsub integration
-  async notifyApprovalCreated(
-    approval: Approval,
-    session: Session | null,
-    isActionable: boolean = true
-  ): Promise<void> {
-    const message = this.formatApprovalMessage(approval, session);
-    await this.notifyAllUsers('approvals', approval.provider, message, {
-      isActionable,
-      sessionId: approval.session_id,
-      approvalId: approval.id,
-    });
-  }
+    formatApprovalMessage(approval: Approval, session: Session | null): string {
+      const requested = approval.requested_payload as Record<string, unknown>;
+      return `Approval Required\n\nSession: ${session?.title || session?.id?.slice(0, 8) || 'Unknown'}\nTool: ${String(requested.tool ?? 'Permission')}\nReason: ${String(requested.reason ?? 'N/A')}`;
+    },
 
-  async notifySessionError(session: Session, isActionable: boolean = true): Promise<void> {
-    const message = this.formatErrorMessage(session);
-    await this.notifyAllUsers('error', session.provider, message, {
-      isActionable,
-      sessionId: session.id,
-      status: session.status,
-    });
-  }
+    async notifyAllUsers(
+      eventType: string,
+      provider: string | null,
+      message: string,
+      options: NotificationOptions = {}
+    ): Promise<void> {
+      const result = await pool.query<{ user_id: string }>(
+        `SELECT user_id
+         FROM user_settings
+         WHERE user_id IS NOT NULL
+           AND COALESCE(
+             (settings->'data'->'alertSettings'->'clawdbot'->>'enabled')::boolean,
+             false
+           ) = true`
+      );
+      for (const row of result.rows) {
+        await this.queueNotification(row.user_id, eventType, provider, message, options);
+      }
+    },
 
-  async notifyWaitingInput(session: Session, isActionable: boolean = false): Promise<void> {
-    const message = this.formatWaitingInputMessage(session);
-    await this.notifyAllUsers('waiting_input', session.provider, message, {
-      isActionable,
-      sessionId: session.id,
-      status: session.status,
-    });
-  }
+    async notifyApprovalCreated(
+      approval: Approval,
+      session: Session | null,
+      actionable = true
+    ): Promise<void> {
+      await this.notifyAllUsers(
+        'approvals',
+        approval.provider,
+        this.formatApprovalMessage(approval, session),
+        {
+          isActionable: actionable,
+          sessionId: approval.session_id,
+          approvalId: approval.id,
+        }
+      );
+    },
 
-  async notifyWaitingApproval(session: Session, isActionable: boolean = false): Promise<void> {
-    const message = this.formatWaitingApprovalMessage(session);
-    await this.notifyAllUsers('waiting_approval', session.provider, message, {
-      isActionable,
-      sessionId: session.id,
-      status: session.status,
-    });
-  }
+    async notifySessionError(session: Session, actionable = true): Promise<void> {
+      await this.notifyAllUsers(
+        'error',
+        session.provider,
+        `Session Error\n\nSession: ${session.title || session.id.slice(0, 8)}`,
+        { isActionable: actionable, sessionId: session.id, status: session.status }
+      );
+    },
+
+    async notifyWaitingInput(session: Session, actionable = false): Promise<void> {
+      await this.notifyAllUsers(
+        'waiting_input',
+        session.provider,
+        `Waiting for Input\n\nSession: ${session.title || session.id.slice(0, 8)}`,
+        { isActionable: actionable, sessionId: session.id, status: session.status }
+      );
+    },
+
+    async notifyWaitingApproval(session: Session, actionable = false): Promise<void> {
+      await this.notifyAllUsers(
+        'waiting_approval',
+        session.provider,
+        `Waiting for Approval\n\nSession: ${session.title || session.id.slice(0, 8)}`,
+        { isActionable: actionable, sessionId: session.id, status: session.status }
+      );
+    },
+  };
 }
 
-export const clawdbotNotifier = new ClawdbotNotifier();
+export const clawdbotNotifier = createClawdbotNotifier({
+  notifications: notificationRepository,
+  fetch,
+  getSettings: (userId) => db.getUserSettings(userId),
+});
