@@ -22,3 +22,4 @@
 - 2026-07-19T22:50Z [AI Lead] W4-FLEET-UI PASS (gate re-run clean; one import conflict resolved) => merged. WAVE 4 CLOSED. All C/D workstream lanes integrated.
 - 2026-07-19T23:05Z [AI Lead] Final lanes launched and verified active at 095fe01: W5-SECURITY, W5-DATA (homelinux), W6-CLEANUP (heavisidelinux).
 - 2026-07-19T23:35Z [AI Lead] w6-clean blocked on heavisidelinux fs.inotify.max_user_instances=128 (no passwordless sudo). Steered to polling watchers (CHOKIDAR_USEPOLLING/WATCHPACK_POLLING) + prod-server smoke fallback. OPS FOLLOW-UP for owner: raise inotify limits on heavisidelinux.
+- 2026-07-20T00:05Z [AI Lead] W5-SECURITY PASS (150 CP + 72 dash tests re-run clean) => merged. Outstanding: W5-DATA, W6-CLEANUP.
