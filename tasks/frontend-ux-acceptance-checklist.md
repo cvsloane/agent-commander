@@ -30,9 +30,28 @@ Non-waivable across all waves: full gate green (`pnpm lint && pnpm typecheck && 
 - [ ] Both lanes reviewed against firewalls + briefs; integrated on `refactor/frontend-command-center`; full gate green post-integration.
 - [ ] Wave PR to main opened; owner merge + production deploy; owner on-device PWA pass recorded in the log.
 
-## Wave 2 (to be detailed at wave launch)
-- [ ] FW2-CONTRACTS: Zod 4 across ac-schema/CP/dashboard; TS schemas for the frozen Wave-1 fixtures; topology UI topic; scrollback endpoint; window/pane command routes; fleet aggregate endpoint; TS+Go fixture round-trips green.
-- [ ] FW2-TERM: output-frame hot path fixed (no store writes/reconnect transitions per frame; scroll anchoring); app-level persistent terminal host with reattach; `@xterm/addon-search` + 10k scrollback; xterm-survives-navigation stateful test.
+## Wave 2
+
+### FW2-CONTRACTS
+- [ ] Zod 4 in ac-schema, control-plane, ac-cli, dashboard (zod bump only); behavior-preserving; semantic-change sites listed in handoff.
+- [ ] `tmux.topology` registered in ac-schema + handled in ws/agent.ts + relayed to a `tmux.topology` UI topic; TS schema round-trips the frozen fixture byte-exactly.
+- [ ] Unknown-envelope tolerance: agent frames with unrecognized string `type` are logged (rate-limited) and dropped; malformed frames still terminate; both tested. (Unblocks agentd binary rollout.)
+- [ ] 8 window/pane command types in CommandTypeSchema + payload schemas matching fixtures; dispatchable via `POST /v1/sessions/:id/commands` with existing authz; not privileged-blocked; TS fixture round-trip test covers all 9 frozen files.
+- [ ] `POST /v1/sessions/:id/scrollback` (capture_pane modes, capped) + tests.
+- [ ] `GET /v1/orchestrator/fleet` aggregate endpoint + tests (dashboard consumption deferred to Wave 4).
+- [ ] `rename_session` dispatched on title PATCH when agent connected (non-fatal offline).
+- [ ] Handoff + token `FW2-CONTRACTS FROZEN <sha>`; frozen fixtures unmodified.
+
+### FW2-TERM
+- [ ] Output hot path: zero store/status writes per output frame in steady state (unit-tested); scroll anchoring with "jump to live" (no yank while scrolled up).
+- [ ] Selection handling out of the React render path during drag.
+- [ ] Single `sendInput` API used by xterm onData, VirtualKeyboard, clipboard.
+- [ ] `PersistentTerminalHost` at layout level: terminal + WS survive route navigation; ≤1 background terminal; 5-min hidden auto-detach; resume-token reattach; existing /tmux region behavior preserved; stateful same-instance test (closes the missing W4-TERM-CLIENT test).
+- [ ] `@xterm/addon-search` + search UI (desktop inline, mobile sheet); scrollback 10000.
+- [ ] Handoff + token `FW2-TERM FROZEN <sha>`; protocol shapes untouched.
+
+### Wave 2 integration (AI Lead)
+- [ ] Both lane diffs reviewed vs firewalls; lockfile reconciled; full gate green post-integration; independent review; wave PR merged + deployed; agentd binary rollout decision revisited (tolerance now in CP).
 
 ## Wave 3 (outline)
 - [ ] Command Center landing live (signin callback + PWA start_url); old `/` redirects; nav/breakpoint unification; single attention surface; launch rail; `SpawnSessionDialog` deleted.

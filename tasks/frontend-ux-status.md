@@ -20,9 +20,21 @@ Baseline: typecheck + test:ci green at `70fa53e` (2026-07-20). Deploy cadence: p
 - AI Lead: `tasks/**`, integration branch, shared-file reconciliation, wave PRs.
 - Migration numbers: next free **039** (no claims yet; claim here before use — expected first claims in FW2-CONTRACTS).
 
+## Wave 2 lanes (both homelinux, local branches)
+
+| Lane | Worktree | Branch | tmux | State | Last checked |
+|---|---|---|---|---|---|
+| FW2-CONTRACTS | ~/dev/wt/ac-fw2-contracts | refactor/fw2-contracts | agent-command:fw2-contracts | pending launch | — |
+| FW2-TERM | ~/dev/wt/ac-fw2-term | refactor/fw2-term | agent-command:fw2-term | pending launch | — |
+
+## Ownership firewall (Wave 2)
+- FW2-CONTRACTS: `packages/ac-schema/**`, `services/control-plane/**`, `packages/ac-cli/**`, TS fixture tests, migrations 039+ (claim here first; expected none), mechanical Zod call-site edits in `apps/dashboard` (listed in handoff). NOT terminal/tmux/session/mobile components or terminal hooks. Fixtures under `tests/fixtures/protocol/` are FROZEN.
+- FW2-TERM: dashboard terminal/tmux/session/mobile components + terminal hooks + viewport/reconnect libs + `@xterm/addon-search` dep only; single minimal mount allowed in `LayoutShell.tsx`. NOT `packages/**`, `services/**`, protocol message shapes.
+- Lockfile: both lanes touch it (zod bump / addon-search); AI Lead reconciles by regenerating at integration if conflicting.
+
 ## Completion tokens
-`FW1-MODERN FROZEN <sha>` · `FW1-TMUX-GO FROZEN <sha>`
-Handoffs land in `tasks/frontend-ux-handoffs/` (heavisidelinux lane commits its handoff on the lane branch).
+`FW1-MODERN FROZEN <sha>` · `FW1-TMUX-GO FROZEN <sha>` · `FW2-CONTRACTS FROZEN <sha>` · `FW2-TERM FROZEN <sha>`
+Handoffs land in `tasks/frontend-ux-handoffs/` (heavisidelinux lanes commit handoffs on their lane branch).
 
 ## Gates
 - Lane gates: per brief. Wave gate (AI Lead, post-integration): `pnpm lint && pnpm typecheck && pnpm test:ci && pnpm test:smoke:dashboard && pnpm build` + `go build ./... && go vet ./... && go test ./...` in agents/agentd.
