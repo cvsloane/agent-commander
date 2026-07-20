@@ -9,7 +9,7 @@ import { ConsoleView } from '@/components/ConsoleView';
 import { LinkedSessionsPanel } from '@/components/LinkedSessionsPanel';
 import { SessionAnalytics } from '@/components/analytics/SessionAnalytics';
 import type { TerminalController } from '@/components/TerminalView';
-import { PersistentTerminalSlot } from '@/components/terminal/PersistentTerminalHost';
+import { TmuxTerminalWorkspace } from '@/components/tmux/TmuxTerminalWorkspace';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useHydrated } from '@/hooks/useHydrated';
@@ -187,11 +187,10 @@ export function SessionWorkbench({
               provider={session.provider}
             />
           ) : (
-            <PersistentTerminalSlot
-              sessionId={session.id}
-              paneId={session.tmux_pane_id || undefined}
-              autoAttach={autoAttachTerminal}
-              controllerRef={terminalControllerRef}
+            <TmuxTerminalWorkspace
+              primarySession={session}
+              autoAttachPrimary={autoAttachTerminal}
+              primaryControllerRef={terminalControllerRef}
             />
           )}
         </CardContent>

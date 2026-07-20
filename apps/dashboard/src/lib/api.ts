@@ -61,6 +61,8 @@ import type {
   ToolStat,
   AgentTask,
   AutomationAgentMessageRequest,
+  ScrollbackRequest,
+  ScrollbackResponse,
 } from '@agent-command/schema';
 export type {
   CaptureMode,
@@ -379,6 +381,16 @@ export async function sendCommand(
   return fetchAPI(`/v1/sessions/${sessionId}/commands`, {
     method: 'POST',
     body: JSON.stringify(command),
+  });
+}
+
+export async function getSessionScrollback(
+  sessionId: string,
+  request: ScrollbackRequest
+): Promise<ScrollbackResponse> {
+  return fetchAPI(`/v1/sessions/${sessionId}/scrollback`, {
+    method: 'POST',
+    body: JSON.stringify(request),
   });
 }
 

@@ -522,6 +522,21 @@ async function mockControlPlane(page: Page): Promise<void> {
     }
     if (
       route.request().method() === 'POST'
+      && /^\/v1\/sessions\/[^/]+\/scrollback$/.test(url.pathname)
+    ) {
+      await fulfillJson(route, {
+        cmd_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        ok: true,
+        result: {
+          content: 'older terminal line\npnpm test:ci passed\nwaiting for next command\n',
+          line_count: 3,
+          capture_mode: 'range',
+        },
+      });
+      return;
+    }
+    if (
+      route.request().method() === 'POST'
       && /^\/v1\/approvals\/[^/]+\/decide$/.test(url.pathname)
     ) {
       await fulfillJson(route, { approval: { ...pendingApproval, status: 'decided' } });
@@ -719,25 +734,30 @@ test('uses the same attention surface for the mobile bell, tab, and desktop shee
   await expect(desktopBell).toBeFocused();
 });
 
-test('renders tmux roster with windows and panes, supports selection and filtering', async ({ page }) => {
+test('renders tmux roster with windows and panes, supports selection and filtering', async ({ page }, testInfo) => {
   await signIn(page);
 
   await page.goto('/tmux');
 
   await expect(page.getByRole('heading', { name: 'tmux', exact: true })).toBeVisible();
   await expect(page.getByText('2 sessions · 3 panes')).toBeVisible();
-  await expect(page.getByText('agents')).toBeVisible();
+  await expect(page.getByText('agents', { exact: true })).toBeVisible();
   await expect(page.getByText('ops')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Waiting', exact: true })).toBeVisible();
 
-  await page.getByText('agents').click();
+  await page.getByText('agents', { exact: true }).click();
   await expect(page.getByText('0 · agent-command')).toBeVisible();
   await expect(page.getByText('Codex implementation')).toBeVisible();
-  await expect(page.getByText('Mobile UX review')).toBeVisible();
+  await expect(page.getByText('Mobile UX review', { exact: true })).toBeVisible();
 
-  await page.getByText('Mobile UX review').click();
+  await page.getByText('Mobile UX review', { exact: true }).click();
   await expect(page).toHaveURL(/session_id=33333333-3333-4333-8333-333333333333/);
   await expect(page.getByRole('heading', { name: 'Mobile UX review' })).toBeVisible();
+  await expect(page.getByTestId('tmux-window-strip')).toBeVisible();
+  await expect(page.getByLabel('Secondary terminal')).toBeVisible();
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.screenshot({ path: testInfo.outputPath('tmux-terminal-desktop.png'), fullPage: true });
+  }
 
   await page.getByRole('button', { name: 'Waiting', exact: true }).click();
   await expect(page).toHaveURL(/filter=waiting/);
@@ -763,15 +783,18 @@ test('keeps the tmux roster usable on mobile viewport', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Untracked', exact: true })).toBeVisible();
   await expect(page.getByPlaceholder('Filter by tmux session, cwd, branch, repo, provider...')).toBeVisible();
   await expect(page.getByText('2 sessions · 3 panes')).toBeVisible();
-  await expect(page.getByText('agents')).toBeVisible();
+  await expect(page.getByText('agents', { exact: true })).toBeVisible();
 
-  await page.getByText('agents').click();
+  await page.getByText('agents', { exact: true }).click();
   await expect(page.getByText('Codex implementation')).toBeVisible();
 
-  await page.getByText('Mobile UX review').click();
+  await page.getByText('Mobile UX review', { exact: true }).click();
   await expect(page).toHaveURL(/session_id=33333333-3333-4333-8333-333333333333/);
-  await expect(page.getByRole('button', { name: 'Terminal', exact: true })).toBeEnabled();
-  await page.getByRole('button', { name: 'Terminal', exact: true }).click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/');
+  const mobileSegments = page.getByRole('button', { name: 'Roster', exact: true }).locator('..');
+  const terminalSegment = mobileSegments.getByRole('button', { name: 'Terminal', exact: true });
+  await expect(terminalSegment).toBeEnabled();
+  await terminalSegment.click();
   await expect(page.getByText('agents:0.1').first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Actions', exact: true })).toBeEnabled();
 
@@ -786,8 +809,45 @@ test('keeps the tmux roster usable on mobile viewport', async ({ page }) => {
   await expect(dialog.getByRole('button', { name: 'Copy last 50' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Copy all' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Paste' })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Terminate pane session' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Kill pane', exact: true })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Close actions' })).toBeVisible();
+});
+
+test('renders the tmux window strip and opens range-paged history on mobile', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page);
+
+  await page.goto('/tmux');
+  await page.getByText('agents', { exact: true }).click();
+  await page.getByText('Mobile UX review', { exact: true }).click();
+
+  const windowStrip = page.getByTestId('tmux-window-strip').first();
+  await expect(windowStrip).toBeVisible();
+  await expect(windowStrip.getByRole('tab', { name: 'Window 0: agent-command' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Actions', exact: true }).click();
+  const actions = page.getByRole('dialog').filter({ hasText: 'Pane actions' });
+  const historyRequest = page.waitForRequest((request) => (
+    request.method() === 'POST'
+    && request.url().includes(`/v1/sessions/${tmuxSessions[1].id}/scrollback`)
+  ));
+  await actions.getByRole('button', { name: 'View history' }).click();
+
+  expect((await historyRequest).postDataJSON()).toEqual({
+    mode: 'range',
+    start_line: -500,
+    end_line: -1,
+    strip_ansi: true,
+  });
+  const pager = page.getByRole('dialog', { name: 'Terminal history' });
+  await expect(pager).toBeVisible();
+  await expect(pager.getByText('pnpm test:ci passed')).toBeVisible();
+  await pager.getByPlaceholder('Filter captured history…').fill('passed');
+  await expect(pager.getByText('1 matches')).toBeVisible();
+
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.screenshot({ path: testInfo.outputPath('tmux-history-mobile.png') });
+  }
 });
 
 test('opens mobile launch sheet and launches a coding agent from a recent project', async ({ page }) => {

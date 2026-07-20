@@ -379,6 +379,10 @@ interface SettingsStore {
   // Virtual keyboard
   virtualKeyboardKeys: VirtualKeyboardKey[];
   setVirtualKeyboardKeys: (keys: VirtualKeyboardKey[]) => void;
+  tmuxKeyBarExpanded: boolean;
+  setTmuxKeyBarExpanded: (expanded: boolean) => void;
+  tmuxSecondaryByPrimary: Record<string, string>;
+  setTmuxSecondary: (primarySessionId: string, secondarySessionId: string | null) => void;
 
   // Repo Picker settings
   devFolders: DevFolder[];
@@ -626,6 +630,16 @@ export const useSettingsStore = create<SettingsStore>()(
       // Virtual keyboard defaults
       virtualKeyboardKeys: [...DEFAULT_VIRTUAL_KEY_ORDER],
       setVirtualKeyboardKeys: (keys) => set({ virtualKeyboardKeys: keys }),
+      tmuxKeyBarExpanded: false,
+      setTmuxKeyBarExpanded: (expanded) => set({ tmuxKeyBarExpanded: expanded }),
+      tmuxSecondaryByPrimary: {},
+      setTmuxSecondary: (primarySessionId, secondarySessionId) =>
+        set((state) => {
+          const next = { ...state.tmuxSecondaryByPrimary };
+          if (secondarySessionId) next[primarySessionId] = secondarySessionId;
+          else delete next[primarySessionId];
+          return { tmuxSecondaryByPrimary: next };
+        }),
 
       // Repo Picker defaults
       devFolders: [],

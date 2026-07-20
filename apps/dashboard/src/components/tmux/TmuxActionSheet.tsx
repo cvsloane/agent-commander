@@ -22,6 +22,7 @@ import type { Session } from '@agent-command/schema';
 import type { TerminalController } from '@/components/TerminalView';
 import { Button } from '@/components/ui/button';
 import { getSessionDisplayName } from '@/lib/utils';
+import { TmuxPaneControls } from './TmuxPaneControls';
 
 interface TmuxActionSheetProps {
   open: boolean;
@@ -111,6 +112,8 @@ export function TmuxActionSheet({
             </Button>
           </div>
 
+          {session && <TmuxPaneControls session={session} variant="sheet" />}
+
           <div className="grid grid-cols-2 gap-2">
             <Button
               variant="outline"
@@ -193,7 +196,7 @@ export function TmuxActionSheet({
             onClick={onTerminate}
           >
             <Power className="h-4 w-4" />
-            Terminate pane session
+            Kill pane
           </Button>
         </div>
       </div>

@@ -35,3 +35,7 @@
 - Date: 2026-07-20
   Correction: Independent review found that the fleet aggregate over-fetched all sessions, exposed snapshot and budget data below operator role, and lacked regression locks for known-invalid agent envelopes and trusted topology host identity.
   Rule: Scope aggregate queries to their actual entity graph, page or concurrency-bound every fan-out, require operator role for snapshot/cost aggregates, test both tolerant and terminating protocol paths, and spread trusted server identity fields after untrusted agent payloads.
+
+- Date: 2026-07-20
+  Correction: The Command Center moved from `/tmux` to `/`, but tmux roster navigation still targeted the legacy redirect.
+  Rule: Treat `/` as the canonical Command Center route for new tmux navigation while preserving query parameters so incoming `/tmux` redirects remain compatible without adding an avoidable remount to in-app selections.

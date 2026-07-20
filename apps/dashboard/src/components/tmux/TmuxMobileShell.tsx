@@ -11,6 +11,7 @@ import type { TmuxRosterFilter } from '@/lib/tmuxRoster';
 import type { FleetRosterGroup } from '@/lib/fleetRoster';
 import { cn, getSessionDisplayName, isHostOnline } from '@/lib/utils';
 import { TmuxActionSheet } from './TmuxActionSheet';
+import { TmuxQuickSwitchStrip } from './TmuxQuickSwitchStrip';
 import { TmuxRoster } from './TmuxRoster';
 import { ALL_TMUX_HOSTS_ID } from '@/hooks/useTmuxRosterData';
 
@@ -298,6 +299,12 @@ export function TmuxMobileShell({
       )}
 
       <PersistentTerminalRegion visible={terminalVisible}>
+          <TmuxQuickSwitchStrip
+            sessions={filteredSessions}
+            selectedSessionId={selectedSessionId}
+            onSelectSession={handleSelectSession}
+          />
+
           {terminalVisible && selectedSession && (
             <div className="rounded-lg border bg-card px-3 py-2">
               <div className="flex items-center justify-between gap-3">
