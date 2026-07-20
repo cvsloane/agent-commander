@@ -9,8 +9,8 @@ Baseline: typecheck + test:ci green at `70fa53e` (2026-07-20). Deploy cadence: p
 
 | Lane | Machine | Worktree | Branch | tmux | State | Last checked |
 |---|---|---|---|---|---|---|
-| FW1-MODERN | homelinux | ~/dev/wt/ac-fw1-modern | refactor/fw1-modern | agent-command:fw1-modern | launched | — |
-| FW1-TMUX-GO | heavisidelinux | ~/dev/wt/ac-fw1-tmux-go | refactor/fw1-tmux-go | agent-command:fw1-tmux-go | launched | — |
+| FW1-MODERN | homelinux | ~/dev/wt/ac-fw1-modern | refactor/fw1-modern | agent-command:fw1-modern | active (verified in pane) | 2026-07-20 launch+2m |
+| FW1-TMUX-GO | heavisidelinux | ~/dev/wt/ac-fw1-tmux-go | refactor/fw1-tmux-go | agent-command:fw1-tmux-go | active (verified in pane) | 2026-07-20 launch+2m |
 
 ## Ownership firewall (Wave 1)
 - FW1-MODERN: package manifests + lockfile, tsconfig/eslint/turbo configs, and **mechanical** TS/TSX fixes anywhere outside `agents/**`. NO feature/behavior edits, NO Zod changes, NO visualizer/R3F dep changes, NO `agents/**`.
