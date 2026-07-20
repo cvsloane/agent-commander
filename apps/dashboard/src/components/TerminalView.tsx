@@ -23,6 +23,7 @@ export type { TerminalController } from '@/components/terminal/types';
 
 export function TerminalView({ sessionId, paneId, className, autoAttach = false, controllerRef }: TerminalViewProps) {
   const termRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const [hasSelection, setHasSelection] = useState(false);
   const [selectionText, setSelectionText] = useState('');
@@ -37,6 +38,7 @@ export function TerminalView({ sessionId, paneId, className, autoAttach = false,
     terminalRef,
     ensureTerminal,
     fitAndResize,
+    getDimensions,
     disposeTerminal,
   } = useXtermTerminal({
     termRef,
@@ -47,6 +49,7 @@ export function TerminalView({ sessionId, paneId, className, autoAttach = false,
     readOnlyRef,
     status,
     errorMessage,
+    lagMessage,
     readOnly,
     connect,
     disconnect,
@@ -58,8 +61,10 @@ export function TerminalView({ sessionId, paneId, className, autoAttach = false,
     autoAttach,
     wsRef,
     terminalRef,
+    containerRef,
     ensureTerminal,
     fitAndResize,
+    getDimensions,
   });
   const touchScrollRef = useTerminalTouchScroll({
     enabled: isMobile,
@@ -105,6 +110,7 @@ export function TerminalView({ sessionId, paneId, className, autoAttach = false,
     connect,
     controllerRef,
     disconnect,
+    terminalRef,
     terminalClipboard,
     takeControl,
   ]);
@@ -131,11 +137,12 @@ export function TerminalView({ sessionId, paneId, className, autoAttach = false,
   }
 
   return (
-    <div className={cn('flex flex-col h-full min-h-0', className)}>
+    <div ref={containerRef} className={cn('terminal-viewport flex flex-col h-full min-h-0', className)}>
       <TerminalToolbar
         status={status}
         readOnly={readOnly}
         errorMessage={errorMessage}
+        lagMessage={lagMessage}
         onConnect={() => void connect()}
         onDisconnect={disconnect}
         onTakeControl={takeControl}

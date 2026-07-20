@@ -44,6 +44,8 @@ async function buildServer(
   upsertSession: ReturnType<typeof vi.fn>;
   upsertEdge: ReturnType<typeof vi.fn>;
   publishSessionEdgesChanged: ReturnType<typeof vi.fn>;
+  handleTerminalStatus: ReturnType<typeof vi.fn>;
+  createAuditLog: ReturnType<typeof vi.fn>;
 }> {
   vi.resetModules();
   const upsertSession = vi.fn(async (upsertHostId: string, input: Record<string, unknown>) => ({
@@ -69,6 +71,7 @@ async function buildServer(
       return { rows: [] };
     }),
   };
+  const createAuditLog = vi.fn(async () => undefined);
   vi.doMock('../src/db/index.js', () => ({
     pool,
     validateAgentToken: vi.fn(async () => hostId),
@@ -76,6 +79,7 @@ async function buildServer(
     updateHostLastSeen: vi.fn(async () => undefined),
     updateHostAckedSeq: vi.fn(async () => undefined),
     insertEvent,
+    createAuditLog,
     upsertSession,
     getSessionById: vi.fn(async (id: string) => id === sessionId ? { id, host_id: hostId } : null),
   }));
@@ -95,6 +99,11 @@ async function buildServer(
   vi.doMock('../src/db/sessionGraph.js', () => ({
     sessionGraph: { upsert: upsertEdge },
   }));
+  const handleTerminalStatus = vi.fn();
+  vi.doMock('../src/routes/terminal.js', () => ({
+    handleTerminalOutput: vi.fn(),
+    handleTerminalStatus,
+  }));
 
   const { registerAgentWebSocket } = await import('../src/ws/agent.js');
   const { pubsub } = await import('../src/services/pubsub.js');
@@ -109,6 +118,8 @@ async function buildServer(
     upsertSession,
     upsertEdge,
     publishSessionEdgesChanged,
+    handleTerminalStatus,
+    createAuditLog,
   };
 }
 
@@ -136,6 +147,172 @@ describe('agent websocket ingest', () => {
 
   afterEach(() => {
     vi.doUnmock('../src/db/index.js');
+    vi.doUnmock('../src/routes/terminal.js');
+  });
+
+  it('acknowledges terminal lag and surfaces it to the browser channel', async () => {
+    const { app, url, handleTerminalStatus } = await buildServer(vi.fn(async () => undefined));
+    const socket = new WebSocket(`${url}/v1/agent/connect`, {
+      headers: { Authorization: 'Bearer test-agent-token' },
+    });
+    await new Promise<void>((resolve) => socket.once('open', resolve));
+    socket.send(JSON.stringify(hello()));
+    await waitForMessage(socket);
+
+    socket.send(JSON.stringify({
+      v: 1,
+      type: 'terminal.lag',
+      ts: new Date().toISOString(),
+      seq: 2,
+      payload: {
+        channel_id: '33333333-3333-4333-8333-333333333333',
+        message: 'Dropped 4 terminal output chunks',
+        dropped: 4,
+      },
+    }));
+
+    await expect(waitForMessage(socket)).resolves.toMatchObject({
+      type: 'agent.ack',
+      payload: { ack_seq: 2, status: 'ok' },
+    });
+    expect(handleTerminalStatus).toHaveBeenCalledWith(
+      '33333333-3333-4333-8333-333333333333',
+      'lag',
+      'Dropped 4 terminal output chunks',
+      { dropped: 4 }
+    );
+
+    socket.send(JSON.stringify({
+      v: 1,
+      type: 'terminal.attached',
+      ts: new Date().toISOString(),
+      seq: 3,
+      payload: {
+        channel_id: '33333333-3333-4333-8333-333333333333',
+        readonly: true,
+        resumed: true,
+        resume_token: 'viewer-resume-token',
+      },
+    }));
+    await expect(waitForMessage(socket)).resolves.toMatchObject({
+      payload: { ack_seq: 3, status: 'ok' },
+    });
+    expect(handleTerminalStatus).toHaveBeenCalledWith(
+      '33333333-3333-4333-8333-333333333333',
+      'attached',
+      undefined,
+      { readonly: true, resumed: true, resume_token: 'viewer-resume-token' }
+    );
+
+    socket.close();
+    await app.close();
+  });
+
+  it('durably records terminal audit events without disconnecting agentd', async () => {
+    const { app, url, createAuditLog } = await buildServer(vi.fn(async () => undefined));
+    const socket = new WebSocket(`${url}/v1/agent/connect`, {
+      headers: { Authorization: 'Bearer test-agent-token' },
+    });
+    await new Promise<void>((resolve) => socket.once('open', resolve));
+    socket.send(JSON.stringify(hello()));
+    await waitForMessage(socket);
+
+    socket.send(JSON.stringify({
+      v: 1,
+      type: 'terminal.audit',
+      ts: new Date().toISOString(),
+      seq: 2,
+      payload: {
+        event_type: 'terminal.audit',
+        action: 'attach',
+        channel_id: '33333333-3333-4333-8333-333333333333',
+        session_id: sessionId,
+        pane_id: '%1',
+      },
+    }));
+
+    await expect(waitForMessage(socket)).resolves.toMatchObject({
+      type: 'agent.ack',
+      payload: { ack_seq: 2, status: 'ok' },
+    });
+    expect(createAuditLog).toHaveBeenCalledWith(
+      'terminal.attach',
+      'session',
+      sessionId,
+      {
+        host_id: hostId,
+        channel_id: '33333333-3333-4333-8333-333333333333',
+        pane_id: '%1',
+        source: 'agentd',
+      }
+    );
+    expect(socket.readyState).toBe(WebSocket.OPEN);
+
+    socket.close();
+    await app.close();
+  });
+
+  it('records deleted-session terminal audits without poisoning the agent queue', async () => {
+    const { app, url, createAuditLog, handleTerminalStatus } = await buildServer(vi.fn(async () => undefined));
+    const socket = new WebSocket(`${url}/v1/agent/connect`, {
+      headers: { Authorization: 'Bearer test-agent-token' },
+    });
+    await new Promise<void>((resolve) => socket.once('open', resolve));
+    socket.send(JSON.stringify(hello()));
+    await waitForMessage(socket);
+
+    const deletedSessionId = '44444444-4444-4444-8444-444444444444';
+    socket.send(JSON.stringify({
+      v: 1,
+      type: 'terminal.audit',
+      ts: new Date().toISOString(),
+      seq: 2,
+      payload: {
+        event_type: 'terminal.audit',
+        action: 'detach',
+        channel_id: '33333333-3333-4333-8333-333333333333',
+        session_id: deletedSessionId,
+        pane_id: '%1',
+      },
+    }));
+
+    await expect(waitForMessage(socket)).resolves.toMatchObject({
+      payload: { ack_seq: 2, status: 'ok' },
+    });
+    expect(createAuditLog).toHaveBeenCalledWith(
+      'terminal.detach',
+      'host',
+      hostId,
+      expect.objectContaining({
+        host_id: hostId,
+        session_id: deletedSessionId,
+        unresolved_session: true,
+      })
+    );
+
+    socket.send(JSON.stringify({
+      v: 1,
+      type: 'terminal.lag',
+      ts: new Date().toISOString(),
+      seq: 3,
+      payload: {
+        channel_id: '33333333-3333-4333-8333-333333333333',
+        dropped: 1,
+      },
+    }));
+    await expect(waitForMessage(socket)).resolves.toMatchObject({
+      payload: { ack_seq: 3, status: 'ok' },
+    });
+    expect(handleTerminalStatus).toHaveBeenCalledWith(
+      '33333333-3333-4333-8333-333333333333',
+      'lag',
+      undefined,
+      { dropped: 1 }
+    );
+    expect(socket.readyState).toBe(WebSocket.OPEN);
+
+    socket.close();
+    await app.close();
   });
 
   it('closes without acknowledging a failed durable write and stops later messages', async () => {

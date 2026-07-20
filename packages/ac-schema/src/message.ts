@@ -21,6 +21,7 @@ import {
 import { ToolEventStartSchema, ToolEventCompleteSchema, ToolEventSchema } from './toolEvent.js';
 import { ProviderUsageReportSchema, SessionUsageSummarySchema } from './analytics.js';
 import { AgentTaskSchema, SessionEdgeSchema } from './orchestration.js';
+import { TerminalDimensionSchema } from './terminal.js';
 
 // Message envelope (base)
 export const MessageEnvelopeBaseSchema = z.object({
@@ -124,13 +125,32 @@ export const TerminalStatusMessageSchema = AgentMessageEnvelopeSchema.extend({
     'terminal.error',
     'terminal.readonly',
     'terminal.control',
+    'terminal.lag',
   ]),
   payload: z.object({
     channel_id: z.string().uuid(),
     message: z.string().optional(),
+    readonly: z.boolean().optional(),
+    resumed: z.boolean().optional(),
+    resume_token: z.string().min(1).optional(),
+    dropped: z.number().int().positive().optional(),
   }),
 });
 export type TerminalStatusMessage = z.infer<typeof TerminalStatusMessageSchema>;
+
+// Durable terminal lifecycle audit (agent -> control plane)
+export const TerminalAuditMessageSchema = AgentMessageEnvelopeSchema.extend({
+  type: z.literal('terminal.audit'),
+  payload: z.object({
+    event_type: z.literal('terminal.audit'),
+    action: z.enum(['attach', 'detach', 'control_transfer']),
+    channel_id: z.string().uuid(),
+    session_id: z.string().uuid(),
+    pane_id: z.string().min(1),
+    previous_controller_channel_id: z.string().uuid().optional(),
+  }),
+});
+export type TerminalAuditMessage = z.infer<typeof TerminalAuditMessageSchema>;
 
 // Sessions prune (agent -> control plane)
 export const SessionsPruneMessageSchema = AgentMessageEnvelopeSchema.extend({
@@ -180,6 +200,7 @@ export const AgentMessageSchema = z.discriminatedUnion('type', [
   ConsoleChunkMessageSchema,
   TerminalOutputMessageSchema,
   TerminalStatusMessageSchema,
+  TerminalAuditMessageSchema,
   ToolEventStartedMessageSchema,
   ToolEventCompletedMessageSchema,
   ProviderUsageReportMessageSchema,
@@ -220,6 +241,9 @@ export const TerminalAttachMessageSchema = ServerMessageEnvelopeSchema.extend({
     channel_id: z.string().uuid(),
     pane_id: z.string(),
     session_id: z.string().uuid(),
+    cols: TerminalDimensionSchema.optional(),
+    rows: TerminalDimensionSchema.optional(),
+    resume_token: z.string().min(1).optional(),
   }),
 });
 export type TerminalAttachMessage = z.infer<typeof TerminalAttachMessageSchema>;
@@ -237,8 +261,8 @@ export const TerminalResizeMessageSchema = ServerMessageEnvelopeSchema.extend({
   type: z.literal('terminal.resize'),
   payload: z.object({
     channel_id: z.string().uuid(),
-    cols: z.number().int(),
-    rows: z.number().int(),
+    cols: TerminalDimensionSchema,
+    rows: TerminalDimensionSchema,
   }),
 });
 export type TerminalResizeMessage = z.infer<typeof TerminalResizeMessageSchema>;

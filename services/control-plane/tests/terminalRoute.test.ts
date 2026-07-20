@@ -90,6 +90,13 @@ async function waitForOpen(socket: WebSocket): Promise<void> {
   });
 }
 
+async function waitForMessage(socket: WebSocket): Promise<{ data: WebSocket.RawData; isBinary: boolean }> {
+  return new Promise((resolve, reject) => {
+    socket.once('message', (data, isBinary) => resolve({ data, isBinary }));
+    socket.once('error', reject);
+  });
+}
+
 async function eventually(assertion: () => void): Promise<void> {
   const started = Date.now();
   let lastError: unknown;
@@ -108,21 +115,40 @@ async function eventually(assertion: () => void): Promise<void> {
 async function buildServer(options: {
   hostTerminal?: boolean;
   agentConnected?: boolean;
+  canControlTerminal?: boolean;
+  sessionDelayMs?: number;
 } = {}): Promise<{
   app: FastifyInstance;
   baseWsUrl: string;
   agentSend: ReturnType<typeof vi.fn>;
+  handleTerminalOutput: (channelId: string, data: string, encoding?: 'base64' | 'utf8') => boolean;
+  handleTerminalStatus: (
+    channelId: string,
+    status: string,
+    message?: string,
+    details?: { readonly?: boolean; resumed?: boolean; resume_token?: string; dropped?: number }
+  ) => void;
 }> {
   vi.resetModules();
   vi.stubEnv('JWT_SECRET', jwtSecret);
   vi.stubEnv('DATABASE_URL', 'postgres://agent-command:test@localhost:5432/agent_command_test');
 
   vi.doMock('../src/db/index.js', () => ({
-    getSessionById: vi.fn(async () => session()),
+    getSessionById: vi.fn(async () => {
+      if (options.sessionDelayMs) {
+        await new Promise((resolve) => setTimeout(resolve, options.sessionDelayMs));
+      }
+      return session();
+    }),
     getHostById: vi.fn(async () => host(options.hostTerminal ?? true)),
   }));
+  vi.doMock('../src/services/terminalPolicy.js', () => ({
+    canAttachTerminal: (user: { role: string }) => user.role === 'operator' || user.role === 'admin',
+    canControlTerminal: () => options.canControlTerminal ?? true,
+    hostSupportsTerminal: (candidate: Host | null | undefined) => Boolean(candidate?.capabilities?.terminal),
+  }));
 
-  const { registerTerminalRoutes } = await import('../src/routes/terminal.js');
+  const { registerTerminalRoutes, handleTerminalOutput, handleTerminalStatus } = await import('../src/routes/terminal.js');
   const { pubsub } = await import('../src/services/pubsub.js');
   const app = Fastify({ logger: false });
   await app.register(websocket);
@@ -140,6 +166,8 @@ async function buildServer(options: {
     app,
     baseWsUrl: address.replace(/^http/, 'ws'),
     agentSend,
+    handleTerminalOutput,
+    handleTerminalStatus: handleTerminalStatus as never,
   };
 }
 
@@ -151,6 +179,212 @@ describe('terminal websocket route', () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.doUnmock('../src/services/terminalPolicy.js');
+  });
+
+  it('negotiates compressed binary output while preserving the JSON fallback', async () => {
+    const { app, baseWsUrl, agentSend, handleTerminalOutput } = await buildServer();
+    const token = await sign('operator');
+    const binarySocket = new WebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
+    const jsonSocket = new WebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
+
+    await Promise.all([waitForOpen(binarySocket), waitForOpen(jsonSocket)]);
+    expect(binarySocket.extensions).toContain('permessage-deflate');
+
+    await eventually(() => {
+      const messages = agentSend.mock.calls.map(([raw]) => JSON.parse(String(raw)) as {
+        type: string;
+        payload: { channel_id: string };
+      });
+      expect(messages.filter((message) => message.type === 'terminal.attach')).toHaveLength(2);
+    });
+    const attaches = agentSend.mock.calls
+      .map(([raw]) => JSON.parse(String(raw)) as { type: string; payload: { channel_id: string } })
+      .filter((message) => message.type === 'terminal.attach');
+
+    binarySocket.send(JSON.stringify({ type: 'hello', binary: true }));
+    binarySocket.send(JSON.stringify({ type: 'resize', cols: 100, rows: 30 }));
+    await eventually(() => {
+      expect(agentSend.mock.calls.some(([raw]) => JSON.parse(String(raw)).type === 'terminal.resize')).toBe(true);
+    });
+
+    const binaryMessage = waitForMessage(binarySocket);
+    expect(handleTerminalOutput(attaches[0].payload.channel_id, Buffer.from('hello').toString('base64'), 'base64')).toBe(true);
+    await expect(binaryMessage).resolves.toMatchObject({ isBinary: true });
+    expect(Buffer.from((await binaryMessage).data).toString()).toBe('hello');
+
+    const jsonMessage = waitForMessage(jsonSocket);
+    const encoded = Buffer.from('legacy').toString('base64');
+    expect(handleTerminalOutput(attaches[1].payload.channel_id, encoded, 'base64')).toBe(true);
+    const fallback = await jsonMessage;
+    expect(fallback.isBinary).toBe(false);
+    expect(JSON.parse(fallback.data.toString())).toEqual({ type: 'output', data: encoded, encoding: 'base64' });
+
+    binarySocket.close();
+    jsonSocket.close();
+    await app.close();
+  });
+
+  it('buffers hello and resize frames sent while authentication is still initializing', async () => {
+    const { app, baseWsUrl, agentSend, handleTerminalOutput } = await buildServer({
+      sessionDelayMs: 75,
+    });
+    const token = await sign('operator');
+    const socket = new WebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
+
+    await waitForOpen(socket);
+    socket.send(JSON.stringify({ type: 'hello', binary: true }));
+    socket.send(JSON.stringify({ type: 'resize', cols: 111, rows: 35 }));
+
+    await eventually(() => {
+      const messageTypes = agentSend.mock.calls.map(([raw]) => JSON.parse(String(raw)).type);
+      expect(messageTypes).toEqual(['terminal.attach', 'terminal.resize']);
+    });
+    const attach = agentSend.mock.calls
+      .map(([raw]) => JSON.parse(String(raw)) as { type: string; payload: { channel_id: string } })
+      .find((message) => message.type === 'terminal.attach');
+    const output = waitForMessage(socket);
+    handleTerminalOutput(String(attach?.payload.channel_id), Buffer.from('buffered').toString('base64'), 'base64');
+
+    await expect(output).resolves.toMatchObject({ isBinary: true });
+    socket.close();
+    await app.close();
+  });
+
+  it('bounds frames buffered while terminal authorization is still initializing', async () => {
+    const { app, baseWsUrl, agentSend } = await buildServer({ sessionDelayMs: 75 });
+    const token = await sign('operator');
+    const socket = new WebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
+
+    await waitForOpen(socket);
+    const closed = waitForSocketClose(socket);
+    socket.send(Buffer.alloc(65 * 1024));
+
+    await expect(closed).resolves.toMatchObject({
+      code: 4000,
+      reason: 'Too many pending terminal messages',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(agentSend).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it('forwards initial dimensions and resumes a viewer with the agent-issued token', async () => {
+    const { app, baseWsUrl, agentSend, handleTerminalStatus } = await buildServer();
+    const token = await sign('operator');
+    const resumeToken = 'viewer-resume-token';
+    const socket = new WebSocket(
+      `${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}&cols=132&rows=41&resume_token=${resumeToken}`
+    );
+
+    await waitForOpen(socket);
+    await eventually(() => {
+      expect(agentSend).toHaveBeenCalledWith(expect.stringContaining('terminal.attach'));
+    });
+    const attach = agentSend.mock.calls
+      .map(([raw]) => JSON.parse(String(raw)) as { type: string; payload: Record<string, unknown> })
+      .find((message) => message.type === 'terminal.attach');
+    expect(attach?.payload).toMatchObject({
+      cols: 132,
+      rows: 41,
+      resume_token: resumeToken,
+    });
+
+    const attachedMessage = waitForMessage(socket);
+    handleTerminalStatus(String(attach?.payload.channel_id), 'attached', undefined, {
+      readonly: true,
+      resumed: true,
+      resume_token: resumeToken,
+    });
+    expect(JSON.parse((await attachedMessage).data.toString())).toEqual({
+      type: 'attached',
+      readonly: true,
+      resumed: true,
+      resume_token: resumeToken,
+    });
+
+    const lagMessage = waitForMessage(socket);
+    handleTerminalStatus(String(attach?.payload.channel_id), 'lag', 'Dropped 2 terminal output chunks', {
+      dropped: 2,
+    });
+    expect(JSON.parse((await lagMessage).data.toString())).toEqual({
+      type: 'lag',
+      message: 'Dropped 2 terminal output chunks',
+      dropped: 2,
+    });
+
+    socket.close();
+    await app.close();
+  });
+
+  it('retires a stale browser channel before reattaching its resume token', async () => {
+    const { app, baseWsUrl, agentSend, handleTerminalStatus } = await buildServer();
+    const token = await sign('operator');
+    const first = new WebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
+    await waitForOpen(first);
+    await eventually(() => {
+      expect(agentSend).toHaveBeenCalledWith(expect.stringContaining('terminal.attach'));
+    });
+    const firstAttach = agentSend.mock.calls
+      .map(([raw]) => JSON.parse(String(raw)) as { type: string; payload: Record<string, unknown> })
+      .find((message) => message.type === 'terminal.attach');
+    const resumeToken = 'stale-channel-resume-token';
+    const attached = waitForMessage(first);
+    handleTerminalStatus(String(firstAttach?.payload.channel_id), 'attached', undefined, {
+      resume_token: resumeToken,
+    });
+    await attached;
+
+    const firstClosed = waitForSocketClose(first);
+    const second = new WebSocket(
+      `${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}&resume_token=${resumeToken}`
+    );
+    await waitForOpen(second);
+
+    await expect(firstClosed).resolves.toMatchObject({
+      code: 4000,
+      reason: 'Terminal resumed in another connection',
+    });
+    await eventually(() => {
+      const terminalMessages = agentSend.mock.calls
+        .map(([raw]) => JSON.parse(String(raw)) as { type: string; payload: Record<string, unknown> })
+        .filter((message) => message.type.startsWith('terminal.'));
+      expect(terminalMessages.map((message) => message.type)).toEqual([
+        'terminal.attach',
+        'terminal.detach',
+        'terminal.attach',
+      ]);
+      expect(terminalMessages[2].payload.resume_token).toBe(resumeToken);
+    });
+
+    second.close();
+    await app.close();
+  });
+
+  it('refuses resize when the authenticated role cannot control the terminal', async () => {
+    const { app, baseWsUrl, agentSend } = await buildServer({ canControlTerminal: false });
+    const token = await sign('operator');
+    const socket = new WebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
+
+    await waitForOpen(socket);
+    await eventually(() => {
+      expect(agentSend).toHaveBeenCalledWith(expect.stringContaining('terminal.attach'));
+    });
+    const closed = Promise.race([
+      waitForSocketClose(socket),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('resize was not rejected')), 500)),
+    ]);
+    socket.send(JSON.stringify({ type: 'resize', cols: 90, rows: 28 }));
+
+    await expect(closed).resolves.toMatchObject({
+      code: 4008,
+      reason: 'Terminal resize requires operator role',
+    });
+    const messageTypes = agentSend.mock.calls.map(([raw]) => JSON.parse(String(raw)).type);
+    expect(messageTypes).not.toContain('terminal.resize');
+
+    await app.close();
   });
 
   it('rejects viewers before sending terminal.attach', async () => {

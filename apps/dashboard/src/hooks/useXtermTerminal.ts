@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, type MutableRefObject } from 'react';
 import type { XFitAddon, XTerminal } from '@/components/terminal/types';
+import { canFitTerminalElement } from '@/components/terminal/viewport';
 
 export function useXtermTerminal({
   termRef,
@@ -17,7 +18,7 @@ export function useXtermTerminal({
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
   const fitAndResize = useCallback(() => {
-    if (!fitAddonRef.current) return;
+    if (!fitAddonRef.current || !termRef.current || !canFitTerminalElement(termRef.current)) return;
     fitAddonRef.current.fit();
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       const dims = fitAddonRef.current.proposeDimensions();
@@ -29,15 +30,22 @@ export function useXtermTerminal({
         }));
       }
     }
-  }, [wsRef]);
+  }, [termRef, wsRef]);
+
+  const getDimensions = useCallback(() => {
+    if (!fitAddonRef.current || !termRef.current || !canFitTerminalElement(termRef.current)) {
+      return undefined;
+    }
+    return fitAddonRef.current.proposeDimensions() ?? undefined;
+  }, [termRef]);
 
   const ensureTerminal = useCallback(async () => {
     if (!termRef.current) return null;
     if (terminalRef.current) return terminalRef.current;
 
-    const { Terminal } = await import('xterm');
-    const { FitAddon } = await import('xterm-addon-fit');
-    const { WebLinksAddon } = await import('xterm-addon-web-links');
+    const { Terminal } = await import('@xterm/xterm');
+    const { FitAddon } = await import('@xterm/addon-fit');
+    const { WebLinksAddon } = await import('@xterm/addon-web-links');
     const fontSize = window.matchMedia('(max-width: 767px)').matches ? 11 : 14;
 
     const terminal = new Terminal({
@@ -77,7 +85,17 @@ export function useXtermTerminal({
     terminal.loadAddon(new WebLinksAddon());
 
     terminal.open(termRef.current);
-    fitAddon.fit();
+    try {
+      const { WebglAddon } = await import('@xterm/addon-webgl');
+      const webglAddon = new WebglAddon();
+      webglAddon.onContextLoss(() => webglAddon.dispose());
+      terminal.loadAddon(webglAddon);
+    } catch {
+      // The built-in DOM renderer remains active when WebGL is unavailable.
+    }
+    if (canFitTerminalElement(termRef.current)) {
+      fitAddon.fit();
+    }
     terminal.attachCustomKeyEventHandler((event) => {
       if (event.key === 'Tab') {
         event.preventDefault();
@@ -121,6 +139,7 @@ export function useXtermTerminal({
     terminalRef,
     ensureTerminal,
     fitAndResize,
+    getDimensions,
     disposeTerminal,
   };
 }

@@ -41,6 +41,9 @@ export * from './command.js';
 // Message schemas
 export * from './message.js';
 
+// Browser terminal protocol schemas
+export * from './terminal.js';
+
 // MCP schemas
 export * from './mcp.js';
 
