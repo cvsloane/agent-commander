@@ -117,7 +117,7 @@ export function TmuxMobileShell({
   const selectedTitle = selectedSession ? getSessionDisplayName(selectedSession) : 'No pane selected';
 
   return (
-    <div className="space-y-3 lg:hidden">
+    <div className="space-y-3 pb-[env(safe-area-inset-bottom)] lg:hidden">
       <div className="sticky top-0 z-30 -mx-4 border-b bg-background/95 px-4 py-3 backdrop-blur">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">

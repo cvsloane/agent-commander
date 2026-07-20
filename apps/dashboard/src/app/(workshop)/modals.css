@@ -1278,7 +1278,7 @@
   border-radius: 12px;
   width: 90%;
   max-width: 480px;
-  max-height: 85vh;
+  max-height: 85dvh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -1880,7 +1880,7 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
   width: 380px;
-  max-height: 60vh;
+  max-height: 60dvh;
   overflow: hidden;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(12px);
@@ -1937,7 +1937,7 @@
 }
 
 .approval-panel-list {
-  max-height: calc(60vh - 50px);
+  max-height: calc(60dvh - 50px);
   overflow-y: auto;
   padding: 12px;
 }

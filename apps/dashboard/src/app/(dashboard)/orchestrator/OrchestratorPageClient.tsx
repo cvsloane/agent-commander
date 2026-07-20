@@ -1,258 +1,125 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { Bell, RefreshCw, Moon, ChevronDown, ChevronRight } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
-import type { ServerToUIMessage, Session, Approval } from '@agent-command/schema';
+import { useState } from 'react';
+import {
+  AlertTriangle,
+  Bell,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  Moon,
+  RefreshCw,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getSessions, getApprovals } from '@/lib/api';
-import { useWebSocket } from '@/hooks/useWebSocket';
-import { useSessionIdle } from '@/hooks/useSessionIdle';
-import { useOrchestratorStore } from '@/stores/orchestrator';
 import { OrchestratorItem } from '@/components/orchestrator/OrchestratorItem';
-import { useOrchestratorSummaries } from '@/hooks/useOrchestratorSummaries';
+import { useAttentionQueue } from '@/hooks/useAttentionQueue';
 
 export default function OrchestratorPageClient() {
-  const workflowStatusFilter = 'RUNNING,STARTING,WAITING_FOR_INPUT,WAITING_FOR_APPROVAL,ERROR,IDLE';
   const [idleExpanded, setIdleExpanded] = useState(false);
   const {
-    ingestSessions,
-    ingestSnapshot,
-    ingestApproval,
-    removeApprovalItem,
-    pruneApprovals,
+    items,
+    idledItems,
+    errors,
+    isLoading,
+    isRefreshing,
+    refresh,
     dismissItem,
-    getActiveItems,
-    getWaitingItems,
-    getIdledItems,
-  } = useOrchestratorStore();
-  const { setSessionIdle } = useSessionIdle();
-
-  const handleIdle = useCallback(
-    async (sessionId: string) => {
-      try {
-        await setSessionIdle(sessionId, true);
-      } catch (error) {
-        console.error('Failed to idle session:', error);
-      }
-    },
-    [setSessionIdle]
-  );
-
-  const handleUnidle = useCallback(
-    async (sessionId: string) => {
-      try {
-        await setSessionIdle(sessionId, false);
-      } catch (error) {
-        console.error('Failed to wake session:', error);
-      }
-    },
-    [setSessionIdle]
-  );
-
-  const activeItems = getActiveItems();
-  const waitingItems = getWaitingItems();
-  const idledItems = getIdledItems();
-
-  // Fetch initial sessions
-  const { refetch: refetchSessions } = useQuery({
-    queryKey: ['orchestrator', 'sessions'],
-    queryFn: async () => {
-      const data = await getSessions({ include_archived: false, status: workflowStatusFilter });
-      // Filter to sessions that might need attention
-      ingestSessions(data.sessions as any, { fullSync: true });
-      return data;
-    },
-    refetchInterval: 10000, // Refetch every 10s
-  });
-
-  // Fetch pending approvals
-  const { refetch: refetchApprovals } = useQuery({
-    queryKey: ['orchestrator', 'approvals'],
-    queryFn: async () => {
-      const data = await getApprovals({ status: 'pending' });
-      for (const approval of data.approvals) {
-        ingestApproval(approval);
-      }
-      pruneApprovals(data.approvals.map((approval) => approval.id));
-      return data;
-    },
-  });
-
-  const { summariesEnabled, summaryStatusLoading } = useOrchestratorSummaries(activeItems, true);
-
-  // WebSocket subscriptions
-  const handleWebSocketMessage = useCallback(
-    (message: ServerToUIMessage) => {
-      switch (message.type) {
-        case 'sessions.changed': {
-          const payload = message.payload as { sessions: Session[] };
-          // Filter to attention-worthy sessions
-          if (payload.sessions.length > 0) {
-            ingestSessions(payload.sessions as any);
-          }
-          break;
-        }
-
-        case 'snapshots.updated': {
-          const payload = message.payload as {
-            session_id: string;
-            capture_text: string;
-            capture_hash?: string;
-          };
-          ingestSnapshot(payload.session_id, payload.capture_text, payload.capture_hash);
-          break;
-        }
-
-        case 'approvals.created': {
-          const payload = message.payload as {
-            approval_id: string;
-            session_id: string;
-            provider: string;
-            requested_payload: Record<string, unknown>;
-          };
-          const approval: Approval = {
-            id: payload.approval_id,
-            session_id: payload.session_id,
-            provider: payload.provider as Approval['provider'],
-            ts_requested: new Date().toISOString(),
-            requested_payload: payload.requested_payload,
-            decision: null,
-            ts_decided: null,
-          };
-          ingestApproval(approval);
-          break;
-        }
-
-        case 'approvals.updated': {
-          const payload = message.payload as { approval_id: string };
-          removeApprovalItem(payload.approval_id);
-          break;
-        }
-      }
-    },
-    [ingestSessions, ingestSnapshot, ingestApproval, removeApprovalItem]
-  );
-
-  useWebSocket(
-    [
-      { type: 'sessions', filter: { status: workflowStatusFilter } },
-      { type: 'snapshots' },
-      { type: 'approvals', filter: { status: 'pending' } },
-    ],
-    handleWebSocketMessage
-  );
-
-  const handleRefresh = useCallback(() => {
-    refetchSessions();
-    refetchApprovals();
-  }, [refetchSessions, refetchApprovals]);
+    handleIdle,
+    handleUnidle,
+    summariesEnabled,
+    summaryStatusLoading,
+  } = useAttentionQueue();
 
   return (
-    <div className="container mx-auto px-4 py-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <Bell className="h-6 w-6 text-primary" />
-          <h1 className="text-2xl font-bold">Orchestrator</h1>
-          {activeItems.length > 0 && (
-            <span className="text-sm bg-orange-500 text-white px-2 py-0.5 rounded-full">
-              {activeItems.length} active
-            </span>
-          )}
+    <div className="mx-auto w-full max-w-3xl px-3 py-4 sm:px-4 sm:py-6">
+      <header className="mb-5 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Bell className="h-5 w-5 text-cyan-500 sm:h-6 sm:w-6" />
+            <h1 className="text-xl font-bold sm:text-2xl">Attention queue</h1>
+            {items.length > 0 && (
+              <span className="rounded-full bg-orange-500 px-2 py-0.5 text-xs font-semibold text-white">
+                {items.length}
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Approvals, waiting input, governance, and failed runs in priority order.
+          </p>
         </div>
-        <Button variant="outline" onClick={handleRefresh} className="gap-2">
-          <RefreshCw className="h-4 w-4" />
-          Refresh
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void refresh()}
+          disabled={isRefreshing}
+          className="shrink-0 gap-2"
+        >
+          <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          <span className="hidden sm:inline">Refresh</span>
+          <span className="sr-only sm:hidden">Refresh attention queue</span>
         </Button>
-      </div>
+      </header>
+
+      {errors.length > 0 && (
+        <div className="mb-4 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200" role="status">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>Some attention sources are unavailable. Showing the data that loaded successfully.</span>
+        </div>
+      )}
 
       {!summaryStatusLoading && !summariesEnabled && (
         <div className="mb-4 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-          Summaries are unavailable. Configure `OPENAI_API_KEY` on the control plane to enable them.
+          AI summaries are unavailable; queue actions and captured context still work.
         </div>
       )}
 
-      {/* Empty state */}
-      {activeItems.length === 0 && waitingItems.length === 0 && idledItems.length === 0 && (
-        <div className="text-center py-16 text-muted-foreground">
-          <Bell className="h-16 w-16 mx-auto mb-4 opacity-30" />
-          <p className="text-lg">No sessions need your attention</p>
-          <p className="text-sm mt-2">
-            Items will appear when sessions require input or approval
-          </p>
-        </div>
-      )}
+      <section aria-label="Items needing attention" aria-busy={isLoading}>
+        {isLoading && (
+          <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            Loading attention sources…
+          </div>
+        )}
 
-      {/* Active items grid */}
-      {activeItems.length > 0 && (
-        <section className="mb-8">
-          <h2 className="text-lg font-semibold mb-4">
-            Active Items ({activeItems.length})
-          </h2>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {activeItems.map((item) => (
+        {!isLoading && items.length === 0 && (
+          <div className="rounded-xl border border-dashed py-14 text-center text-muted-foreground">
+            <Bell className="mx-auto mb-3 h-12 w-12 opacity-25" />
+            <p className="font-medium text-foreground">Nothing needs your attention</p>
+            <p className="mt-1 text-sm">New prompts, approvals, and failed runs will appear here.</p>
+          </div>
+        )}
+
+        {items.length > 0 && (
+          <div className="space-y-3">
+            {items.map((item) => (
               <OrchestratorItem
                 key={item.id}
                 item={item}
                 onDismiss={dismissItem}
                 onIdle={handleIdle}
                 onUnidle={handleUnidle}
-                onResponseSent={handleRefresh}
+                onResponseSent={() => void refresh()}
                 summariesEnabled={summariesEnabled}
               />
             ))}
           </div>
-        </section>
-      )}
+        )}
+      </section>
 
-      {/* Waiting items */}
-      {waitingItems.length > 0 && (
-        <section className="mb-8">
-          <h2 className="text-lg font-semibold mb-4 text-muted-foreground">
-            Waiting ({waitingItems.length})
-          </h2>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {waitingItems.map((item) => (
-              <OrchestratorItem
-                key={item.id}
-                item={item}
-                onDismiss={dismissItem}
-                onIdle={handleIdle}
-                onUnidle={handleUnidle}
-                onResponseSent={handleRefresh}
-                summariesEnabled={summariesEnabled}
-                mode="waiting"
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* All items idled message */}
-      {activeItems.length === 0 && waitingItems.length === 0 && idledItems.length > 0 && (
-        <div className="text-center py-8 text-muted-foreground mb-4">
-          <p className="text-sm">All items are idled</p>
-        </div>
-      )}
-
-      {/* Idle items (collapsible) */}
       {idledItems.length > 0 && (
-        <section className="border-t pt-6">
+        <section className="mt-6 border-t pt-4">
           <button
-            onClick={() => setIdleExpanded(!idleExpanded)}
-            className="flex items-center gap-2 text-lg font-semibold text-muted-foreground hover:text-foreground transition-colors mb-4"
+            type="button"
+            onClick={() => setIdleExpanded((expanded) => !expanded)}
+            className="flex min-h-11 w-full items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-expanded={idleExpanded}
           >
-            {idleExpanded ? (
-              <ChevronDown className="h-5 w-5" />
-            ) : (
-              <ChevronRight className="h-5 w-5" />
-            )}
-            <Moon className="h-5 w-5" />
-            <span>Idle ({idledItems.length})</span>
+            {idleExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            <Moon className="h-4 w-4" />
+            Idled ({idledItems.length})
           </button>
           {idleExpanded && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="mt-2 space-y-3">
               {idledItems.map((item) => (
                 <OrchestratorItem
                   key={item.id}
@@ -260,7 +127,7 @@ export default function OrchestratorPageClient() {
                   onDismiss={dismissItem}
                   onIdle={handleIdle}
                   onUnidle={handleUnidle}
-                  onResponseSent={handleRefresh}
+                  onResponseSent={() => void refresh()}
                   summariesEnabled={summariesEnabled}
                 />
               ))}

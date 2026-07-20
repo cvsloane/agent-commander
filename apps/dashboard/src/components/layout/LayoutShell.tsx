@@ -18,6 +18,7 @@ import { useUIStore } from '@/stores/ui';
 import { useSettingsStore } from '@/stores/settings';
 import { shouldTriggerAlertChannel } from '@/lib/alertPolicy';
 import type { GroupWithChildren } from '@/lib/groupTypes';
+import { PushNotificationPrompt } from '@/components/pwa/PushNotificationPrompt';
 
 interface LayoutShellProps {
   children: React.ReactNode;
@@ -117,7 +118,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
     <>
       <ConnectionBanner />
 
-      <div className="flex h-[calc(100vh-57px)]">
+      <div className="flex min-h-0 flex-1">
         {/* Attention surface: tab title with orchestrator count */}
         <AttentionTitle />
 
@@ -134,7 +135,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
           isMobileOverlay
         />
 
-        <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">{children}</main>
+        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pb-[env(safe-area-inset-bottom)]">{children}</main>
 
         {/* Group Modal - shared across all pages */}
         <GroupModal
@@ -145,6 +146,9 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
         {/* Notification Toasts */}
         <NotificationContainer />
+
+        {/* Mobile first-run prompt for background Web Push */}
+        <PushNotificationPrompt />
       </div>
     </>
   );

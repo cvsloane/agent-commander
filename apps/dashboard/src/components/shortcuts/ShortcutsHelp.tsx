@@ -62,7 +62,7 @@ export function ShortcutsHelp({ isOpen, onClose }: ShortcutsHelpProps) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-background border rounded-lg shadow-lg w-full max-w-lg max-h-[80vh] overflow-hidden">
+      <div className="max-h-[80dvh] w-full max-w-lg overflow-hidden rounded-lg border bg-background shadow-lg">
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <div className="flex items-center gap-2">
             <Keyboard className="h-5 w-5 text-muted-foreground" />

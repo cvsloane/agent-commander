@@ -50,7 +50,7 @@ export default function SignInPage() {
   const errorText = error ? errorMessages[error] || errorMessages.Default : null;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
+    <div className="flex min-h-dvh items-center justify-center bg-background px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))]">
       <Card className="w-full max-w-sm">
         <CardContent className="p-6 space-y-4">
           <div>

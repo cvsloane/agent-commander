@@ -60,7 +60,7 @@ export function TmuxDesktopShell({
       />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)] lg:items-start">
-        <div className="lg:sticky lg:top-6 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto">
+        <div className="lg:sticky lg:top-6 lg:max-h-[calc(100dvh-8rem)] lg:overflow-y-auto">
           <TmuxRoster
             selectedHost={selectedHost}
             query={query}

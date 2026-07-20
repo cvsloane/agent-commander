@@ -82,7 +82,7 @@ export function GlobalSidebar({
         {/* Sidebar panel */}
         <div
           className={cn(
-            'absolute left-0 top-0 h-full w-64 bg-background border-r shadow-xl transition-transform duration-200 ease-in-out flex flex-col',
+            'absolute left-0 top-0 flex h-full w-64 flex-col border-r bg-background pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pt-[env(safe-area-inset-top)] shadow-xl transition-transform duration-200 ease-in-out',
             mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
           )}
         >

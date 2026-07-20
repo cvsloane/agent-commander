@@ -106,7 +106,7 @@ export function BulkActionToolbar({
   }
 
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
+    <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 z-50 -translate-x-1/2">
       <div className="bg-background border shadow-lg rounded-lg px-4 py-3 flex items-center gap-4">
         <span className="text-sm font-medium">
           {selectedIds.length} session{selectedIds.length !== 1 ? 's' : ''} selected

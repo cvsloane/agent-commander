@@ -12,7 +12,7 @@
 
 #app {
   width: 100vw;
-  height: 100vh;
+  height: 100dvh;
   display: flex;
   font-family: system-ui, -apple-system, sans-serif;
   background: #0a0a0a;

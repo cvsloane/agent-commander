@@ -7,7 +7,10 @@ import {
   type ReconnectState,
 } from '@/lib/reconnect';
 import { resolveControlPlaneWebSocketUrl } from '@/lib/wsUrl';
-import { useConnectionStore } from '@/stores/connection';
+import {
+  useConnectionStore,
+  type EventConnectionStatus,
+} from '@/stores/connection';
 
 type MessageHandler = (message: ServerToUIMessage) => void;
 
@@ -37,15 +40,21 @@ class WebSocketClient {
   private connectPromise: Promise<void> | null = null;
   private stopped = false;
 
-  constructor() {
+  constructor(private readonly tracksConnectionStatus = true) {
     if (typeof window !== 'undefined') {
       document.addEventListener('visibilitychange', this.handleVisibilityChange);
       window.addEventListener('online', this.handleOnline);
       window.addEventListener('offline', this.handleOffline);
       window.addEventListener('pageshow', this.handlePageShow);
       if (!navigator.onLine) {
-        useConnectionStore.getState().setEventStatus('offline');
+        this.setConnectionStatus('offline');
       }
+    }
+  }
+
+  private setConnectionStatus(status: EventConnectionStatus): void {
+    if (this.tracksConnectionStatus) {
+      useConnectionStore.getState().setEventStatus(status);
     }
   }
 
@@ -76,11 +85,11 @@ class WebSocketClient {
 
   private async openSocket(): Promise<void> {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      useConnectionStore.getState().setEventStatus('offline');
+      this.setConnectionStatus('offline');
       return;
     }
 
-    useConnectionStore.getState().setEventStatus(
+    this.setConnectionStatus(
       this.reconnectState.attempt > 0 ? 'reconnecting' : 'connecting'
     );
 
@@ -110,7 +119,7 @@ class WebSocketClient {
       if (this.ws !== socket) return;
       console.log('WebSocket connected');
       this.applyReconnectEvent({ type: 'opened' });
-      useConnectionStore.getState().setEventStatus('connected');
+      this.setConnectionStatus('connected');
       this.startKeepalive();
 
       // Re-subscribe and establish a schema-valid application keepalive.
@@ -134,7 +143,7 @@ class WebSocketClient {
       console.log('WebSocket disconnected', detail);
       if (this.stopped) return;
       if (event.code === 4001 || event.code === 4002 || event.code === 4003) {
-        useConnectionStore.getState().setEventStatus('disconnected');
+        this.setConnectionStatus('disconnected');
         forceSignIn('InvalidToken');
         return;
       }
@@ -147,7 +156,7 @@ class WebSocketClient {
   }
 
   private scheduleReconnect(): void {
-    useConnectionStore.getState().setEventStatus(
+    this.setConnectionStatus(
       typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'reconnecting'
     );
     this.applyReconnectEvent({ type: 'closed' });
@@ -199,12 +208,12 @@ class WebSocketClient {
   private retryImmediately(event: Extract<ReconnectEvent, { type: 'visibility' | 'online' | 'pageshow' }>): void {
     if (this.stopped) return;
     if (this.ws?.readyState === WebSocket.OPEN) {
-      useConnectionStore.getState().setEventStatus('connected');
+      this.setConnectionStatus('connected');
       this.sendSubscriptions();
       return;
     }
     if (this.ws?.readyState === WebSocket.CONNECTING || this.connectPromise) {
-      useConnectionStore.getState().setEventStatus('reconnecting');
+      this.setConnectionStatus('reconnecting');
       return;
     }
     this.applyReconnectEvent(event);
@@ -222,7 +231,7 @@ class WebSocketClient {
 
   private handleOffline = (): void => {
     if (!this.stopped) {
-      useConnectionStore.getState().setEventStatus('offline');
+      this.setConnectionStatus('offline');
     }
   };
 
@@ -281,7 +290,7 @@ class WebSocketClient {
     const socket = this.ws;
     this.ws = null;
     socket?.close();
-    useConnectionStore.getState().setEventStatus('disconnected');
+    this.setConnectionStatus('disconnected');
   }
 
   get isConnected(): boolean {
@@ -289,12 +298,13 @@ class WebSocketClient {
   }
 }
 
-// Singleton instance
-let wsClient: WebSocketClient | null = null;
+const wsClients = new Map<string, WebSocketClient>();
 
-export function getWebSocketClient(): WebSocketClient {
-  if (!wsClient) {
-    wsClient = new WebSocketClient();
+export function getWebSocketClient(channel = 'default'): WebSocketClient {
+  let client = wsClients.get(channel);
+  if (!client) {
+    client = new WebSocketClient(channel === 'default');
+    wsClients.set(channel, client);
   }
-  return wsClient;
+  return client;
 }

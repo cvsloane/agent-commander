@@ -11,7 +11,7 @@
 /* Base visualizer layout */
 .visualizer-root {
   width: 100vw;
-  height: 100vh;
+  height: 100dvh;
   display: flex;
   font-family: var(--viz-font-sans);
   background: var(--viz-bg-primary);

@@ -8,7 +8,8 @@ import { getControlPlaneToken } from '@/lib/wsToken';
 export function useWebSocket(
   topics: Array<{ type: string; filter?: Record<string, unknown> }>,
   onMessage: (message: ServerToUIMessage) => void,
-  enabled: boolean = true
+  enabled: boolean = true,
+  channel: string = 'default'
 ) {
   const handlerRef = useRef(onMessage);
   handlerRef.current = onMessage;
@@ -21,7 +22,7 @@ export function useWebSocket(
 
   useEffect(() => {
     if (!enabled) return;
-    const client = getWebSocketClient();
+    const client = getWebSocketClient(channel);
     client.setTokenProvider(getControlPlaneToken);
     const subscriptionId = client.registerSubscription(topicsRef.current);
     const removeHandler = client.addHandler((message) => {
@@ -33,5 +34,5 @@ export function useWebSocket(
       removeHandler();
       client.unregisterSubscription(subscriptionId);
     };
-  }, [topicsKey, enabled]);
+  }, [topicsKey, enabled, channel]);
 }

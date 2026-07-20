@@ -86,6 +86,16 @@ function resolveApiBase(): string {
   return 'http://localhost:8080';
 }
 
+export class APIError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+    this.name = 'APIError';
+  }
+}
+
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   const token = await getControlPlaneToken();
   const apiBase = resolveApiBase();
@@ -103,7 +113,7 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
     });
     if (!res.ok) {
       const error = await res.json().catch(() => ({ error: 'Unknown error' }));
-      throw new Error(error.error || `HTTP ${res.status}`);
+      throw new APIError(error.error || `HTTP ${res.status}`, res.status);
     }
 
     return res.json();
@@ -389,6 +399,52 @@ export async function sendTestNotification(
   });
 }
 
+export interface PushSubscriptionPayload {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  device_label?: string;
+}
+
+export interface PushVapidConfiguration {
+  enabled: boolean;
+  public_key: string | null;
+}
+
+export interface RegisteredPushSubscription {
+  id: string;
+  endpoint: string;
+  device_label: string | null;
+  created_at: string;
+  last_seen_at: string;
+}
+
+export async function getPushVapidPublicKey(): Promise<PushVapidConfiguration> {
+  return fetchAPI('/v1/push/vapid-public-key');
+}
+
+export async function getPushSubscriptions(): Promise<{
+  subscriptions: RegisteredPushSubscription[];
+}> {
+  return fetchAPI('/v1/push/subscriptions');
+}
+
+export async function createPushSubscription(
+  subscription: PushSubscriptionPayload
+): Promise<{ success: boolean }> {
+  return fetchAPI('/v1/push/subscriptions', {
+    method: 'POST',
+    body: JSON.stringify(subscription),
+  });
+}
+
+export async function deletePushSubscription(endpoint: string): Promise<{ success: boolean }> {
+  return fetchAPI('/v1/push/subscriptions', {
+    method: 'DELETE',
+    body: JSON.stringify({ endpoint }),
+  });
+}
+
 // Projects API
 export async function getProjects(filters?: {
   host_id?: string;
@@ -467,6 +523,14 @@ export async function getAutomationRuns(filters?: {
   if (filters?.limit) params.set('limit', String(filters.limit));
   const query = params.toString();
   return fetchAPI(`/v1/automation-runs${query ? `?${query}` : ''}`);
+}
+
+export async function getAttentionAutomationRuns(): Promise<{ runs: AutomationRun[] }> {
+  const [failed, blocked] = await Promise.all([
+    getAutomationRuns({ status: 'failed' }),
+    getAutomationRuns({ status: 'blocked' }),
+  ]);
+  return { runs: [...failed.runs, ...blocked.runs] };
 }
 
 export async function getAutomationRunEvents(

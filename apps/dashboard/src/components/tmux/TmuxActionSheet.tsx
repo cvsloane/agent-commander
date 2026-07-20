@@ -60,7 +60,7 @@ export function TmuxActionSheet({
         className="absolute inset-0 cursor-default"
         onClick={onClose}
       />
-      <div className="absolute inset-x-0 bottom-0 rounded-t-xl border bg-background shadow-lg">
+      <div className="absolute inset-x-0 bottom-0 max-h-[92dvh] overflow-y-auto rounded-t-xl border bg-background pb-[env(safe-area-inset-bottom)] shadow-lg">
         <div className="flex items-start justify-between gap-3 border-b px-4 py-3">
           <div className="min-w-0">
             <div className="text-sm font-semibold">Pane actions</div>

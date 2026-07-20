@@ -294,7 +294,7 @@ export function MobileLaunchSheet({ open, selectedHostId, onClose, onLaunched }:
           </button>
         </div>
 
-        <div className="max-h-[calc(92dvh-9.5rem)] space-y-4 overflow-y-auto px-4 py-4">
+        <div className="max-h-[calc(92dvh-9.5rem)] space-y-4 overflow-y-auto px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
           {isLoading && (
             <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />

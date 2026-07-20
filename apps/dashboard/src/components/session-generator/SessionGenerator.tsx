@@ -245,7 +245,7 @@ export function SessionGenerator({
         aria-labelledby="generator-title"
         className={cn(
           'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2',
-          'w-full max-w-2xl max-h-[80vh]',
+          'max-h-[80dvh] w-full max-w-2xl',
           'bg-background border rounded-lg shadow-xl',
           'flex flex-col',
           'animate-in fade-in-0 zoom-in-95 duration-200'
