@@ -43,7 +43,6 @@ Agent Commander is a mission-control dashboard for managing AI agent sessions ac
 git clone https://github.com/cvsloane/agent-commander.git
 cd agent-commander
 pnpm install
-pnpm dev
 ```
 
 Copy and update environment files:
@@ -53,10 +52,11 @@ cp services/control-plane/.env.example services/control-plane/.env
 cp apps/dashboard/.env.example apps/dashboard/.env
 ```
 
-Run migrations:
+Run migrations, then start the dev servers (stays in the foreground):
 
 ```bash
 pnpm db:migrate
+pnpm dev
 ```
 
 ## Features

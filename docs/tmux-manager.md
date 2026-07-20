@@ -72,4 +72,4 @@ hardware tmux prefix chord.
 
 The desktop launch rail and compact mobile sheet share the launch contract in
 [Mobile Launch](mobile-launch.md). New and reopened panes return a canonical
-`/?host_id=...&session_id=...` URL that selects the Command Center terminal.
+`/?host_id=...&session_id=...&mode=terminal&attach=1` URL that opens the Command Center terminal directly (mode/attach select and auto-attach the pane).

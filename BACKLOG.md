@@ -54,7 +54,7 @@ This is the git-tracked backlog for this workstream. Keep local next steps here;
 
 ## Captured Sessions
 
-## From Frontend Command Center UX program close (2026-07-21)
+## From Frontend Command Center UX program close (2026-07-20)
 - [ ] Complete the binary-only terminal migration properly: remove the server JSON output path + schema output message AND the client fallback together, with a hello-before-output ordering guarantee (Wave-5 review MEDIUM; client fallback restored at program close as the safe posture).
 - [ ] Terminal frame-timing probe: short-circuit sampling on isEnabled() before any per-frame work; gate the web-vitals dynamic import on the perf flag (Wave-5 review LOWs).
 - [ ] Window-strip arrow-key navigation dispatches live select_window per keypress (valid ARIA auto-activation but can burst commands) — consider focus-only + Enter-to-activate (Wave-5 review INFO).

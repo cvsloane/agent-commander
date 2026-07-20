@@ -5,9 +5,8 @@
 ## Install
 
 ```bash
-cd agents/agentd
-go build -o agentd ./cmd/agentd
-sudo cp agentd /usr/local/bin/
+(cd agents/agentd && go build -o agentd ./cmd/agentd)
+sudo cp agents/agentd/agentd /usr/local/bin/
 ```
 
 ## Configure
@@ -87,9 +86,17 @@ sudo chmod +x /usr/local/bin/opencode-usage
 
 ```bash
 sudo systemctl edit agentd
-# add:
-# [Service]
-# Environment="MINIMAX_API_KEY=YOUR_KEY_HERE"
+```
+
+Add the following active directives in the editor, then restart:
+
+```ini
+[Service]
+Environment="MINIMAX_API_KEY=YOUR_KEY_HERE"
+```
+
+```bash
+sudo systemctl restart agentd
 ```
 
 3. Configure agentd:
