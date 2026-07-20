@@ -29,6 +29,7 @@
 - Reference
   - [API Reference](/docs/api.md)
   - [WebSockets](/docs/websockets.md)
+  - [Frontend Performance Contract](/docs/performance.md)
   - [Events](/docs/events.md)
   - [Data Model](/docs/data-model.md)
   - [Security](/docs/security.md)

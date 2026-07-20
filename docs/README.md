@@ -41,6 +41,7 @@ Reference:
 - [API Reference](api.md)
 - [WebSockets](websockets.md)
 - [Per-viewer Terminal](per-viewer-terminal.md)
+- [Frontend Performance Contract](performance.md)
 - [Events](events.md)
 - [Data Model](data-model.md)
 - [Security](security.md)
