@@ -67,13 +67,13 @@ export function TerminalToolbar({
 
       <div className="flex shrink-0 items-center gap-2 text-xs" aria-live="polite">
         <span className={cn('h-2 w-2 rounded-full', statusColors[status])} aria-hidden="true" />
-        {statusLabels[status]}
+        <span className={cn(isMobile && 'sr-only')}>{statusLabels[status]}</span>
       </div>
 
       {status === 'connected' && readOnly && (
         <div className="flex items-center gap-2 text-xs text-amber-600">
-          <span className="h-2 w-2 rounded-full bg-amber-500" />
-          Read-only
+          <span className="h-2 w-2 rounded-full bg-amber-500" aria-hidden="true" />
+          <span className={cn(isMobile && 'sr-only')}>Read-only</span>
         </div>
       )}
 

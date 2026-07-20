@@ -511,9 +511,29 @@ async function fulfillJson(route: Route, body: unknown): Promise<void> {
   });
 }
 
-async function mockControlPlane(page: Page): Promise<void> {
+async function mockControlPlane(
+  page: Page,
+  options: { terminalReadOnly?: boolean } = {}
+): Promise<void> {
   await page.routeWebSocket(/\/v1\/ui\/stream\?ticket=/, () => {
     // Keep the mocked event stream open; REST fixtures drive these smoke tests.
+  });
+  await page.routeWebSocket(/\/v1\/ui\/terminal\/[^?]+\?/, (socket) => {
+    socket.onMessage((message) => {
+      if (typeof message !== 'string') return;
+      const parsed = JSON.parse(message) as { type?: string };
+      if (parsed.type === 'hello') {
+        socket.send(JSON.stringify({
+          type: 'attached',
+          readonly: options.terminalReadOnly ?? false,
+          resumed: false,
+          resume_token: 'dashboard-smoke-terminal-resume',
+        }));
+      }
+      if (parsed.type === 'control') {
+        socket.send(JSON.stringify({ type: 'control' }));
+      }
+    });
   });
 
   await page.route('**/api/control-plane-token', async (route) => {
@@ -678,8 +698,10 @@ async function signIn(page: Page): Promise<void> {
   await page.waitForURL('**/');
 }
 
-test.beforeEach(async ({ page }) => {
-  await mockControlPlane(page);
+test.beforeEach(async ({ page }, testInfo) => {
+  await mockControlPlane(page, {
+    terminalReadOnly: testInfo.title.includes('gates terminal input while read-only'),
+  });
 });
 
 test('protects operator routes behind credentials sign-in', async ({ page }) => {
@@ -1046,6 +1068,42 @@ test('opens the terminal composer from attention and submits one newline-safe pr
   if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
     await page.screenshot({ path: testInfo.outputPath('terminal-attention-composer-desktop.png') });
   }
+});
+
+test('gates terminal input while read-only until the viewer takes control', async ({ page }, testInfo) => {
+  await signIn(page);
+  await page.goto('/tmux');
+  await page.getByText('agents', { exact: true }).click();
+  await page.getByText('Mobile UX review', { exact: true }).click();
+  await page.getByRole('button', { name: 'Attach Terminal', exact: true }).click();
+
+  await expect(page.getByText('Read-only', { exact: true })).toBeVisible();
+  const overlay = page.getByTestId('terminal-attention-overlay');
+  await expect(overlay.getByRole('button', { name: 'Respond' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Send a prompt', exact: true })).toBeDisabled();
+  await expect(page.getByText('Read-only — take control to type')).toHaveCount(2);
+
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.screenshot({ path: testInfo.outputPath('terminal-readonly-desktop.png') });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobileSegments = page.getByRole('button', { name: 'Roster', exact: true }).locator('..');
+  await mobileSegments.getByRole('button', { name: 'Terminal', exact: true }).click();
+  await expect(page.getByText('Read-only — take control to type')).toHaveCount(2);
+  for (const name of ['Take Control', 'Focus']) {
+    const box = await page.getByRole('button', { name, exact: true }).boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  }
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.getByTestId('tmux-terminal-workspace').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath('terminal-readonly-mobile.png') });
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
+
+  await page.getByRole('button', { name: 'Take Control', exact: true }).click();
+  await expect(overlay.getByRole('button', { name: 'Respond' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Send a prompt', exact: true })).toBeEnabled();
 });
 
 test('keeps the tmux roster usable on mobile viewport', async ({ page }, testInfo) => {

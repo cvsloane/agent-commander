@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import type { XTerminal } from './types';
+import type { TerminalController, XTerminal } from './types';
 import { createTerminalHostStore, getTerminalDescriptorKey } from './terminalHostStore';
+
+function controller(readOnly: boolean): TerminalController {
+  return {
+    readOnly,
+    attach: () => undefined,
+    detach: () => undefined,
+    suspend: () => false,
+    takeControl: () => undefined,
+    focus: () => undefined,
+    copySelection: () => undefined,
+    copyLastLines: () => undefined,
+    copyAll: () => undefined,
+    paste: () => undefined,
+  };
+}
 
 describe('persistent terminal host', () => {
   it('preserves the same xterm instance and buffer through roster flips and route navigation', () => {
@@ -64,5 +79,43 @@ describe('persistent terminal host', () => {
     });
 
     expect(host.getSnapshot().terminalInstance).toBeNull();
+  });
+
+  it('publishes the active terminal read-only permission from its controller', () => {
+    const host = createTerminalHostStore();
+    host.registerSurface({
+      id: 'tmux-workbench',
+      descriptor: { sessionId: 'session-a', paneId: '%1', autoAttach: true },
+      target: {} as HTMLDivElement,
+      visible: true,
+    });
+
+    host.setController(controller(true));
+    expect(host.getSnapshot().readOnly).toBe(true);
+
+    host.setController(controller(false));
+    expect(host.getSnapshot().readOnly).toBe(false);
+  });
+
+  it('retains terminal permission while the same pane moves between responsive surfaces', () => {
+    const host = createTerminalHostStore();
+    const descriptor = { sessionId: 'session-a', paneId: '%1', autoAttach: true };
+    const leaveDesktop = host.registerSurface({
+      id: 'desktop-workbench',
+      descriptor,
+      target: {} as HTMLDivElement,
+      visible: true,
+    });
+    host.setController(controller(true));
+
+    leaveDesktop();
+    host.registerSurface({
+      id: 'mobile-workbench',
+      descriptor,
+      target: {} as HTMLDivElement,
+      visible: true,
+    });
+
+    expect(host.getSnapshot().readOnly).toBe(true);
   });
 });

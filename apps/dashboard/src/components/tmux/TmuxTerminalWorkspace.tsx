@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useRef, type MutableRefObject } from 'react';
+import { useEffect, useMemo, useRef, useSyncExternalStore, type MutableRefObject } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Columns2, X } from 'lucide-react';
 import type { Session } from '@agent-command/schema';
 import { TerminalView, type TerminalController } from '@/components/TerminalView';
 import { PersistentTerminalSlot } from '@/components/terminal/PersistentTerminalHost';
+import { getTerminalDescriptorKey, terminalHostStore } from '@/components/terminal/terminalHostStore';
 import { TerminalAttentionOverlay } from '@/components/orchestrator/TerminalAttentionOverlay';
 import { Button } from '@/components/ui/button';
 import { useHydrated } from '@/hooks/useHydrated';
@@ -68,6 +69,11 @@ export function TmuxTerminalWorkspace({
   onSendToOtherSession,
 }: TmuxTerminalWorkspaceProps) {
   const promptComposerRef = useRef<PromptComposerHandle>(null);
+  const terminalHostSnapshot = useSyncExternalStore(
+    terminalHostStore.subscribe,
+    terminalHostStore.getSnapshot,
+    terminalHostStore.getServerSnapshot
+  );
   const hydrated = useHydrated();
   const belowDesktop = useIsMobile(1024);
   const rememberedSecondaryId = useSettingsStore(
@@ -104,6 +110,13 @@ export function TmuxTerminalWorkspace({
   }, [options, primarySession.id, rememberedSecondaryId, rosterSessions, setSecondary]);
 
   const showSecondary = Boolean(secondaryId);
+  const primaryTerminalKey = getTerminalDescriptorKey({
+    sessionId: primarySession.id,
+    paneId: primarySession.tmux_pane_id || undefined,
+    autoAttach: autoAttachPrimary || showSecondary,
+  });
+  const readOnly = terminalHostSnapshot.descriptorKey === primaryTerminalKey
+    && terminalHostSnapshot.readOnly;
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="tmux-terminal-workspace">
@@ -159,6 +172,7 @@ export function TmuxTerminalWorkspace({
             />
             <TerminalAttentionOverlay
               sessionId={primarySession.id}
+              readOnly={readOnly}
               onRespond={(item) => {
                 promptComposerRef.current?.openAndFocus();
                 onAttentionRespond?.(item);
@@ -203,6 +217,7 @@ export function TmuxTerminalWorkspace({
       <PromptComposer
         ref={promptComposerRef}
         session={primarySession}
+        readOnly={readOnly}
         onSendToOtherSession={onSendToOtherSession}
       />
     </div>

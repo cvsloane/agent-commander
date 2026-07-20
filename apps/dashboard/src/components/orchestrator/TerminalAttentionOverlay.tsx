@@ -23,12 +23,14 @@ import { useAttentionItemActions } from './useAttentionItemActions';
 
 interface TerminalAttentionOverlayProps {
   sessionId: string;
+  readOnly?: boolean;
   onRespond?: (item: OrchestratorItem) => void;
   className?: string;
 }
 
 export function TerminalAttentionOverlay({
   sessionId,
+  readOnly = false,
   onRespond,
   className,
 }: TerminalAttentionOverlayProps) {
@@ -42,24 +44,27 @@ export function TerminalAttentionOverlay({
   if (!item) return null;
 
   return (
-    <ActiveTerminalAttentionOverlay
+    <TerminalAttentionOverlayCard
       item={item}
       onDismiss={dismissItem}
       onRespond={onRespond}
+      readOnly={readOnly}
       className={className}
     />
   );
 }
 
-function ActiveTerminalAttentionOverlay({
+export function TerminalAttentionOverlayCard({
   item,
   onDismiss,
   onRespond,
+  readOnly = false,
   className,
 }: {
   item: OrchestratorItem;
   onDismiss: (itemId: string) => void;
   onRespond?: (item: OrchestratorItem) => void;
+  readOnly?: boolean;
   className?: string;
 }) {
   const {
@@ -73,6 +78,7 @@ function ActiveTerminalAttentionOverlay({
   });
 
   const decisions = getAttentionDecisionOptions(item);
+  const readOnlyHintId = `terminal-attention-readonly-${item.id}`;
   const question = item.action?.question
     || (item.sessionStatus === 'ERROR' ? 'This session reported an error.' : 'This session needs attention.');
 
@@ -146,12 +152,23 @@ function ActiveTerminalAttentionOverlay({
           size="sm"
           variant={decisions ? 'ghost' : 'default'}
           className="h-8 gap-1.5 px-2.5"
-          onClick={() => onRespond?.(item)}
+          onClick={() => !readOnly && onRespond?.(item)}
+          disabled={readOnly}
+          aria-describedby={readOnly ? readOnlyHintId : undefined}
         >
           <MessageSquareReply className="h-3.5 w-3.5" aria-hidden="true" />
           Respond
         </Button>
       </div>
+      {readOnly && (
+        <p
+          id={readOnlyHintId}
+          className="mt-1.5 text-right text-xs text-amber-700 dark:text-amber-400"
+          role="status"
+        >
+          Read-only — take control to type
+        </p>
+      )}
       {error && <p className="mt-1.5 text-xs text-destructive" role="alert">{error}</p>}
     </aside>
   );

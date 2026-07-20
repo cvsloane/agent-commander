@@ -230,6 +230,18 @@ function sameRosterSession(left: SessionWithSnapshot, right: SessionWithSnapshot
   );
 }
 
+function preferFresherSession(
+  current: SessionWithSnapshot | undefined,
+  incoming: SessionWithSnapshot
+): SessionWithSnapshot {
+  if (!current) return incoming;
+  const currentUpdatedAt = Date.parse(current.updated_at);
+  const incomingUpdatedAt = Date.parse(incoming.updated_at);
+  if (!Number.isFinite(incomingUpdatedAt)) return current;
+  if (!Number.isFinite(currentUpdatedAt)) return incoming;
+  return currentUpdatedAt > incomingUpdatedAt ? current : incoming;
+}
+
 const initialState = {
   sessionsById: {} as Record<string, SessionWithSnapshot>,
   orchestratorsById: {} as Record<string, OrchestratorFleetCard>,
@@ -242,15 +254,29 @@ const initialState = {
 export const useFleetStore = create<FleetStoreState>((set) => ({
   ...initialState,
   ingestAggregate: (response) => set((state) => {
-    const sessionsById = { ...state.sessionsById };
+    const rosterSessionsById = new Map(
+      Object.values(state.rosterByHost)
+        .flat()
+        .map((session) => [session.id, session])
+    );
+    const sessionsById = Object.fromEntries(
+      [...rosterSessionsById].map(([id, rosterSession]) => [
+        id,
+        preferFresherSession(state.sessionsById[id], rosterSession),
+      ])
+    );
     const orchestratorsById: Record<string, OrchestratorFleetCard> = {};
     const orchestratorIds: string[] = [];
 
     for (const card of response.orchestrators) {
       orchestratorIds.push(card.session.id);
-      orchestratorsById[card.session.id] = card;
-      sessionsById[card.session.id] = card.session;
-      for (const child of card.children) sessionsById[child.id] = child;
+      const session = preferFresherSession(state.sessionsById[card.session.id], card.session);
+      const children = card.children.map((child) => (
+        preferFresherSession(state.sessionsById[child.id], child)
+      ));
+      orchestratorsById[card.session.id] = { ...card, session, children };
+      sessionsById[session.id] = session;
+      for (const child of children) sessionsById[child.id] = child;
     }
 
     const rosterByHost = Object.fromEntries(

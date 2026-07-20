@@ -144,6 +144,52 @@ describe('fleet store', () => {
     });
   });
 
+  it('keeps a fresher targeted session update when an older aggregate arrives later', () => {
+    const response = aggregate();
+    const family = response.orchestrators[0]!;
+    useFleetStore.getState().ingestAggregate(response);
+    useFleetStore.getState().setRoster(hostId, [family.session, ...family.children]);
+    const { latest_snapshot: _snapshot, ...changedSession } = family.session;
+
+    useFleetStore.getState().applySessionsChanged([{
+      ...changedSession,
+      status: 'ERROR',
+      updated_at: '2026-07-20T12:05:00.000Z',
+    }]);
+    useFleetStore.getState().ingestAggregate(response);
+
+    expect(useFleetStore.getState().sessionsById[family.session.id]).toMatchObject({
+      status: 'ERROR',
+      updated_at: '2026-07-20T12:05:00.000Z',
+    });
+    expect(selectFleetCards(useFleetStore.getState())[0]?.session.status).toBe('ERROR');
+    expect(selectFleetRosterGroups(useFleetStore.getState(), [hostId])[0]).toMatchObject({
+      kind: 'orchestrator',
+      orchestrator: { session: { status: 'ERROR' } },
+    });
+  });
+
+  it('prunes canonical sessions that are absent from both aggregate and current rosters', () => {
+    const rosterSession = session('00000000-0000-4000-8000-000000000006', {
+      title: 'Standalone roster session',
+    });
+    const removedSession = session('00000000-0000-4000-8000-000000000007', {
+      archived_at: '2026-07-20T12:10:00.000Z',
+      latest_snapshot: {
+        created_at: '2026-07-20T12:09:00.000Z',
+        capture_text: 'Archived output that should be released',
+        capture_hash: 'archived-snapshot',
+      },
+    });
+    useFleetStore.getState().setRoster(hostId, [rosterSession, removedSession]);
+    useFleetStore.getState().setRoster(hostId, [rosterSession]);
+
+    useFleetStore.getState().ingestAggregate(aggregate());
+
+    expect(useFleetStore.getState().sessionsById[rosterSession.id]).toBe(rosterSession);
+    expect(useFleetStore.getState().sessionsById[removedSession.id]).toBeUndefined();
+  });
+
   it('applies session event deltas to both presentations without losing snapshot context', () => {
     const response = aggregate();
     const family = response.orchestrators[0]!;

@@ -40,6 +40,8 @@ export function TerminalView({
   const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const sendInputRef = useRef<(data: string) => void>(() => undefined);
+  const controllerInstanceRef = useRef<TerminalController | null>(null);
+  const controllerReadOnlyRef = useRef(false);
   const [hasCommittedSelection, setHasCommittedSelection] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -160,6 +162,7 @@ export function TerminalView({
     getDimensions,
     onOutputWritten: scrollAnchor.handleOutputWritten,
   });
+  controllerReadOnlyRef.current = readOnly;
   useEffect(() => {
     sendInputRef.current = sendInput;
   }, [sendInput]);
@@ -182,25 +185,36 @@ export function TerminalView({
     terminalRef,
     sendInput,
   });
+  const {
+    copySelection,
+    copyLastLines,
+    copyAll,
+    paste,
+  } = terminalClipboard;
 
   useEffect(() => {
     if (!controllerRef && !onControllerChange) return;
     const controller: TerminalController = {
+      readOnly: controllerReadOnlyRef.current,
       attach: () => void connect(),
       detach: disconnect,
       suspend,
       takeControl,
       focus: () => terminalRef.current?.focus(),
-      copySelection: terminalClipboard.copySelection,
-      copyLastLines: (lines = 50) => terminalClipboard.copyLastLines(lines),
-      copyAll: terminalClipboard.copyAll,
-      paste: () => void terminalClipboard.paste(),
+      copySelection,
+      copyLastLines: (lines = 50) => copyLastLines(lines),
+      copyAll,
+      paste: () => void paste(),
     };
     if (controllerRef) {
       controllerRef.current = controller;
     }
+    controllerInstanceRef.current = controller;
     onControllerChange?.(controller);
     return () => {
+      if (controllerInstanceRef.current === controller) {
+        controllerInstanceRef.current = null;
+      }
       if (controllerRef?.current === controller) {
         controllerRef.current = null;
       }
@@ -209,13 +223,23 @@ export function TerminalView({
   }, [
     connect,
     controllerRef,
+    copyAll,
+    copyLastLines,
+    copySelection,
     disconnect,
     onControllerChange,
+    paste,
     terminalRef,
-    terminalClipboard,
     suspend,
     takeControl,
   ]);
+
+  useEffect(() => {
+    const controller = controllerInstanceRef.current;
+    if (!controller || controller.readOnly === readOnly) return;
+    controller.readOnly = readOnly;
+    onControllerChange?.(controller);
+  }, [onControllerChange, readOnly]);
 
   useEffect(() => {
     const touchState = touchScrollRef.current;

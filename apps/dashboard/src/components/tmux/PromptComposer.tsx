@@ -51,11 +51,12 @@ export interface PromptComposerHandle {
 
 interface PromptComposerProps {
   session: Session;
+  readOnly?: boolean;
   onSendToOtherSession?: (targetSessionId: string) => void;
 }
 
 export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerProps>(
-  function PromptComposer({ session, onSendToOtherSession }, ref) {
+  function PromptComposer({ session, readOnly = false, onSendToOtherSession }, ref) {
     const [expanded, setExpanded] = useState(false);
     const [prompt, setPrompt] = useState('');
     const [historyIndex, setHistoryIndex] = useState(-1);
@@ -107,7 +108,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     const submit = async (event?: FormEvent) => {
       event?.preventDefault();
       const normalized = prompt.trim();
-      if (!normalized || sending) return;
+      if (!normalized || sending || readOnly) return;
       setSending(true);
       setSendState(null);
       try {
@@ -152,6 +153,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     };
 
     if (!expanded) {
+      const readOnlyHintId = `prompt-composer-readonly-${session.id}`;
       return (
         <div className="shrink-0 border-t bg-background px-2 py-1.5">
           <Button
@@ -160,12 +162,19 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
             size="sm"
             className="h-8 w-full justify-start gap-2 text-muted-foreground"
             onClick={() => setExpanded(true)}
+            disabled={readOnly}
             aria-expanded="false"
             aria-controls={`prompt-composer-${session.id}`}
+            aria-describedby={readOnly ? readOnlyHintId : undefined}
           >
             <MessageSquarePlus className="h-4 w-4" aria-hidden="true" />
             Send a prompt
           </Button>
+          {readOnly && (
+            <p id={readOnlyHintId} className="px-2 pt-1 text-xs text-amber-700 dark:text-amber-400">
+              Read-only — take control to type
+            </p>
+          )}
         </div>
       );
     }
@@ -197,6 +206,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
           ref={textareaRef}
           id={`prompt-composer-input-${session.id}`}
           value={prompt}
+          disabled={readOnly}
           onChange={(event) => {
             setPrompt(event.target.value);
             setHistoryIndex(-1);
@@ -213,6 +223,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
             <div className="flex min-w-0 flex-1 gap-1.5">
               <select
                 value={targetSessionId}
+                disabled={readOnly}
                 onChange={(event) => setTargetSessionId(event.target.value)}
                 className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring"
                 aria-label="Other session target"
@@ -229,7 +240,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                 variant="outline"
                 size="sm"
                 className="h-8 gap-1.5"
-                disabled={!targetSessionId}
+                disabled={readOnly || !targetSessionId}
                 onClick={() => targetSessionId && onSendToOtherSession(targetSessionId)}
               >
                 <Forward className="h-3.5 w-3.5" aria-hidden="true" />
@@ -241,7 +252,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
             type="submit"
             size="sm"
             className="h-8 gap-1.5 sm:ml-auto"
-            disabled={!prompt.trim() || sending}
+            disabled={readOnly || !prompt.trim() || sending}
           >
             {sending
               ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
@@ -249,6 +260,11 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
             Send prompt
           </Button>
         </div>
+        {readOnly && (
+          <p className="text-xs text-amber-700 dark:text-amber-400" role="status">
+            Read-only — take control to type
+          </p>
+        )}
         <p
           className={sendState?.type === 'error' ? 'text-xs text-destructive' : 'text-xs text-emerald-700 dark:text-emerald-400'}
           role={sendState?.type === 'error' ? 'alert' : 'status'}
