@@ -20,3 +20,5 @@
 {"ts":"2026-07-21T02:30:00Z","event":"agentd_rollout_complete","hosts":["homelinux","heavisidelinux"],"topology_events":true}
 {"ts":"2026-07-21T03:10:00Z","event":"lane_frozen","lane":"FW4-FLEET","attempt":1,"frozen_sha":"9081a13","verdict":"accepted"}
 {"ts":"2026-07-21T04:40:00Z","event":"wave_complete","wave":4,"reviewer_verdict":"SHIP-WITH-NOTES","notes_closed_in":"FW4-FLEET-R2 + FW4-SURFACES-R2","gate":"green"}
+{"ts":"2026-07-21T05:20:00Z","event":"wave_merged","wave":4,"main_sha":"fa0ba72","pr":89}
+{"ts":"2026-07-21T05:25:00Z","event":"wave_launched","wave":5,"lanes":["FW5-POLISH","FW5-QA"]}
