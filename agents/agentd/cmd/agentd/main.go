@@ -479,12 +479,16 @@ func (a *Agent) Run() error {
 
 	// Register additive topology hooks when the host tmux supports them. The
 	// reconciliation poll remains active as the fallback and correctness pass.
-	a.tmuxHooks, err = a.tmuxClient.StartTopologyHooks(a.handleTmuxTopologyHook)
-	if err != nil {
-		log.Printf("tmux hooks unavailable; using poll-only topology: %v", err)
-	} else {
-		defer a.tmuxHooks.Close()
-		log.Printf("tmux topology hooks active")
+	// Skipped entirely while topology events are disabled: hooks would mutate
+	// the user's tmux server and trigger ListPanes for events that get dropped.
+	if a.cfg.Tmux.TopologyEvents {
+		a.tmuxHooks, err = a.tmuxClient.StartTopologyHooks(a.handleTmuxTopologyHook)
+		if err != nil {
+			log.Printf("tmux hooks unavailable; using poll-only topology: %v", err)
+		} else {
+			defer a.tmuxHooks.Close()
+			log.Printf("tmux topology hooks active")
+		}
 	}
 
 	// Connect to control plane
