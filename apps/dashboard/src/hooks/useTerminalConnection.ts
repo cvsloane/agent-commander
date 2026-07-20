@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { getWebSocketTicket } from '@/lib/wsToken';
 import {
   initialReconnectState,
@@ -19,6 +19,8 @@ import {
 import { calculateKeyboardInset, calculateTerminalViewportHeight } from '@/components/terminal/viewport';
 import { handleTerminalOutputFrame } from '@/components/terminal/terminalFrameRouter';
 import { beginTerminalFrameTiming } from '@/components/terminal/terminalFrameTiming';
+import { createSettledTerminalResize } from './terminalGrid';
+import { useTerminalGrid } from './terminalGridContext';
 
 export function useTerminalConnection({
   sessionId,
@@ -43,7 +45,11 @@ export function useTerminalConnection({
   getDimensions: () => { cols: number; rows: number } | undefined;
   onOutputWritten: (terminal: XTerminal) => void;
 }) {
-  const fitTimerRef = useRef<number | null>(null);
+  const letterbox = useTerminalGrid();
+  const settledResize = useMemo(
+    () => createSettledTerminalResize(fitAndResize),
+    [fitAndResize]
+  );
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectStateRef = useRef<ReconnectState>(initialReconnectState);
   const readOnlyRef = useRef(false);
@@ -160,7 +166,8 @@ export function useTerminalConnection({
           ticket,
         }),
         getDimensions(),
-        resumeTokenRef.current ?? undefined
+        resumeTokenRef.current ?? undefined,
+        Boolean(letterbox)
       ));
       ws.binaryType = 'arraybuffer';
       wsRef.current = ws;
@@ -290,12 +297,7 @@ export function useTerminalConnection({
         }
       };
 
-      if (fitTimerRef.current) {
-        window.clearTimeout(fitTimerRef.current);
-      }
-      fitTimerRef.current = window.setTimeout(() => {
-        fitAndResize();
-      }, 60);
+      settledResize.schedule();
     } finally {
       if (generation === connectionGenerationRef.current) {
         connectingRef.current = false;
@@ -307,9 +309,11 @@ export function useTerminalConnection({
     ensureTerminal,
     fitAndResize,
     getDimensions,
+    letterbox,
     onOutputWritten,
     paneId,
     sessionId,
+    settledResize,
     terminalRef,
     updateErrorMessage,
     updateLagMessage,
@@ -423,13 +427,8 @@ export function useTerminalConnection({
 
   const handleViewportResize = useCallback(() => {
     updateViewportHeight();
-    if (fitTimerRef.current) {
-      window.clearTimeout(fitTimerRef.current);
-    }
-    fitTimerRef.current = window.setTimeout(() => {
-      fitAndResize();
-    }, 100);
-  }, [fitAndResize, updateViewportHeight]);
+    settledResize.schedule();
+  }, [settledResize, updateViewportHeight]);
 
   const handleOnline = useCallback(() => {
     reconnectImmediately({ type: 'online' });
@@ -459,7 +458,6 @@ export function useTerminalConnection({
         resizeObserver?.observe(containerRef.current);
       }
       window.visualViewport?.addEventListener('resize', handleViewportResize);
-      window.visualViewport?.addEventListener('scroll', handleViewportResize);
       window.addEventListener('orientationchange', handleViewportResize);
       window.addEventListener('online', handleOnline);
       document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -468,12 +466,9 @@ export function useTerminalConnection({
     return () => {
       resizeObserver?.disconnect();
       disconnect();
-      if (fitTimerRef.current) {
-        window.clearTimeout(fitTimerRef.current);
-      }
+      settledResize.cancel();
       if (typeof window !== 'undefined') {
         window.visualViewport?.removeEventListener('resize', handleViewportResize);
-        window.visualViewport?.removeEventListener('scroll', handleViewportResize);
         window.removeEventListener('orientationchange', handleViewportResize);
         window.removeEventListener('online', handleOnline);
         document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -487,6 +482,7 @@ export function useTerminalConnection({
     handleVisibilityChange,
     paneId,
     sessionId,
+    settledResize,
     updateViewportHeight,
   ]);
 

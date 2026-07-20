@@ -11,6 +11,7 @@ import { TerminalAttentionOverlay } from '@/components/orchestrator/TerminalAtte
 import { Button } from '@/components/ui/button';
 import { useHydrated } from '@/hooks/useHydrated';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { getLetterboxDimensions } from '@/hooks/terminalGrid';
 import { getSession } from '@/lib/api';
 import { getSessionDisplayName } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
@@ -85,6 +86,11 @@ export function TmuxTerminalWorkspace({
   const rosterSessions = useTmuxTopologyStore(
     (state) => state.rosterByHost[primarySession.host_id]
   );
+  const hostTopology = useTmuxTopologyStore((state) => state.hosts[primarySession.host_id]);
+  const primaryLetterbox = useMemo(
+    () => getLetterboxDimensions(hostTopology, primarySession),
+    [hostTopology, primarySession]
+  );
   const options = useMemo(
     () =>
       (rosterSessions ?? []).filter(
@@ -116,6 +122,7 @@ export function TmuxTerminalWorkspace({
     sessionId: primarySession.id,
     paneId: primarySession.tmux_pane_id || undefined,
     autoAttach: autoAttachPrimary || showSecondary,
+    letterbox: primaryLetterbox,
   });
   const readOnly = terminalHostSnapshot.descriptorKey === primaryTerminalKey
     && terminalHostSnapshot.readOnly;
@@ -169,6 +176,7 @@ export function TmuxTerminalWorkspace({
               sessionId={primarySession.id}
               paneId={primarySession.tmux_pane_id || undefined}
               autoAttach={autoAttachPrimary || showSecondary}
+              letterbox={primaryLetterbox}
               controllerRef={primaryControllerRef}
               className="h-full"
             />

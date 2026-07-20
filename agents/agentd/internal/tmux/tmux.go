@@ -14,27 +14,28 @@ import (
 )
 
 type Pane struct {
-	PaneID           string
-	PanePID          int
-	SessionName      string
-	WindowName       string
-	WindowIndex      int
-	PaneIndex        int
-	CurrentPath      string
-	CurrentCommand   string
-	PaneTitle        string
-	ProviderOverride string
-	SessionID        string
-	ParentSessionID  string
-	PaneActive       bool
-	WindowActive     bool
-	WindowZoomed     bool
-	WindowLayout     string
-	PaneWidth        int
-	PaneHeight       int
-	WindowBell       bool
-	WindowActivity   bool
-	SessionAttached  bool
+	PaneID                 string
+	PanePID                int
+	SessionName            string
+	WindowName             string
+	WindowIndex            int
+	PaneIndex              int
+	CurrentPath            string
+	CurrentCommand         string
+	PaneTitle              string
+	ProviderOverride       string
+	SessionID              string
+	ParentSessionID        string
+	PaneActive             bool
+	WindowActive           bool
+	WindowZoomed           bool
+	WindowLayout           string
+	PaneWidth              int
+	PaneHeight             int
+	WindowBell             bool
+	WindowActivity         bool
+	SessionAttached        bool
+	SessionAttachedClients int
 }
 
 type Client struct {
@@ -144,6 +145,7 @@ func parsePaneLine(line string) (Pane, bool) {
 		var attachedClients int
 		fmt.Sscanf(fields[20], "%d", &attachedClients)
 		pane.SessionAttached = attachedClients > 0
+		pane.SessionAttachedClients = attachedClients
 	}
 	return pane, true
 }

@@ -216,6 +216,7 @@ export type TmuxTopologyWindow = z.infer<typeof TmuxTopologyWindowSchema>;
 export const TmuxTopologySessionSchema = z.object({
   session_name: z.string().min(1),
   attached: z.boolean(),
+  attached_clients: z.number().int().nonnegative().optional(),
   windows: z.array(TmuxTopologyWindowSchema),
 });
 export type TmuxTopologySession = z.infer<typeof TmuxTopologySessionSchema>;
@@ -311,6 +312,7 @@ export const TerminalAttachMessageSchema = ServerMessageEnvelopeSchema.extend({
     cols: TerminalDimensionSchema.optional(),
     rows: TerminalDimensionSchema.optional(),
     resume_token: z.string().min(1).optional(),
+    letterbox: z.boolean().optional(),
   }),
 });
 export type TerminalAttachMessage = z.infer<typeof TerminalAttachMessageSchema>;

@@ -18,6 +18,7 @@ import {
   type TerminalHostDescriptor,
 } from './terminalHostStore';
 import { cn } from '@/lib/utils';
+import { TerminalGridContext } from '@/hooks/terminalGridContext';
 
 export const TERMINAL_BACKGROUND_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -34,6 +35,7 @@ export function PersistentTerminalSlot({
   sessionId,
   paneId,
   autoAttach,
+  letterbox,
   className,
   controllerRef,
 }: PersistentTerminalSlotProps) {
@@ -46,7 +48,7 @@ export function PersistentTerminalSlot({
 
     const unregister = terminalHostStore.registerSurface({
       id,
-      descriptor: { sessionId, paneId, autoAttach },
+      descriptor: { sessionId, paneId, autoAttach, letterbox },
       target,
       visible: isSurfaceVisible(target),
       controllerRef,
@@ -60,7 +62,7 @@ export function PersistentTerminalSlot({
       resizeObserver.disconnect();
       unregister();
     };
-  }, [autoAttach, controllerRef, id, paneId, sessionId]);
+  }, [autoAttach, controllerRef, id, letterbox, paneId, sessionId]);
 
   return (
     <div
@@ -147,14 +149,16 @@ export function PersistentTerminalHost() {
     <>
       <div ref={parkingRef} hidden aria-hidden="true" data-terminal-parking />
       {portalNode && snapshot.descriptor && createPortal(
-        <TerminalView
-          key={snapshot.descriptorKey}
-          sessionId={snapshot.descriptor.sessionId}
-          paneId={snapshot.descriptor.paneId}
-          autoAttach={snapshot.descriptor.autoAttach}
-          onControllerChange={handleControllerChange}
-          onTerminalInstanceChange={handleTerminalInstanceChange}
-        />,
+        <TerminalGridContext.Provider value={snapshot.descriptor.letterbox}>
+          <TerminalView
+            key={snapshot.descriptorKey}
+            sessionId={snapshot.descriptor.sessionId}
+            paneId={snapshot.descriptor.paneId}
+            autoAttach={snapshot.descriptor.autoAttach}
+            onControllerChange={handleControllerChange}
+            onTerminalInstanceChange={handleTerminalInstanceChange}
+          />
+        </TerminalGridContext.Provider>,
         portalNode
       )}
     </>

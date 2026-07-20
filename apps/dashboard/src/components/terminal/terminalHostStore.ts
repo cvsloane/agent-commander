@@ -1,10 +1,12 @@
 import type { MutableRefObject } from 'react';
 import type { TerminalController, XTerminal } from './types';
+import type { TerminalGridDimensions } from '@/hooks/terminalGrid';
 
 export interface TerminalHostDescriptor {
   sessionId: string;
   paneId?: string;
   autoAttach: boolean;
+  letterbox?: TerminalGridDimensions;
 }
 
 export interface TerminalHostSnapshot {
@@ -35,7 +37,10 @@ const EMPTY_SNAPSHOT: TerminalHostSnapshot = {
 };
 
 export function getTerminalDescriptorKey(descriptor: TerminalHostDescriptor): string {
-  return `${descriptor.sessionId}\u0000${descriptor.paneId || ''}`;
+  const grid = descriptor.letterbox
+    ? `${descriptor.letterbox.cols}x${descriptor.letterbox.rows}`
+    : 'fit';
+  return `${descriptor.sessionId}\u0000${descriptor.paneId || ''}\u0000${grid}`;
 }
 
 export function createTerminalHostStore() {

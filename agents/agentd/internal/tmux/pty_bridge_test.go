@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"io"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -40,6 +41,75 @@ func TestPtyBridgeCreatesGroupedReadOnlyViewerAtRequestedSize(t *testing.T) {
 	}
 	if got, want := runner.startSize, (TerminalSize{Cols: 132, Rows: 43}); got != want {
 		t.Fatalf("initial size=%+v, want=%+v", got, want)
+	}
+}
+
+func TestViewerPTYBridgePinsAndReleasesLetterboxedWindow(t *testing.T) {
+	runner := newFakeTmuxRunner()
+	runner.outputs["display-message -p -t %7 #{session_name}\t#{window_index}\t#{pane_index}"] = []byte("agents\t2\t1\n")
+
+	bridge, err := newViewerPTYBridge(runner, viewerPTYOptions{
+		ChannelID:   "channel-1",
+		PaneID:      "%7",
+		Cols:        160,
+		Rows:        50,
+		Letterbox:   true,
+		ResumeToken: "resume-1",
+	})
+	if err != nil {
+		t.Fatalf("newViewerPTYBridge: %v", err)
+	}
+	if !runner.hasRun([]string{"set-option", "-w", "-t", "ac-view-channel-1:2", "window-size", "manual"}) {
+		t.Fatal("letterboxed window was not pinned to manual sizing")
+	}
+	if !runner.hasRun([]string{"resize-window", "-t", "ac-view-channel-1:2", "-x", "160", "-y", "50"}) {
+		t.Fatal("letterboxed window was not resized to the requested grid")
+	}
+
+	bridge.close(false)
+	if !runner.hasRun([]string{"set-option", "-w", "-t", "ac-view-channel-1:2", "window-size", "latest"}) {
+		t.Fatal("letterboxed window did not release latest sizing on close")
+	}
+}
+
+func TestViewerPTYBridgeLetterboxUsesPrivateTmuxSocket(t *testing.T) {
+	client, _ := newPrivateTmuxClient(t)
+	panes, err := client.ListPanes()
+	if err != nil {
+		t.Fatalf("list private panes: %v", err)
+	}
+	if len(panes) != 1 {
+		t.Fatalf("private pane count=%d, want 1", len(panes))
+	}
+	runner := newExecTmuxRunner(client)
+	bridge, err := newViewerPTYBridge(runner, viewerPTYOptions{
+		ChannelID:   "letterbox-integration",
+		PaneID:      panes[0].PaneID,
+		Cols:        120,
+		Rows:        40,
+		Letterbox:   true,
+		ResumeToken: "resume-integration",
+	})
+	if err != nil {
+		t.Fatalf("newViewerPTYBridge on private socket: %v", err)
+	}
+
+	if output, err := runner.Output("show-options", "-w", "-v", "-t", "hook-test:0", "window-size"); err != nil {
+		t.Fatalf("show pinned window-size: %v", err)
+	} else if got := strings.TrimSpace(string(output)); got != "manual" {
+		t.Fatalf("pinned window-size=%q, want manual", got)
+	}
+	if output, err := runner.Output("display-message", "-p", "-t", "hook-test:0", "#{window_width}x#{window_height}"); err != nil {
+		t.Fatalf("show pinned dimensions: %v", err)
+	} else if got := strings.TrimSpace(string(output)); got != "120x40" {
+		t.Fatalf("pinned dimensions=%q, want 120x40", got)
+	}
+
+	bridge.close(false)
+	if output, err := runner.Output("show-options", "-w", "-v", "-t", "hook-test:0", "window-size"); err != nil {
+		t.Fatalf("show released window-size: %v", err)
+	} else if got := strings.TrimSpace(string(output)); got != "latest" {
+		t.Fatalf("released window-size=%q, want latest", got)
 	}
 }
 

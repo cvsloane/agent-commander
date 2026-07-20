@@ -37,6 +37,7 @@ describe('protocol fixtures', () => {
 
   it.each([
     'terminal-attach.json',
+    'terminal-attach-letterbox.json',
     'terminal-input.json',
     'commands-dispatch-send-input.json',
   ])('validates server-to-agent message fixture %s', (name) => {

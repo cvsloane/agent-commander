@@ -30,6 +30,9 @@ func buildTmuxTopology(reason string, panes []tmux.Pane) protocol.TmuxTopologyPa
 			sessionsByName[pane.SessionName] = session
 		}
 		session.Attached = session.Attached || pane.SessionAttached
+		if pane.SessionAttachedClients > session.AttachedClients {
+			session.AttachedClients = pane.SessionAttachedClients
+		}
 
 		key := windowKey{sessionName: pane.SessionName, windowIndex: pane.WindowIndex}
 		windowIndex, exists := windowsByKey[key]
