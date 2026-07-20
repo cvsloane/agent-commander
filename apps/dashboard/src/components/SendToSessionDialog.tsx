@@ -132,6 +132,7 @@ export function SendToSessionDialog({
             onClick={onClose}
             className="p-1 hover:bg-accent rounded"
             disabled={isLoading}
+            aria-label="Close send-to-session dialog"
           >
             <X className="h-4 w-4" />
           </button>

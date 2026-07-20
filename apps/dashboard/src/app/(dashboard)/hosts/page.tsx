@@ -9,6 +9,7 @@ import { APIError, generateHostToken, getHosts, updateHostCapabilities } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   Dialog,
   DialogContent,
@@ -148,7 +149,7 @@ function DirectoryAccessEditor({ host, onClose }: DirectoryAccessEditorProps) {
       )}
 
       {error && <p className="text-xs text-destructive">{error}</p>}
-      {saved && <p className="text-xs text-green-600">Saved</p>}
+      {saved && <p className="text-xs text-emerald-700 dark:text-emerald-400">Saved</p>}
 
       <div className="flex gap-2">
         <Button
@@ -521,15 +522,16 @@ export default function HostsPage() {
       )}
 
       {hosts.length === 0 ? (
-        <div className="rounded-lg border border-dashed py-12 text-center text-muted-foreground">
-          <p>No hosts registered</p>
-          <p className="text-sm mt-2">Install agentd on a machine to register it</p>
-          {canManageEnrollment && (
-            <Button size="mobile" className="mt-4" onClick={() => setAddHostOpen(true)}>
+        <EmptyState
+          icon={Server}
+          title="No hosts registered"
+          description="Install agentd on a machine to register it."
+          action={canManageEnrollment ? (
+            <Button size="mobile" onClick={() => setAddHostOpen(true)}>
               Add your first host
             </Button>
-          )}
-        </div>
+          ) : undefined}
+        />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {hosts.map((host) => {

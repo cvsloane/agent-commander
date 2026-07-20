@@ -22,6 +22,7 @@ import { PushNotificationPrompt } from '@/components/pwa/PushNotificationPrompt'
 import { MobileBottomNav } from './MobileBottomNav';
 import { PersistentTerminalHost } from '@/components/terminal/PersistentTerminalHost';
 import { GlobalCommandPalette } from '@/components/search/CommandPalette';
+import { useKeyboardViewport } from '@/hooks/useKeyboardViewport';
 
 interface LayoutShellProps {
   children: React.ReactNode;
@@ -36,6 +37,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const recentSessions = useUIStore((state) => state.recentSessions);
   const pathname = usePathname();
   const isSessionsRoute = pathname?.startsWith('/sessions');
+  const keyboardOpen = useKeyboardViewport();
 
   // Attention surface hooks - use orchestrator as source of truth
   useAttentionNotifications();
@@ -143,7 +145,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
         <PersistentTerminalHost />
         <GlobalCommandPalette />
 
-        <MobileBottomNav />
+        <MobileBottomNav hidden={keyboardOpen} />
 
         {/* Group Modal - shared across all pages */}
         <GroupModal

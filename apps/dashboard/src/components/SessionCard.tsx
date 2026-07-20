@@ -283,6 +283,7 @@ export const SessionCard = memo(function SessionCard({
             onClick={handleIdleToggle}
             disabled={idlePending}
             title={isManualIdle ? 'Wake session' : 'Mark idle'}
+            aria-label={isManualIdle ? 'Wake session' : 'Mark session idle'}
           >
             {isManualIdle ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </Button>
@@ -292,6 +293,7 @@ export const SessionCard = memo(function SessionCard({
             className="h-7 w-7 text-destructive hover:text-destructive"
             onClick={handleTerminate}
             disabled={isTerminating}
+            aria-label="Terminate session"
             title="Terminate session"
           >
             <Power className="h-4 w-4" />
@@ -320,6 +322,7 @@ export const SessionCard = memo(function SessionCard({
               className="h-6 w-6"
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); saveTitle(); }}
               disabled={isSaving}
+              aria-label="Save session title"
             >
               <Check className="h-3 w-3" />
             </Button>
@@ -329,6 +332,7 @@ export const SessionCard = memo(function SessionCard({
               className="h-6 w-6"
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); cancelEditing(); }}
               disabled={isSaving}
+              aria-label="Cancel editing session title"
             >
               <X className="h-3 w-3" />
             </Button>
@@ -344,6 +348,7 @@ export const SessionCard = memo(function SessionCard({
                   'opacity-0 group-hover:opacity-100 transition-opacity',
                   isMobile ? 'h-8 w-8 opacity-100' : 'h-6 w-6'
                 )}
+                aria-label="Edit session title"
                 onClick={startEditing}
               >
                 <Pencil className={cn(isMobile ? 'h-4 w-4' : 'h-3 w-3')} />

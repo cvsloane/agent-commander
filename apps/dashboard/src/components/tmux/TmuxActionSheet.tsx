@@ -21,6 +21,7 @@ import {
 import type { Session } from '@agent-command/schema';
 import type { TerminalController } from '@/components/TerminalView';
 import { Button } from '@/components/ui/button';
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { getSessionDisplayName } from '@/lib/utils';
 import { TmuxPaneControls } from './TmuxPaneControls';
 
@@ -49,23 +50,19 @@ export function TmuxActionSheet({
   onOpenMcp,
   onTerminate,
 }: TmuxActionSheetProps) {
-  if (!open) return null;
-
   const title = session ? getSessionDisplayName(session) : 'No pane selected';
 
   return (
-    <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm lg:hidden" role="dialog" aria-modal="true">
-      <button
-        type="button"
-        aria-label="Dismiss action sheet"
-        className="absolute inset-0 cursor-default"
-        onClick={onClose}
-      />
-      <div className="absolute inset-x-0 bottom-0 max-h-[92dvh] overflow-y-auto rounded-t-xl border bg-background pb-[env(safe-area-inset-bottom)] shadow-lg">
+    <Sheet open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
+      <SheetContent
+        side="bottom"
+        hideClose
+        className="max-h-[92dvh] gap-0 overflow-y-auto rounded-t-xl p-0 pb-[env(safe-area-inset-bottom)] lg:hidden"
+      >
         <div className="flex items-start justify-between gap-3 border-b px-4 py-3">
           <div className="min-w-0">
-            <div className="text-sm font-semibold">Pane actions</div>
-            <div className="truncate text-xs text-muted-foreground">{title}</div>
+            <SheetTitle className="text-sm font-semibold">Pane actions</SheetTitle>
+            <SheetDescription className="truncate text-xs">{title}</SheetDescription>
           </div>
           <Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={onClose} aria-label="Close actions">
             <X className="h-4 w-4" />
@@ -199,7 +196,7 @@ export function TmuxActionSheet({
             Kill pane
           </Button>
         </div>
-      </div>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }

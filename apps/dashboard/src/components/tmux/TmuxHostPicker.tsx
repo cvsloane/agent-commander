@@ -25,7 +25,7 @@ export function TmuxHostPicker({ hosts, selectedHostId, onSelectHost }: TmuxHost
           onClick={() => onSelectHost(ALL_TMUX_HOSTS_ID)}
           disabled={onlineHostCount === 0}
           className={cn(
-            'inline-flex min-h-11 items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
+            'inline-flex min-h-11 items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             selectedHostId === ALL_TMUX_HOSTS_ID
               ? 'border-primary bg-primary text-primary-foreground'
               : 'bg-background hover:bg-accent hover:text-accent-foreground disabled:opacity-50'
@@ -48,7 +48,7 @@ export function TmuxHostPicker({ hosts, selectedHostId, onSelectHost }: TmuxHost
               type="button"
               onClick={() => onSelectHost(host.id)}
               className={cn(
-                'inline-flex min-h-11 items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
+                'inline-flex min-h-11 items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 active
                   ? 'border-primary bg-primary text-primary-foreground'
                   : 'bg-background hover:bg-accent hover:text-accent-foreground'
@@ -57,7 +57,7 @@ export function TmuxHostPicker({ hosts, selectedHostId, onSelectHost }: TmuxHost
               <span
                 className={cn(
                   'h-2 w-2 rounded-full',
-                  online ? 'bg-green-500' : active ? 'bg-primary-foreground/70' : 'bg-gray-400'
+                  online ? 'bg-emerald-500' : active ? 'bg-primary-foreground/70' : 'bg-muted-foreground'
                 )}
               />
               <span className="font-medium">{host.name}</span>

@@ -27,7 +27,11 @@ export function PersistentTerminalRegion({
   children?: ReactNode;
 }) {
   return (
-    <div hidden={!visible} aria-hidden={!visible} className={cn('space-y-3', !visible && 'hidden')}>
+    <div
+      hidden={!visible}
+      aria-hidden={!visible}
+      className={cn('space-y-3', visible && 'command-center-mode-view', !visible && 'hidden')}
+    >
       {children}
     </div>
   );
@@ -201,7 +205,7 @@ export function TmuxMobileShell({
             type="button"
             onClick={() => setMode('roster')}
             className={cn(
-              'flex h-10 items-center justify-center gap-2 rounded px-2 text-xs font-medium transition-colors',
+              'flex h-10 items-center justify-center gap-2 rounded px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               mode === 'roster' ? 'bg-background shadow-sm' : 'text-muted-foreground'
             )}
           >
@@ -213,7 +217,7 @@ export function TmuxMobileShell({
             onClick={() => setMode('terminal')}
             disabled={!selectedSessionId}
             className={cn(
-              'flex h-10 items-center justify-center gap-2 rounded px-2 text-xs font-medium transition-colors disabled:opacity-50',
+              'flex h-10 items-center justify-center gap-2 rounded px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
               mode === 'terminal' ? 'bg-background shadow-sm' : 'text-muted-foreground'
             )}
           >
@@ -225,7 +229,7 @@ export function TmuxMobileShell({
             onClick={() => setMode('actions')}
             disabled={!selectedSession}
             className={cn(
-              'flex h-10 items-center justify-center gap-2 rounded px-2 text-xs font-medium transition-colors disabled:opacity-50',
+              'flex h-10 items-center justify-center gap-2 rounded px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
               mode === 'actions' ? 'bg-background shadow-sm' : 'text-muted-foreground'
             )}
           >
@@ -236,7 +240,7 @@ export function TmuxMobileShell({
       </div>
 
       {mode === 'roster' && (
-        <div className="space-y-3">
+        <div className="command-center-mode-view space-y-3">
           <div className="-mx-4 overflow-x-auto px-4">
             <div className="flex min-w-max gap-2">
               <button
@@ -244,7 +248,7 @@ export function TmuxMobileShell({
                 onClick={() => onSelectHost(ALL_TMUX_HOSTS_ID)}
                 disabled={!hosts.some((host) => isHostOnline(host.last_seen_at ?? null))}
                 className={cn(
-                  'inline-flex h-11 items-center gap-2 rounded-md border px-3 text-sm transition-colors',
+                  'inline-flex h-11 items-center gap-2 rounded-md border px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   allHostsSelected
                     ? 'border-primary bg-primary text-primary-foreground'
                     : 'bg-background disabled:opacity-50'
@@ -261,13 +265,13 @@ export function TmuxMobileShell({
                     type="button"
                     onClick={() => onSelectHost(host.id)}
                     className={cn(
-                      'inline-flex h-11 items-center gap-2 rounded-md border px-3 text-sm transition-colors',
+                      'inline-flex h-11 items-center gap-2 rounded-md border px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                       active
                         ? 'border-primary bg-primary text-primary-foreground'
                         : 'bg-background'
                     )}
                   >
-                    <span className={cn('h-2 w-2 rounded-full', online ? 'bg-green-500' : 'bg-gray-400')} />
+                    <span className={cn('h-2 w-2 rounded-full', online ? 'bg-emerald-500' : 'bg-muted-foreground')} />
                     <span className="font-medium">{host.name}</span>
                   </button>
                 );

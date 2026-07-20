@@ -155,7 +155,10 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     if (!expanded) {
       const readOnlyHintId = `prompt-composer-readonly-${session.id}`;
       return (
-        <div className="shrink-0 border-t bg-background px-2 py-1.5">
+        <div
+          className="shrink-0 border-t bg-background px-2 pt-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))]"
+          data-terminal-bottom-controls
+        >
           <Button
             type="button"
             variant="ghost"
@@ -182,9 +185,10 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     return (
       <form
         id={`prompt-composer-${session.id}`}
-        className="shrink-0 space-y-2 border-t bg-background p-2"
+        className="shrink-0 space-y-2 border-t bg-background px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
         onSubmit={(event) => void submit(event)}
         data-testid="prompt-composer"
+        data-terminal-bottom-controls
       >
         <div className="flex items-center justify-between gap-2">
           <label htmlFor={`prompt-composer-input-${session.id}`} className="text-xs font-semibold">

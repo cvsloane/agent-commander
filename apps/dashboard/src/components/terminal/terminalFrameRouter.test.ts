@@ -8,7 +8,7 @@ describe('terminal output hot path', () => {
 
     for (let index = 0; index < 250; index += 1) {
       const handled = handleTerminalOutputFrame(
-        { type: 'output', data: `frame-${index}` },
+        { type: 'output', data: new TextEncoder().encode(`frame-${index}`) },
         write
       );
       if (!handled) statusOrStoreWrite();

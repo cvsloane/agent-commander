@@ -133,6 +133,7 @@ export function LinkedSessionsPanel({ sessionId, sourceGroupId, onSendTo }: Link
                 <button
                   onClick={() => setShowLinkDialog(false)}
                   className="p-1 hover:bg-accent rounded"
+                  aria-label="Close link-session dialog"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -264,6 +265,7 @@ function LinkedSessionCard({ link, onDelete, onSendTo, isDeleting }: LinkedSessi
             onClick={onSendTo}
             className="h-7 w-7"
             title="Send content to this session"
+            aria-label="Send content to this session"
           >
             <Send className="h-3 w-3" />
           </Button>
@@ -274,6 +276,7 @@ function LinkedSessionCard({ link, onDelete, onSendTo, isDeleting }: LinkedSessi
           onClick={onDelete}
           disabled={isDeleting}
           className="h-7 w-7 text-muted-foreground hover:text-destructive"
+          aria-label="Remove linked session"
           title="Remove link"
         >
           <X className="h-3 w-3" />

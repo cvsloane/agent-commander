@@ -145,6 +145,7 @@ export function VoiceInputButton({
                 size="icon"
                 className="h-5 w-5 shrink-0"
                 onClick={handleCancel}
+                aria-label="Cancel voice input"
               >
                 <X className="h-3 w-3" />
               </Button>

@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAttentionQueue } from '@/hooks/useAttentionQueue';
 import { useOrchestratorFleet } from '@/hooks/useOrchestratorFleet';
@@ -22,7 +23,7 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { assignAttentionToOrchestrators } from '@/lib/attentionMerge';
 import { cn } from '@/lib/utils';
 import { useOrchestratorStore } from '@/stores/orchestrator';
-import { OrchestratorFleetCard } from './OrchestratorFleetCard';
+import { OrchestratorFleetCard, OrchestratorFleetCardSkeleton } from './OrchestratorFleetCard';
 import { OrchestratorItem } from './OrchestratorItem';
 
 type AttentionTab = 'fleet' | 'attention';
@@ -96,7 +97,7 @@ export function OrchestratorSurface({
       )}>
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <Bell className="h-5 w-5 shrink-0 text-cyan-500 sm:h-6 sm:w-6" aria-hidden="true" />
+            <Bell className="h-5 w-5 shrink-0 text-primary sm:h-6 sm:w-6" aria-hidden="true" />
             <h1 className={cn('font-bold', presentation === 'page' ? 'text-xl sm:text-2xl' : 'text-lg')}>
               Attention
             </h1>
@@ -167,11 +168,12 @@ export function OrchestratorSurface({
               )}
 
               {!isLoading && items.length === 0 && (
-                <div className="rounded-xl border border-dashed py-14 text-center text-muted-foreground">
-                  <Bell className="mx-auto mb-3 h-12 w-12 opacity-25" />
-                  <p className="font-medium text-foreground">Nothing needs your attention</p>
-                  <p className="mt-1 text-sm">New prompts, approvals, and failed runs will appear here.</p>
-                </div>
+                <EmptyState
+                  icon={Bell}
+                  title="Nothing needs your attention"
+                  description="New prompts, approvals, and failed runs will appear here."
+                  className="min-h-72"
+                />
               )}
 
               {items.length > 0 && (
@@ -226,16 +228,15 @@ export function OrchestratorSurface({
 
           <TabsContent value="fleet" className="space-y-4">
             {fleet.isLoading && (
-              <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground" role="status">
-                <Loader2 className="h-5 w-5 animate-spin" /> Loading orchestrator fleet…
-              </div>
+              <OrchestratorFleetCardSkeleton />
             )}
             {!fleet.isLoading && fleet.cards.length === 0 && (
-              <div className="rounded-xl border border-dashed py-14 text-center text-muted-foreground">
-                <Bot className="mx-auto mb-3 h-12 w-12 opacity-25" />
-                <p className="font-medium text-foreground">No orchestrator sessions are online</p>
-                <p className="mt-1 text-sm">Sessions with the orchestrator role will appear here.</p>
-              </div>
+              <EmptyState
+                icon={Bot}
+                title="No orchestrator sessions are online"
+                description="Sessions with the orchestrator role will appear here."
+                className="min-h-72"
+              />
             )}
             {fleet.cards.map((card) => (
               <OrchestratorFleetCard

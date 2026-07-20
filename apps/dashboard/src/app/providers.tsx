@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { SettingsSync } from '@/components/settings/SettingsSync';
 import { PWARegistration } from '@/components/pwa/PWARegistration';
+import { WebVitalsReporter } from '@/components/performance/WebVitalsReporter';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -25,6 +26,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <PWARegistration />
+          <WebVitalsReporter />
           <SettingsSync />
           {children}
         </TooltipProvider>

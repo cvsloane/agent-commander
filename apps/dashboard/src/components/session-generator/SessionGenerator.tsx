@@ -267,6 +267,7 @@ export function SessionGenerator({
             className="h-8 w-8"
             onClick={onClose}
             disabled={spawnProgress.status === 'spawning' || spawnProgress.status === 'linking'}
+            aria-label="Close session generator"
             title="Close (Esc)"
           >
             <X className="h-4 w-4" />

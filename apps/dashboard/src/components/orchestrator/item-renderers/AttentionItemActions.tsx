@@ -75,7 +75,7 @@ function YesNoButtons({
     <div className="flex gap-2">
       <Button
         size="sm"
-        className="flex-1 bg-green-600 hover:bg-green-700"
+        className="flex-1"
         onClick={() => void onRespond(yes.value)}
         disabled={loading}
       >

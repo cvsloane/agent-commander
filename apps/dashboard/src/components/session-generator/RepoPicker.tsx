@@ -214,6 +214,7 @@ export function RepoPicker({
                 className="ml-auto"
                 onClick={onOpenSettings}
                 title="Configure dev folders"
+                aria-label="Configure dev folders"
               >
                 <Settings className="h-4 w-4" />
               </Button>

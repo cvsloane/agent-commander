@@ -30,12 +30,14 @@ export function TmuxWindowRow({
   const status = getStatusIndicator(window.selectedPane.session.status);
 
   return (
-    <div className="rounded-lg border bg-background">
+    <div className="rounded-lg border bg-background" role="none">
       <button
         type="button"
+        role="treeitem"
+        aria-selected={windowSelected}
         onClick={() => onSelectSession(window.selectedPane.session.id)}
         className={cn(
-          'min-h-12 w-full rounded-lg px-3 py-2 text-left transition-colors',
+          'min-h-12 w-full rounded-lg px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
           windowSelected ? 'bg-accent/70' : 'hover:bg-accent/40'
         )}
       >
@@ -72,7 +74,7 @@ export function TmuxWindowRow({
         </div>
       </button>
 
-      <div className="space-y-1 px-2 pb-2">
+      <div className="space-y-1 px-2 pb-2" role="group">
         {window.panes.map((pane) => (
           <TmuxPaneRow
             key={pane.session.id}

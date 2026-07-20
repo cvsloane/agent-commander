@@ -61,7 +61,7 @@ export function OrchestratorItem({
     <Card className={cn(
       'relative transition-all',
       success && 'opacity-50',
-      item.action?.type === 'error' && 'border-red-500/50',
+      item.action?.type === 'error' && 'border-destructive/50',
       item.idledAt && 'border-dashed opacity-60'
     )}>
       <CardContent className="p-3">
@@ -93,7 +93,7 @@ export function OrchestratorItem({
 
             {error && <p className="mt-2 text-xs text-destructive" role="alert">{error}</p>}
             {success && (
-              <p className="mt-2 flex items-center gap-1 text-xs text-green-600" role="status">
+              <p className="mt-2 flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400" role="status">
                 <CheckCircle className="h-3 w-3" aria-hidden="true" />
                 Response sent
               </p>

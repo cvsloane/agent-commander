@@ -68,7 +68,7 @@ export function ShortcutsHelp({ isOpen, onClose }: ShortcutsHelpProps) {
             <Keyboard className="h-5 w-5 text-muted-foreground" />
             <h2 className="text-lg font-semibold">Keyboard Shortcuts</h2>
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-accent rounded">
+          <button onClick={onClose} className="p-1 hover:bg-accent rounded" aria-label="Close keyboard shortcuts">
             <X className="h-4 w-4" />
           </button>
         </div>
