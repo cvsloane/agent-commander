@@ -4,9 +4,12 @@ Agent Commander is a tmux-native control plane for running AI work across one or
 
 ![Dashboard Overview](images/dashboard-overview.png)
 
-## What changed in v0.2.0
+## Command Center
 
-- `/tmux` is now the primary working surface for live panes and windows.
+- `/` is the primary working surface for fleet status, live panes, windows, and terminal intervention.
+- `/tmux` remains a compatibility redirect to the Command Center.
+- The workspace supports window and pane management, persistent and two-up terminals, terminal history, prompt composition, and in-context attention handling.
+- Launch, add-host enrollment, and the command palette shorten common operator paths.
 - `/automation` adds orchestrators, workers, wakeups, governance approvals, and work queues.
 - `/memory` adds repo-scoped and global memory with procedural, semantic, episodic, and working tiers.
 - Hermes can now wake orchestrators externally and consume deterministic watchdog/governance summaries.
@@ -32,7 +35,7 @@ Agent Commander keeps its own core advantage: `agentd` and the session model rem
 
 - Host: a machine running `agentd`.
 - Session: a tmux pane or job with a stable ID and metadata.
-- Tmux manager: the `/tmux` surface that groups panes by host, tmux session, and window.
+- Command Center: the `/` surface that combines fleet state, the host roster, tmux windows and panes, and live terminal work.
 - Automation agent: an orchestrator or worker definition with wake, budget, memory, and concurrency policy.
 - Memory entry: a scoped knowledge object (`working`, `episodic`, `semantic`, or `procedural`) stored at repo or global scope.
 - Work item: a queued unit of autonomous work that can be claimed by a worker.
@@ -42,12 +45,13 @@ Agent Commander keeps its own core advantage: `agentd` and the session model rem
 
 ## Typical workflows
 
-### Tmux-first daily workflow
+### Command Center daily workflow
 
 1. Install `agentd` on a host and connect it to the control plane.
-2. Open `/tmux` and choose a host.
-3. Pick a live tmux window or pane and work from the inline terminal/control surface.
-4. Use `/sessions` and `/orchestrator` only when you need the broader operator view.
+2. Open `/` and choose a host from the fleet roster.
+3. Pick a live tmux window or pane and work from the inline terminal surface.
+4. Split or open a second terminal when comparing panes, and use the attention overlay when the session needs intervention.
+5. Use `/sessions` and `/orchestrator` when you need the broader operator view.
 
 ### Memory-backed workflow
 
@@ -65,7 +69,10 @@ Agent Commander keeps its own core advantage: `agentd` and the session model rem
 
 ## Feature map
 
-- Tmux-first live manager for windows and panes
+- Command Center for fleet, windows, panes, and live terminals
+- Window creation, rename, close, and pane split, select, zoom, and termination
+- Persistent single-terminal and desktop two-up terminal layouts
+- Unified launch rail/mobile sheet, add-host enrollment, and command palette
 - Spawn, rename, kill, fork, idle, wake, and inspect sessions
 - Live console streaming with read-only and control modes
 - Orchestrator attention queue for waiting input, approvals, and errors

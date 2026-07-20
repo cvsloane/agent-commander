@@ -42,21 +42,24 @@ export function TmuxOrchestratorRow({
     <details
       open={expanded}
       onToggle={(event) => onExpandedChange(event.currentTarget.open)}
+      role="none"
       className={cn(
         'rounded-xl border bg-background transition-colors',
         active && 'border-primary bg-primary/5'
       )}
     >
       <summary
+        role="treeitem"
         className={cn(
-          'flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition-colors marker:hidden [&::-webkit-details-marker]:hidden',
+          'flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition-colors marker:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden',
           expanded ? 'bg-accent/40' : 'hover:bg-accent/30'
         )}
         aria-expanded={expanded}
+        aria-selected={active}
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <Network className="h-4 w-4 shrink-0 text-cyan-600 dark:text-cyan-400" />
+            <Network className="h-4 w-4 shrink-0 text-primary" />
             <span className="truncate font-medium">{group.title}</span>
             <Badge variant="outline" className="h-5 shrink-0 px-1.5 text-[10px]">Orchestrator</Badge>
             <SessionHealthBadges
@@ -86,7 +89,7 @@ export function TmuxOrchestratorRow({
       </summary>
 
       {expanded && (
-        <div className="space-y-2 border-t px-2 pb-2 pt-2">
+        <div className="space-y-2 border-t px-2 pb-2 pt-2" role="group">
           <div className="flex items-center gap-2 px-3 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             <Bot className="h-3.5 w-3.5" /> Lead terminal
           </div>

@@ -6,7 +6,8 @@ Sessions are the core execution unit in Agent Commander. A session usually maps 
 
 ## Where to work
 
-- `/tmux` is the primary day-to-day surface for live tmux panes and windows.
+- `/` is the primary Command Center for live tmux panes and windows.
+- `/tmux` redirects to `/` for compatibility.
 - `/sessions` remains the broader operator view across tmux panes, jobs, and services.
 - `/sessions/[id]` is the detailed per-session control surface.
 
@@ -19,6 +20,7 @@ Sessions are the core execution unit in Agent Commander. A session usually maps 
 ## Session providers
 
 Supported providers include:
+
 - claude_code
 - codex
 - gemini_cli
@@ -32,6 +34,7 @@ Supported providers include:
 ## Status lifecycle
 
 Common statuses:
+
 - STARTING
 - RUNNING
 - IDLE
@@ -46,7 +49,7 @@ The orchestrator uses WAITING_FOR_INPUT, WAITING_FOR_APPROVAL, and ERROR to buil
 
 `agentd` polls tmux and registers panes automatically. The tmux manager groups live panes by host, tmux session name, and window so you can open work directly without treating tmux discovery as a separate import workflow.
 
-Older orphan/adopt flows still exist on advanced surfaces for edge cases, but the primary `/tmux` workflow shows unmanaged panes automatically when they are already in the session registry.
+Older orphan/adopt flows still exist on advanced surfaces for edge cases, but the primary Command Center workflow shows unmanaged panes automatically when they are already in the session registry.
 
 ## Grouping
 
@@ -59,6 +62,7 @@ Groups are folders for sessions. The control plane can auto group by tmux sessio
 ## Links
 
 Sessions can be linked to indicate relationships:
+
 - `complement` - two sessions are part of the same workstream.
 - `review` - one session reviews another.
 
@@ -73,6 +77,7 @@ Links show up on the session detail page and help with cross session navigation.
 ## Session actions
 
 From the dashboard or API you can:
+
 - Rename sessions.
 - Kill sessions.
 - Spawn new sessions from templates.
@@ -80,4 +85,4 @@ From the dashboard or API you can:
 - Copy pane output into another session.
 - Archive or unarchive sessions.
 - Mark a session as idle or wake it.
-- Open the inline tmux workbench from `/tmux` for terminal control without leaving the roster view.
+- Open the inline tmux workbench from `/` for terminal control without leaving the roster view.

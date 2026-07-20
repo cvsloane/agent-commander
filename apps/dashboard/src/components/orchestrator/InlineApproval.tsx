@@ -59,7 +59,7 @@ export function InlineApproval({ item, onDecided }: InlineApprovalProps) {
           size="mobile-sm"
           onClick={() => void decide('approve')}
           disabled={pendingDecision !== null}
-          className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+          className="gap-1.5"
         >
           {pendingDecision === 'approve'
             ? <Loader2 className="h-4 w-4 animate-spin" />

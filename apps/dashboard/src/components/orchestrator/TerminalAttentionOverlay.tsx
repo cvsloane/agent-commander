@@ -125,7 +125,7 @@ export function TerminalAttentionOverlayCard({
             <Button
               type="button"
               size="sm"
-              className="h-8 gap-1.5 bg-emerald-600 px-2.5 hover:bg-emerald-700"
+              className="h-8 gap-1.5 px-2.5"
               onClick={() => decide('approve')}
               disabled={loading}
             >

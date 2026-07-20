@@ -74,7 +74,7 @@ export function NotificationToast({ notification }: NotificationToastProps) {
   return (
     <div
       className={cn(
-        'w-80 rounded-lg border p-4 shadow-lg backdrop-blur-sm',
+        'w-80 max-w-full rounded-lg border p-4 shadow-lg backdrop-blur-sm',
         'animate-in slide-in-from-right-full duration-300',
         config.bgColor
       )}
@@ -87,6 +87,7 @@ export function NotificationToast({ notification }: NotificationToastProps) {
             <button
               onClick={() => remove(notification.id)}
               className="p-0.5 hover:bg-background/50 rounded transition-colors"
+              aria-label={`Dismiss ${notification.title} notification`}
             >
               <X className="h-4 w-4 text-muted-foreground" />
             </button>

@@ -127,7 +127,10 @@ export function TerminalSurface({
       )}
 
       {status === 'connected' && !readOnly && (
-        <div className="sticky bottom-0 z-20 shrink-0 bg-background">
+        <div
+          className="sticky bottom-0 z-20 shrink-0 bg-background pb-[env(safe-area-inset-bottom)]"
+          data-terminal-key-controls
+        >
           {paneId && (
             <TmuxKeyBar onInput={onVirtualInput} collapsible={!isMobile} />
           )}

@@ -17,11 +17,13 @@ function isItemActive(pathname: string, href: string): boolean {
   return path === '/' ? pathname === '/' : pathname === path || pathname.startsWith(`${path}/`);
 }
 
-export function MobileBottomNav() {
+export function MobileBottomNav({ hidden = false }: { hidden?: boolean }) {
   const pathname = usePathname();
   const mobileMenuOpen = useUIStore((state) => state.mobileMenuOpen);
   const setMobileMenuOpen = useUIStore((state) => state.setMobileMenuOpen);
   const moreActive = mobileMenuOpen || !primaryItems.some((item) => isItemActive(pathname, item.href));
+
+  if (hidden) return null;
 
   return (
     <nav

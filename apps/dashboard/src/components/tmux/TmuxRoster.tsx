@@ -1,10 +1,12 @@
 'use client';
 
-import { Search } from 'lucide-react';
+import { Rows3, Search, SearchX } from 'lucide-react';
 import type { Host, SessionWithSnapshot } from '@agent-command/schema';
 import type { FleetRosterGroup } from '@/lib/fleetRoster';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
 import { cn, formatRelativeTime, isHostOnline } from '@/lib/utils';
 import { TmuxClusterRow } from './TmuxClusterRow';
 import { TmuxOrchestratorRow } from './TmuxOrchestratorRow';
@@ -46,6 +48,26 @@ interface TmuxRosterProps {
   onSelectSession: (sessionId: string) => void;
   onOpenActions?: (sessionId: string) => void;
   className?: string;
+}
+
+function TmuxRosterSkeleton() {
+  return (
+    <div className="min-h-72 space-y-2" role="status" aria-label="Loading tmux sessions">
+      <span className="sr-only">Loading tmux sessions</span>
+      {[0, 1, 2].map((row) => (
+        <div key={row} className="rounded-lg border p-3">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-8 w-8 shrink-0 rounded-full" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <Skeleton className="h-3.5 w-2/3" />
+              <Skeleton className="h-3 w-5/6" />
+            </div>
+            <Skeleton className="h-6 w-14 shrink-0" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function TmuxRoster({
@@ -101,7 +123,7 @@ export function TmuxRoster({
               type="button"
               onClick={() => onFilterChange(filter)}
               className={cn(
-                'h-8 shrink-0 rounded-md border px-3 text-xs font-medium transition-colors',
+                'h-8 shrink-0 rounded-md border px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 activeFilter === filter
                   ? 'border-primary bg-primary text-primary-foreground'
                   : 'bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground'
@@ -131,20 +153,24 @@ export function TmuxRoster({
           </div>
         )}
 
-        {sessionsLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-          </div>
-        ) : sessionsError ? (
-          <div className="text-sm text-destructive">
-            Failed to load tmux sessions for this host.
-          </div>
-        ) : groups.length === 0 ? (
-          <div className="text-sm text-muted-foreground">
-            No tmux panes matched this host and filter.
-          </div>
-        ) : (
-          <div className="space-y-2">
+        <div className="min-h-72" aria-busy={sessionsLoading}>
+          {sessionsLoading ? (
+            <TmuxRosterSkeleton />
+          ) : sessionsError ? (
+            <div className="text-sm text-destructive" role="alert">
+              Failed to load tmux sessions for this host.
+            </div>
+          ) : groups.length === 0 ? (
+            <EmptyState
+              icon={query || activeFilter !== 'all' ? SearchX : Rows3}
+              title={query || activeFilter !== 'all' ? 'No matching sessions' : 'No live tmux sessions'}
+              description={query || activeFilter !== 'all'
+                ? 'Try a different search or roster filter.'
+                : 'Live sessions will appear here when a tmux pane is available.'}
+              className="min-h-72"
+            />
+          ) : (
+            <div className="space-y-2" role="tree" aria-label="tmux session roster">
             {groups.map((group) => group.kind === 'orchestrator' ? (
               <TmuxOrchestratorRow
                 key={group.key}
@@ -178,8 +204,9 @@ export function TmuxRoster({
                 onOpenActions={onOpenActions}
               />
             ))}
-          </div>
-        )}
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

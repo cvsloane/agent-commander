@@ -26,6 +26,8 @@ export function TmuxPaneRow({ pane, selectedSessionId, hydrated, onSelectSession
   return (
     <button
       type="button"
+      role="treeitem"
+      aria-selected={paneActive}
       onClick={() => onSelectSession(pane.session.id)}
       onContextMenu={(event) => {
         if (!onOpenActions) return;
@@ -33,7 +35,7 @@ export function TmuxPaneRow({ pane, selectedSessionId, hydrated, onSelectSession
         onOpenActions(pane.session.id);
       }}
       className={cn(
-        'flex min-h-11 w-full items-center justify-between gap-3 rounded-md px-3 py-1.5 text-left transition-colors',
+        'flex min-h-11 w-full items-center justify-between gap-3 rounded-md px-3 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
         paneActive ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'
       )}
     >

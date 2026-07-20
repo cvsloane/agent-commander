@@ -119,7 +119,7 @@ export function TmuxTerminalWorkspace({
     && terminalHostSnapshot.readOnly;
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="tmux-terminal-workspace">
+    <div className="flex h-full min-h-0 flex-col" data-testid="tmux-terminal-workspace" data-terminal-workspace>
       <div className="hidden min-h-10 items-center gap-2 border-b bg-background px-2 lg:flex">
         <Columns2 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
         <label htmlFor={`secondary-terminal-${primarySession.id}`} className="text-xs font-medium">

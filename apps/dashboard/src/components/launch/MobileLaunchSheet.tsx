@@ -9,6 +9,7 @@ import { launchAgent, openTmuxTarget } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 import { Button } from '@/components/ui/button';
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { MOBILE_LAUNCH_PROVIDERS, getLaunchProvider } from './definitions';
 import {
   type RecentLaunch,
@@ -218,17 +219,13 @@ export function MobileLaunchSheet({
     }
   }, [onClose, onLaunched, router, selectedTarget]);
 
-  if (!open) return null;
-
   return (
-    <>
-      <div className="fixed inset-0 z-50 bg-black/50" aria-hidden="true" onClick={handleClose} />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="mobile-launch-title"
+    <Sheet open={open} onOpenChange={(nextOpen) => !nextOpen && handleClose()}>
+      <SheetContent
+        side="bottom"
+        hideClose
         className={cn(
-          'fixed inset-x-0 bottom-0 z-50 max-h-[92dvh] overflow-hidden rounded-t-lg border bg-background shadow-xl',
+          'max-h-[92dvh] gap-0 overflow-hidden rounded-t-lg p-0 sm:p-0',
           'lg:left-1/2 lg:top-1/2 lg:bottom-auto lg:max-w-xl lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-lg'
         )}
       >
@@ -236,12 +233,12 @@ export function MobileLaunchSheet({
           <div className="flex min-w-0 items-center gap-2">
             <Bot className="h-5 w-5 text-primary" />
             <div className="min-w-0">
-              <h2 id="mobile-launch-title" className="text-sm font-semibold">
+              <SheetTitle className="text-sm font-semibold">
                 {initialView === 'existing' ? 'Open existing' : initialView === 'recent' ? 'Recent launches' : 'Launch agent'}
-              </h2>
-              <div className="truncate text-xs text-muted-foreground">
+              </SheetTitle>
+              <SheetDescription className="truncate text-xs">
                 {selectedTarget?.alias || 'Choose a machine'}
-              </div>
+              </SheetDescription>
             </div>
           </div>
           <Button variant="ghost" size="mobile-icon" onClick={handleClose} disabled={launching} aria-label="Close launch sheet">
@@ -363,7 +360,7 @@ export function MobileLaunchSheet({
                           hostId === target.host_id ? 'border-primary bg-primary text-primary-foreground' : 'bg-background'
                         )}
                       >
-                        <span className={cn('h-2 w-2 rounded-full', target.online ? 'bg-green-500' : 'bg-gray-400')} />
+                        <span className={cn('h-2 w-2 rounded-full', target.online ? 'bg-emerald-500' : 'bg-muted-foreground')} />
                         <span className="font-medium">{target.alias}</span>
                       </button>
                     ))}
@@ -549,7 +546,7 @@ export function MobileLaunchSheet({
             </Button>
           </div>
         )}
-      </div>
-    </>
+      </SheetContent>
+    </Sheet>
   );
 }

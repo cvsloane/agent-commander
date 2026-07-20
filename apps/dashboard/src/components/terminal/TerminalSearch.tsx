@@ -124,7 +124,7 @@ export function TerminalSearchSheet(props: TerminalSearchControlsProps) {
 
   return (
     <section
-      className="fixed inset-x-0 bottom-0 z-[70] rounded-t-xl border bg-background p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-2xl md:hidden"
+      className="fixed inset-x-0 bottom-[var(--keyboard-inset-height,0px)] z-[70] rounded-t-xl border bg-background p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl md:hidden"
       role="dialog"
       aria-modal="false"
       aria-label="Search terminal scrollback"

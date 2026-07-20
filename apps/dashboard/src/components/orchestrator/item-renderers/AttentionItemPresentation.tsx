@@ -61,17 +61,17 @@ function ApprovalContext({ payload }: { payload: Record<string, unknown> }) {
 function ActionIcon({ item }: { item: OrchestratorItem }) {
   switch (item.action?.type) {
     case 'yes_no':
-      return <MessageSquare className="h-4 w-4 text-blue-500" aria-hidden="true" />;
+      return <MessageSquare className="h-4 w-4 text-primary" aria-hidden="true" />;
     case 'multi_choice':
-      return <MessageSquare className="h-4 w-4 text-purple-500" aria-hidden="true" />;
+      return <MessageSquare className="h-4 w-4 text-primary" aria-hidden="true" />;
     case 'text_input':
-      return <MessageSquare className="h-4 w-4 text-green-500" aria-hidden="true" />;
+      return <MessageSquare className="h-4 w-4 text-primary" aria-hidden="true" />;
     case 'plan_review':
-      return <MessageSquare className="h-4 w-4 text-yellow-500" aria-hidden="true" />;
+      return <MessageSquare className="h-4 w-4 text-primary" aria-hidden="true" />;
     case 'error':
-      return <AlertCircle className="h-4 w-4 text-red-500" aria-hidden="true" />;
+      return <AlertCircle className="h-4 w-4 text-destructive" aria-hidden="true" />;
     default:
-      return <AlertCircle className="h-4 w-4 text-orange-500" aria-hidden="true" />;
+      return <AlertCircle className="h-4 w-4 text-muted-foreground" aria-hidden="true" />;
   }
 }
 
@@ -159,15 +159,15 @@ export function AttentionItemSummary({
         {item.summaryLoading ? (
           <><Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /><span>Generating summary…</span></>
         ) : item.summary ? (
-          <><Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-purple-500" aria-hidden="true" /><p className="leading-relaxed">{item.summary}</p></>
+          <><Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-primary" aria-hidden="true" /><p className="leading-relaxed">{item.summary}</p></>
         ) : item.summaryFailed ? (
           <><Sparkles className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" /><span className="italic">Summary unavailable</span></>
         ) : !hasContext ? (
           <><Sparkles className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" /><span className="italic">No terminal context captured</span></>
         ) : enabled ? (
-          <><Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-purple-500" aria-hidden="true" /><span className="italic">Summary pending…</span></>
+          <><Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-primary" aria-hidden="true" /><span className="italic">Summary pending…</span></>
         ) : (
-          <><Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-purple-500" aria-hidden="true" /><span className="italic">AI summary unavailable</span></>
+          <><Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-primary" aria-hidden="true" /><span className="italic">AI summary unavailable</span></>
         )}
       </div>
     </div>

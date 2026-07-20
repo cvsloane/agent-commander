@@ -13,7 +13,7 @@ export function ConnectionBanner() {
 
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+1rem)] z-50 flex justify-center px-3"
+      className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+5rem)] z-50 flex justify-center px-3 md:bottom-[calc(env(safe-area-inset-bottom)+1rem)]"
       role="status"
       aria-live="polite"
       aria-atomic="true"

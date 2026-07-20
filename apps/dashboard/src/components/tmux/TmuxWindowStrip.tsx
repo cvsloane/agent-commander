@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Bell, MoreHorizontal, Plus, Radio, X } from 'lucide-react';
 import type { Session } from '@agent-command/schema';
 import { Button } from '@/components/ui/button';
@@ -118,6 +118,7 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
   const [pending, setPending] = useState(false);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
+  const tablistRef = useRef<HTMLDivElement>(null);
   const notifications = useNotifications();
 
   useEffect(() => {
@@ -175,11 +176,37 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
     void dispatchAction({ type: 'rename', windowIndex: window.windowIndex, name });
   };
 
+  const handleWindowTabKeyDown = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    currentWindowIndex: number
+  ) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const tabs = Array.from(
+      tablistRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]:not(:disabled)') ?? []
+    );
+    if (tabs.length === 0) return;
+    const currentIndex = tabs.findIndex(
+      (tab) => Number(tab.dataset.windowIndex) === currentWindowIndex
+    );
+    const nextIndex = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? tabs.length - 1
+        : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    const nextTab = tabs[nextIndex];
+    const nextWindowIndex = Number(nextTab?.dataset.windowIndex);
+    if (!nextTab || Number.isNaN(nextWindowIndex)) return;
+    event.preventDefault();
+    nextTab.focus();
+    void dispatchAction({ type: 'select', windowIndex: nextWindowIndex });
+  };
+
   if (!session.tmux_pane_id) return null;
 
   return (
     <div className={cn('shrink-0 border-b bg-muted/20', className)} data-testid="tmux-window-strip">
       <div
+        ref={tablistRef}
         className="flex min-h-10 items-stretch gap-1 overflow-x-auto px-2 pt-1 touch-pan-x"
         role="tablist"
         aria-label={`${identity.sessionName} tmux windows`}
@@ -222,7 +249,10 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
                   type="button"
                   role="tab"
                   aria-selected={window.active}
+                  tabIndex={window.active ? 0 : -1}
+                  data-window-index={window.windowIndex}
                   disabled={pending}
+                  onKeyDown={(event) => handleWindowTabKeyDown(event, window.windowIndex)}
                   onClick={(event) => {
                     if (longPressTriggeredRef.current) {
                       event.preventDefault();
@@ -247,7 +277,7 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
                   }}
                   onPointerUp={clearLongPress}
                   onPointerCancel={clearLongPress}
-                  className="flex h-8 max-w-44 min-w-20 items-center gap-1.5 px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+                  className="flex h-8 max-w-44 min-w-20 items-center gap-1.5 px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                   aria-label={`Window ${window.windowIndex}: ${window.windowName}`}
                 >
                   <span className="font-mono text-[10px] opacity-70">{window.windowIndex}</span>
@@ -264,7 +294,7 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
                 <button
                   type="button"
                   onClick={() => setContextWindowIndex(contextOpen ? null : window.windowIndex)}
-                  className="flex h-8 w-7 items-center justify-center rounded-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary"
+                  className="flex h-8 w-7 items-center justify-center rounded-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
                   aria-label={`Window ${window.windowIndex} actions`}
                   aria-expanded={contextOpen}
                   disabled={pending}

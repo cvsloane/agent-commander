@@ -179,7 +179,7 @@ export function ImportOrphanPanesModal({
                 </div>
               ) : orphanPanes.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
-                  <CheckCircle className="h-8 w-8 mx-auto mb-2 text-green-500" />
+                  <CheckCircle className="h-8 w-8 mx-auto mb-2 text-emerald-700 dark:text-emerald-400" />
                   <p>No orphan panes found on this host.</p>
                   <p className="text-sm">All panes are already managed.</p>
                 </div>
@@ -209,7 +209,7 @@ export function ImportOrphanPanesModal({
           {/* Success with partial errors */}
           {adoptMutation.data && adoptMutation.data.error_count > 0 && (
             <div className="text-sm space-y-1">
-              <p className="text-green-600">Adopted {adoptMutation.data.adopted_count} pane(s).</p>
+              <p className="text-emerald-700 dark:text-emerald-400">Adopted {adoptMutation.data.adopted_count} pane(s).</p>
               <p className="text-destructive">
                 Failed to adopt {adoptMutation.data.error_count} pane(s).
               </p>

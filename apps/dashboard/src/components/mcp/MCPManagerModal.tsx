@@ -145,7 +145,7 @@ export function MCPManagerModal({ isOpen, onClose, sessionId, repoRoot }: MCPMan
               </Badge>
             )}
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-accent rounded">
+          <button onClick={onClose} className="p-1 hover:bg-accent rounded" aria-label="Close MCP manager">
             <X className="h-4 w-4" />
           </button>
         </div>

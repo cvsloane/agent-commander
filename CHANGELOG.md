@@ -7,6 +7,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-20
+
+### Added
+
+- A fleet-to-terminal Command Center at `/` with an aggregate fleet strip,
+  structured host/session/window/pane roster, top attention item, persistent
+  launch rail, and query-preserving `/tmux` compatibility redirect.
+- Live tmux topology snapshots and complete window and pane actions: create,
+  rename, close, select, split, resize, zoom, and terminate, with roster-derived
+  fallback for hosts that do not emit topology.
+- Persistent primary terminals, desktop two-up terminal composition, compact
+  recent-pane switching, 10,000-line scrollback search, and separately paged
+  terminal history.
+- In-terminal attention decisions, a prompt composer with per-session history,
+  shared health badges and saved roster filters, and a global command palette
+  for routes, sessions, hosts, launches, and themes.
+- Responsive dialog, sheet, dropdown, and command primitives; consistent
+  Sessions, Hosts, Memory, Automation, and Settings surfaces; and an admin-only
+  Add host and token-rotation flow with generated `agentd` configuration.
+- Cross-device Playwright journeys (7 flows × mobile 390x844 + desktop 1280x720):
+  sign-in to Command Center first paint, roster attach/type/detach, window
+  create/rename/kill, scrollback history paging, take-control handoff,
+  launch-rail spawn, and attention approval from the terminal overlay.
+
+### Changed
+
+- Upgraded the TypeScript workspaces to TypeScript 7.0.2, linting to ESLint
+  10.7.0, dashboard rendering to React 19.2.7, shared validation to Zod 4.4.3,
+  `tailwind-merge` to 3.6.0, and `lucide-react` to 1.25.0.
+- Unified fleet cards, the tmux roster, session events, graph/task events, and
+  topology in one canonical Zustand store with targeted WebSocket updates and
+  30-second aggregate/roster reconciliation.
+- Consolidated desktop and mobile navigation around Command Center, Attention,
+  and Sessions; replaced the legacy spawn dialog with shared New, Recent, and
+  Open existing launch surfaces.
+- Routed terminal output directly to xterm, kept selection and scroll-follow
+  state out of the React render hot path, and consolidated all terminal input
+  through the read-only-aware transport.
+- Migrated agent protocol validation and control-plane/CLI schemas to Zod 4,
+  while keeping byte-exact frozen protocol fixtures for topology and tmux
+  commands across TypeScript and Go.
+
+### Fixed
+
+- Preserved the terminal viewport while reading history or selecting output,
+  retained one terminal across route changes, and suspended hidden transport
+  after five minutes without discarding local history or its resume token.
+- Expired silent topology feeds after 30 seconds, restored roster fallback
+  immediately, eliminated duplicate roster feeds, and gated percent splits and
+  last-window warnings on authoritative host capabilities and topology.
+- Preserved newer targeted session updates during aggregate reconciliation,
+  pruned removed sessions from the canonical cache, and retained read-only
+  permission state across responsive terminal layout changes.
+- Superseded only stale terminal channels during resumed attachment and cleaned
+  stale `ac-agentd-*` tmux hook signals without disturbing user hooks.
+
+### Security
+
+- Required operator or admin authorization before loading aggregate fleet
+  details or dispatching terminal, window, and pane commands; capability checks
+  remain enforced per host.
+- Kept host enrollment tokens one-time and in memory only, clearing them when
+  the enrollment surface closes instead of persisting, caching, or placing them
+  in URLs.
+- Tolerated future unknown typed agent envelopes without advancing sequence
+  state, while continuing to terminate invalid JSON, malformed or oversized
+  frames, and known message types with invalid payloads.
+- Kept the authenticated connection's host identity authoritative over topology
+  payload fields and bounded fleet, scrollback, and batch query work.
+
 ## [0.3.0] - 2026-07-19
 
 ### Added
@@ -64,3 +134,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dashboard for sessions, approvals, and analytics
 - agentd daemon for tmux session management
 - Alerts and notifications (browser, audio, toasts, OpenClaw)
+
+[Unreleased]: https://github.com/cvsloane/agent-commander/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/cvsloane/agent-commander/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/cvsloane/agent-commander/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/cvsloane/agent-commander/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/cvsloane/agent-commander/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/cvsloane/agent-commander/releases/tag/v0.1.0

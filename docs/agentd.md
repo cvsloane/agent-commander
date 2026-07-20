@@ -3,13 +3,14 @@
 `agentd` runs on each host. It discovers tmux panes, captures snapshots, streams terminal output, and executes commands sent from the control plane.
 
 ## Install
+
 ```bash
-cd agents/agentd
-go build -o agentd ./cmd/agentd
-sudo cp agentd /usr/local/bin/
+(cd agents/agentd && go build -o agentd ./cmd/agentd)
+sudo cp agents/agentd/agentd /usr/local/bin/
 ```
 
 ## Configure
+
 Copy and edit the example config:
 
 ```bash
@@ -33,6 +34,12 @@ sudo cp agents/agentd/config.example.yaml /etc/agentd/config.yaml
 - `tmux.option_session_id` - tmux option for stable session IDs.
 
 When tmux metadata includes a session name, agentd can auto group sessions in the UI.
+
+When `tmux.topology_events` is enabled, `agentd` installs additive tmux hooks to
+signal topology changes and preserves existing user hooks. Hook signals owned by
+Agent Commander use the reserved `ac-agentd-` prefix. Do not use that namespace
+for custom `wait-for` signals: startup cleanup removes stale `ac-agentd-*`
+commands before registering the current process's hooks.
 
 ### Spawn settings
 
@@ -68,25 +75,36 @@ and report it to the control plane.
 
 Example: OpenCode (Minimax) usage polling
 
-1) Install the helper script and make it executable:
+1. Install the helper script and make it executable:
+
 ```bash
 sudo cp scripts/opencode-usage.sh /usr/local/bin/opencode-usage
 sudo chmod +x /usr/local/bin/opencode-usage
 ```
 
-2) Store the API key outside git (systemd environment is recommended):
+2. Store the API key outside git (systemd environment is recommended):
+
 ```bash
 sudo systemctl edit agentd
-# add:
-# [Service]
-# Environment="MINIMAX_API_KEY=YOUR_KEY_HERE"
 ```
 
-3) Configure agentd:
+Add the following active directives in the editor, then restart:
+
+```ini
+[Service]
+Environment="MINIMAX_API_KEY=YOUR_KEY_HERE"
+```
+
+```bash
+sudo systemctl restart agentd
+```
+
+3. Configure agentd:
+
 ```yaml
 providers:
   opencode:
-    usage_command: "/usr/local/bin/opencode-usage"
+    usage_command: '/usr/local/bin/opencode-usage'
     usage_interval_ms: 300000
     usage_parse_json: true
 ```

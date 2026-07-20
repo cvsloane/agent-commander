@@ -14,6 +14,14 @@ interface PerfCounters {
   usageBatchItems: number;
 }
 
+export interface PerformanceMetric {
+  name: string;
+  value: number;
+  unit: 'ms' | 'score';
+  rating?: string;
+  attributes?: Record<string, string | number | boolean>;
+}
+
 const counters: PerfCounters = {
   sessionListRenders: 0,
   sessionCardRenders: 0,
@@ -33,7 +41,14 @@ let logTimer: number | null = null;
 let callsiteSampleRate = 0.2;
 
 function isEnabled(): boolean {
-  return typeof window !== 'undefined' && (window as unknown as { __sessionsPerf?: boolean }).__sessionsPerf === true;
+  if (typeof window === 'undefined') return false;
+  if ((window as unknown as { __sessionsPerf?: boolean }).__sessionsPerf === true) return true;
+  return new URLSearchParams(window.location.search).get('perf') === '1';
+}
+
+export function recordPerformanceMetric(metric: PerformanceMetric): void {
+  if (!isEnabled()) return;
+  console.log('[perf] client.metric', metric);
 }
 
 export function setSessionsPerfEnabled(enabled: boolean): void {

@@ -37,17 +37,20 @@ export function TmuxClusterRow({
     <details
       open={expanded}
       onToggle={(event) => onExpandedChange(event.currentTarget.open)}
+      role="none"
       className={cn(
         'rounded-xl border bg-background transition-colors',
         active && 'border-primary bg-primary/5'
       )}
     >
       <summary
+        role="treeitem"
         className={cn(
-          'flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition-colors marker:hidden [&::-webkit-details-marker]:hidden',
+          'flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition-colors marker:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden',
           expanded ? 'bg-accent/40' : 'hover:bg-accent/30'
         )}
         aria-expanded={expanded}
+        aria-selected={active}
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -89,7 +92,7 @@ export function TmuxClusterRow({
       </summary>
 
       {expanded && (
-        <div className="space-y-3 border-t px-3 pb-3 pt-3">
+        <div className="space-y-3 border-t px-3 pb-3 pt-3" role="group">
           <div className="space-y-3">
             {cluster.windows.map((window) => (
               <TmuxWindowRow

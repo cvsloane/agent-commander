@@ -16,8 +16,9 @@ import {
   buildTerminalWebSocketUrl,
   decodeTerminalFrame,
 } from '@/components/terminal/protocol';
-import { calculateTerminalViewportHeight } from '@/components/terminal/viewport';
+import { calculateKeyboardInset, calculateTerminalViewportHeight } from '@/components/terminal/viewport';
 import { handleTerminalOutputFrame } from '@/components/terminal/terminalFrameRouter';
+import { beginTerminalFrameTiming } from '@/components/terminal/terminalFrameTiming';
 
 export function useTerminalConnection({
   sessionId,
@@ -180,12 +181,18 @@ export function useTerminalConnection({
 
       ws.onmessage = (event) => {
         try {
+          const completeFrameTiming = event.data instanceof ArrayBuffer
+            ? beginTerminalFrameTiming(event.data.byteLength)
+            : null;
           const msg = decodeTerminalFrame(event.data as string | ArrayBuffer);
 
           if (handleTerminalOutputFrame(msg, (data) => {
             if (!terminalRef.current) return;
             const terminal = terminalRef.current;
-            terminal.write(data, () => onOutputWritten(terminal));
+            terminal.write(data, () => {
+              onOutputWritten(terminal);
+              completeFrameTiming?.();
+            });
           })) {
             return;
           }
@@ -394,10 +401,24 @@ export function useTerminalConnection({
     const viewport = window.visualViewport;
     if (!viewport) {
       container.style.removeProperty('--terminal-viewport-height');
+      container.style.removeProperty('--keyboard-inset-height');
       return;
     }
-    const height = calculateTerminalViewportHeight(viewport, container.getBoundingClientRect().top);
+    const bottomControls = container
+      .closest<HTMLElement>('[data-terminal-workspace]')
+      ?.querySelector<HTMLElement>('[data-terminal-bottom-controls]');
+    const reservedBottom = bottomControls?.getBoundingClientRect().height ?? 0;
+    const height = calculateTerminalViewportHeight(
+      viewport,
+      container.getBoundingClientRect().top,
+      reservedBottom
+    );
+    const layoutHeight = document.documentElement.clientHeight || window.innerHeight;
     container.style.setProperty('--terminal-viewport-height', `${height}px`);
+    container.style.setProperty(
+      '--keyboard-inset-height',
+      `${calculateKeyboardInset(layoutHeight, viewport)}px`
+    );
   }, [containerRef]);
 
   const handleViewportResize = useCallback(() => {

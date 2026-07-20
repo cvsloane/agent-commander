@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
+import { Skeleton } from '@/components/ui/skeleton';
 import { InlineApproval } from './InlineApproval';
 import { sendCommand, type SessionGraphRollup } from '@/lib/api';
 import { cn, formatRelativeTime, getProviderDisplayName, getSessionDisplayName } from '@/lib/utils';
@@ -54,9 +55,43 @@ function reportSummary(run: AutomationRun): string {
 }
 
 function TaskIcon({ status }: { status: AgentTask['status'] }) {
-  if (status === 'completed') return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />;
+  if (status === 'completed') return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-400" />;
   if (status === 'failed') return <XCircle className="h-3.5 w-3.5 text-destructive" />;
-  return <CircleDot className="h-3.5 w-3.5 animate-pulse text-cyan-600" />;
+  return <CircleDot className="h-3.5 w-3.5 animate-pulse text-primary" />;
+}
+
+export function OrchestratorFleetCardSkeleton() {
+  return (
+    <Card className="min-h-[34rem] overflow-hidden" role="status" aria-label="Loading orchestrator fleet">
+      <span className="sr-only">Loading orchestrator fleet</span>
+      <CardHeader className="space-y-4 border-b bg-muted/20 p-4 sm:p-5">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-10 w-10 shrink-0 rounded-full" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-5 w-1/2" />
+            <Skeleton className="h-3 w-2/3" />
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {[0, 1, 2].map((item) => (
+            <Skeleton key={item} className="h-14" />
+          ))}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-5 p-4 sm:p-5">
+        <div className="space-y-2">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+        </div>
+        <div className="space-y-2">
+          <Skeleton className="h-3 w-20" />
+          <Skeleton className="h-24 w-full" />
+        </div>
+        <Skeleton className="h-24 w-full" />
+      </CardContent>
+    </Card>
+  );
 }
 
 export function OrchestratorFleetCard({
@@ -111,7 +146,7 @@ export function OrchestratorFleetCard({
         <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <Bot className="h-5 w-5 shrink-0 text-cyan-600 dark:text-cyan-400" />
+              <Bot className="h-5 w-5 shrink-0 text-primary" />
               <CardTitle className="break-words text-lg">{getSessionDisplayName(session)}</CardTitle>
             </div>
             <p className="mt-1 truncate text-xs text-muted-foreground">

@@ -22,9 +22,9 @@ function statusColor(status: string): string {
     case 'ERROR':
       return 'bg-red-500';
     case 'IDLE':
-      return 'bg-slate-400';
+      return 'bg-muted-foreground';
     default:
-      return 'bg-gray-400';
+      return 'bg-muted-foreground';
   }
 }
 

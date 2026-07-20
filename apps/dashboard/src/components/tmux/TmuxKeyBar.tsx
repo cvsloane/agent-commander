@@ -1,5 +1,6 @@
 'use client';
 
+import type { KeyboardEvent } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Keyboard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TMUX_SHORTCUT_KEYS, type TmuxShortcutKey } from '@/lib/tmuxKeys';
@@ -27,6 +28,22 @@ function renderIcon(icon: TmuxShortcutKey['icon']) {
   }
 }
 
+function handleToolbarKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  const buttons = Array.from(
+    event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')
+  );
+  const currentIndex = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  if (currentIndex === -1 || buttons.length === 0) return;
+  const nextIndex = event.key === 'Home'
+    ? 0
+    : event.key === 'End'
+      ? buttons.length - 1
+      : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+  event.preventDefault();
+  buttons[nextIndex]?.focus();
+}
+
 export function TmuxKeyBar({ onInput, className, collapsible = false }: TmuxKeyBarProps) {
   const expanded = useSettingsStore((state) => state.tmuxKeyBarExpanded);
   const setExpanded = useSettingsStore((state) => state.setTmuxKeyBarExpanded);
@@ -41,6 +58,7 @@ export function TmuxKeyBar({ onInput, className, collapsible = false }: TmuxKeyB
           className="h-7 gap-1.5 text-xs text-muted-foreground"
           onClick={() => setExpanded(true)}
           aria-expanded={false}
+          aria-controls="tmux-key-bar"
         >
           <Keyboard className="h-3.5 w-3.5" aria-hidden="true" />
           tmux keys
@@ -52,9 +70,12 @@ export function TmuxKeyBar({ onInput, className, collapsible = false }: TmuxKeyB
 
   return (
     <div
-      className={cn('border-t bg-background px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2', className)}
+      id="tmux-key-bar"
+      className={cn('border-t bg-background px-2 pb-2 pt-2', className)}
       role="toolbar"
       aria-label="tmux keyboard shortcuts"
+      aria-orientation="horizontal"
+      onKeyDown={handleToolbarKeyDown}
     >
       {collapsible && (
         <div className="mb-1 flex items-center justify-between">
