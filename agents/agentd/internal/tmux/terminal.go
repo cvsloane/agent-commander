@@ -84,6 +84,7 @@ type terminalViewer struct {
 	bridge      *viewerPTYBridge
 	detachedAt  time.Time
 	stale       bool
+	staleAt     time.Time
 }
 
 // AttachOptions contains additive terminal.attach fields.
@@ -171,20 +172,45 @@ func (m *TerminalManager) Start() {
 	})
 }
 
-// Sweep removes orphan grouped sessions and expires detached viewer bridges.
+// Sweep removes orphan grouped sessions and expires detached or stale viewer bridges.
 func (m *TerminalManager) Sweep(now time.Time) {
-	m.sweepOrphanViewerSessions()
-
+	var expiredBridges []*viewerPTYBridge
 	m.mu.Lock()
 	for token, viewer := range m.viewerByToken {
-		if viewer.channelID == "" && !viewer.detachedAt.IsZero() && now.Sub(viewer.detachedAt) >= m.viewerTTL {
-			delete(m.viewerByToken, token)
-			if viewer.bridge != nil {
-				viewer.bridge.close(true)
+		detachedExpired := viewer.channelID == "" && !viewer.detachedAt.IsZero() && now.Sub(viewer.detachedAt) >= m.viewerTTL
+		staleExpired := viewer.stale && !viewer.staleAt.IsZero() && now.Sub(viewer.staleAt) >= m.viewerTTL
+		if !detachedExpired && !staleExpired {
+			continue
+		}
+
+		delete(m.viewerByToken, token)
+		if viewer.channelID != "" {
+			channelID := viewer.channelID
+			delete(m.viewerByChannel, channelID)
+			delete(m.channelToPane, channelID)
+			delete(m.channelSession, channelID)
+			delete(m.channelToPTY, channelID)
+			delete(m.channelPerViewer, channelID)
+			delete(m.channelReadOnly, channelID)
+			if m.paneController[viewer.paneID] == channelID {
+				delete(m.paneController, viewer.paneID)
 			}
 		}
+		if viewer.bridge != nil {
+			expiredBridges = append(expiredBridges, viewer.bridge)
+			viewer.bridge = nil
+		}
+		viewer.channelID = ""
+		viewer.detachedAt = time.Time{}
+		viewer.stale = false
+		viewer.staleAt = time.Time{}
 	}
 	m.mu.Unlock()
+
+	for _, bridge := range expiredBridges {
+		bridge.close(true)
+	}
+	m.sweepOrphanViewerSessions()
 }
 
 func (m *TerminalManager) sweepOrphanViewerSessions() {
@@ -235,8 +261,13 @@ func (m *TerminalManager) SetAuditHandler(handler func(TerminalAuditEvent)) {
 func (m *TerminalManager) MarkChannelsStale() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	now := time.Now()
 	for _, viewer := range m.viewerByChannel {
+		if viewer.stale {
+			continue
+		}
 		viewer.stale = true
+		viewer.staleAt = now
 	}
 }
 
@@ -383,6 +414,7 @@ func (m *TerminalManager) attachViewerPTY(channelID, paneID string, opts AttachO
 	viewer.bridge = bridge
 	viewer.detachedAt = time.Time{}
 	viewer.stale = false
+	viewer.staleAt = time.Time{}
 	m.viewerByChannel[channelID] = viewer
 	m.viewerByToken[resumeToken] = viewer
 	m.channelToPane[channelID] = paneID
@@ -416,6 +448,7 @@ func (m *TerminalManager) supersedeStaleViewerLocked(viewer *terminalViewer) {
 	viewer.channelID = ""
 	viewer.detachedAt = time.Now()
 	viewer.stale = false
+	viewer.staleAt = time.Time{}
 	m.emitAudit(TerminalAuditEvent{Action: "detach", ChannelID: channelID, SessionID: sessionID, PaneID: paneID})
 }
 
@@ -558,6 +591,8 @@ func (m *TerminalManager) Detach(channelID string) (string, bool) {
 		delete(m.channelPerViewer, channelID)
 		viewer.channelID = ""
 		viewer.detachedAt = time.Now()
+		viewer.stale = false
+		viewer.staleAt = time.Time{}
 		m.mu.Unlock()
 
 		viewer.bridge.DetachChannel(channelID)

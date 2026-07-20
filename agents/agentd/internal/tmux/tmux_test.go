@@ -78,7 +78,7 @@ func TestTopologyHooksAppendSignalAndRestoreExistingHooks(t *testing.T) {
 		}
 	}()
 
-	registered, err := client.hookCommands("after-new-window")
+	registered, err := client.rawHookCommands("after-new-window")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,6 +105,77 @@ func TestTopologyHooksAppendSignalAndRestoreExistingHooks(t *testing.T) {
 	}
 	if !reflect.DeepEqual(after, before) {
 		t.Fatalf("restored hooks=%q, want %q", after, before)
+	}
+}
+
+func TestHookCommandsFiltersAgentdSignalsFromSnapshot(t *testing.T) {
+	client, tmuxCommand := newPrivateTmuxClient(t)
+	for index, command := range []string{
+		"display-message preserved-hook",
+		"wait-for -S ac-agentd-123-stale-after-new-window",
+	} {
+		flag := "-g"
+		if index > 0 {
+			flag = "-ag"
+		}
+		if output, err := exec.Command(tmuxCommand, "set-hook", flag, "after-new-window", command).CombinedOutput(); err != nil {
+			t.Fatalf("set hook %q: %v: %s", command, err, output)
+		}
+	}
+
+	commands, err := client.hookCommands("after-new-window")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(commands, []string{"display-message preserved-hook"}) {
+		t.Fatalf("filtered hook snapshot=%q", commands)
+	}
+}
+
+func TestTopologyHooksRemoveStaleAgentdSignalsOnStartup(t *testing.T) {
+	client, tmuxCommand := newPrivateTmuxClient(t)
+	for index, command := range []string{
+		"display-message preserved-hook",
+		"wait-for -S ac-agentd-123-stale-after-new-window",
+		"wait-for -S ac-agentd-456-stale-after-new-window",
+	} {
+		flag := "-g"
+		if index > 0 {
+			flag = "-ag"
+		}
+		if output, err := exec.Command(tmuxCommand, "set-hook", flag, "after-new-window", command).CombinedOutput(); err != nil {
+			t.Fatalf("set hook %q: %v: %s", command, err, output)
+		}
+	}
+
+	manager, err := client.StartTopologyHooks(nil)
+	if err != nil {
+		t.Fatalf("start topology hooks: %v", err)
+	}
+	closed := false
+	defer func() {
+		if !closed {
+			manager.Close()
+		}
+	}()
+
+	registered, err := client.rawHookCommands("after-new-window")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(registered) != 2 || registered[0] != "display-message preserved-hook" ||
+		!strings.HasPrefix(registered[1], "wait-for -S ac-agentd-") || strings.Contains(registered[1], "stale") {
+		t.Fatalf("startup-cleaned hooks=%q", registered)
+	}
+
+	manager.Close()
+	closed = true
+	restored, err := client.rawHookCommands("after-new-window")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(restored, []string{"display-message preserved-hook"}) {
+		t.Fatalf("restored hooks=%q", restored)
 	}
 }
 

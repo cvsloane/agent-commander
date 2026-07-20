@@ -69,7 +69,7 @@ func (c *Client) StartTopologyHooks(onHook func(string)) (*HookManager, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	manager := &HookManager{client: c, cancel: cancel, onHook: onHook}
 	for index, hookName := range topologyHookNames {
-		commands, err := c.hookCommands(hookName)
+		rawCommands, err := c.rawHookCommands(hookName)
 		if err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "invalid option") {
 				log.Printf("tmux hook %s is unsupported; skipping", hookName)
@@ -77,6 +77,13 @@ func (c *Client) StartTopologyHooks(onHook func(string)) (*HookManager, error) {
 			}
 			manager.Close()
 			return nil, fmt.Errorf("inspect tmux hook %s: %w", hookName, err)
+		}
+		commands := filterAgentdHookCommands(rawCommands)
+		if len(commands) != len(rawCommands) {
+			if err := c.restoreHook(savedHook{name: hookName, commands: commands}); err != nil {
+				manager.Close()
+				return nil, fmt.Errorf("remove stale agentd tmux hook %s: %w", hookName, err)
+			}
 		}
 
 		signal := fmt.Sprintf("ac-agentd-%d-%d-%d-%s", os.Getpid(), time.Now().UnixNano(), index, hookName)
@@ -152,6 +159,14 @@ func (c *Client) tmuxVersion() (string, error) {
 }
 
 func (c *Client) hookCommands(hookName string) ([]string, error) {
+	commands, err := c.rawHookCommands(hookName)
+	if err != nil {
+		return nil, err
+	}
+	return filterAgentdHookCommands(commands), nil
+}
+
+func (c *Client) rawHookCommands(hookName string) ([]string, error) {
 	output, err := c.hookOutput(context.Background(), "show-hooks", "-g", hookName)
 	if err != nil {
 		return nil, err
@@ -172,6 +187,19 @@ func (c *Client) hookCommands(hookName string) ([]string, error) {
 		}
 	}
 	return commands, nil
+}
+
+func filterAgentdHookCommands(commands []string) []string {
+	filtered := make([]string, 0, len(commands))
+	for _, command := range commands {
+		fields := strings.Fields(command)
+		if len(fields) == 3 && fields[0] == "wait-for" && fields[1] == "-S" &&
+			strings.HasPrefix(fields[2], "ac-agentd-") && len(fields[2]) > len("ac-agentd-") {
+			continue
+		}
+		filtered = append(filtered, command)
+	}
+	return filtered
 }
 
 func (c *Client) setHook(hookName, command string, appendCommand bool) error {

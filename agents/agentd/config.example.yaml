@@ -13,6 +13,7 @@ control_plane:
 tmux:
   bin: "/usr/bin/tmux"
   socket: ""  # Leave empty for default (if you use -L, set /tmp/tmux-UID/<label>)
+  topology_events: false  # Enable only when the control plane accepts tmux.topology
   poll_interval_ms: 2000
   snapshot_lines: 200
   snapshot_interval_ms: 2000
