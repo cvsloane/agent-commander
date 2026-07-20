@@ -19,6 +19,7 @@ import { useSettingsStore } from '@/stores/settings';
 import { shouldTriggerAlertChannel } from '@/lib/alertPolicy';
 import type { GroupWithChildren } from '@/lib/groupTypes';
 import { PushNotificationPrompt } from '@/components/pwa/PushNotificationPrompt';
+import { MobileBottomNav } from './MobileBottomNav';
 
 interface LayoutShellProps {
   children: React.ReactNode;
@@ -135,7 +136,9 @@ export function LayoutShell({ children }: LayoutShellProps) {
           isMobileOverlay
         />
 
-        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pb-[env(safe-area-inset-bottom)]">{children}</main>
+        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-[env(safe-area-inset-bottom)]">{children}</main>
+
+        <MobileBottomNav />
 
         {/* Group Modal - shared across all pages */}
         <GroupModal

@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
+import * as Dialog from '@radix-ui/react-dialog';
 import { PanelLeft, PanelLeftClose, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SidebarNav } from './SidebarNav';
@@ -46,58 +47,32 @@ export function GlobalSidebar({
     }
   }, [isMobile, mobileMenuOpen, setMobileMenuOpen]);
 
-  // Close mobile menu on escape key
-  useEffect(() => {
-    if (!isMobileOverlay || !mobileMenuOpen) return;
-
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setMobileMenuOpen(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [isMobileOverlay, mobileMenuOpen, setMobileMenuOpen]);
-
   // Mobile overlay mode: only render on mobile viewports
   if (isMobileOverlay) {
     if (!isMobile) {
       return null;
     }
     return (
-      <div
-        className={cn(
-          'fixed inset-0 z-50 transition-opacity duration-200',
-          mobileMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        )}
-      >
-        {/* Backdrop */}
-        <div
-          className="absolute inset-0 bg-black/50"
-          onClick={() => setMobileMenuOpen(false)}
-          aria-hidden="true"
-        />
-
-        {/* Sidebar panel */}
-        <div
-          className={cn(
-            'absolute left-0 top-0 flex h-full w-64 flex-col border-r bg-background pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pt-[env(safe-area-inset-top)] shadow-xl transition-transform duration-200 ease-in-out',
-            mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
-          )}
-        >
+      <Dialog.Root open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
+          <Dialog.Content
+            id="mobile-navigation-drawer"
+            className="fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r bg-background pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pt-[env(safe-area-inset-top)] shadow-xl focus:outline-none"
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              document.getElementById('mobile-more-navigation')?.focus();
+            }}
+          >
           {/* Header with close button */}
           <div className="flex items-center justify-between p-2 border-b h-12">
-            <span className="text-sm font-medium px-2">Navigation</span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setMobileMenuOpen(false)}
-              title="Close menu"
-            >
-              <X className="h-4 w-4" />
-            </Button>
+            <Dialog.Title className="px-2 text-sm font-medium">Navigation</Dialog.Title>
+            <Dialog.Description className="sr-only">Navigate to the rest of Agent Commander.</Dialog.Description>
+            <Dialog.Close asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" title="Close menu">
+                <X className="h-4 w-4" />
+              </Button>
+            </Dialog.Close>
           </div>
 
           <div className="flex-1 flex flex-col overflow-hidden">
@@ -121,8 +96,9 @@ export function GlobalSidebar({
               <AttentionSettings />
             </div>
           </div>
-        </div>
-      </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     );
   }
 

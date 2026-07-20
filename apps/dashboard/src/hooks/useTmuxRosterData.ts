@@ -2,18 +2,31 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ServerToUIMessage } from '@agent-command/schema';
-import { getHosts, getTmuxRoster } from '@/lib/api';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { ServerToUIMessage, SessionWithSnapshot } from '@agent-command/schema';
+import { getHosts, getSessionGraph, getTmuxRoster } from '@/lib/api';
 import {
-  buildTmuxClusters,
   matchesTmuxFilter,
   matchesTmuxRosterFilter,
   TMUX_ROSTER_FILTERS,
   type TmuxRosterFilter,
 } from '@/lib/tmuxRoster';
+import {
+  buildFleetRosterGroups,
+  filterFleetRosterGroups,
+  fleetGroupForSession,
+  groupSessions,
+} from '@/lib/fleetRoster';
 import { isHostOnline } from '@/lib/utils';
 import { useWebSocket } from '@/hooks/useWebSocket';
+
+export const ALL_TMUX_HOSTS_ID = 'all';
+
+interface TmuxRosterQueryData {
+  sessions: SessionWithSnapshot[];
+  total: number;
+  failedHostIds?: string[];
+}
 
 export function useTmuxRosterData() {
   const router = useRouter();
@@ -31,10 +44,17 @@ export function useTmuxRosterData() {
   const activeFilter = TMUX_ROSTER_FILTERS.includes(filterParam as TmuxRosterFilter)
     ? (filterParam as TmuxRosterFilter)
     : 'all';
+  const [requestedHostId, setRequestedHostId] = useState<string | null>(null);
 
   useEffect(() => {
     pendingSearchRef.current = searchParams.toString();
   }, [searchParams]);
+
+  useEffect(() => {
+    if (requestedHostId && requestedHostId === hostIdParam) {
+      setRequestedHostId(null);
+    }
+  }, [hostIdParam, requestedHostId]);
 
   const {
     data: hostsData,
@@ -48,6 +68,10 @@ export function useTmuxRosterData() {
   const tmuxHosts = useMemo(() => (
     hostsData?.hosts?.filter((host) => host.capabilities.tmux) ?? []
   ), [hostsData]);
+  const onlineTmuxHosts = useMemo(
+    () => tmuxHosts.filter((host) => isHostOnline(host.last_seen_at ?? null)),
+    [tmuxHosts]
+  );
 
   const hostById = useMemo(() => {
     const map = new Map<string, (typeof tmuxHosts)[number]>();
@@ -62,7 +86,11 @@ export function useTmuxRosterData() {
     return onlineHost?.id ?? tmuxHosts[0]?.id ?? '';
   }, [tmuxHosts]);
 
-  const selectedHostId = hostById.has(hostIdParam) ? hostIdParam : fallbackHostId;
+  const effectiveHostId = requestedHostId ?? hostIdParam;
+  const allHostsSelected = effectiveHostId === ALL_TMUX_HOSTS_ID && onlineTmuxHosts.length > 0;
+  const selectedHostId = allHostsSelected
+    ? ALL_TMUX_HOSTS_ID
+    : hostById.has(effectiveHostId) ? effectiveHostId : fallbackHostId;
   const selectedHost = selectedHostId ? hostById.get(selectedHostId) : undefined;
 
   const updateTmuxParams = useCallback((updates: Record<string, string | null>) => {
@@ -79,24 +107,43 @@ export function useTmuxRosterData() {
     router.replace(`/tmux${next ? `?${next}` : ''}`);
   }, [router]);
 
-  useEffect(() => {
-    if (!selectedHostId) return;
-    if (hostIdParam === selectedHostId) return;
-    updateTmuxParams({
-      host_id: selectedHostId,
-      session_id: null,
-    });
-  }, [hostIdParam, selectedHostId, updateTmuxParams]);
-
   const {
     data: sessionsData,
     isLoading: sessionsLoading,
     error: sessionsError,
     refetch: refetchSessions,
     isFetching: sessionsFetching,
-  } = useQuery({
-    queryKey: ['sessions', 'tmux', selectedHostId],
-    queryFn: () => getTmuxRoster({ host_id: selectedHostId }),
+  } = useQuery<TmuxRosterQueryData>({
+    queryKey: [
+      'sessions',
+      'tmux',
+      selectedHostId,
+      ...(allHostsSelected ? onlineTmuxHosts.map((host) => host.id).sort() : []),
+    ],
+    queryFn: async () => {
+      if (!allHostsSelected) return getTmuxRoster({ host_id: selectedHostId });
+      const results = await Promise.allSettled(
+        onlineTmuxHosts.map(async (host) => ({
+          hostId: host.id,
+          roster: await getTmuxRoster({ host_id: host.id }),
+        }))
+      );
+      const successful = results
+        .filter((result): result is PromiseFulfilledResult<{ hostId: string; roster: TmuxRosterQueryData }> => result.status === 'fulfilled')
+        .map((result) => result.value);
+      if (successful.length === 0) {
+        throw new Error('Could not load the tmux roster from any online machine.');
+      }
+      const failedHostIds = results.flatMap((result, index) => (
+        result.status === 'rejected' ? [onlineTmuxHosts[index]?.id ?? 'unknown'] : []
+      ));
+      const sessions = successful.flatMap(({ roster }) => roster.sessions);
+      return {
+        sessions: [...new Map(sessions.map((session) => [session.id, session])).values()],
+        total: sessions.length,
+        failedHostIds,
+      };
+    },
     enabled: Boolean(selectedHostId),
   });
 
@@ -104,17 +151,49 @@ export function useTmuxRosterData() {
     sessionsData?.sessions ?? []
   ), [sessionsData]);
 
-  const filteredSessions = useMemo(
-    () => tmuxSessions.filter((session) => (
+  const matchesActiveFilter = useCallback(
+    (session: SessionWithSnapshot) => (
       matchesTmuxRosterFilter(session, activeFilter)
       && matchesTmuxFilter(session, query)
-    )),
-    [activeFilter, query, tmuxSessions]
+    ),
+    [activeFilter, query]
   );
 
-  const clusters = useMemo(
-    () => buildTmuxClusters(filteredSessions),
-    [filteredSessions]
+  const orchestratorSessions = useMemo(
+    () => tmuxSessions.filter((session) => session.role === 'orchestrator'),
+    [tmuxSessions]
+  );
+  const graphQueries = useQueries({
+    queries: orchestratorSessions.map((session) => ({
+      queryKey: ['sessions', session.id, 'graph'],
+      queryFn: () => getSessionGraph(session.id),
+    })),
+  });
+  const sessionEdges = useMemo(
+    () => [...new Map(
+      graphQueries
+        .flatMap((result) => result.data?.edges ?? [])
+        .map((edge) => [`${edge.parent_session_id}:${edge.child_session_id}:${edge.edge_type}`, edge])
+    ).values()],
+    [graphQueries]
+  );
+
+  const rosterGroups = useMemo(
+    () => buildFleetRosterGroups(tmuxSessions, sessionEdges, {
+      allHosts: allHostsSelected,
+      waitingFirst: allHostsSelected,
+    }),
+    [allHostsSelected, sessionEdges, tmuxSessions]
+  );
+  const groups = useMemo(
+    () => filterFleetRosterGroups(rosterGroups, matchesActiveFilter),
+    [matchesActiveFilter, rosterGroups]
+  );
+  const filteredSessions = useMemo(
+    () => [...new Map(
+      groups.flatMap(groupSessions).map((session) => [session.id, session])
+    ).values()],
+    [groups]
   );
 
   const availableSessionIds = useMemo(
@@ -124,15 +203,18 @@ export function useTmuxRosterData() {
 
   const sessionToClusterKey = useMemo(() => {
     const map = new Map<string, string>();
-    for (const cluster of clusters) {
-      for (const window of cluster.windows) {
-        for (const pane of window.panes) {
-          map.set(pane.session.id, cluster.key);
-        }
+    for (const group of groups) {
+      if (group.kind === 'orchestrator') {
+        map.set(group.orchestrator.session.id, group.key);
+        group.workers.forEach((worker) => map.set(worker.session.id, group.key));
+        continue;
+      }
+      for (const window of group.cluster.windows) {
+        for (const pane of window.panes) map.set(pane.session.id, group.key);
       }
     }
     return map;
-  }, [clusters]);
+  }, [groups]);
 
   const selectedSessionId = availableSessionIds.has(sessionIdParam) ? sessionIdParam : '';
   const selectedClusterKey = selectedSessionId ? sessionToClusterKey.get(selectedSessionId) ?? null : null;
@@ -146,9 +228,9 @@ export function useTmuxRosterData() {
 
   useEffect(() => {
     setExpandedClusterKey((current) => (
-      current && clusters.some((cluster) => cluster.key === current) ? current : null
+      current && groups.some((group) => group.key === current) ? current : null
     ));
-  }, [clusters]);
+  }, [groups]);
 
   useEffect(() => {
     if (!selectedSessionId) {
@@ -162,15 +244,16 @@ export function useTmuxRosterData() {
   }, [selectedClusterKey, selectedSessionId]);
 
   const selectedWindowKey = useMemo(() => {
-    for (const cluster of clusters) {
-      for (const window of cluster.windows) {
+    const selectedGroup = fleetGroupForSession(groups, selectedSessionId);
+    if (selectedGroup?.kind === 'tmux') {
+      for (const window of selectedGroup.cluster.windows) {
         if (window.panes.some((pane) => pane.session.id === selectedSessionId)) {
           return window.key;
         }
       }
     }
     return null;
-  }, [clusters, selectedSessionId]);
+  }, [groups, selectedSessionId]);
 
   const invalidateRoster = useCallback(() => {
     if (!selectedHostId) return;
@@ -186,13 +269,26 @@ export function useTmuxRosterData() {
   }, [invalidateRoster, selectedHostId]);
 
   useWebSocket(
-    [{ type: 'sessions' }],
+    [{ type: 'sessions' }, { type: 'hosts' }],
     (message: ServerToUIMessage) => {
       if (message.type === 'sessions.changed') {
         scheduleRosterRefresh();
+      } else if (message.type === 'hosts.changed') {
+        void queryClient.invalidateQueries({ queryKey: ['hosts'] });
       }
     },
     Boolean(selectedHostId)
+  );
+  useWebSocket(
+    [{ type: 'session_edges' }],
+    (message: ServerToUIMessage) => {
+      if (message.type !== 'session_edges.changed') return;
+      void queryClient.invalidateQueries({
+        queryKey: ['sessions', message.payload.session_id, 'graph'],
+      });
+    },
+    Boolean(selectedHostId),
+    'tmux-session-edges'
   );
 
   useEffect(() => {
@@ -212,6 +308,7 @@ export function useTmuxRosterData() {
   }, [refetchHosts, refetchSessions, selectedHostId]);
 
   const selectHost = useCallback((hostId: string) => {
+    setRequestedHostId(hostId);
     updateTmuxParams({
       host_id: hostId,
       session_id: null,
@@ -239,7 +336,9 @@ export function useTmuxRosterData() {
     sessionsFetching,
     tmuxSessions,
     filteredSessions,
-    clusters,
+    groups,
+    allHostsSelected,
+    partialHostFailureCount: sessionsData?.failedHostIds?.length ?? 0,
     selectedSessionId,
     selectedClusterKey,
     selectedWindowKey,

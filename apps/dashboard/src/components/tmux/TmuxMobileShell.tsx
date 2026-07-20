@@ -1,16 +1,18 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useState, type MutableRefObject, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { ListTree, MoreHorizontal, Plus, RefreshCw, Rows3, TerminalSquare } from 'lucide-react';
 import type { Host, Session, SessionWithSnapshot } from '@agent-command/schema';
 import { StatusBadge } from '@/components/StatusBadge';
 import { MobileLaunchSheet } from '@/components/launch/MobileLaunchSheet';
 import type { TerminalController } from '@/components/TerminalView';
 import { Button } from '@/components/ui/button';
-import type { TmuxRosterFilter, TmuxSessionCluster } from '@/lib/tmuxRoster';
+import type { TmuxRosterFilter } from '@/lib/tmuxRoster';
+import type { FleetRosterGroup } from '@/lib/fleetRoster';
 import { cn, getSessionDisplayName, isHostOnline } from '@/lib/utils';
 import { TmuxActionSheet } from './TmuxActionSheet';
 import { TmuxRoster } from './TmuxRoster';
+import { ALL_TMUX_HOSTS_ID } from '@/hooks/useTmuxRosterData';
 
 type TmuxMobileMode = 'roster' | 'terminal' | 'actions';
 
@@ -42,12 +44,14 @@ interface TmuxMobileShellProps {
   hosts: Host[];
   selectedHostId: string;
   selectedHost?: Host;
+  allHostsSelected: boolean;
+  partialHostFailureCount: number;
   onSelectHost: (hostId: string) => void;
   query: string;
   onQueryChange: (query: string) => void;
   activeFilter: TmuxRosterFilter;
   onFilterChange: (filter: TmuxRosterFilter) => void;
-  clusters: TmuxSessionCluster[];
+  groups: FleetRosterGroup[];
   filteredSessions: SessionWithSnapshot[];
   sessionsLoading: boolean;
   sessionsError: unknown;
@@ -79,12 +83,14 @@ export function TmuxMobileShell({
   hosts,
   selectedHostId,
   selectedHost,
+  allHostsSelected,
+  partialHostFailureCount,
   onSelectHost,
   query,
   onQueryChange,
   activeFilter,
   onFilterChange,
-  clusters,
+  groups,
   filteredSessions,
   sessionsLoading,
   sessionsError,
@@ -113,11 +119,13 @@ export function TmuxMobileShell({
 }: TmuxMobileShellProps) {
   const [mode, setMode] = useState<TmuxMobileMode>(initialMode);
   const [launchOpen, setLaunchOpen] = useState(false);
+  const previousSelectedSessionIdRef = useRef(selectedSessionId);
 
   useEffect(() => {
-    if (!selectedSessionId && mode !== 'roster') {
+    if (previousSelectedSessionIdRef.current && !selectedSessionId && mode !== 'roster') {
       setMode('roster');
     }
+    previousSelectedSessionIdRef.current = selectedSessionId;
   }, [mode, selectedSessionId]);
 
   useEffect(() => {
@@ -152,7 +160,7 @@ export function TmuxMobileShell({
             </div>
             <div className="truncate text-xs text-muted-foreground">
               {mode === 'roster'
-                ? selectedHost?.name || 'Select host'
+                ? allHostsSelected ? 'All online machines' : selectedHost?.name || 'Select host'
                 : selectedSession?.tmux_target || selectedTitle}
             </div>
           </div>
@@ -228,6 +236,19 @@ export function TmuxMobileShell({
         <div className="space-y-3">
           <div className="-mx-4 overflow-x-auto px-4">
             <div className="flex min-w-max gap-2">
+              <button
+                type="button"
+                onClick={() => onSelectHost(ALL_TMUX_HOSTS_ID)}
+                disabled={!hosts.some((host) => isHostOnline(host.last_seen_at ?? null))}
+                className={cn(
+                  'inline-flex h-11 items-center gap-2 rounded-md border px-3 text-sm transition-colors',
+                  allHostsSelected
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'bg-background disabled:opacity-50'
+                )}
+              >
+                <span className="font-medium">All machines</span>
+              </button>
               {hosts.map((host) => {
                 const active = host.id === selectedHostId;
                 const online = isHostOnline(host.last_seen_at ?? null);
@@ -237,7 +258,7 @@ export function TmuxMobileShell({
                     type="button"
                     onClick={() => onSelectHost(host.id)}
                     className={cn(
-                      'inline-flex h-10 items-center gap-2 rounded-md border px-3 text-sm transition-colors',
+                      'inline-flex h-11 items-center gap-2 rounded-md border px-3 text-sm transition-colors',
                       active
                         ? 'border-primary bg-primary text-primary-foreground'
                         : 'bg-background'
@@ -253,11 +274,14 @@ export function TmuxMobileShell({
 
           <TmuxRoster
             selectedHost={selectedHost}
+            hosts={hosts}
+            allHostsSelected={allHostsSelected}
+            partialHostFailureCount={partialHostFailureCount}
             query={query}
             onQueryChange={onQueryChange}
             activeFilter={activeFilter}
             onFilterChange={onFilterChange}
-            clusters={clusters}
+            groups={groups}
             filteredSessions={filteredSessions}
             sessionsLoading={sessionsLoading}
             sessionsError={sessionsError}

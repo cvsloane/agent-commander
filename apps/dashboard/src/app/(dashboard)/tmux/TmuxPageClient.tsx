@@ -48,7 +48,9 @@ export default function TmuxPageClient() {
     sessionsError,
     sessionsFetching,
     filteredSessions,
-    clusters,
+    groups,
+    allHostsSelected,
+    partialHostFailureCount,
     selectedSessionId,
     selectedClusterKey,
     selectedWindowKey,
@@ -226,12 +228,14 @@ export default function TmuxPageClient() {
           hosts={tmuxHosts}
           selectedHostId={selectedHostId}
           selectedHost={selectedHost}
+          allHostsSelected={allHostsSelected}
+          partialHostFailureCount={partialHostFailureCount}
           onSelectHost={selectHost}
           query={query}
           onQueryChange={(nextQuery) => updateTmuxParams({ q: nextQuery || null })}
           activeFilter={activeFilter}
           onFilterChange={(nextFilter) => updateTmuxParams({ filter: nextFilter === 'all' ? null : nextFilter })}
-          clusters={clusters}
+          groups={groups}
           filteredSessions={filteredSessions}
           sessionsLoading={sessionsLoading}
           sessionsError={sessionsError}
@@ -263,12 +267,14 @@ export default function TmuxPageClient() {
           hosts={tmuxHosts}
           selectedHostId={selectedHostId}
           selectedHost={selectedHost}
+          allHostsSelected={allHostsSelected}
+          partialHostFailureCount={partialHostFailureCount}
           onSelectHost={selectHost}
           query={query}
           onQueryChange={(nextQuery) => updateTmuxParams({ q: nextQuery || null })}
           activeFilter={activeFilter}
           onFilterChange={(nextFilter) => updateTmuxParams({ filter: nextFilter === 'all' ? null : nextFilter })}
-          clusters={clusters}
+          groups={groups}
           filteredSessions={filteredSessions}
           sessionsLoading={sessionsLoading}
           sessionsError={sessionsError}

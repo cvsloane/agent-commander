@@ -37,6 +37,9 @@ import type {
   SessionLinkWithSession,
   ToolEvent,
   ToolStat,
+  SessionEdge,
+  AgentTask,
+  AutomationAgentMessageRequest,
 } from '@agent-command/schema';
 export type {
   CaptureMode,
@@ -300,6 +303,36 @@ export async function getSessionEvents(
   return fetchAPI(`/v1/sessions/${id}/events${query ? `?${query}` : ''}`);
 }
 
+export interface SessionGraphRollup {
+  session_id: string;
+  child_sessions: {
+    total: number;
+    by_status: Record<string, number>;
+  };
+  agent_tasks: {
+    total: number;
+    running: number;
+    completed: number;
+    failed: number;
+  };
+}
+
+export interface SessionGraphResponse {
+  session_id: string;
+  edges: SessionEdge[];
+  rollup: SessionGraphRollup;
+}
+
+export async function getSessionGraph(id: string): Promise<SessionGraphResponse> {
+  return fetchAPI(`/v1/sessions/${id}/graph`);
+}
+
+export async function getSessionAgentTasks(
+  id: string
+): Promise<{ session_id: string; agent_tasks: AgentTask[] }> {
+  return fetchAPI(`/v1/sessions/${id}/agent-tasks`);
+}
+
 // Session usage (latest per session)
 export async function getSessionUsageLatest(sessionIds?: string[]): Promise<{ usage: SessionUsageSummary[] }> {
   const params = new URLSearchParams();
@@ -507,6 +540,16 @@ export async function wakeAutomationAgent(
   input: WakeAutomationAgentRequest
 ): Promise<{ wakeup: AutomationWakeup }> {
   return fetchAPI(`/v1/automation-agents/${id}/wake`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function messageAutomationAgent(
+  slug: string,
+  input: AutomationAgentMessageRequest
+): Promise<{ automation_agent_id: string; session_id: string; cmd_id: string }> {
+  return fetchAPI(`/v1/automation-agents/${encodeURIComponent(slug)}/message`, {
     method: 'POST',
     body: JSON.stringify(input),
   });

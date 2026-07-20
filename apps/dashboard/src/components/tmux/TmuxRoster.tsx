@@ -2,11 +2,13 @@
 
 import { Search } from 'lucide-react';
 import type { Host, SessionWithSnapshot } from '@agent-command/schema';
-import { TMUX_ROSTER_FILTERS, type TmuxRosterFilter, type TmuxSessionCluster } from '@/lib/tmuxRoster';
+import { TMUX_ROSTER_FILTERS, type TmuxRosterFilter } from '@/lib/tmuxRoster';
+import type { FleetRosterGroup } from '@/lib/fleetRoster';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { TmuxClusterRow } from './TmuxClusterRow';
+import { TmuxOrchestratorRow } from './TmuxOrchestratorRow';
 
 const FILTER_LABELS: Record<TmuxRosterFilter, string> = {
   all: 'All',
@@ -19,11 +21,14 @@ const FILTER_LABELS: Record<TmuxRosterFilter, string> = {
 
 interface TmuxRosterProps {
   selectedHost?: Host;
+  hosts: Host[];
+  allHostsSelected?: boolean;
+  partialHostFailureCount?: number;
   query: string;
   onQueryChange: (query: string) => void;
   activeFilter: TmuxRosterFilter;
   onFilterChange: (filter: TmuxRosterFilter) => void;
-  clusters: TmuxSessionCluster[];
+  groups: FleetRosterGroup[];
   filteredSessions: SessionWithSnapshot[];
   sessionsLoading: boolean;
   sessionsError: unknown;
@@ -40,11 +45,14 @@ interface TmuxRosterProps {
 
 export function TmuxRoster({
   selectedHost,
+  hosts,
+  allHostsSelected = false,
+  partialHostFailureCount = 0,
   query,
   onQueryChange,
   activeFilter,
   onFilterChange,
-  clusters,
+  groups,
   filteredSessions,
   sessionsLoading,
   sessionsError,
@@ -63,7 +71,9 @@ export function TmuxRoster({
       <CardHeader className="pb-3">
         <CardTitle className="text-base">Live tmux Sessions</CardTitle>
         <CardDescription>
-          {selectedHost
+          {allHostsSelected
+            ? 'Every online tmux machine · waiting work first'
+            : selectedHost
             ? `${selectedHost.name}${selectedHost.tailscale_name ? ` · ${selectedHost.tailscale_name}` : ''}`
             : 'Select a host'}
         </CardDescription>
@@ -99,9 +109,9 @@ export function TmuxRoster({
 
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>
-            {clusters.length} sessions · {filteredSessions.length} panes
+            {groups.length} sessions · {filteredSessions.length} panes
           </span>
-          {selectedHost && (
+          {selectedHost && !allHostsSelected && (
             <span suppressHydrationWarning>
               {hydrated && selectedHost.last_seen_at
                 ? `Last seen ${formatRelativeTime(selectedHost.last_seen_at)}`
@@ -109,6 +119,12 @@ export function TmuxRoster({
             </span>
           )}
         </div>
+
+        {partialHostFailureCount > 0 && (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-800 dark:text-amber-200" role="status">
+            {partialHostFailureCount} online machine{partialHostFailureCount === 1 ? '' : 's'} could not be reached. Showing the rosters that loaded.
+          </div>
+        )}
 
         {sessionsLoading ? (
           <div className="flex items-center justify-center py-12">
@@ -118,22 +134,38 @@ export function TmuxRoster({
           <div className="text-sm text-destructive">
             Failed to load tmux sessions for this host.
           </div>
-        ) : clusters.length === 0 ? (
+        ) : groups.length === 0 ? (
           <div className="text-sm text-muted-foreground">
             No tmux panes matched this host and filter.
           </div>
         ) : (
           <div className="space-y-2">
-            {clusters.map((cluster) => (
+            {groups.map((group) => group.kind === 'orchestrator' ? (
+              <TmuxOrchestratorRow
+                key={group.key}
+                group={group}
+                hosts={hosts}
+                expanded={expandedClusterKey === group.key}
+                active={group.key === selectedClusterKey}
+                hydrated={hydrated}
+                selectedSessionId={selectedSessionId}
+                onExpandedChange={(expanded) => onExpandedClusterKeyChange(expanded ? group.key : null)}
+                onSelectSession={onSelectSession}
+                onOpenActions={onOpenActions}
+              />
+            ) : (
               <TmuxClusterRow
-                key={cluster.key}
-                cluster={cluster}
-                expanded={expandedClusterKey === cluster.key}
-                active={cluster.key === selectedClusterKey}
+                key={group.key}
+                cluster={group.cluster}
+                hostLabel={allHostsSelected
+                  ? hosts.find((host) => host.id === group.cluster.hostId)?.name
+                  : undefined}
+                expanded={expandedClusterKey === group.key}
+                active={group.key === selectedClusterKey}
                 hydrated={hydrated}
                 selectedWindowKey={selectedWindowKey}
                 selectedSessionId={selectedSessionId}
-                onExpandedChange={(expanded) => onExpandedClusterKeyChange(expanded ? cluster.key : null)}
+                onExpandedChange={(expanded) => onExpandedClusterKeyChange(expanded ? group.key : null)}
                 onSelectSession={onSelectSession}
                 onOpenActions={onOpenActions}
               />
