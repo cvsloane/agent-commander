@@ -1,0 +1,15 @@
+{
+  "name": "@agent-command/eslint-typescript-compat",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./eslint.config.mjs",
+  "dependencies": {
+    "@typescript-eslint/eslint-plugin": "8.64.0",
+    "@typescript-eslint/parser": "8.64.0",
+    "typescript": "5.9.3"
+  },
+  "peerDependencies": {
+    "eslint": "^10.7.0"
+  }
+}

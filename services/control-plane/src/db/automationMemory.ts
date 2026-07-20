@@ -1314,7 +1314,7 @@ export async function listAutomationRuns(userId: string, filters?: {
   }
   query += ` ORDER BY r.started_at DESC`;
   if (filters?.limit) {
-    query += ` LIMIT $${index++}`;
+    query += ` LIMIT $${index}`;
     params.push(filters.limit);
   }
 
@@ -1346,7 +1346,7 @@ export async function listAutomationWakeups(userId: string, filters?: {
 
   query += ` ORDER BY w.requested_at DESC`;
   if (filters?.limit) {
-    query += ` LIMIT $${index++}`;
+    query += ` LIMIT $${index}`;
     params.push(filters.limit);
   }
 
@@ -2639,7 +2639,7 @@ export async function finalizeAutomationRunFromReport(
   let finalRun: AutomationRun;
   let replayed = false;
   let completedWorkItem: WorkItem | null = null;
-  let workItemId: string | null = null;
+  let workItemId: string | null;
   try {
     await client.query('BEGIN');
     const updated = await client.query(

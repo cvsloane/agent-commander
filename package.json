@@ -16,15 +16,21 @@
     "typecheck": "turbo typecheck"
   },
   "devDependencies": {
+    "@agent-command/eslint-typescript-compat": "file:tools/eslint-typescript-compat",
+    "@eslint/compat": "^2.1.0",
+    "@eslint/js": "^10.0.1",
+    "@next/eslint-plugin-next": "16.2.10",
     "@playwright/test": "^1.61.1",
-    "@types/node": "^20.19.43",
-    "@typescript-eslint/eslint-plugin": "^8.64.0",
-    "@typescript-eslint/parser": "^8.64.0",
-    "eslint": "^9.39.5",
-    "eslint-config-next": "16.2.10",
+    "@types/node": "^24.13.3",
+    "eslint": "^10.7.0",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.7.0",
     "prettier": "^3.9.5",
     "turbo": "^2.10.5",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vite": "8.1.5",
     "vitest": "^4.1.10"
   },
@@ -34,8 +40,6 @@
   },
   "pnpm": {
     "overrides": {
-      "@babel/core": "7.29.7",
-      "eslint-plugin-react-hooks": "7.0.1",
       "postcss": "8.5.20",
       "vite": "8.1.5"
     }

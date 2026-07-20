@@ -41,6 +41,7 @@ const (
 	TypeTerminalReadOnly    = "terminal.readonly"
 	TypeTerminalLag         = "terminal.lag"
 	TypeTerminalAudit       = "terminal.audit"
+	TypeTmuxTopology        = "tmux.topology"
 )
 
 // EnvelopeHeader supports direction-agnostic inspection before decoding a
@@ -74,7 +75,7 @@ type AgentMessage[P any] struct {
 	V       int    `json:"v"`
 	Type    string `json:"type"`
 	TS      string `json:"ts"`
-	Seq     int64  `json:"seq"`
+	Seq     int64  `json:"seq,omitempty"`
 	Payload P      `json:"payload"`
 }
 

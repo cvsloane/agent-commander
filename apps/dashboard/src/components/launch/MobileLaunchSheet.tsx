@@ -47,7 +47,7 @@ export function MobileLaunchSheet({ open, selectedHostId, onClose, onLaunched }:
   const setDefaultMobileLaunchHostId = useSettingsStore((state) => state.setDefaultMobileLaunchHostId);
   const setDefaultMobileLaunchTmuxTarget = useSettingsStore((state) => state.setDefaultMobileLaunchTmuxTarget);
   const { data, isLoading, error, refetch } = useLaunchTargets(open);
-  const targets = data?.targets ?? [];
+  const targets = useMemo(() => data?.targets ?? [], [data?.targets]);
   const [mode, setMode] = useState<LaunchMode>('new');
   const [hostId, setHostId] = useState('');
   const [provider, setProvider] = useState<MobileLaunchProvider>(defaultMobileLaunchProvider);

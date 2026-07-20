@@ -21,7 +21,7 @@
   ],
   "scripts": {
     "build": "tsc && chmod +x dist/bin.js",
-    "lint": "cd ../.. && ESLINT_USE_FLAT_CONFIG=false pnpm exec eslint packages/ac-cli/src --ext .ts",
+    "lint": "cd ../.. && pnpm exec eslint packages/ac-cli/src",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
@@ -31,8 +31,8 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@types/node": "^20.19.43",
-    "typescript": "^5.9.3",
+    "@types/node": "^24.13.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   }
 }

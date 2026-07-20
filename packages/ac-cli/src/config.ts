@@ -89,7 +89,9 @@ export async function loadRuntimeConfig(
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code !== 'ENOENT') {
-      throw new Error(`Unable to read CLI config at ${configPath}: ${(error as Error).message}`);
+      throw new Error(`Unable to read CLI config at ${configPath}: ${(error as Error).message}`, {
+        cause: error,
+      });
     }
   }
 

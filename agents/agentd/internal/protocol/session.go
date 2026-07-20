@@ -28,14 +28,22 @@ func (value *NullableString) UnmarshalJSON(data []byte) error {
 // TmuxPaneIdentity is the stable tmux identity carried in session metadata.
 // PaneID and Target are additive; older messages use the top-level upsert fields.
 type TmuxPaneIdentity struct {
-	PaneID         string `json:"pane_id,omitempty"`
-	Target         string `json:"target,omitempty"`
-	SessionName    string `json:"session_name,omitempty"`
-	WindowName     string `json:"window_name,omitempty"`
-	WindowIndex    int    `json:"window_index,omitempty"`
-	PaneIndex      int    `json:"pane_index,omitempty"`
-	PanePID        int    `json:"pane_pid,omitempty"`
-	CurrentCommand string `json:"current_command,omitempty"`
+	PaneID             string `json:"pane_id,omitempty"`
+	Target             string `json:"target,omitempty"`
+	SessionName        string `json:"session_name,omitempty"`
+	WindowName         string `json:"window_name,omitempty"`
+	WindowIndex        int    `json:"window_index,omitempty"`
+	PaneIndex          int    `json:"pane_index,omitempty"`
+	PanePID            int    `json:"pane_pid,omitempty"`
+	CurrentCommand     string `json:"current_command,omitempty"`
+	PaneActive         bool   `json:"pane_active"`
+	WindowActive       bool   `json:"window_active"`
+	WindowZoomedFlag   bool   `json:"window_zoomed_flag"`
+	WindowLayout       string `json:"window_layout,omitempty"`
+	PaneWidth          int    `json:"pane_width"`
+	PaneHeight         int    `json:"pane_height"`
+	WindowBellFlag     bool   `json:"window_bell_flag"`
+	WindowActivityFlag bool   `json:"window_activity_flag"`
 }
 
 type GitStatusMetadata struct {

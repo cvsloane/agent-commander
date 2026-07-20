@@ -30,3 +30,28 @@ func TestTerminalPerViewerPTYDefaultsOnAndCanBeDisabled(t *testing.T) {
 		})
 	}
 }
+
+func TestTmuxTopologyEventsDefaultsOffAndCanBeEnabled(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		yaml string
+		want bool
+	}{
+		{name: "default", yaml: "{}\n", want: false},
+		{name: "explicit true", yaml: "tmux:\n  topology_events: true\n", want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(test.yaml), 0600); err != nil {
+				t.Fatalf("write config: %v", err)
+			}
+			cfg, err := LoadConfig(path)
+			if err != nil {
+				t.Fatalf("LoadConfig: %v", err)
+			}
+			if cfg.Tmux.TopologyEvents != test.want {
+				t.Fatalf("topology_events=%v, want=%v", cfg.Tmux.TopologyEvents, test.want)
+			}
+		})
+	}
+}

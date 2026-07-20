@@ -48,6 +48,7 @@ type Agent struct {
 	streamer         *console.Streamer
 	terminalManager  *tmux.TerminalManager
 	pipeMux          *tmux.PipeMux
+	tmuxHooks        *tmux.HookManager
 	lastPruneAt      time.Time
 	orchestratorTmux TmuxRunner
 	sendMessage      func(string, any) error
@@ -74,6 +75,14 @@ type Agent struct {
 	launchTemplates   *providers.LaunchTemplates
 
 	commandExecutor *commands.Executor
+
+	tmuxTopologyMu          sync.Mutex
+	tmuxTopologyTimer       *time.Timer
+	pendingTmuxTopology     *protocol.TmuxTopologyPayload
+	pendingTmuxTopologyHash string
+	lastTmuxTopologyHash    string
+	tmuxTopologyGeneration  uint64
+	tmuxTopologyStopped     bool
 }
 
 type toolEventPending struct {
@@ -405,6 +414,11 @@ func (a *Agent) Run() error {
 		a.cfg.ControlPlane.ReconnectBackoffMs,
 	)
 	a.wsClient.SetMessageHandler(a.handleMessage)
+	a.wsClient.SetOnDisconnect(func() {
+		if a.terminalManager != nil {
+			a.terminalManager.MarkChannelsStale()
+		}
+	})
 	a.wsClient.SetOnConnect(func() {
 		if err := a.sendHello(); err != nil {
 			log.Printf("Failed to send hello: %v", err)
@@ -463,6 +477,20 @@ func (a *Agent) Run() error {
 	// Initialize pipe mux for console + terminal output
 	a.pipeMux = tmux.NewPipeMux(a.tmuxClient, a.cfg.Storage.StateDir+"/console")
 
+	// Register additive topology hooks when the host tmux supports them. The
+	// reconciliation poll remains active as the fallback and correctness pass.
+	// Skipped entirely while topology events are disabled: hooks would mutate
+	// the user's tmux server and trigger ListPanes for events that get dropped.
+	if a.cfg.Tmux.TopologyEvents {
+		a.tmuxHooks, err = a.tmuxClient.StartTopologyHooks(a.handleTmuxTopologyHook)
+		if err != nil {
+			log.Printf("tmux hooks unavailable; using poll-only topology: %v", err)
+		} else {
+			defer a.tmuxHooks.Close()
+			log.Printf("tmux topology hooks active")
+		}
+	}
+
 	// Connect to control plane
 	if err := a.wsClient.Connect(); err != nil {
 		return fmt.Errorf("failed to connect to control plane: %w", err)
@@ -496,6 +524,10 @@ func (a *Agent) Run() error {
 	if a.terminalManager != nil {
 		a.terminalManager.Close()
 	}
+	if a.tmuxHooks != nil {
+		a.tmuxHooks.Close()
+	}
+	a.stopTmuxTopology()
 	a.claudeProvider.Stop()
 	a.wsClient.Close()
 
@@ -1740,6 +1772,8 @@ func (a *Agent) send(msgType string, payload any) error {
 	var err error
 	if a.sendMessage != nil {
 		err = a.sendMessage(msgType, payload)
+	} else if msgType == protocol.TypeTmuxTopology {
+		err = a.wsClient.SendUnsequenced(msgType, payload)
 	} else {
 		err = a.wsClient.Send(msgType, payload)
 	}
@@ -1945,6 +1979,54 @@ func (a *Agent) executeCommand(cmd commands.Dispatch) (map[string]any, error) {
 			break
 		}
 		err = a.executeRenameSession(session, cmd.Command.Payload)
+	case "new_window":
+		if !exists {
+			err = fmt.Errorf("session not found")
+			break
+		}
+		resultPayload, err = a.executeNewWindow(session, cmd.Command.Payload)
+	case "rename_window":
+		if !exists {
+			err = fmt.Errorf("session not found")
+			break
+		}
+		err = a.executeRenameWindow(session, cmd.Command.Payload)
+	case "kill_window":
+		if !exists {
+			err = fmt.Errorf("session not found")
+			break
+		}
+		err = a.executeKillWindow(session, cmd.Command.Payload)
+	case "select_window":
+		if !exists {
+			err = fmt.Errorf("session not found")
+			break
+		}
+		err = a.executeSelectWindow(session, cmd.Command.Payload)
+	case "split_pane":
+		if !exists {
+			err = fmt.Errorf("session not found")
+			break
+		}
+		resultPayload, err = a.executeSplitPane(session, cmd.Command.Payload)
+	case "select_pane":
+		if !exists {
+			err = fmt.Errorf("session not found")
+			break
+		}
+		err = a.executeSelectPane(session, cmd.Command.Payload)
+	case "resize_pane":
+		if !exists {
+			err = fmt.Errorf("session not found")
+			break
+		}
+		err = a.executeResizePane(session, cmd.Command.Payload)
+	case "zoom_pane":
+		if !exists {
+			err = fmt.Errorf("session not found")
+			break
+		}
+		err = a.executeZoomPane(session, cmd.Command.Payload)
 	case "spawn_session":
 		err = a.executeSpawnSession(cmd.SessionID, cmd.Command.Payload)
 	case "spawn_job":
@@ -2075,6 +2157,216 @@ func (a *Agent) executeSendKeys(session *SessionState, payload json.RawMessage) 
 	}
 
 	return a.tmuxClient.SendKeys(session.PaneID, p.Keys)
+}
+
+func (a *Agent) executeNewWindow(session *SessionState, payload json.RawMessage) (map[string]any, error) {
+	if !a.cfg.Security.AllowSpawn {
+		return nil, fmt.Errorf("new_window not allowed by policy")
+	}
+	var p protocol.NewWindowPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return nil, err
+	}
+	tmuxSession := tmuxSessionFromTarget(session.TmuxTarget)
+	if tmuxSession == "" {
+		return nil, fmt.Errorf("session has no tmux target")
+	}
+
+	a.topologyMu.Lock()
+	defer a.topologyMu.Unlock()
+	paneID, err := a.tmuxClient.NewWindow(tmuxSession, p.WindowName, p.CWD)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"pane_id": paneID}, nil
+}
+
+func (a *Agent) executeRenameWindow(session *SessionState, payload json.RawMessage) error {
+	if !a.cfg.Security.AllowSendInput {
+		return fmt.Errorf("rename_window not allowed by policy")
+	}
+	var p protocol.RenameWindowPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return err
+	}
+	if p.WindowIndex == nil || *p.WindowIndex < 0 {
+		return fmt.Errorf("window_index is required")
+	}
+	if strings.TrimSpace(p.Name) == "" {
+		return fmt.Errorf("name is required")
+	}
+	target, err := tmuxWindowTarget(session, *p.WindowIndex)
+	if err != nil {
+		return err
+	}
+
+	a.topologyMu.Lock()
+	defer a.topologyMu.Unlock()
+	return a.tmuxClient.RenameWindow(target, p.Name)
+}
+
+func (a *Agent) executeKillWindow(session *SessionState, payload json.RawMessage) error {
+	if !a.cfg.Security.AllowKill {
+		return fmt.Errorf("kill_window not allowed by policy")
+	}
+	var p protocol.KillWindowPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return err
+	}
+	if p.WindowIndex == nil || *p.WindowIndex < 0 {
+		return fmt.Errorf("window_index is required")
+	}
+	target, err := tmuxWindowTarget(session, *p.WindowIndex)
+	if err != nil {
+		return err
+	}
+
+	a.topologyMu.Lock()
+	defer a.topologyMu.Unlock()
+	return a.tmuxClient.KillWindow(target)
+}
+
+func (a *Agent) executeSelectWindow(session *SessionState, payload json.RawMessage) error {
+	if !a.cfg.Security.AllowSendInput {
+		return fmt.Errorf("select_window not allowed by policy")
+	}
+	var p protocol.SelectWindowPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return err
+	}
+	if p.WindowIndex == nil || *p.WindowIndex < 0 {
+		return fmt.Errorf("window_index is required")
+	}
+	target, err := tmuxWindowTarget(session, *p.WindowIndex)
+	if err != nil {
+		return err
+	}
+
+	a.topologyMu.Lock()
+	defer a.topologyMu.Unlock()
+	return a.tmuxClient.SelectWindow(target)
+}
+
+func (a *Agent) executeSplitPane(session *SessionState, payload json.RawMessage) (map[string]any, error) {
+	if !a.cfg.Security.AllowSpawn {
+		return nil, fmt.Errorf("split_pane not allowed by policy")
+	}
+	var p protocol.SplitPanePayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return nil, err
+	}
+	if p.Direction != "horizontal" && p.Direction != "vertical" {
+		return nil, fmt.Errorf("direction must be horizontal or vertical")
+	}
+	if p.Percent != nil && (*p.Percent < 1 || *p.Percent > 100) {
+		return nil, fmt.Errorf("percent must be between 1 and 100")
+	}
+	if session.PaneID == "" {
+		return nil, fmt.Errorf("session has no active pane")
+	}
+
+	a.topologyMu.Lock()
+	defer a.topologyMu.Unlock()
+	created, err := a.tmuxClient.SplitPaneWithOptions(session.PaneID, p.Direction, p.Percent, p.CWD)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"pane_id": created.PaneID, "tmux_target": created.TmuxTarget}, nil
+}
+
+func (a *Agent) executeSelectPane(session *SessionState, payload json.RawMessage) error {
+	if !a.cfg.Security.AllowSendInput {
+		return fmt.Errorf("select_pane not allowed by policy")
+	}
+	var p protocol.SelectPanePayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return err
+	}
+
+	a.topologyMu.Lock()
+	defer a.topologyMu.Unlock()
+	paneID, err := a.resolvePaneTarget(session, p.PaneID)
+	if err != nil {
+		return err
+	}
+	return a.tmuxClient.SelectPane(paneID)
+}
+
+func (a *Agent) executeResizePane(session *SessionState, payload json.RawMessage) error {
+	if !a.cfg.Security.AllowSendInput {
+		return fmt.Errorf("resize_pane not allowed by policy")
+	}
+	var p protocol.ResizePanePayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return err
+	}
+	if p.Width == nil && p.Height == nil {
+		return fmt.Errorf("at least one of width or height is required")
+	}
+	if (p.Width != nil && *p.Width <= 0) || (p.Height != nil && *p.Height <= 0) {
+		return fmt.Errorf("pane dimensions must be positive")
+	}
+
+	a.topologyMu.Lock()
+	defer a.topologyMu.Unlock()
+	paneID, err := a.resolvePaneTarget(session, p.PaneID)
+	if err != nil {
+		return err
+	}
+	width, height := 0, 0
+	if p.Width != nil {
+		width = *p.Width
+	}
+	if p.Height != nil {
+		height = *p.Height
+	}
+	return a.tmuxClient.ResizePane(paneID, width, height)
+}
+
+func (a *Agent) executeZoomPane(session *SessionState, payload json.RawMessage) error {
+	if !a.cfg.Security.AllowSendInput {
+		return fmt.Errorf("zoom_pane not allowed by policy")
+	}
+	var p protocol.ZoomPanePayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return err
+	}
+
+	a.topologyMu.Lock()
+	defer a.topologyMu.Unlock()
+	paneID, err := a.resolvePaneTarget(session, p.PaneID)
+	if err != nil {
+		return err
+	}
+	return a.tmuxClient.ZoomPane(paneID)
+}
+
+func (a *Agent) resolvePaneTarget(session *SessionState, paneID string) (string, error) {
+	if paneID == "" {
+		return "", fmt.Errorf("pane_id is required")
+	}
+	tmuxSession := tmuxSessionFromTarget(session.TmuxTarget)
+	if tmuxSession == "" {
+		return "", fmt.Errorf("session has no tmux target")
+	}
+	panes, err := a.tmuxClient.ListPanes()
+	if err != nil {
+		return "", err
+	}
+	for _, pane := range panes {
+		if pane.PaneID == paneID && pane.SessionName == tmuxSession {
+			return paneID, nil
+		}
+	}
+	return "", fmt.Errorf("pane is not in the tracked tmux session")
+}
+
+func tmuxWindowTarget(session *SessionState, windowIndex int) (string, error) {
+	tmuxSession := tmuxSessionFromTarget(session.TmuxTarget)
+	if tmuxSession == "" {
+		return "", fmt.Errorf("session has no tmux target")
+	}
+	return fmt.Sprintf("%s:%d", tmuxSession, windowIndex), nil
 }
 
 func (a *Agent) executeKillSession(session *SessionState) error {
@@ -4619,23 +4911,42 @@ func (a *Agent) handleConsoleChunk(subscriptionID, sessionID string, data []byte
 }
 
 func (a *Agent) pollTmux() {
+	a.reconcileTmux("startup")
+	a.retryBufferedHooks()
+
 	ticker := time.NewTicker(time.Duration(a.cfg.Tmux.PollIntervalMs) * time.Millisecond)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		a.topologyMu.Lock()
-		panes, err := a.tmuxClient.ListPanes()
-		if err != nil {
-			a.topologyMu.Unlock()
-			log.Printf("Failed to list tmux panes: %v", err)
-			continue
-		}
-
-		procSnap := proc.TakeSnapshot()
-		a.syncPanes(panes, procSnap)
-		a.topologyMu.Unlock()
+		a.reconcileTmux("poll")
 		a.retryBufferedHooks()
 	}
+}
+
+func (a *Agent) reconcileTmux(reason string) {
+	a.topologyMu.Lock()
+	panes, err := a.tmuxClient.ListPanes()
+	if err != nil {
+		a.topologyMu.Unlock()
+		log.Printf("Failed to list tmux panes: %v", err)
+		return
+	}
+
+	procSnap := proc.TakeSnapshot()
+	a.syncPanes(panes, procSnap)
+	a.topologyMu.Unlock()
+	a.queueTmuxTopology(reason, panes)
+}
+
+func (a *Agent) handleTmuxTopologyHook(hookName string) {
+	a.topologyMu.Lock()
+	panes, err := a.tmuxClient.ListPanes()
+	a.topologyMu.Unlock()
+	if err != nil {
+		log.Printf("Failed to list tmux panes after hook %s: %v", hookName, err)
+		return
+	}
+	a.queueTmuxTopology("hook:"+hookName, panes)
 }
 
 func (a *Agent) syncPanes(panes []tmux.Pane, procSnap *proc.Snapshot) {
@@ -4755,14 +5066,22 @@ func (a *Agent) syncPanes(panes []tmux.Pane, procSnap *proc.Snapshot) {
 			session.Metadata = map[string]any{}
 		}
 		session.Metadata["tmux"] = map[string]any{
-			"pane_id":         pane.PaneID,
-			"target":          pane.GetTmuxTarget(),
-			"pane_pid":        pane.PanePID,
-			"current_command": pane.CurrentCommand,
-			"session_name":    pane.SessionName,
-			"window_name":     pane.WindowName,
-			"window_index":    pane.WindowIndex,
-			"pane_index":      pane.PaneIndex,
+			"pane_id":              pane.PaneID,
+			"target":               pane.GetTmuxTarget(),
+			"pane_pid":             pane.PanePID,
+			"current_command":      pane.CurrentCommand,
+			"session_name":         pane.SessionName,
+			"window_name":          pane.WindowName,
+			"window_index":         pane.WindowIndex,
+			"pane_index":           pane.PaneIndex,
+			"pane_active":          pane.PaneActive,
+			"window_active":        pane.WindowActive,
+			"window_zoomed_flag":   pane.WindowZoomed,
+			"window_layout":        pane.WindowLayout,
+			"pane_width":           pane.PaneWidth,
+			"pane_height":          pane.PaneHeight,
+			"window_bell_flag":     pane.WindowBell,
+			"window_activity_flag": pane.WindowActivity,
 		}
 		session.Metadata["unmanaged"] = session.Unmanaged
 
