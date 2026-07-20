@@ -12,7 +12,7 @@ export const MCPServerSchema = z.object({
   // For http MCPs
   url: z.string().optional(),
   // Env vars - secret values are redacted to "***REDACTED***"
-  env: z.record(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
   // Flags
   has_secrets: z.boolean().default(false),
   poolable: z.boolean().default(false),
@@ -30,14 +30,14 @@ export type MCPEnablement = z.infer<typeof MCPEnablementSchema>;
 export const SessionMCPConfigSchema = z.object({
   session_id: z.string().uuid(),
   servers: z.array(MCPServerSchema),
-  enablement: z.record(MCPEnablementSchema), // keyed by mcp name
+  enablement: z.record(z.string(), MCPEnablementSchema), // keyed by mcp name
   restart_required: z.boolean().default(false),
 });
 export type SessionMCPConfig = z.infer<typeof SessionMCPConfigSchema>;
 
 // Request to update MCP config for a session
 export const UpdateMCPConfigRequestSchema = z.object({
-  enablement: z.record(z.object({
+  enablement: z.record(z.string(), z.object({
     enabled: z.boolean(),
     scope: z.enum(['session', 'project', 'global']).optional(),
   })),
@@ -80,7 +80,7 @@ export const MCPUpdateConfigMessageSchema = z.object({
   payload: z.object({
     cmd_id: z.string(),
     session_id: z.string().uuid(),
-    enablement: z.record(z.object({
+    enablement: z.record(z.string(), z.object({
       enabled: z.boolean(),
       scope: z.enum(['session', 'project', 'global']).optional(),
     })),
@@ -116,7 +116,7 @@ export const MCPProjectConfigResponseMessageSchema = z.object({
   seq: z.number().int().positive(),
   payload: z.object({
     cmd_id: z.string(),
-    enablement: z.record(MCPEnablementSchema),
+    enablement: z.record(z.string(), MCPEnablementSchema),
   }),
 });
 

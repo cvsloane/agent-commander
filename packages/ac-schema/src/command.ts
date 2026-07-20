@@ -29,6 +29,54 @@ export const RenameSessionPayloadSchema = z.object({
 });
 export type RenameSessionPayload = z.infer<typeof RenameSessionPayloadSchema>;
 
+export const NewWindowPayloadSchema = z.object({
+  window_name: z.string().optional(),
+  cwd: z.string().optional(),
+});
+export type NewWindowPayload = z.infer<typeof NewWindowPayloadSchema>;
+
+export const KillWindowPayloadSchema = z.object({
+  window_index: z.number().int().nonnegative(),
+});
+export type KillWindowPayload = z.infer<typeof KillWindowPayloadSchema>;
+
+export const RenameWindowPayloadSchema = z.object({
+  window_index: z.number().int().nonnegative(),
+  name: z.string().min(1),
+});
+export type RenameWindowPayload = z.infer<typeof RenameWindowPayloadSchema>;
+
+export const SplitPanePayloadSchema = z.object({
+  direction: z.enum(['horizontal', 'vertical']),
+  percent: z.number().int().min(1).max(100).optional(),
+  cwd: z.string().optional(),
+});
+export type SplitPanePayload = z.infer<typeof SplitPanePayloadSchema>;
+
+export const SelectWindowPayloadSchema = z.object({
+  window_index: z.number().int().nonnegative(),
+});
+export type SelectWindowPayload = z.infer<typeof SelectWindowPayloadSchema>;
+
+export const SelectPanePayloadSchema = z.object({
+  pane_id: z.string().min(1),
+});
+export type SelectPanePayload = z.infer<typeof SelectPanePayloadSchema>;
+
+export const ResizePanePayloadSchema = z.object({
+  pane_id: z.string().min(1),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+}).refine((payload) => payload.width !== undefined || payload.height !== undefined, {
+  message: 'At least one of width or height is required',
+});
+export type ResizePanePayload = z.infer<typeof ResizePanePayloadSchema>;
+
+export const ZoomPanePayloadSchema = z.object({
+  pane_id: z.string().min(1),
+});
+export type ZoomPanePayload = z.infer<typeof ZoomPanePayloadSchema>;
+
 // Spawn session command payload (interactive tmux session)
 export const SpawnSessionMemoryFileSchema = z.object({
   base_dir: z.enum(['working_directory', 'home']),
@@ -71,7 +119,7 @@ export const SpawnSessionWorktreePayloadSchema = z.object({
     window_name: z.string(),
     command: z.string(),
   }),
-  env: z.record(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
 });
 
 export const SpawnSessionPayloadSchema = z.union([
@@ -117,7 +165,7 @@ export const SpawnJobPayloadSchema = z.object({
   provider: SessionProviderSchema,
   cwd: z.string(),
   prompt: z.string(),
-  env: z.record(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
 });
 export type SpawnJobPayload = z.infer<typeof SpawnJobPayloadSchema>;
 
@@ -157,6 +205,67 @@ export const CapturePanePayloadSchema = z.object({
   strip_ansi: z.boolean().default(true),
 });
 export type CapturePanePayload = z.infer<typeof CapturePanePayloadSchema>;
+
+export const SCROLLBACK_MAX_LINES = 5000;
+
+export const ScrollbackRequestSchema = z.object({
+  mode: CaptureModeSchema,
+  last_n_lines: z.number().int().positive().max(SCROLLBACK_MAX_LINES).optional(),
+  start_line: z.number().int().optional(),
+  end_line: z.number().int().optional(),
+  strip_ansi: z.boolean().default(true),
+}).superRefine((request, context) => {
+  if (request.mode === 'last_n' && request.last_n_lines === undefined) {
+    context.addIssue({
+      code: 'custom',
+      path: ['last_n_lines'],
+      message: 'last_n_lines is required for last_n mode',
+    });
+  }
+  if (request.mode !== 'range') return;
+  if (request.start_line === undefined) {
+    context.addIssue({
+      code: 'custom',
+      path: ['start_line'],
+      message: 'start_line is required for range mode',
+    });
+  }
+  if (request.end_line === undefined) {
+    context.addIssue({
+      code: 'custom',
+      path: ['end_line'],
+      message: 'end_line is required for range mode',
+    });
+  }
+  if (request.start_line === undefined || request.end_line === undefined) return;
+  if (request.end_line < request.start_line) {
+    context.addIssue({
+      code: 'custom',
+      path: ['end_line'],
+      message: 'end_line must be greater than or equal to start_line',
+    });
+    return;
+  }
+  if (request.end_line - request.start_line + 1 > SCROLLBACK_MAX_LINES) {
+    context.addIssue({
+      code: 'custom',
+      path: ['end_line'],
+      message: `range cannot exceed ${SCROLLBACK_MAX_LINES} lines`,
+    });
+  }
+});
+export type ScrollbackRequest = z.infer<typeof ScrollbackRequestSchema>;
+
+export const ScrollbackResponseSchema = z.object({
+  cmd_id: z.string().uuid(),
+  ok: z.boolean(),
+  result: z.record(z.string(), z.unknown()).optional(),
+  error: z.object({
+    code: z.string(),
+    message: z.string(),
+  }).optional(),
+});
+export type ScrollbackResponse = z.infer<typeof ScrollbackResponseSchema>;
 
 // Copy to session command payload
 export const CopyToSessionPayloadSchema = z.object({
@@ -205,6 +314,14 @@ export const CommandPayloadSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('copy_to_session'), payload: CopyToSessionPayloadSchema }),
   z.object({ type: z.literal('capture_pane'), payload: CapturePanePayloadSchema }),
   z.object({ type: z.literal('list_directory'), payload: ListDirectoryPayloadSchema }),
+  z.object({ type: z.literal('new_window'), payload: NewWindowPayloadSchema }),
+  z.object({ type: z.literal('kill_window'), payload: KillWindowPayloadSchema }),
+  z.object({ type: z.literal('rename_window'), payload: RenameWindowPayloadSchema }),
+  z.object({ type: z.literal('split_pane'), payload: SplitPanePayloadSchema }),
+  z.object({ type: z.literal('select_window'), payload: SelectWindowPayloadSchema }),
+  z.object({ type: z.literal('select_pane'), payload: SelectPanePayloadSchema }),
+  z.object({ type: z.literal('resize_pane'), payload: ResizePanePayloadSchema }),
+  z.object({ type: z.literal('zoom_pane'), payload: ZoomPanePayloadSchema }),
 ]);
 export type CommandPayload = z.infer<typeof CommandPayloadSchema>;
 
@@ -221,7 +338,7 @@ export const CommandResultSchema = z.object({
   cmd_id: z.string(),
   session_id: z.string().uuid().optional(),
   ok: z.boolean(),
-  result: z.record(z.unknown()).optional(),
+  result: z.record(z.string(), z.unknown()).optional(),
   error: z
     .object({
       code: z.string(),
@@ -234,6 +351,6 @@ export type CommandResult = z.infer<typeof CommandResultSchema>;
 // Command request (from dashboard REST API)
 export const CommandRequestSchema = z.object({
   type: CommandTypeSchema,
-  payload: z.record(z.unknown()).optional(),
+  payload: z.record(z.string(), z.unknown()).optional(),
 });
 export type CommandRequest = z.infer<typeof CommandRequestSchema>;

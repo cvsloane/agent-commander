@@ -63,8 +63,8 @@ export const AutomationRuntimeStateSchema = z.object({
   last_session_id: z.string().uuid().nullable().optional(),
   last_run_id: z.string().uuid().nullable().optional(),
   runtime_status: AutomationRuntimeStatusSchema,
-  state_json: z.record(z.unknown()).default({}),
-  usage_rollup_json: z.record(z.unknown()).default({}),
+  state_json: z.record(z.string(), z.unknown()).default({}),
+  usage_rollup_json: z.record(z.string(), z.unknown()).default({}),
   created_at: z.string().datetime({ offset: true }).optional(),
   updated_at: z.string().datetime({ offset: true }).optional(),
 });
@@ -73,9 +73,9 @@ export type AutomationRuntimeState = z.infer<typeof AutomationRuntimeStateSchema
 export const AutomationWorkerReportSchema = z.object({
   outcome: z.string(),
   summary: z.string(),
-  evidence_refs: z.array(z.record(z.unknown())).default([]),
-  suggested_followups: z.array(z.record(z.unknown())).default([]),
-  candidate_memory_promotions: z.array(z.record(z.unknown())).default([]),
+  evidence_refs: z.array(z.record(z.string(), z.unknown())).default([]),
+  suggested_followups: z.array(z.record(z.string(), z.unknown())).default([]),
+  candidate_memory_promotions: z.array(z.record(z.string(), z.unknown())).default([]),
 });
 export type AutomationWorkerReport = z.infer<typeof AutomationWorkerReportSchema>;
 
@@ -83,9 +83,9 @@ export const AutomationRunReportRequestSchema = z.object({
   outcome: z.enum(['succeeded', 'failed', 'blocked']),
   summary: z.string().trim().min(1),
   detail: z.string().trim().min(1).optional(),
-  evidence_refs: z.array(z.record(z.unknown())).default([]),
-  suggested_followups: z.array(z.record(z.unknown())).default([]),
-  candidate_memory_promotions: z.array(z.record(z.unknown())).default([]),
+  evidence_refs: z.array(z.record(z.string(), z.unknown())).default([]),
+  suggested_followups: z.array(z.record(z.string(), z.unknown())).default([]),
+  candidate_memory_promotions: z.array(z.record(z.string(), z.unknown())).default([]),
 });
 export type AutomationRunReportRequest = z.infer<typeof AutomationRunReportRequestSchema>;
 
@@ -103,7 +103,7 @@ export const AutomationLogRefSchema = z.object({
   run_events_url: z.string().optional(),
   snapshot_path: z.string().optional(),
   snapshot_url: z.string().optional(),
-  artifact_refs: z.array(z.record(z.unknown())).default([]),
+  artifact_refs: z.array(z.record(z.string(), z.unknown())).default([]),
 });
 export type AutomationLogRef = z.infer<typeof AutomationLogRefSchema>;
 
@@ -114,7 +114,7 @@ export const AutomationRunEventSchema = z.object({
   event_type: z.string(),
   level: AutomationRunEventLevelSchema,
   message: z.string(),
-  payload: z.record(z.unknown()).default({}),
+  payload: z.record(z.string(), z.unknown()).default({}),
   created_at: z.string().datetime({ offset: true }).optional(),
 });
 export type AutomationRunEvent = z.infer<typeof AutomationRunEventSchema>;
@@ -130,10 +130,10 @@ export const AutomationAgentSchema = z.object({
   provider: SessionProviderSchema,
   default_cwd: z.string().nullable().optional(),
   fixed_host_id: z.string().uuid().nullable().optional(),
-  wake_policy_json: z.record(z.unknown()).default({}),
-  memory_policy_json: z.record(z.unknown()).default({}),
-  budget_policy_json: z.record(z.unknown()).default({}),
-  worker_pool_json: z.record(z.unknown()).default({}),
+  wake_policy_json: z.record(z.string(), z.unknown()).default({}),
+  memory_policy_json: z.record(z.string(), z.unknown()).default({}),
+  budget_policy_json: z.record(z.string(), z.unknown()).default({}),
+  worker_pool_json: z.record(z.string(), z.unknown()).default({}),
   max_parallel_runs: z.number().int().default(1),
   runtime_state: AutomationRuntimeStateSchema.optional(),
   preflight: AutomationPreflightSchema.optional(),
@@ -150,7 +150,7 @@ export const AutomationWakeupSchema = z.object({
   status: AutomationWakeStatusSchema,
   idempotency_key: z.string().nullable().optional(),
   coalesced_into_run_id: z.string().uuid().nullable().optional(),
-  context_json: z.record(z.unknown()).default({}),
+  context_json: z.record(z.string(), z.unknown()).default({}),
   requested_at: z.string().datetime({ offset: true }).optional(),
   claimed_at: z.string().datetime({ offset: true }).nullable().optional(),
   finished_at: z.string().datetime({ offset: true }).nullable().optional(),
@@ -165,12 +165,12 @@ export const AutomationRunSchema = z.object({
   session_id: z.string().uuid().nullable().optional(),
   status: AutomationRunStatusSchema,
   objective: z.string(),
-  memory_snapshot_json: z.record(z.unknown()).default({}),
-  pending_followups_json: z.array(z.record(z.unknown())).default([]),
+  memory_snapshot_json: z.record(z.string(), z.unknown()).default({}),
+  pending_followups_json: z.array(z.record(z.string(), z.unknown())).default([]),
   result_summary: z.string().nullable().optional(),
-  usage_json: z.record(z.unknown()).default({}),
-  worker_report_json: z.record(z.unknown()).default({}),
-  log_ref_json: z.record(z.unknown()).default({}),
+  usage_json: z.record(z.string(), z.unknown()).default({}),
+  worker_report_json: z.record(z.string(), z.unknown()).default({}),
+  log_ref_json: z.record(z.string(), z.unknown()).default({}),
   started_at: z.string().datetime({ offset: true }).optional(),
   ended_at: z.string().datetime({ offset: true }).nullable().optional(),
 });
@@ -183,8 +183,8 @@ export const GovernanceApprovalSchema = z.object({
   automation_run_id: z.string().uuid().nullable().optional(),
   type: GovernanceApprovalTypeSchema,
   status: GovernanceApprovalStatusSchema,
-  request_payload: z.record(z.unknown()).default({}),
-  decision_payload: z.record(z.unknown()).nullable().optional(),
+  request_payload: z.record(z.string(), z.unknown()).default({}),
+  decision_payload: z.record(z.string(), z.unknown()).nullable().optional(),
   requested_at: z.string().datetime({ offset: true }).optional(),
   decided_at: z.string().datetime({ offset: true }).nullable().optional(),
   decided_by_user_id: z.string().uuid().nullable().optional(),
@@ -203,7 +203,7 @@ export const WorkItemSchema = z.object({
   assigned_automation_agent_id: z.string().uuid().nullable().optional(),
   checkout_run_id: z.string().uuid().nullable().optional(),
   dedupe_key: z.string().nullable().optional(),
-  payload_json: z.record(z.unknown()).default({}),
+  payload_json: z.record(z.string(), z.unknown()).default({}),
   created_at: z.string().datetime({ offset: true }).optional(),
   updated_at: z.string().datetime({ offset: true }).optional(),
 });
@@ -218,10 +218,10 @@ export const UpsertAutomationAgentSchema = z.object({
   provider: SessionProviderSchema,
   default_cwd: z.string().optional(),
   fixed_host_id: z.string().uuid().optional(),
-  wake_policy_json: z.record(z.unknown()).optional(),
-  memory_policy_json: z.record(z.unknown()).optional(),
-  budget_policy_json: z.record(z.unknown()).optional(),
-  worker_pool_json: z.record(z.unknown()).optional(),
+  wake_policy_json: z.record(z.string(), z.unknown()).optional(),
+  memory_policy_json: z.record(z.string(), z.unknown()).optional(),
+  budget_policy_json: z.record(z.string(), z.unknown()).optional(),
+  worker_pool_json: z.record(z.string(), z.unknown()).optional(),
   max_parallel_runs: z.number().int().min(1).max(20).optional(),
 });
 export type UpsertAutomationAgent = z.infer<typeof UpsertAutomationAgentSchema>;
@@ -230,7 +230,7 @@ export const WakeAutomationAgentRequestSchema = z.object({
   repo_id: z.string().uuid().optional(),
   source: AutomationWakeSourceSchema.default('manual'),
   idempotency_key: z.string().optional(),
-  context_json: z.record(z.unknown()).optional(),
+  context_json: z.record(z.string(), z.unknown()).optional(),
 });
 export type WakeAutomationAgentRequest = z.infer<typeof WakeAutomationAgentRequestSchema>;
 
@@ -255,7 +255,7 @@ export const CreateWorkItemSchema = z.object({
   priority: z.number().int().optional(),
   assigned_automation_agent_id: z.string().uuid().optional(),
   dedupe_key: z.string().optional(),
-  payload_json: z.record(z.unknown()).optional(),
+  payload_json: z.record(z.string(), z.unknown()).optional(),
 });
 export type CreateWorkItem = z.infer<typeof CreateWorkItemSchema>;
 

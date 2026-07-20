@@ -64,7 +64,7 @@ export const AlertEventTogglesSchema = z.object({
 });
 export type AlertEventToggles = z.infer<typeof AlertEventTogglesSchema>;
 
-export const AlertProviderFiltersSchema = z.record(SessionProviderSchema, z.boolean());
+export const AlertProviderFiltersSchema = z.partialRecord(SessionProviderSchema, z.boolean());
 export type AlertProviderFilters = z.infer<typeof AlertProviderFiltersSchema>;
 
 export const AlertChannelSchema = z.object({
@@ -107,7 +107,7 @@ export const ClawdbotChannelSchema = AlertChannelSchema.extend({
 });
 export type ClawdbotChannelSettings = z.infer<typeof ClawdbotChannelSchema>;
 
-export const UsageThresholdsSchema = z.record(
+export const UsageThresholdsSchema = z.partialRecord(
   SessionProviderSchema,
   z.array(z.number().int().min(1).max(100))
 );

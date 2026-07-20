@@ -48,7 +48,7 @@ const CreateHostSchema = z.object({
   name: z.string().min(1),
   tailscale_name: z.string().optional(),
   tailscale_ip: z.string().optional(),
-  capabilities: z.record(z.unknown()).optional(),
+  capabilities: z.record(z.string(), z.unknown()).optional(),
 });
 
 const UpdateHostCapabilitiesSchema = z.object({

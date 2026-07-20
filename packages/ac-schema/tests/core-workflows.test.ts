@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AlertProviderFiltersSchema,
   ApprovalDecideRequestSchema,
   AutomationAgentSchema,
   AutomationRunSchema,
+  CommandPayloadSchema,
   CreateWorkItemSchema,
   MemorySearchQuerySchema,
   ServerToUIMessageSchema,
@@ -11,9 +13,17 @@ import {
   UpsertMemoryEntrySchema,
   WorkItemsQuerySchema,
   UISubscribeMessageSchema,
+  UsageThresholdsSchema,
 } from '../src/index.js';
 
 const uuid = '11111111-1111-4111-8111-111111111111';
+
+describe('Zod 4 compatibility', () => {
+  it('preserves partial provider records accepted before the migration', () => {
+    expect(AlertProviderFiltersSchema.parse({ codex: false })).toEqual({ codex: false });
+    expect(UsageThresholdsSchema.parse({ codex: [50, 80] })).toEqual({ codex: [50, 80] });
+  });
+});
 
 describe('approval schemas', () => {
   it('defaults dashboard approval decisions to both hook and command behavior', () => {
@@ -92,6 +102,23 @@ describe('memory schemas', () => {
 });
 
 describe('tmux schemas', () => {
+  it('enforces tmux window and pane command optionality', () => {
+    expect(CommandPayloadSchema.safeParse({ type: 'new_window', payload: {} }).success).toBe(true);
+    expect(CommandPayloadSchema.safeParse({
+      type: 'split_pane',
+      payload: { direction: 'horizontal' },
+    }).success).toBe(true);
+    expect(CommandPayloadSchema.safeParse({ type: 'split_pane', payload: {} }).success).toBe(false);
+    expect(CommandPayloadSchema.safeParse({
+      type: 'resize_pane',
+      payload: { pane_id: '%14', height: 30 },
+    }).success).toBe(true);
+    expect(CommandPayloadSchema.safeParse({
+      type: 'resize_pane',
+      payload: { pane_id: '%14' },
+    }).success).toBe(false);
+  });
+
   it('validates pane identity shared across agent, control plane, and dashboard', () => {
     const parsed = TmuxPaneIdentitySchema.parse({
       pane_id: '%2',

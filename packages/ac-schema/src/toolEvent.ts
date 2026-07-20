@@ -6,8 +6,8 @@ export const ToolEventSchema = z.object({
   session_id: z.string().uuid(),
   provider: z.string(),
   tool_name: z.string(),
-  tool_input: z.record(z.unknown()).optional(),
-  tool_output: z.record(z.unknown()).optional(),
+  tool_input: z.record(z.string(), z.unknown()).optional(),
+  tool_output: z.record(z.string(), z.unknown()).optional(),
   started_at: z.string().datetime({ offset: true }),
   completed_at: z.string().datetime({ offset: true }).optional(),
   success: z.boolean().optional(),
@@ -23,7 +23,7 @@ export const ToolEventStartSchema = z.object({
   session_id: z.string().uuid(),
   provider: z.string(),
   tool_name: z.string(),
-  tool_input: z.record(z.unknown()).optional(),
+  tool_input: z.record(z.string(), z.unknown()).optional(),
   started_at: z.string().datetime({ offset: true }),
 });
 
@@ -32,7 +32,7 @@ export type ToolEventStart = z.infer<typeof ToolEventStartSchema>;
 // Tool event complete payload (agent -> control-plane)
 export const ToolEventCompleteSchema = z.object({
   event_id: z.string().uuid(),
-  tool_output: z.record(z.unknown()).optional(),
+  tool_output: z.record(z.string(), z.unknown()).optional(),
   completed_at: z.string().datetime({ offset: true }),
   success: z.boolean(),
   duration_ms: z.number().int(),

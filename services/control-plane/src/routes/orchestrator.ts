@@ -3,12 +3,17 @@ import { z } from 'zod';
 import {
   OrchestratorMemorySearchQuerySchema,
   OrchestratorMemoryWriteRequestSchema,
+  OrchestratorFleetResponseSchema,
   OrchestratorSendInputRequestSchema,
   OrchestratorSpawnWorkerRequestSchema,
   OrchestratorWorkItemClaimRequestSchema,
   OrchestratorWorkItemCompleteRequestSchema,
   OrchestratorWorkItemsQuerySchema,
+  type AutomationAgent,
+  type AutomationRun,
+  type FleetWorkItemCount,
   type Session,
+  type SessionWithSnapshot,
 } from '@agent-command/schema';
 import * as db from '../db/index.js';
 import * as automationDb from '../db/automationMemory.js';
@@ -23,6 +28,7 @@ import {
   queueInputToSession,
   spawnSessionOnHost,
 } from '../services/sessionSpawn.js';
+import { listAutomationAgentViews } from '../services/automation.js';
 import {
   fingerprintIdempotentRequest,
   getIdempotencyKey,
@@ -77,6 +83,48 @@ function callerUserId(request: FastifyRequest, session: CallerSession): string {
   return session.user_id || request.user!.id;
 }
 
+function runTimestamp(run: AutomationRun): number {
+  const value = run.ended_at || run.started_at;
+  return value ? new Date(value).getTime() : 0;
+}
+
+function latestReportSummary(run: AutomationRun | null): string | null {
+  if (!run) return null;
+  const workerSummary = run.worker_report_json.summary;
+  if (typeof workerSummary === 'string' && workerSummary.trim()) return workerSummary;
+  if (run.result_summary?.trim()) return run.result_summary;
+  return run.objective;
+}
+
+function workItemCounts(
+  rows: FleetWorkItemCount[],
+  familySessionIds: Set<string>,
+  automationAgentId: string | null
+): {
+  total: number;
+  by_status: Record<FleetWorkItemCount['status'], number>;
+} {
+  const byStatus: Record<FleetWorkItemCount['status'], number> = {
+    queued: 0,
+    in_progress: 0,
+    blocked: 0,
+    done: 0,
+    cancelled: 0,
+  };
+  for (const row of rows) {
+    const belongsToFamily = Boolean(row.session_id && familySessionIds.has(row.session_id));
+    const belongsToAgent = Boolean(
+      automationAgentId && row.assigned_automation_agent_id === automationAgentId
+    );
+    if (!belongsToFamily && !belongsToAgent) continue;
+    byStatus[row.status] += row.count;
+  }
+  return {
+    total: Object.values(byStatus).reduce((sum, count) => sum + count, 0),
+    by_status: byStatus,
+  };
+}
+
 async function childIds(parentSessionId: string): Promise<string[]> {
   const edges = await sessionGraph.list(parentSessionId);
   return Array.from(new Set(
@@ -104,6 +152,105 @@ async function requireChild(
 }
 
 export function registerOrchestratorRoutes(app: FastifyInstance): void {
+  app.get('/v1/orchestrator/fleet', async (request, reply) => {
+    if (!request.user) {
+      return reply.status(401).send({ error: 'Authentication required' });
+    }
+
+    const userId = request.user.id;
+    const sessions = await db.getSessions({ include_archived: false });
+    const [snapshots, automationAgents, recentRuns, workItemCountRows] = await Promise.all([
+      db.getLatestSnapshots(sessions.map((session) => session.id)),
+      listAutomationAgentViews(userId),
+      automationDb.listAutomationRuns(userId, { limit: 100 }),
+      automationDb.listFleetWorkItemCounts(userId),
+    ]);
+    const snapshotBySessionId = new Map(
+      snapshots.map((snapshot) => [snapshot.session_id, snapshot])
+    );
+    const sessionsWithSnapshots = sessions.map((session): SessionWithSnapshot => {
+      const snapshot = snapshotBySessionId.get(session.id);
+      return {
+        ...session,
+        latest_snapshot: snapshot
+          ? {
+              created_at: snapshot.created_at,
+              capture_text: snapshot.capture_text,
+              capture_hash: snapshot.capture_hash,
+            }
+          : null,
+      };
+    });
+    const sessionById = new Map(sessionsWithSnapshots.map((session) => [session.id, session]));
+    const orchestratorSessions = sessionsWithSnapshots.filter(
+      (session) => session.role === 'orchestrator'
+    );
+
+    const orchestrators = await Promise.all(orchestratorSessions.map(async (session) => {
+      const [edges, rollup, tasks] = await Promise.all([
+        sessionGraph.list(session.id),
+        sessionGraph.rollup(session.id),
+        agentTasks.list(session.id),
+      ]);
+      const children = edges
+        .filter((edge) => edge.parent_session_id === session.id)
+        .map((edge) => sessionById.get(edge.child_session_id))
+        .filter((child): child is SessionWithSnapshot => Boolean(child));
+      const uniqueChildren = [...new Map(children.map((child) => [child.id, child])).values()];
+      const familySessionIds = new Set([session.id, ...uniqueChildren.map((child) => child.id)]);
+      const automationAgent = automationAgents.find((agent: AutomationAgent) => {
+        const runtime = agent.runtime_state;
+        return Boolean(
+          (runtime?.active_session_id && familySessionIds.has(runtime.active_session_id))
+          || (runtime?.last_session_id && familySessionIds.has(runtime.last_session_id))
+        );
+      }) ?? null;
+
+      const [agentRuns, budgetUsage] = automationAgent
+        ? await Promise.all([
+            automationDb.listAutomationRuns(userId, {
+              automation_agent_id: automationAgent.id,
+              limit: 1,
+            }),
+            automationDb.computeAutomationBudgetUsage(automationAgent.id),
+          ])
+        : [[], null] as const;
+      const recentFamilyRun = recentRuns
+        .filter((run) => run.session_id && familySessionIds.has(run.session_id))
+        .sort((left, right) => runTimestamp(right) - runTimestamp(left))[0];
+      const latestRun = agentRuns[0] ?? recentFamilyRun ?? null;
+      const reportSummary = latestReportSummary(latestRun);
+
+      return {
+        session,
+        children: uniqueChildren,
+        edges,
+        agent_tasks: tasks,
+        rollup,
+        work_item_counts: workItemCounts(
+          workItemCountRows,
+          familySessionIds,
+          automationAgent?.id ?? null
+        ),
+        automation_agent: automationAgent,
+        latest_run: latestRun,
+        latest_report: latestRun && reportSummary
+          ? {
+              run_id: latestRun.id,
+              status: latestRun.status,
+              summary: reportSummary,
+              reported_at: latestRun.ended_at || latestRun.started_at || null,
+            }
+          : null,
+        budget_policy: automationAgent?.budget_policy_json ?? {},
+        budget_usage: budgetUsage,
+        usage_rollup: automationAgent?.runtime_state?.usage_rollup_json ?? {},
+      };
+    }));
+
+    return OrchestratorFleetResponseSchema.parse({ orchestrators });
+  });
+
   app.post<{ Body: unknown }>('/v1/orchestrator/spawn', async (request, reply) => {
     const caller = await resolveCallerSession(request, reply);
     if (!caller) return;

@@ -14,6 +14,10 @@ function readFixture(name: string): unknown {
   return JSON.parse(readFileSync(resolve(fixtureDir, name), 'utf8'));
 }
 
+function readFixtureText(name: string): string {
+  return readFileSync(resolve(fixtureDir, name), 'utf8').trim();
+}
+
 describe('protocol fixtures', () => {
   it.each([
     'agent-hello.json',
@@ -24,11 +28,34 @@ describe('protocol fixtures', () => {
     expect(AgentMessageSchema.safeParse(readFixture(name)).success).toBe(true);
   });
 
+  it('round-trips the frozen unsequenced tmux topology fixture byte-exactly', () => {
+    const source = readFixtureText('tmux-topology.json');
+    const parsed = AgentMessageSchema.parse(JSON.parse(source));
+
+    expect(JSON.stringify(parsed)).toBe(source);
+  });
+
   it.each([
     'terminal-attach.json',
     'terminal-input.json',
     'commands-dispatch-send-input.json',
   ])('validates server-to-agent message fixture %s', (name) => {
     expect(ServerToAgentMessageSchema.safeParse(readFixture(name)).success).toBe(true);
+  });
+
+  it.each([
+    'commands-dispatch-new-window.json',
+    'commands-dispatch-kill-window.json',
+    'commands-dispatch-rename-window.json',
+    'commands-dispatch-split-pane.json',
+    'commands-dispatch-select-window.json',
+    'commands-dispatch-select-pane.json',
+    'commands-dispatch-resize-pane.json',
+    'commands-dispatch-zoom-pane.json',
+  ])('round-trips frozen tmux command fixture %s byte-exactly', (name) => {
+    const source = readFixtureText(name);
+    const parsed = ServerToAgentMessageSchema.parse(JSON.parse(source));
+
+    expect(JSON.stringify(parsed)).toBe(source);
   });
 });

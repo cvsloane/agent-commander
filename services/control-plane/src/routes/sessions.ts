@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import { CommandRequestSchema, CommandPayloadSchema, UpdateSessionRequestSchema, BulkOperationRequestSchema, CopyToSessionPayloadSchema, DashboardSpawnRequestSchema } from '@agent-command/schema';
+import { CommandRequestSchema, CommandPayloadSchema, UpdateSessionRequestSchema, BulkOperationRequestSchema, CopyToSessionPayloadSchema, DashboardSpawnRequestSchema, SCROLLBACK_MAX_LINES, ScrollbackRequestSchema, ScrollbackResponseSchema } from '@agent-command/schema';
 import * as db from '../db/index.js';
 import { sessionGraph } from '../db/sessionGraph.js';
 import { agentTasks } from '../db/agentTasks.js';
@@ -11,6 +11,7 @@ import { spawnSessionOnHost } from '../services/sessionSpawn.js';
 import { bootstrapSessionMemory, prepareSessionMemoryForSpawn } from '../services/sessionMemory.js';
 import { hasRole } from '../auth/rbac.js';
 import { commandRouter } from '../services/commandRouter.js';
+import { hostSupportsTmuxCommands } from '../services/terminalPolicy.js';
 import {
   fingerprintIdempotentRequest,
   getIdempotencyKey,
@@ -25,6 +26,38 @@ const PRIVILEGED_COMMAND_TYPES = new Set([
   'list_directory',
   'kill_session',
 ]);
+
+const TMUX_COMMAND_TYPES = new Set([
+  'new_window',
+  'kill_window',
+  'rename_window',
+  'split_pane',
+  'select_window',
+  'select_pane',
+  'resize_pane',
+  'zoom_pane',
+]);
+
+function capScrollbackResult(
+  result: Awaited<ReturnType<typeof commandRouter.dispatchAndWait>>
+): Awaited<ReturnType<typeof commandRouter.dispatchAndWait>> {
+  const content = result.result?.content;
+  if (typeof content !== 'string') return result;
+
+  const hadTrailingNewline = content.endsWith('\n');
+  const lines = content.split('\n');
+  if (hadTrailingNewline) lines.pop();
+  if (lines.length <= SCROLLBACK_MAX_LINES) return result;
+
+  return {
+    ...result,
+    result: {
+      ...result.result,
+      content: `${lines.slice(-SCROLLBACK_MAX_LINES).join('\n')}${hadTrailingNewline ? '\n' : ''}`,
+      truncated: true,
+    },
+  };
+}
 
 // Query schemas
 const SessionsQuerySchema = z.object({
@@ -314,6 +347,15 @@ export function registerSessionRoutes(app: FastifyInstance): void {
         });
       }
 
+      if (TMUX_COMMAND_TYPES.has(payloadResult.data.type)) {
+        const host = await db.getHostById(session.host_id);
+        if (!hostSupportsTmuxCommands(host)) {
+          return reply.status(403).send({
+            error: 'Host does not support tmux terminal commands',
+          });
+        }
+      }
+
       const cmdId = randomUUID();
       const sent = await commandRouter.dispatch(session.host_id, sessionId, cmdId, {
         type: payloadResult.data.type,
@@ -353,6 +395,72 @@ export function registerSessionRoutes(app: FastifyInstance): void {
     }
   );
 
+  // POST /v1/sessions/:id/scrollback - Capture bounded pane history
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/v1/sessions/:id/scrollback',
+    async (request, reply) => {
+      if (!request.user || !hasRole(request.user, 'operator')) {
+        return reply.status(403).send({ error: 'Forbidden' });
+      }
+      const { id: sessionId } = request.params;
+      if (!z.string().uuid().safeParse(sessionId).success) {
+        return reply.status(400).send({ error: 'Invalid session ID' });
+      }
+
+      const body = ScrollbackRequestSchema.safeParse(request.body);
+      if (!body.success) {
+        return reply.status(400).send({ error: 'Invalid scrollback request', details: body.error });
+      }
+
+      const session = await db.getSessionById(sessionId);
+      if (!session) {
+        return reply.status(404).send({ error: 'Session not found' });
+      }
+      const host = await db.getHostById(session.host_id);
+      if (!hostSupportsTmuxCommands(host)) {
+        return reply.status(403).send({
+          error: 'Host does not support tmux terminal commands',
+        });
+      }
+
+      const cmdId = randomUUID();
+      try {
+        const result = capScrollbackResult(await commandRouter.dispatchAndWait(
+          session.host_id,
+          sessionId,
+          cmdId,
+          {
+            type: 'capture_pane',
+            payload: {
+              mode: body.data.mode,
+              ...(body.data.last_n_lines !== undefined
+                ? { last_n_lines: body.data.last_n_lines }
+                : {}),
+              ...(body.data.start_line !== undefined
+                ? { line_start: body.data.start_line }
+                : {}),
+              ...(body.data.end_line !== undefined
+                ? { line_end: body.data.end_line }
+                : {}),
+              strip_ansi: body.data.strip_ansi,
+            },
+          }
+        ));
+        const response = ScrollbackResponseSchema.parse({ cmd_id: cmdId, ...result });
+        await db.createAuditLog(
+          'session.scrollback',
+          'session',
+          sessionId,
+          { cmd_id: cmdId, request: body.data },
+          request.user.id
+        );
+        return response;
+      } catch (error) {
+        return reply.status(503).send({ error: (error as Error).message });
+      }
+    }
+  );
+
   // PATCH /v1/sessions/:id - Update session (title, etc.)
   app.patch<{ Params: { id: string }; Body: unknown }>(
     '/v1/sessions/:id',
@@ -382,6 +490,30 @@ export function registerSessionRoutes(app: FastifyInstance): void {
       const session = await db.updateSession(id, updates);
       if (!session) {
         return reply.status(404).send({ error: 'Session not found' });
+      }
+
+      if (
+        bodyResult.data.title !== undefined
+        && pubsub.isAgentConnected(session.host_id)
+      ) {
+        const cmdId = randomUUID();
+        try {
+          const sent = await commandRouter.dispatch(session.host_id, id, cmdId, {
+            type: 'rename_session',
+            payload: { title: bodyResult.data.title },
+          });
+          if (!sent) {
+            request.log.warn(
+              { host_id: session.host_id, session_id: id, cmd_id: cmdId },
+              'Session title was persisted, but the owning agent disconnected before rename'
+            );
+          }
+        } catch (error) {
+          request.log.warn(
+            { err: error, host_id: session.host_id, session_id: id, cmd_id: cmdId },
+            'Session title was persisted, but agent rename dispatch failed'
+          );
+        }
       }
 
       // Log audit

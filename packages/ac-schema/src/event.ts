@@ -11,7 +11,7 @@ export const EventSchema = z.object({
   ts: z.string().datetime({ offset: true }),
   type: z.string(),
   event_id: z.string().nullable().optional(),
-  payload: z.record(z.unknown()),
+  payload: z.record(z.string(), z.unknown()),
 });
 export type Event = z.infer<typeof EventSchema>;
 
@@ -19,15 +19,15 @@ export const EventAppendPayloadSchema = z.object({
   session_id: z.string().uuid(),
   event_id: z.string().optional(),
   event_type: z.string().min(1),
-  payload: z.record(z.unknown()),
+  payload: z.record(z.string(), z.unknown()),
 });
 export type EventAppendPayload = z.infer<typeof EventAppendPayloadSchema>;
 
-const UsagePayloadSchema = z.record(z.unknown());
+const UsagePayloadSchema = z.record(z.string(), z.unknown());
 
 export const HookEventPayloadSchema = z.object({
   hook_name: z.string().min(1),
-  hook_data: z.record(z.unknown()),
+  hook_data: z.record(z.string(), z.unknown()),
   tool_name: z.string().min(1).optional(),
   usage: UsagePayloadSchema.optional(),
 }).passthrough();
@@ -42,7 +42,7 @@ export const ProviderStreamEventPayloadSchema = z.object({
   type: z.string().min(1).optional(),
   thread_id: z.string().optional(),
   turn_id: z.string().optional(),
-  item: z.record(z.unknown()).optional(),
+  item: z.record(z.string(), z.unknown()).optional(),
   error: z.union([
     z.object({
       code: z.string().optional(),
@@ -71,7 +71,7 @@ const WorkshopToolPayloadSchema = WorkshopBasePayloadSchema.extend({
   tool: z.string().min(1).optional(),
   toolUseId: z.string().min(1).optional(),
   tool_use_id: z.string().min(1).optional(),
-  toolInput: z.record(z.unknown()).optional(),
+  toolInput: z.record(z.string(), z.unknown()).optional(),
 });
 
 const WorkshopSubagentPayloadSchema = WorkshopBasePayloadSchema.extend({
@@ -94,7 +94,7 @@ export const ApprovalDecidedEventPayloadSchema = z.object({
 export const CommandCompletedEventPayloadSchema = z.object({
   cmd_id: z.string().min(1),
   ok: z.boolean(),
-  result: z.record(z.unknown()).optional(),
+  result: z.record(z.string(), z.unknown()).optional(),
   error: z.object({
     code: z.string(),
     message: z.string(),

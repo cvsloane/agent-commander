@@ -61,3 +61,6 @@ export * from './memory.js';
 
 // Automation schemas
 export * from './automation.js';
+
+// Orchestrator fleet aggregate schemas
+export * from './fleet.js';

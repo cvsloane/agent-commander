@@ -13,3 +13,7 @@ export function canControlTerminal(user: AuthUser): boolean {
 export function hostSupportsTerminal(host: Host | null | undefined): boolean {
   return Boolean(host?.capabilities?.terminal);
 }
+
+export function hostSupportsTmuxCommands(host: Host | null | undefined): boolean {
+  return Boolean(host?.capabilities?.tmux && host.capabilities.terminal);
+}

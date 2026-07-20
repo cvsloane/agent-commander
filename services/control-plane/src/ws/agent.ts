@@ -9,6 +9,7 @@ import {
   ToolEventCompleteSchema,
   ProviderUsageReportSchema,
   SessionUsageSummarySchema,
+  isKnownAgentMessageType,
   validateEventPayload,
   type AgentMessage,
   type Session,
@@ -44,7 +45,12 @@ interface AgentState {
   failed: boolean;
   helloReceived: boolean;
   outboxDelivered: boolean;
+  lastUnknownEnvelopeWarningAt: number;
+  suppressedUnknownEnvelopeWarnings: number;
 }
+
+const MAX_AGENT_FRAME_BYTES = 1024 * 1024;
+const UNKNOWN_ENVELOPE_WARNING_INTERVAL_MS = 60_000;
 
 /**
  * Registers the `/v1/agent/connect` WebSocket endpoint for agentd connections.
@@ -66,6 +72,8 @@ export function registerAgentWebSocket(app: FastifyInstance): void {
         failed: false,
         helloReceived: false,
         outboxDelivered: false,
+        lastUnknownEnvelopeWarningAt: 0,
+        suppressedUnknownEnvelopeWarnings: 0,
       };
 
       const heartbeat = installWebSocketHeartbeat(socket, {
@@ -159,8 +167,29 @@ async function handleSocketMessage(
   state: AgentState,
   data: Buffer
 ): Promise<void> {
+  if (data.byteLength > MAX_AGENT_FRAME_BYTES) {
+    app.log.warn(
+      { bytes: data.byteLength, maxBytes: MAX_AGENT_FRAME_BYTES, hostId: state.hostId },
+      'Oversized agent message'
+    );
+    state.failed = true;
+    recordAgentMessageHandlerFailure('oversized');
+    socket.terminate();
+    return;
+  }
+
   try {
     const raw = JSON.parse(data.toString());
+    if (
+      raw !== null
+      && typeof raw === 'object'
+      && !Array.isArray(raw)
+      && typeof raw.type === 'string'
+      && !isKnownAgentMessageType(raw.type)
+    ) {
+      warnUnknownEnvelope(app, state, raw.type);
+      return;
+    }
     const parseResult = AgentMessageSchema.safeParse(raw);
 
     if (!parseResult.success) {
@@ -181,12 +210,43 @@ async function handleSocketMessage(
   }
 }
 
+function warnUnknownEnvelope(
+  app: FastifyInstance,
+  state: AgentState,
+  messageType: string
+): void {
+  const now = Date.now();
+  if (now - state.lastUnknownEnvelopeWarningAt < UNKNOWN_ENVELOPE_WARNING_INTERVAL_MS) {
+    state.suppressedUnknownEnvelopeWarnings += 1;
+    return;
+  }
+
+  app.log.warn(
+    {
+      hostId: state.hostId,
+      messageType,
+      suppressed: state.suppressedUnknownEnvelopeWarnings,
+    },
+    'Dropping unknown agent message type'
+  );
+  state.lastUnknownEnvelopeWarningAt = now;
+  state.suppressedUnknownEnvelopeWarnings = 0;
+}
+
 async function processAgentMessage(
   app: FastifyInstance,
   socket: WebSocket,
   state: AgentState,
   message: AgentMessage
 ): Promise<void> {
+  if (message.type === 'tmux.topology') {
+    if (!state.hostId) {
+      throw new Error('Tmux topology received before agent authentication');
+    }
+    pubsub.publishTmuxTopology(state.hostId, message);
+    return;
+  }
+
   const seq = message.seq;
 
   if (message.type !== 'agent.hello' && seq <= state.lastProcessedSeq) {

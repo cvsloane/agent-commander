@@ -71,8 +71,8 @@ export const AnalyticsSummarySchema = z.object({
   total_tokens_out: z.number(),
   total_tool_calls: z.number(),
   total_estimated_cost_cents: z.number(),
-  sessions_by_provider: z.record(z.number()),
-  sessions_by_status: z.record(z.number()),
+  sessions_by_provider: z.record(z.string(), z.number()),
+  sessions_by_status: z.record(z.string(), z.number()),
 });
 export type AnalyticsSummary = z.infer<typeof AnalyticsSummarySchema>;
 
@@ -94,7 +94,7 @@ export const ProviderUsageSchema = z.object({
   scope: z.enum(['account', 'session']).default('account'),
   reported_at: z.string().datetime({ offset: true }),
   raw_text: z.string().nullable(),
-  raw_json: z.record(z.unknown()).nullable(),
+  raw_json: z.record(z.string(), z.unknown()).nullable(),
   remaining_tokens: z.number().nullable(),
   remaining_requests: z.number().nullable(),
   weekly_limit_tokens: z.number().nullable(),
@@ -124,7 +124,7 @@ export const ProviderUsageReportSchema = z.object({
   scope: z.enum(['account', 'session']).default('account'),
   reported_at: z.string().datetime({ offset: true }).optional(),
   raw_text: z.string().optional(),
-  raw_json: z.record(z.unknown()).optional(),
+  raw_json: z.record(z.string(), z.unknown()).optional(),
   remaining_tokens: z.number().optional(),
   remaining_requests: z.number().optional(),
   weekly_limit_tokens: z.number().optional(),

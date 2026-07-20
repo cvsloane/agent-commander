@@ -6,6 +6,7 @@ import type {
   AutomationRuntimeState,
   AutomationWakeup,
   CreateWorkItem,
+  FleetWorkItemCount,
   GovernanceApproval,
   GovernanceApprovalDecisionRequest,
   MemoryEntry,
@@ -2127,6 +2128,21 @@ export async function listWorkItems(
   params.push(query.limit);
 
   const result = await pool.query(sql, params);
+  return result.rows;
+}
+
+export async function listFleetWorkItemCounts(userId: string): Promise<FleetWorkItemCount[]> {
+  const result = await pool.query(
+    `SELECT
+       session_id,
+       assigned_automation_agent_id,
+       status,
+       COUNT(*)::int AS count
+     FROM work_items
+     WHERE user_id = $1
+     GROUP BY session_id, assigned_automation_agent_id, status`,
+    [userId]
+  );
   return result.rows;
 }
 
