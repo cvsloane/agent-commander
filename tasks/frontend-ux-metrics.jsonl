@@ -13,3 +13,5 @@
 {"ts":"2026-07-20T22:20:00Z","event":"lane_frozen","lane":"FW3-SHELL","attempt":1,"frozen_sha":"5bba177","verdict":"accepted","integrated_sha":"a5788af"}
 {"ts":"2026-07-20T23:30:00Z","event":"lane_frozen","lane":"FW3-TMUX-UI","attempt":2,"frozen_sha":"c2bcfbe","verdict":"accepted","integrated_sha":"86ce697"}
 {"ts":"2026-07-21T00:05:00Z","event":"wave_complete","wave":3,"reviewer_verdict":"SHIP-WITH-NOTES","notes_closed_in":"FW3-TMUX-UI-R2 + AI Lead","gate":"green"}
+{"ts":"2026-07-21T00:40:00Z","event":"wave_merged","wave":3,"main_sha":"f3df15d","pr":88}
+{"ts":"2026-07-21T00:45:00Z","event":"wave_launched","wave":4,"lanes":["FW4-FLEET","FW4-SURFACES"]}
