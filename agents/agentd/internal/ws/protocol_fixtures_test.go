@@ -70,6 +70,7 @@ func TestProtocolFixtureMatrixRoundTripsProductionTypes(t *testing.T) {
 		protocol.TypeTerminalDetach, protocol.TypeTerminalControl, protocol.TypeTerminalOutput,
 		protocol.TypeTerminalAttached, protocol.TypeTerminalDetached, protocol.TypeTerminalError,
 		protocol.TypeTerminalReadOnly, protocol.TypeTerminalLag, protocol.TypeTerminalAudit,
+		protocol.TypeTmuxTopology,
 	}
 	for _, messageType := range wantTypes {
 		if !seenTypes[messageType] {
@@ -81,6 +82,8 @@ func TestProtocolFixtureMatrixRoundTripsProductionTypes(t *testing.T) {
 		"send_input", "send_keys", "interrupt", "kill_session", "adopt_pane", "rename_session",
 		"spawn_session", "spawn_job", "fork", "console.subscribe", "console.unsubscribe",
 		"capture_pane", "copy_to_session", "list_directory",
+		"new_window", "kill_window", "rename_window", "split_pane",
+		"select_window", "select_pane", "resize_pane", "zoom_pane",
 	}
 	for _, commandType := range wantCommands {
 		if !seenCommands[commandType] {
@@ -150,6 +153,8 @@ func fixtureMessageTarget(t *testing.T, messageType string, agentMessage bool) a
 		return &protocol.AgentMessage[protocol.TerminalOutputPayload]{}
 	case protocol.TypeTerminalAudit:
 		return &protocol.AgentMessage[protocol.TerminalAuditPayload]{}
+	case protocol.TypeTmuxTopology:
+		return &protocol.AgentMessage[protocol.TmuxTopologyPayload]{}
 	case protocol.TypeTerminalAttached, protocol.TypeTerminalDetached, protocol.TypeTerminalError,
 		protocol.TypeTerminalReadOnly, protocol.TypeTerminalLag:
 		return &protocol.AgentMessage[protocol.TerminalStatusPayload]{}
@@ -177,6 +182,22 @@ func commandPayloadTarget(t *testing.T, commandType string) any {
 		return &protocol.AdoptPanePayload{}
 	case "rename_session":
 		return &protocol.RenameSessionPayload{}
+	case "new_window":
+		return &protocol.NewWindowPayload{}
+	case "kill_window":
+		return &protocol.KillWindowPayload{}
+	case "rename_window":
+		return &protocol.RenameWindowPayload{}
+	case "split_pane":
+		return &protocol.SplitPanePayload{}
+	case "select_window":
+		return &protocol.SelectWindowPayload{}
+	case "select_pane":
+		return &protocol.SelectPanePayload{}
+	case "resize_pane":
+		return &protocol.ResizePanePayload{}
+	case "zoom_pane":
+		return &protocol.ZoomPanePayload{}
 	case "spawn_session":
 		return &protocol.SpawnSessionPayload{}
 	case "spawn_job":

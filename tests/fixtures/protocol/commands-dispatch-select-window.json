@@ -1,0 +1,1 @@
+{"v":1,"type":"commands.dispatch","ts":"2026-07-20T14:00:05Z","payload":{"cmd_id":"cmd-select-window","session_id":"22222222-2222-4222-8222-222222222222","command":{"type":"select_window","payload":{"window_index":2}}}}

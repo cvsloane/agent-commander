@@ -83,6 +83,7 @@ type terminalViewer struct {
 	readOnly    bool
 	bridge      *viewerPTYBridge
 	detachedAt  time.Time
+	stale       bool
 }
 
 // AttachOptions contains additive terminal.attach fields.
@@ -228,6 +229,17 @@ func (m *TerminalManager) SetAuditHandler(handler func(TerminalAuditEvent)) {
 	m.onAudit = handler
 }
 
+// MarkChannelsStale records that the control-plane connection owning the
+// current channel IDs is gone. A valid resume attach may then supersede its
+// prior channel without allowing an active connection to steal the token.
+func (m *TerminalManager) MarkChannelsStale() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, viewer := range m.viewerByChannel {
+		viewer.stale = true
+	}
+}
+
 // Attach creates or reuses a bridge for a pane and attaches a channel.
 // In PTY mode, returns empty string for fifoPath (PTY doesn't need pipe-pane).
 // Returns the fifo path (empty for PTY), a boolean indicating whether this is the first
@@ -298,11 +310,11 @@ func (m *TerminalManager) attachViewerPTY(channelID, paneID string, opts AttachO
 	if resumed {
 		previous = m.viewerByToken[opts.ResumeToken]
 		if previous != nil {
-			if previous.channelID != "" {
-				return AttachResult{}, fmt.Errorf("resume token is already attached")
-			}
 			if previous.paneID != paneID || (previous.sessionID != "" && opts.SessionID != "" && previous.sessionID != opts.SessionID) {
 				return AttachResult{}, fmt.Errorf("resume token does not match terminal target")
+			}
+			if previous.channelID != "" && !previous.stale {
+				return AttachResult{}, fmt.Errorf("resume token is already attached")
 			}
 		} else {
 			stored, err := m.runner.Output("show-options", "-p", "-v", "-t", paneID, resumeOptionName(opts.ResumeToken))
@@ -318,6 +330,14 @@ func (m *TerminalManager) attachViewerPTY(channelID, paneID string, opts AttachO
 			return AttachResult{}, fmt.Errorf("capture pane for terminal resume: %w", err)
 		}
 		initialOutput = capture
+	}
+	if previous != nil && previous.channelID != "" {
+		m.supersedeStaleViewerLocked(previous)
+	}
+	if controllerID := m.paneController[paneID]; controllerID != "" {
+		if controller := m.viewerByChannel[controllerID]; controller != nil && controller.stale {
+			delete(m.paneController, paneID)
+		}
 	}
 
 	readonly := m.paneController[paneID] != ""
@@ -362,6 +382,7 @@ func (m *TerminalManager) attachViewerPTY(channelID, paneID string, opts AttachO
 	viewer.readOnly = readonly
 	viewer.bridge = bridge
 	viewer.detachedAt = time.Time{}
+	viewer.stale = false
 	m.viewerByChannel[channelID] = viewer
 	m.viewerByToken[resumeToken] = viewer
 	m.channelToPane[channelID] = paneID
@@ -373,6 +394,29 @@ func (m *TerminalManager) attachViewerPTY(channelID, paneID string, opts AttachO
 	m.emitAudit(TerminalAuditEvent{Action: "attach", ChannelID: channelID, SessionID: opts.SessionID, PaneID: paneID})
 
 	return AttachResult{First: true, PTY: true, ReadOnly: readonly, ResumeToken: resumeToken, Resumed: resumed}, nil
+}
+
+func (m *TerminalManager) supersedeStaleViewerLocked(viewer *terminalViewer) {
+	channelID := viewer.channelID
+	sessionID := viewer.sessionID
+	paneID := viewer.paneID
+	delete(m.viewerByChannel, channelID)
+	delete(m.channelToPane, channelID)
+	delete(m.channelSession, channelID)
+	delete(m.channelToPTY, channelID)
+	delete(m.channelPerViewer, channelID)
+	delete(m.channelReadOnly, channelID)
+	if m.paneController[viewer.paneID] == channelID {
+		delete(m.paneController, viewer.paneID)
+	}
+	if viewer.bridge != nil {
+		viewer.bridge.close(false)
+		viewer.bridge = nil
+	}
+	viewer.channelID = ""
+	viewer.detachedAt = time.Now()
+	viewer.stale = false
+	m.emitAudit(TerminalAuditEvent{Action: "detach", ChannelID: channelID, SessionID: sessionID, PaneID: paneID})
 }
 
 func (m *TerminalManager) emitAudit(event TerminalAuditEvent) {
@@ -1044,21 +1088,26 @@ func (c *Client) StartPipePaneCmd(paneID, cmd string) error {
 
 // ResizePane resizes a tmux pane
 func (c *Client) ResizePane(paneID string, cols, rows int) error {
-	// First set the width
-	argsX := []string{"resize-pane", "-t", paneID, "-x", fmt.Sprintf("%d", cols)}
-	if c.cfg.Socket != "" {
-		argsX = append([]string{"-S", c.cfg.Socket}, argsX...)
+	if cols <= 0 && rows <= 0 {
+		return fmt.Errorf("at least one pane dimension must be positive")
 	}
-	if err := runTmuxCommand(c.cfg.Bin, argsX); err != nil {
-		return err
+	for _, dimension := range []struct {
+		flag  string
+		value int
+	}{{flag: "-x", value: cols}, {flag: "-y", value: rows}} {
+		if dimension.value <= 0 {
+			continue
+		}
+		args := []string{"resize-pane", "-t", paneID, dimension.flag, fmt.Sprintf("%d", dimension.value)}
+		if c.cfg.Socket != "" {
+			args = append([]string{"-S", c.cfg.Socket}, args...)
+		}
+		output, err := exec.Command(c.cfg.Bin, args...).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to resize pane: %w", commandError(err, output))
+		}
 	}
-
-	// Then set the height
-	argsY := []string{"resize-pane", "-t", paneID, "-y", fmt.Sprintf("%d", rows)}
-	if c.cfg.Socket != "" {
-		argsY = append([]string{"-S", c.cfg.Socket}, argsY...)
-	}
-	return runTmuxCommand(c.cfg.Bin, argsY)
+	return nil
 }
 
 func runTmuxCommand(bin string, args []string) error {

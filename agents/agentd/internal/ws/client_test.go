@@ -64,6 +64,47 @@ func TestDisconnectedDurableAndVolatileLanes(t *testing.T) {
 	}
 }
 
+func TestSendUnsequencedOmitsSequenceField(t *testing.T) {
+	messages := make(chan map[string]json.RawMessage, 1)
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		var message map[string]json.RawMessage
+		if err := conn.ReadJSON(&message); err == nil {
+			messages <- message
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(websocketURL(server), "token", "host", []int{1})
+	if err := client.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	if err := client.ResendQueued(); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SendUnsequenced("tmux.topology", map[string]any{"reason": "startup"}); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case message := <-messages:
+		if _, exists := message["seq"]; exists {
+			t.Fatalf("unsequenced message contains seq: %s", message["seq"])
+		}
+		if string(message["type"]) != `"tmux.topology"` {
+			t.Fatalf("message type=%s", message["type"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for unsequenced message")
+	}
+}
+
 func TestSequenceResumesAboveReloadedQueueMaximum(t *testing.T) {
 	dir := t.TempDir()
 	q, err := queue.NewQueue(dir, 100)

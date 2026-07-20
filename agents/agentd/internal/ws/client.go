@@ -49,6 +49,7 @@ type Client struct {
 	queue        *queue.Queue
 	stateDir     string
 	onConnect    func()
+	onDisconnect func()
 	dialer       *websocket.Dialer
 	jitter       func(time.Duration) time.Duration
 	closeOnce    sync.Once
@@ -111,6 +112,10 @@ func (c *Client) SetOnConnect(handler func()) {
 	c.onConnect = handler
 }
 
+func (c *Client) SetOnDisconnect(handler func()) {
+	c.onDisconnect = handler
+}
+
 func (c *Client) Connect() error {
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+c.token)
@@ -147,15 +152,23 @@ func (c *Client) Connect() error {
 
 func (c *Client) reader(conn *websocket.Conn) {
 	defer func() {
+		disconnected := false
 		c.mu.Lock()
 		if c.conn == conn {
 			c.conn.Close()
 			c.conn = nil
 			c.ready = false
+			disconnected = true
 		}
 		c.mu.Unlock()
+		if !disconnected {
+			return
+		}
 
 		metrics.SetWSConnected(false)
+		if c.onDisconnect != nil {
+			c.onDisconnect()
+		}
 
 		// Attempt reconnection
 		c.reconnect()
@@ -349,6 +362,37 @@ func (c *Client) Send(msgType string, payload any) error {
 	return c.conn.WriteMessage(websocket.TextMessage, data)
 }
 
+// SendUnsequenced sends a volatile envelope that intentionally does not
+// participate in the durable agent sequence. It is used for full-state events
+// whose frozen contract omits seq and whose next snapshot supersedes the last.
+func (c *Client) SendUnsequenced(msgType string, payload any) error {
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+	envelope := protocol.ServerEnvelope{
+		V:       protocol.Version,
+		Type:    msgType,
+		TS:      time.Now().UTC().Format(time.RFC3339Nano),
+		Payload: payloadBytes,
+	}
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		return fmt.Errorf("failed to marshal %s envelope: %w", msgType, err)
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.conn == nil || !c.ready {
+		return ErrNotConnected
+	}
+	_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+	return c.conn.WriteMessage(websocket.TextMessage, data)
+}
+
 // SendHello sends the connection handshake without adding it to the durable
 // queue. It reuses the acknowledged cursor (or reserved sequence 1) so the
 // control plane can establish resume state before older queued messages replay.
@@ -371,7 +415,7 @@ func (c *Client) SendHello(payload any) error {
 
 func isVolatile(msgType string) bool {
 	switch msgType {
-	case "terminal.output", "terminal.lag", "sessions.snapshot", "console.chunk":
+	case "terminal.output", "terminal.lag", "sessions.snapshot", "console.chunk", protocol.TypeTmuxTopology:
 		return true
 	default:
 		return false
