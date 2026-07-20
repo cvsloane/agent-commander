@@ -22,3 +22,7 @@ export function buildAttachedTmuxHref(selection: AttachedTmuxSelection): string 
   }
   return `/?${params.toString()}`;
 }
+
+export function shouldRestoreLastTmuxAttachment(search: string): boolean {
+  return new URLSearchParams(search).size === 0;
+}
