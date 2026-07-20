@@ -1,11 +1,13 @@
 package tmux
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -104,6 +106,80 @@ func TestTopologyHooksAppendSignalAndRestoreExistingHooks(t *testing.T) {
 	if !reflect.DeepEqual(after, before) {
 		t.Fatalf("restored hooks=%q, want %q", after, before)
 	}
+}
+
+func TestCapturePaneRangePagesStableContiguousHistory(t *testing.T) {
+	client, tmuxCommand := newPrivateTmuxClient(t)
+	paneID, err := client.NewWindow("hook-test", "capture-range", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	signal := fmt.Sprintf("ac-capture-%d", time.Now().UnixNano())
+	command := fmt.Sprintf("for i in $(seq 1 200); do printf 'PAGE-%%03d\\n' \"$i\"; done; tmux wait-for -S %s", signal)
+	if err := client.SendInput(paneID, command, true); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command(tmuxCommand, "wait-for", signal).CombinedOutput(); err != nil {
+		t.Fatalf("wait for pane history: %v: %s", err, output)
+	}
+
+	options := func(start, end int) CapturePaneOptions {
+		return CapturePaneOptions{Mode: CaptureModeRange, LineStart: start, LineEnd: end, StripANSI: true}
+	}
+	older, err := client.CapturePaneRange(paneID, options(-100, -81))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer, err := client.CapturePaneRange(paneID, options(-80, -61))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repeated, err := client.CapturePaneRange(paneID, options(-100, -81))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repeated != older {
+		t.Fatalf("repeated history page changed:\nfirst: %q\nagain: %q", older, repeated)
+	}
+
+	olderNumbers := numberedPageLines(t, older)
+	newerNumbers := numberedPageLines(t, newer)
+	if len(olderNumbers) != 20 || len(newerNumbers) != 20 {
+		t.Fatalf("page lengths older=%d newer=%d\nolder=%q\nnewer=%q", len(olderNumbers), len(newerNumbers), older, newer)
+	}
+	if olderNumbers[len(olderNumbers)-1]+1 != newerNumbers[0] {
+		t.Fatalf("pages are not contiguous: older=%v newer=%v", olderNumbers, newerNumbers)
+	}
+	seen := make(map[int]bool, len(olderNumbers))
+	for _, number := range olderNumbers {
+		seen[number] = true
+	}
+	for _, number := range newerNumbers {
+		if seen[number] {
+			t.Fatalf("history pages overlap at PAGE-%03d", number)
+		}
+	}
+}
+
+func numberedPageLines(t *testing.T, capture string) []int {
+	t.Helper()
+	var numbers []int
+	scanner := bufio.NewScanner(strings.NewReader(capture))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "PAGE-") {
+			t.Fatalf("unexpected history line %q in %q", line, capture)
+		}
+		number, err := strconv.Atoi(strings.TrimPrefix(line, "PAGE-"))
+		if err != nil {
+			t.Fatalf("parse history line %q: %v", line, err)
+		}
+		numbers = append(numbers, number)
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return numbers
 }
 
 func newPrivateTmuxClient(t *testing.T) (*Client, string) {
