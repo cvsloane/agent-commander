@@ -26,9 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Responsive dialog, sheet, dropdown, and command primitives; consistent
   Sessions, Hosts, Memory, Automation, and Settings surfaces; and an admin-only
   Add host and token-rotation flow with generated `agentd` configuration.
-- Cross-device Playwright journeys for fleet-to-terminal, window and pane
-  management, two-terminal work, attention handling, launch/reopen, host
-  enrollment, and palette/shortcut workflows at 390x844 and 1280x720.
+- Cross-device Playwright journeys (7 flows × mobile 390x844 + desktop 1280x720):
+  sign-in to Command Center first paint, roster attach/type/detach, window
+  create/rename/kill, scrollback history paging, take-control handoff,
+  launch-rail spawn, and attention approval from the terminal overlay.
 
 ### Changed
 

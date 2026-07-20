@@ -28,12 +28,14 @@ describe('browser terminal protocol', () => {
     expect(parsed.searchParams.get('resume_token')).toBe('resume/token+1');
   });
 
-  it('rejects JSON output and parses typed status messages', () => {
-    expect(() => decodeTerminalFrame(JSON.stringify({
+  it('decodes legacy JSON output (pre-hello race tolerance) and parses typed status messages', () => {
+    const legacy = decodeTerminalFrame(JSON.stringify({
       type: 'output',
       encoding: 'base64',
       data: btoa('legacy output'),
-    }))).toThrow('Terminal output must use the negotiated binary protocol');
+    }));
+    expect(legacy).toMatchObject({ type: 'output' });
+    expect(new TextDecoder().decode((legacy as { data: Uint8Array }).data)).toBe('legacy output');
 
     expect(
       decodeTerminalFrame(

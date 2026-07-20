@@ -8,7 +8,7 @@ import {
 type TerminalStatusFrame = Exclude<BrowserTerminalServerMessage, { type: 'output' }>;
 
 export type DecodedTerminalFrame =
-  | { type: 'output'; data: Uint8Array }
+  | { type: 'output'; data: string | Uint8Array }
   | TerminalStatusFrame;
 
 export function buildTerminalHello(): BrowserTerminalClientMessage {
@@ -33,14 +33,20 @@ export function buildTerminalWebSocketUrl(
   return url.toString();
 }
 
+function decodeBase64(data: string): Uint8Array {
+  const decoded = atob(data);
+  return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+}
+
 export function decodeTerminalFrame(data: string | ArrayBuffer): DecodedTerminalFrame {
   if (data instanceof ArrayBuffer) {
     return { type: 'output', data: new Uint8Array(data) };
   }
 
   const message = BrowserTerminalServerMessageSchema.parse(JSON.parse(data));
-  if (message.type === 'output') {
-    throw new Error('Terminal output must use the negotiated binary protocol');
-  }
-  return message;
+  if (message.type !== 'output') return message;
+  return {
+    type: 'output',
+    data: message.encoding === 'base64' ? decodeBase64(message.data) : message.data,
+  };
 }
