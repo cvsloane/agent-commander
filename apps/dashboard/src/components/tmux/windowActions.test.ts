@@ -4,6 +4,7 @@ import { runTmuxWindowAction } from './windowActions';
 describe('tmux window actions', () => {
   it('dispatches window selection through the attached session', async () => {
     const dispatch = vi.fn().mockResolvedValue({ cmd_id: 'command-1' });
+    const onDispatched = vi.fn();
 
     const result = await runTmuxWindowAction({
       sessionId: '22222222-2222-4222-8222-222222222222',
@@ -11,6 +12,7 @@ describe('tmux window actions', () => {
       windowSource: 'topology',
       action: { type: 'select', windowIndex: 3 },
       dispatch,
+      onDispatched,
     });
 
     expect(result).toBe('dispatched');
@@ -18,6 +20,7 @@ describe('tmux window actions', () => {
       type: 'select_window',
       payload: { window_index: 3 },
     });
+    expect(onDispatched).toHaveBeenCalledWith('command-1');
   });
 
   it.each([

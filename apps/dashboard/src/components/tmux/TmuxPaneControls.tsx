@@ -18,10 +18,12 @@ import type { CommandRequest, Session } from '@agent-command/schema';
 import { Button } from '@/components/ui/button';
 import { ScrollbackPager } from '@/components/terminal/ScrollbackPager';
 import { useTmuxHostTopology } from '@/hooks/useTmuxTopology';
+import { useTmuxCommandResults } from '@/hooks/useTmuxCommandResults';
 import { useTerminateSession } from '@/hooks/useTerminateSession';
 import { getHosts, sendCommand } from '@/lib/api';
 import { cn, getSessionDisplayName } from '@/lib/utils';
 import { useNotifications } from '@/stores/notifications';
+import { registerPendingTmuxCommand } from '@/stores/tmuxCommands';
 import { buildSplitPaneCommand, hostSupportsPercentSplits } from './paneActions';
 
 interface TmuxPaneControlsProps {
@@ -51,6 +53,7 @@ export function TmuxPaneControls({
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const notifications = useNotifications();
+  useTmuxCommandResults();
   const topology = useTmuxHostTopology(session.host_id);
   const identity = useMemo(() => tmuxIdentity(session), [session]);
   const { data: hostsData } = useQuery({
@@ -81,7 +84,15 @@ export function TmuxPaneControls({
     if (pendingAction) return;
     setPendingAction(label);
     try {
-      await sendCommand(session.id, command);
+      const response = await sendCommand(session.id, command);
+      const reconciliation = registerPendingTmuxCommand({
+        cmdId: response.cmd_id,
+        sessionId: session.id,
+        failureTitle: `Could not ${label}`,
+      });
+      if (reconciliation && !reconciliation.ok) {
+        throw new Error(reconciliation.message);
+      }
     } catch (error) {
       notifications.error(
         `Could not ${label}`,

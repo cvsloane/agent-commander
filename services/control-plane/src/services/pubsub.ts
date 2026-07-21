@@ -12,6 +12,7 @@ import type {
   WorkItem,
   SessionEdge,
   AgentTask,
+  CommandResultMessage,
   TmuxTopologyMessage,
   UISubscriptionTopic,
 } from '@agent-command/schema';
@@ -201,6 +202,7 @@ class PubSub {
     // Map message type to topic
     const topicMap: Record<string, UISubscriptionTopic> = {
       'tmux.topology': 'tmux.topology',
+      'commands.result': 'commands.result',
       'sessions.changed': 'sessions',
       'approvals.created': 'approvals',
       'approvals.updated': 'approvals',
@@ -234,6 +236,17 @@ class PubSub {
         if (!filter.host_id || filter.host_id === message.payload.host_id) {
           return message;
         }
+      }
+      return null;
+    }
+
+    if (message.type === 'commands.result') {
+      for (const sub of relevantSubs) {
+        const filter = sub.filter || {};
+        if (filter.host_id && filter.host_id !== message.payload.host_id) continue;
+        if (filter.session_id && filter.session_id !== message.payload.session_id) continue;
+        if (filter.cmd_id && filter.cmd_id !== message.payload.cmd_id) continue;
+        return message;
       }
       return null;
     }
@@ -551,6 +564,18 @@ class PubSub {
   publishTmuxTopology(hostId: string, message: TmuxTopologyMessage): void {
     this.publishToUI({
       ...message,
+      payload: {
+        ...message.payload,
+        host_id: hostId,
+      },
+    });
+  }
+
+  publishCommandResult(hostId: string, message: CommandResultMessage): void {
+    this.publishToUI({
+      v: 1,
+      type: 'commands.result',
+      ts: message.ts,
       payload: {
         ...message.payload,
         host_id: hostId,

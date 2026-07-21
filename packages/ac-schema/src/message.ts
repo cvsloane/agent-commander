@@ -378,6 +378,7 @@ export type ServerToAgentMessage = z.infer<typeof ServerToAgentMessageSchema>;
 
 export const UISubscriptionTopicSchema = z.enum([
   'tmux.topology',
+  'commands.result',
   'sessions',
   'approvals',
   'events',
@@ -452,6 +453,14 @@ export const UITmuxTopologyMessageSchema = ServerToUIEnvelopeSchema.extend({
   }),
 });
 export type UITmuxTopologyMessage = z.infer<typeof UITmuxTopologyMessageSchema>;
+
+export const UICommandResultMessageSchema = ServerToUIEnvelopeSchema.extend({
+  type: z.literal('commands.result'),
+  payload: CommandResultSchema.extend({
+    host_id: z.string().uuid(),
+  }),
+});
+export type UICommandResultMessage = z.infer<typeof UICommandResultMessageSchema>;
 
 // Approvals created
 export const ApprovalsCreatedMessageSchema = ServerToUIEnvelopeSchema.extend({
@@ -604,6 +613,7 @@ export type UIAttentionChangedMessage = z.infer<typeof UIAttentionChangedMessage
 // Union of all UI messages from server
 export const ServerToUIMessageSchema = z.discriminatedUnion('type', [
   UITmuxTopologyMessageSchema,
+  UICommandResultMessageSchema,
   SessionsChangedMessageSchema,
   SessionEdgesChangedMessageSchema,
   AgentTasksChangedMessageSchema,

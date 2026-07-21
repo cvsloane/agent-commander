@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   AgentMessageSchema,
+  ServerToUIMessageSchema,
   ServerToAgentMessageSchema,
 } from '../src/index.js';
 
@@ -33,6 +34,10 @@ describe('protocol fixtures', () => {
     const parsed = AgentMessageSchema.parse(JSON.parse(source));
 
     expect(JSON.stringify(parsed)).toBe(source);
+  });
+
+  it('validates the UI command-result topic fixture', () => {
+    expect(ServerToUIMessageSchema.safeParse(readFixture('ui-commands-result.json')).success).toBe(true);
   });
 
   it.each([

@@ -5,9 +5,11 @@ import { Bell, MoreHorizontal, Plus, Radio, X } from 'lucide-react';
 import type { Session } from '@agent-command/schema';
 import { Button } from '@/components/ui/button';
 import { useTmuxHostTopology } from '@/hooks/useTmuxTopology';
+import { useTmuxCommandResults } from '@/hooks/useTmuxCommandResults';
 import { cn } from '@/lib/utils';
 import { useNotifications } from '@/stores/notifications';
 import type { TmuxWindowTopologyView } from '@/stores/tmuxTopology';
+import { registerPendingTmuxCommand } from '@/stores/tmuxCommands';
 import { runTmuxWindowAction, type TmuxWindowAction } from './windowActions';
 
 interface TmuxWindowStripProps {
@@ -127,6 +129,7 @@ export function TmuxWindowStrip({ session, className, onSelectSession }: TmuxWin
   const longPressTriggeredRef = useRef(false);
   const tablistRef = useRef<HTMLDivElement>(null);
   const notifications = useNotifications();
+  useTmuxCommandResults();
 
   useEffect(() => {
     setWindows(sourceWindows);
@@ -149,6 +152,13 @@ export function TmuxWindowStrip({ session, className, onSelectSession }: TmuxWin
   const dispatchAction = async (action: TmuxWindowAction) => {
     if (pending) return;
     const previous = windows;
+    const rollback = () => {
+      setWindows(previous);
+      if (action.type !== 'select') return;
+      const previousWindow = previous.find((window) => window.active);
+      const previousSessionId = previousWindow && getWindowViewerSessionId(previousWindow);
+      if (previousSessionId) onSelectSession?.(previousSessionId);
+    };
     setPending(true);
     try {
       await runTmuxWindowAction({
@@ -157,7 +167,18 @@ export function TmuxWindowStrip({ session, className, onSelectSession }: TmuxWin
         windowSource: hostTopology?.source ?? 'roster',
         action,
         optimistic: () => setWindows(optimisticWindows(windows, action)),
-        rollback: () => setWindows(previous),
+        rollback,
+        onDispatched: (cmdId) => {
+          const reconciliation = registerPendingTmuxCommand({
+            cmdId,
+            sessionId: session.id,
+            failureTitle: 'tmux command failed',
+            rollback,
+          });
+          if (reconciliation && !reconciliation.ok) {
+            throw new Error(reconciliation.message);
+          }
+        },
       });
     } catch (error) {
       notifications.error(
