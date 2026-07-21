@@ -199,6 +199,12 @@ export const DEFAULT_VIRTUAL_KEY_ORDER = [
   'enter',
 ] as const;
 export type VirtualKeyboardKey = (typeof DEFAULT_VIRTUAL_KEY_ORDER)[number];
+export const DEFAULT_TERMINAL_WARM_TIMEOUT_MINUTES = 30;
+
+export function normalizeTerminalWarmTimeoutMinutes(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_TERMINAL_WARM_TIMEOUT_MINUTES;
+  return Math.max(1, Math.min(120, Math.round(value)));
+}
 
 const clampThresholds = (values: number[]): number[] => {
   const unique = new Set<number>();
@@ -392,6 +398,8 @@ interface SettingsStore {
   setTmuxKeyBarExpanded: (expanded: boolean) => void;
   tmuxSecondaryByPrimary: Record<string, string>;
   setTmuxSecondary: (primarySessionId: string, secondarySessionId: string | null) => void;
+  terminalWarmTimeoutMinutes: number;
+  setTerminalWarmTimeoutMinutes: (minutes: number) => void;
   promptHistoryBySession: Record<string, string[]>;
   addPromptHistory: (sessionId: string, prompt: string) => void;
   tmuxRosterFilter: TmuxSavedRosterFilter;
@@ -655,6 +663,9 @@ export const useSettingsStore = create<SettingsStore>()(
           else delete next[primarySessionId];
           return { tmuxSecondaryByPrimary: next };
         }),
+      terminalWarmTimeoutMinutes: DEFAULT_TERMINAL_WARM_TIMEOUT_MINUTES,
+      setTerminalWarmTimeoutMinutes: (minutes) =>
+        set({ terminalWarmTimeoutMinutes: normalizeTerminalWarmTimeoutMinutes(minutes) }),
       promptHistoryBySession: {},
       addPromptHistory: (sessionId, prompt) =>
         set((state) => {

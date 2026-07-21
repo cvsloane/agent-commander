@@ -1,6 +1,7 @@
 import type { MutableRefObject } from 'react';
 import type { TerminalController, XTerminal } from './types';
 import type { TerminalGridDimensions } from '@/hooks/terminalGrid';
+import { captureTerminalWarmBuffer } from '@/hooks/terminalWarmCache';
 
 export interface TerminalHostDescriptor {
   sessionId: string;
@@ -16,6 +17,7 @@ export interface TerminalHostSnapshot {
   visible: boolean;
   terminalInstance: XTerminal | null;
   readOnly: boolean;
+  resumeAvailable: boolean;
 }
 
 interface SurfaceRegistration {
@@ -34,6 +36,7 @@ const EMPTY_SNAPSHOT: TerminalHostSnapshot = {
   visible: false,
   terminalInstance: null,
   readOnly: false,
+  resumeAvailable: false,
 };
 
 export function getTerminalDescriptorKey(descriptor: TerminalHostDescriptor): string {
@@ -41,6 +44,10 @@ export function getTerminalDescriptorKey(descriptor: TerminalHostDescriptor): st
     ? `${descriptor.letterbox.cols}x${descriptor.letterbox.rows}`
     : 'fit';
   return `${descriptor.sessionId}\u0000${descriptor.paneId || ''}\u0000${grid}`;
+}
+
+export function getTerminalWarmKey(descriptor: TerminalHostDescriptor): string {
+  return `${descriptor.sessionId}\u0000${descriptor.paneId || ''}`;
 }
 
 export function createTerminalHostStore() {
@@ -87,6 +94,12 @@ export function createTerminalHostStore() {
     const descriptorKey = getTerminalDescriptorKey(activeSurface.descriptor);
     const descriptorChanged = descriptorKey !== snapshot.descriptorKey;
     if (descriptorChanged) {
+      if (snapshot.descriptor && snapshot.terminalInstance) {
+        captureTerminalWarmBuffer(
+          getTerminalWarmKey(snapshot.descriptor),
+          snapshot.terminalInstance
+        );
+      }
       controller = null;
     }
     setActiveControllerRef(activeSurface.controllerRef);
@@ -97,6 +110,7 @@ export function createTerminalHostStore() {
       visible: activeSurface.visible,
       terminalInstance: descriptorChanged ? null : snapshot.terminalInstance,
       readOnly: descriptorChanged ? false : snapshot.readOnly,
+      resumeAvailable: descriptorChanged ? false : snapshot.resumeAvailable,
     };
     emit();
   };
@@ -145,6 +159,11 @@ export function createTerminalHostStore() {
     setTerminalInstance(descriptorKey: string, instance: XTerminal | null) {
       if (snapshot.descriptorKey !== descriptorKey) return;
       snapshot = { ...snapshot, terminalInstance: instance };
+      emit();
+    },
+    setResumeAvailable(descriptorKey: string, available: boolean) {
+      if (snapshot.descriptorKey !== descriptorKey || snapshot.resumeAvailable === available) return;
+      snapshot = { ...snapshot, resumeAvailable: available };
       emit();
     },
     reset() {

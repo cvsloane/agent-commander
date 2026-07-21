@@ -14,13 +14,19 @@ import { createPortal } from 'react-dom';
 import { TerminalView } from '@/components/TerminalView';
 import type { TerminalController, XTerminal } from './types';
 import {
+  getTerminalWarmKey,
   terminalHostStore,
   type TerminalHostDescriptor,
 } from './terminalHostStore';
 import { cn } from '@/lib/utils';
 import { TerminalGridContext } from '@/hooks/terminalGridContext';
+import { Button } from '@/components/ui/button';
+import {
+  DEFAULT_TERMINAL_WARM_TIMEOUT_MINUTES,
+  useSettingsStore,
+} from '@/stores/settings';
 
-export const TERMINAL_BACKGROUND_TIMEOUT_MS = 5 * 60 * 1000;
+export const TERMINAL_BACKGROUND_TIMEOUT_MS = DEFAULT_TERMINAL_WARM_TIMEOUT_MINUTES * 60 * 1000;
 
 interface PersistentTerminalSlotProps extends TerminalHostDescriptor {
   className?: string;
@@ -67,7 +73,7 @@ export function PersistentTerminalSlot({
   return (
     <div
       ref={targetRef}
-      className={cn('h-full min-h-0 w-full', className)}
+      className={cn('relative h-full min-h-0 w-full', className)}
       data-terminal-slot={sessionId}
     />
   );
@@ -85,6 +91,16 @@ export function PersistentTerminalHost() {
   const hiddenTimerRef = useRef<number | null>(null);
   const shouldResumeRef = useRef(false);
   const previousDescriptorKeyRef = useRef<string | null>(null);
+  const terminalWarmTimeoutMinutes = useSettingsStore(
+    (state) => state.terminalWarmTimeoutMinutes ?? DEFAULT_TERMINAL_WARM_TIMEOUT_MINUTES
+  );
+  const terminalContext = snapshot.descriptor
+    ? {
+        descriptorKey: snapshot.descriptorKey!,
+        letterbox: snapshot.descriptor.letterbox,
+        warmKey: getTerminalWarmKey(snapshot.descriptor),
+      }
+    : undefined;
 
   useEffect(() => {
     const node = document.createElement('div');
@@ -125,7 +141,7 @@ export function PersistentTerminalHost() {
     hiddenTimerRef.current = window.setTimeout(() => {
       hiddenTimerRef.current = null;
       shouldResumeRef.current = controllerRef.current?.suspend() ?? false;
-    }, TERMINAL_BACKGROUND_TIMEOUT_MS);
+    }, terminalWarmTimeoutMinutes * 60 * 1000);
 
     return () => {
       if (hiddenTimerRef.current !== null) {
@@ -133,7 +149,7 @@ export function PersistentTerminalHost() {
         hiddenTimerRef.current = null;
       }
     };
-  }, [snapshot.descriptor, snapshot.descriptorKey, snapshot.visible]);
+  }, [snapshot.descriptor, snapshot.descriptorKey, snapshot.visible, terminalWarmTimeoutMinutes]);
 
   const handleControllerChange = useCallback((controller: TerminalController | null) => {
     controllerRef.current = controller;
@@ -149,7 +165,7 @@ export function PersistentTerminalHost() {
     <>
       <div ref={parkingRef} hidden aria-hidden="true" data-terminal-parking />
       {portalNode && snapshot.descriptor && createPortal(
-        <TerminalGridContext.Provider value={snapshot.descriptor.letterbox}>
+        <TerminalGridContext.Provider value={terminalContext}>
           <TerminalView
             key={snapshot.descriptorKey}
             sessionId={snapshot.descriptor.sessionId}
@@ -160,6 +176,14 @@ export function PersistentTerminalHost() {
           />
         </TerminalGridContext.Provider>,
         portalNode
+      )}
+      {snapshot.target && snapshot.resumeAvailable && createPortal(
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <Button type="button" onClick={() => controllerRef.current?.attach()}>
+            Resume
+          </Button>
+        </div>,
+        snapshot.target
       )}
     </>
   );

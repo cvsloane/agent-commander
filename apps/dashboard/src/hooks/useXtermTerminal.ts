@@ -7,7 +7,12 @@ import {
   shouldDispatchTerminalResize,
   type TerminalGridDimensions,
 } from './terminalGrid';
-import { useTerminalGrid } from './terminalGridContext';
+import { useTerminalGrid, useTerminalWarmKey } from './terminalGridContext';
+import { paintTerminalWarmBuffer } from './terminalWarmCache';
+import {
+  DEFAULT_TERMINAL_WARM_TIMEOUT_MINUTES,
+  useSettingsStore,
+} from '@/stores/settings';
 
 export function useXtermTerminal({
   termRef,
@@ -29,6 +34,10 @@ export function useXtermTerminal({
   onSearchResultsChange: (results: XSearchResult) => void;
 }) {
   const letterbox = useTerminalGrid();
+  const warmKey = useTerminalWarmKey();
+  const terminalWarmTimeoutMinutes = useSettingsStore(
+    (state) => state.terminalWarmTimeoutMinutes ?? DEFAULT_TERMINAL_WARM_TIMEOUT_MINUTES
+  );
   const terminalRef = useRef<XTerminal | null>(null);
   const fitAddonRef = useRef<XFitAddon | null>(null);
   const searchAddonRef = useRef<XSearchAddon | null>(null);
@@ -144,6 +153,18 @@ export function useXtermTerminal({
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
     searchAddonRef.current = searchAddon;
+    if (letterbox) {
+      applyLetterbox();
+    } else if (canFitTerminalElement(termRef.current)) {
+      fitAddon.fit();
+    }
+    if (warmKey) {
+      paintTerminalWarmBuffer(
+        warmKey,
+        terminal,
+        terminalWarmTimeoutMinutes * 60 * 1000
+      );
+    }
     try {
       const { WebglAddon } = await import('@xterm/addon-webgl');
       const webglAddon = new WebglAddon();
@@ -151,11 +172,6 @@ export function useXtermTerminal({
       terminal.loadAddon(webglAddon);
     } catch {
       // The built-in DOM renderer remains active when WebGL is unavailable.
-    }
-    if (letterbox) {
-      applyLetterbox();
-    } else if (canFitTerminalElement(termRef.current)) {
-      fitAddon.fit();
     }
     terminal.attachCustomKeyEventHandler((event) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
@@ -197,7 +213,9 @@ export function useXtermTerminal({
     onTerminalInstanceChange,
     onViewportScroll,
     sendInputRef,
+    terminalWarmTimeoutMinutes,
     termRef,
+    warmKey,
   ]);
 
   const findNext = useCallback((query: string, incremental = false) => {
