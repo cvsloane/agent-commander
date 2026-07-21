@@ -147,6 +147,18 @@ type CapturePanePayload struct {
 	StripANSI  bool   `json:"strip_ansi"`
 }
 
+type CaptureTranscriptPayload struct {
+	PageSize    int  `json:"page_size,omitempty"`
+	BeforeEntry *int `json:"before_entry,omitempty"`
+}
+
+type CaptureTranscriptResult struct {
+	Entries      []map[string]any `json:"entries"`
+	FirstEntry   int              `json:"first_entry"`
+	TotalEntries int              `json:"total_entries"`
+	Source       string           `json:"source"`
+}
+
 type CopyToSessionPayload struct {
 	TargetSessionID string `json:"target_session_id"`
 	Mode            string `json:"mode"`

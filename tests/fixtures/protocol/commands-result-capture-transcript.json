@@ -1,0 +1,23 @@
+{
+  "v": 1,
+  "type": "commands.result",
+  "ts": "2026-07-21T20:01:13Z",
+  "seq": 5,
+  "payload": {
+    "cmd_id": "11111111-1111-4111-8111-111111111111",
+    "session_id": "22222222-2222-4222-8222-222222222222",
+    "ok": true,
+    "result": {
+      "entries": [
+        { "type": "user", "message": { "role": "user", "content": "Ship it" } },
+        {
+          "type": "assistant",
+          "message": { "role": "assistant", "content": [{ "type": "text", "text": "On it." }] }
+        }
+      ],
+      "first_entry": 40,
+      "total_entries": 42,
+      "source": "hook"
+    }
+  }
+}
