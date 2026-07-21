@@ -18,7 +18,7 @@ import {
 } from '@/components/terminal/protocol';
 import { calculateKeyboardInset, calculateTerminalViewportHeight } from '@/components/terminal/viewport';
 import { handleTerminalOutputFrame } from '@/components/terminal/terminalFrameRouter';
-import { beginTerminalFrameTiming } from '@/components/terminal/terminalFrameTiming';
+import { beginTerminalFrameTimingIfEnabled } from '@/components/performance/terminalFrameTiming';
 import { createSettledTerminalResize } from './terminalGrid';
 import {
   useTerminalDescriptorKey,
@@ -228,7 +228,7 @@ export function useTerminalConnection({
       ws.onmessage = (event) => {
         try {
           const completeFrameTiming = event.data instanceof ArrayBuffer
-            ? beginTerminalFrameTiming(event.data.byteLength)
+            ? beginTerminalFrameTimingIfEnabled(event.data.byteLength)
             : null;
           const msg = decodeTerminalFrame(event.data as string | ArrayBuffer);
 
