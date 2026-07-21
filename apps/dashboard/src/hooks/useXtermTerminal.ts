@@ -48,6 +48,7 @@ export function useXtermTerminal({
   const lastSentDimensionsRef = useRef<TerminalGridDimensions | undefined>(undefined);
   const webglCleanupRef = useRef<(() => void) | null>(null);
 
+  const lastLetterboxKeyRef = useRef<string | null>(null);
   const applyLetterbox = useCallback(() => {
     const terminal = terminalRef.current;
     const fitAddon = fitAddonRef.current;
@@ -55,6 +56,13 @@ export function useXtermTerminal({
     if (!letterbox || !terminal || !fitAddon || !element || !canFitTerminalElement(element)) return;
 
     const baseFontSize = baseFontSizeRef.current ?? terminal.options.fontSize ?? 14;
+    // Idempotence guard: applying the letterbox mutates the element's height,
+    // which re-fires the ResizeObserver that calls this again. Only container
+    // WIDTH, grid, or base font changes warrant a re-apply — self-inflicted
+    // height changes must settle here or the layout oscillates forever.
+    const letterboxKey = `${element.clientWidth}:${letterbox.cols}x${letterbox.rows}:${baseFontSize}`;
+    if (lastLetterboxKeyRef.current === letterboxKey) return;
+    lastLetterboxKeyRef.current = letterboxKey;
     terminal.options.fontSize = baseFontSize;
     const proposed = fitAddon.proposeDimensions();
     const widthScale = proposed ? Math.min(1, proposed.cols / letterbox.cols) : 1;
@@ -63,7 +71,13 @@ export function useXtermTerminal({
     terminal.resize(letterbox.cols, letterbox.rows);
 
     const scrollContainer = element.parentElement;
-    if (scrollContainer) scrollContainer.style.overflowY = 'auto';
+    if (scrollContainer) {
+      scrollContainer.style.overflowY = 'auto';
+      // Reserve the scrollbar gutter: without this, the scrollbar appearing/
+      // disappearing flips the element's clientWidth, which defeats the
+      // letterbox idempotence key and re-opens the resize feedback loop.
+      scrollContainer.style.scrollbarGutter = 'stable';
+    }
     const screenHeight = element.querySelector<HTMLElement>('.xterm-screen')?.offsetHeight;
     element.style.height = `${Math.ceil(screenHeight || letterbox.rows * scaledFontSize * 1.25) + 8}px`;
   }, [letterbox, termRef]);

@@ -1097,8 +1097,6 @@ test('gates terminal input while read-only until the viewer takes control', asyn
     await page.screenshot({ path: testInfo.outputPath('terminal-readonly-desktop.png') });
   }
   await page.setViewportSize({ width: 390, height: 844 });
-  const mobileSegments = page.getByRole('button', { name: 'Roster', exact: true }).locator('..');
-  await mobileSegments.getByRole('button', { name: 'Terminal', exact: true }).click();
   await expect(page.getByTestId('tmux-attached-status')).toContainText('Read-only');
   await page.getByRole('button', { name: 'Open pane actions' }).click();
   for (const name of ['Take Control', 'Focus']) {
@@ -1184,9 +1182,6 @@ test('fits the attached terminal and rail at 412x915 Android metrics', async ({ 
   await page.getByText('agents', { exact: true }).click();
   await page.getByText('Mobile UX review', { exact: true }).click();
   await expect(page.getByTestId('tmux-attached-status')).toBeVisible();
-  await page.getByRole('button', { name: 'Open pane actions' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Attach', exact: true }).click();
-  await page.getByRole('button', { name: 'Close actions' }).click();
   await expect(page.getByTestId('terminal-key-rail')).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Primary mobile navigation' })).toBeHidden();
   await expect(page.getByTestId('tmux-window-strip')).toBeVisible();
