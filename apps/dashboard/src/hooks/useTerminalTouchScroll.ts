@@ -19,7 +19,6 @@ type TouchScrollState = {
   pinching: boolean;
   pinchStartDistance: number;
   pinchStartFontSize: number;
-  cursorTimer: number | null;
   cursorArmed: boolean;
   cursorMode: boolean;
   cursorSentX: number;
@@ -29,9 +28,30 @@ type TouchScrollState = {
   wheelColumn: number;
   wheelRow: number;
   panning: boolean;
+  navigateRaf: number | null;
+  navigateCoalescer: TerminalScrollCoalescerState;
 };
 
 const TMUX_LINES_PER_WHEEL_REPORT = 5;
+const MAX_NAVIGATE_SCROLL_LINES = 120;
+
+export type TerminalTouchScrollPath = 'local' | 'navigate' | 'sgr' | 'none';
+
+export type TerminalScrollCoalescerState = {
+  pendingLines: number;
+  scheduled: boolean;
+};
+
+export type TerminalScrollCoalescerTransition = {
+  state: TerminalScrollCoalescerState;
+  schedule: boolean;
+  sendLines: number;
+};
+
+const INITIAL_SCROLL_COALESCER: TerminalScrollCoalescerState = {
+  pendingLines: 0,
+  scheduled: false,
+};
 
 function createTouchScrollState(): TouchScrollState {
   return {
@@ -49,7 +69,6 @@ function createTouchScrollState(): TouchScrollState {
     pinching: false,
     pinchStartDistance: 0,
     pinchStartFontSize: 14,
-    cursorTimer: null,
     cursorArmed: false,
     cursorMode: false,
     cursorSentX: 0,
@@ -59,6 +78,8 @@ function createTouchScrollState(): TouchScrollState {
     wheelColumn: 1,
     wheelRow: 1,
     panning: false,
+    navigateRaf: null,
+    navigateCoalescer: { ...INITIAL_SCROLL_COALESCER },
   };
 }
 
@@ -111,6 +132,66 @@ export function mapScrollLinesToWheelReports(
   };
 }
 
+export function mapTouchScrollPixelsToLines(
+  deltaPixels: number,
+  remainder: number,
+  lineHeight: number
+): { lines: number; remainder: number } {
+  const safeLineHeight = lineHeight > 0 ? lineHeight : 16;
+  const total = deltaPixels + remainder;
+  const lines = Math.trunc(total / safeLineHeight);
+  return { lines, remainder: total - lines * safeLineHeight };
+}
+
+export function resolveTerminalTouchScrollPath({
+  bufferType,
+  mouseTrackingMode,
+  writable,
+  hasTmuxNavigate,
+}: {
+  bufferType: 'normal' | 'alternate';
+  mouseTrackingMode: 'none' | 'x10' | 'vt200' | 'drag' | 'any';
+  writable: boolean;
+  hasTmuxNavigate: boolean;
+}): TerminalTouchScrollPath {
+  if (bufferType === 'normal') return 'local';
+  if (writable && hasTmuxNavigate) return 'navigate';
+  if (mouseTrackingMode !== 'none') return writable ? 'sgr' : 'none';
+  return 'local';
+}
+
+export function reduceTerminalScrollCoalescer(
+  state: TerminalScrollCoalescerState,
+  event: { type: 'enqueue'; lines: number } | { type: 'flush' }
+): TerminalScrollCoalescerTransition {
+  if (event.type === 'enqueue') {
+    const pendingLines = state.pendingLines + event.lines;
+    const schedule = !state.scheduled && pendingLines !== 0;
+    return {
+      state: {
+        pendingLines,
+        scheduled: state.scheduled || schedule,
+      },
+      schedule,
+      sendLines: 0,
+    };
+  }
+
+  const sendLines = Math.max(
+    -MAX_NAVIGATE_SCROLL_LINES,
+    Math.min(MAX_NAVIGATE_SCROLL_LINES, state.pendingLines)
+  );
+  const pendingLines = state.pendingLines - sendLines;
+  return {
+    state: {
+      pendingLines,
+      scheduled: pendingLines !== 0,
+    },
+    schedule: pendingLines !== 0,
+    sendLines,
+  };
+}
+
 export function resolveTouchCell(
   clientX: number,
   clientY: number,
@@ -148,6 +229,8 @@ export function dispatchTerminalTouchScroll({
   row,
   writable,
   onInput,
+  hasTmuxNavigate = false,
+  onNavigateScroll = () => undefined,
 }: {
   terminal: XTerminal;
   lineDelta: number;
@@ -156,15 +239,19 @@ export function dispatchTerminalTouchScroll({
   row: number;
   writable: boolean;
   onInput: (data: string) => void;
+  hasTmuxNavigate?: boolean;
+  onNavigateScroll?: (lines: number) => void;
 }): number {
-  const usesMouseReports = terminal.buffer.active.type === 'alternate'
-    && terminal.modes.mouseTrackingMode !== 'none';
+  const path = resolveTerminalTouchScrollPath({
+    bufferType: terminal.buffer.active.type,
+    mouseTrackingMode: terminal.modes.mouseTrackingMode,
+    writable,
+    hasTmuxNavigate,
+  });
 
-  if (!usesMouseReports) {
-    terminal.scrollLines(lineDelta);
-    return 0;
-  }
-  if (!writable) return 0;
+  if (path === 'local') terminal.scrollLines(lineDelta);
+  if (path === 'navigate') onNavigateScroll(lineDelta);
+  if (path !== 'sgr') return 0;
 
   const mapped = mapScrollLinesToWheelReports(lineDelta, wheelRemainder);
   const data = buildSgrWheelReports(mapped.reportDelta, column, row);
@@ -189,10 +276,11 @@ export function useTerminalTouchScroll({
   terminalRef,
   fontSize,
   onFontSizeChange,
-  cursorEnabled,
   onCursorInput,
   writable = false,
   onScrollInput = onCursorInput,
+  tmuxSessionKey,
+  onNavigateScroll,
   onHorizontalSwipe,
 }: {
   enabled: boolean;
@@ -200,26 +288,29 @@ export function useTerminalTouchScroll({
   terminalRef: RefObject<XTerminal | null>;
   fontSize: number;
   onFontSizeChange: (fontSize: number) => void;
-  cursorEnabled: boolean;
   onCursorInput: (data: string) => void;
   writable?: boolean;
   onScrollInput?: (data: string) => void;
+  tmuxSessionKey?: string;
+  onNavigateScroll?: (lines: number) => void;
   onHorizontalSwipe?: (direction: 'previous' | 'next') => void;
 }) {
   const touchScrollRef = useRef<TouchScrollState>(createTouchScrollState());
   const fontSizeRef = useRef(fontSize);
   const onFontSizeChangeRef = useRef(onFontSizeChange);
-  const cursorEnabledRef = useRef(cursorEnabled);
   const onCursorInputRef = useRef(onCursorInput);
   const writableRef = useRef(writable);
   const onScrollInputRef = useRef(onScrollInput);
+  const tmuxSessionKeyRef = useRef(tmuxSessionKey);
+  const onNavigateScrollRef = useRef(onNavigateScroll);
   const onHorizontalSwipeRef = useRef(onHorizontalSwipe);
   fontSizeRef.current = fontSize;
   onFontSizeChangeRef.current = onFontSizeChange;
-  cursorEnabledRef.current = cursorEnabled;
   onCursorInputRef.current = onCursorInput;
   writableRef.current = writable;
   onScrollInputRef.current = onScrollInput;
+  tmuxSessionKeyRef.current = tmuxSessionKey;
+  onNavigateScrollRef.current = onNavigateScroll;
   onHorizontalSwipeRef.current = onHorizontalSwipe;
 
   useEffect(() => {
@@ -250,11 +341,28 @@ export function useTerminalTouchScroll({
       return terminal.cols > 0 && width > 0 ? width / terminal.cols : 8;
     };
 
-    const clearCursorTimer = () => {
-      if (touchState.cursorTimer !== null) {
-        window.clearTimeout(touchState.cursorTimer);
-        touchState.cursorTimer = null;
-      }
+    const scheduleNavigateFlush = () => {
+      if (touchState.navigateRaf !== null) return;
+      touchState.navigateRaf = requestAnimationFrame(() => {
+        touchState.navigateRaf = null;
+        const transition = reduceTerminalScrollCoalescer(touchState.navigateCoalescer, {
+          type: 'flush',
+        });
+        touchState.navigateCoalescer = transition.state;
+        if (transition.sendLines !== 0) {
+          onNavigateScrollRef.current?.(transition.sendLines);
+        }
+        if (transition.schedule) scheduleNavigateFlush();
+      });
+    };
+
+    const enqueueNavigateScroll = (lines: number) => {
+      const transition = reduceTerminalScrollCoalescer(touchState.navigateCoalescer, {
+        type: 'enqueue',
+        lines,
+      });
+      touchState.navigateCoalescer = transition.state;
+      if (transition.schedule) scheduleNavigateFlush();
     };
 
     const handleTouchStart = (event: TouchEvent) => {
@@ -265,7 +373,6 @@ export function useTerminalTouchScroll({
         touchState.momentumRaf = null;
       }
       if (event.touches.length === 2) {
-        clearCursorTimer();
         touchState.cursorArmed = false;
         touchState.cursorMode = false;
         const first = event.touches[0];
@@ -310,19 +417,6 @@ export function useTerminalTouchScroll({
       touchState.cursorSentX = 0;
       touchState.cursorSentY = 0;
       touchState.panning = false;
-      clearCursorTimer();
-      if (cursorEnabledRef.current) {
-        touchState.cursorTimer = window.setTimeout(() => {
-          touchState.cursorTimer = null;
-          if (!touchState.active || touchState.axis) return;
-          touchState.cursorArmed = true;
-          // Tell the context menu's competing 500ms long-press timer to stand
-          // down: a stationary hold that armed cursor mode must not also pop
-          // the copy/paste menu 50ms later.
-          container.dispatchEvent(new CustomEvent('terminal-cursor-armed'));
-          navigator.vibrate?.(8);
-        }, 450);
-      }
     };
 
     const handleTouchMove = (event: TouchEvent) => {
@@ -379,8 +473,6 @@ export function useTerminalTouchScroll({
       }
 
       if (terminal.hasSelection()) return;
-      if (!touchState.cursorArmed && movedDistance > 10) clearCursorTimer();
-
       if (!touchState.axis) {
         const absDy = Math.abs(totalDy);
         const absDx = Math.abs(totalDx);
@@ -442,10 +534,13 @@ export function useTerminalTouchScroll({
       event.preventDefault();
 
       const deltaY = touch.clientY - touchState.lastY;
-      const lineHeight = touchState.lineHeight > 0 ? touchState.lineHeight : 16;
-      const totalDelta = deltaY + touchState.remainder;
-      const lines = Math.trunc(totalDelta / lineHeight);
-      touchState.remainder = totalDelta - lines * lineHeight;
+      const mapped = mapTouchScrollPixelsToLines(
+        deltaY,
+        touchState.remainder,
+        touchState.lineHeight
+      );
+      const lines = mapped.lines;
+      touchState.remainder = mapped.remainder;
       if (lines !== 0) {
         touchState.wheelRemainder = dispatchTerminalTouchScroll({
           terminal,
@@ -455,6 +550,8 @@ export function useTerminalTouchScroll({
           row: touchState.wheelRow,
           writable: writableRef.current,
           onInput: onScrollInputRef.current,
+          hasTmuxNavigate: Boolean(tmuxSessionKeyRef.current && onNavigateScrollRef.current),
+          onNavigateScroll: enqueueNavigateScroll,
         });
       }
       const now = performance.now();
@@ -468,7 +565,6 @@ export function useTerminalTouchScroll({
     };
 
     const handleTouchEnd = (event: TouchEvent) => {
-      clearCursorTimer();
       if (touchState.pinching) {
         if (event.touches.length < 2) touchState.pinching = false;
         touchState.active = false;
@@ -518,7 +614,6 @@ export function useTerminalTouchScroll({
       let currentVelocity = velocity;
       let accum = 0;
       let lastFrame = performance.now();
-      const lineHeight = touchState.lineHeight > 0 ? touchState.lineHeight : 16;
 
       const tick = () => {
         const terminal = terminalRef.current;
@@ -535,7 +630,9 @@ export function useTerminalTouchScroll({
           return;
         }
         accum += currentVelocity * dt;
-        const lines = Math.trunc(accum / lineHeight);
+        const mapped = mapTouchScrollPixelsToLines(0, accum, touchState.lineHeight);
+        const lines = mapped.lines;
+        accum = mapped.remainder;
         if (lines !== 0) {
           touchState.wheelRemainder = dispatchTerminalTouchScroll({
             terminal,
@@ -545,8 +642,9 @@ export function useTerminalTouchScroll({
             row: touchState.wheelRow,
             writable: writableRef.current,
             onInput: onScrollInputRef.current,
+            hasTmuxNavigate: Boolean(tmuxSessionKeyRef.current && onNavigateScrollRef.current),
+            onNavigateScroll: enqueueNavigateScroll,
           });
-          accum -= lines * lineHeight;
         }
         touchState.momentumRaf = requestAnimationFrame(tick);
       };
@@ -567,7 +665,11 @@ export function useTerminalTouchScroll({
         cancelAnimationFrame(touchState.momentumRaf);
         touchState.momentumRaf = null;
       }
-      clearCursorTimer();
+      if (touchState.navigateRaf !== null) {
+        cancelAnimationFrame(touchState.navigateRaf);
+        touchState.navigateRaf = null;
+      }
+      touchState.navigateCoalescer = { ...INITIAL_SCROLL_COALESCER };
     };
   }, [enabled, termRef, terminalRef]);
 

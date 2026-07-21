@@ -27,6 +27,7 @@ interface TerminalViewProps {
   historySessionId?: string;
   hostId?: string;
   paneId?: string;
+  tmuxSessionKey?: string;
   className?: string;
   autoAttach?: boolean;
   controllerRef?: MutableRefObject<TerminalController | null>;
@@ -43,6 +44,7 @@ export function TerminalView({
   historySessionId = sessionId,
   hostId,
   paneId,
+  tmuxSessionKey,
   className,
   autoAttach = false,
   controllerRef,
@@ -231,16 +233,20 @@ export function TerminalView({
     stickyCtrlModeRef.current = 'inactive';
     setStickyCtrlMode('inactive');
   }, [status]);
+  const handleNavigateScroll = useCallback((lines: number) => {
+    navigate({ type: 'navigate', op: 'scroll', lines });
+  }, [navigate]);
   const touchScrollRef = useTerminalTouchScroll({
     enabled: isMobile,
     termRef,
     terminalRef,
     fontSize: terminalFontSize,
     onFontSizeChange: setTerminalFontSize,
-    cursorEnabled: terminalWritable,
     onCursorInput: sendInput,
     writable: terminalWritable,
     onScrollInput: sendInput,
+    tmuxSessionKey,
+    onNavigateScroll: handleNavigateScroll,
     onHorizontalSwipe: (direction) => {
       termRef.current?.dispatchEvent(new CustomEvent('terminal-window-swipe', {
         bubbles: true,

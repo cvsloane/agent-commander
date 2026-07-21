@@ -218,6 +218,7 @@ export function TmuxTerminalWorkspace({
                   sessionId={secondarySession.id}
                   hostId={secondarySession.host_id}
                   paneId={secondarySession.tmux_pane_id || undefined}
+                  tmuxSessionKey={getTmuxViewerSessionKey(secondarySession)}
                   autoAttach
                   className="flex-1"
                 />
