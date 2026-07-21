@@ -39,13 +39,19 @@ Press `Enter` to save an inline rename or `Escape` to cancel. A close action onl
 uses the stronger session-ending warning when live topology proves it is the
 last window.
 
+For keyboard navigation, `ArrowLeft`, `ArrowRight`, `Home`, and `End` move focus
+only. Press `Enter` or `Space` to activate the focused window and retarget the
+terminal.
+
 ## Pane controls
 
 Pane controls support directional selection, zoom, termination, and horizontal
 or vertical splits. Split actions are enabled only when the connected tmux
-version supports the required command. The terminal key bar also exposes prefix,
-window navigation, copy mode, zoom, splits, and pane navigation without a
-hardware tmux prefix chord.
+version supports the required command. On mobile, one configurable terminal key
+rail provides terminal input, history, command-mark navigation, macros, and the
+current host's tmux prefix without requiring a hardware chord. Pane actions
+include **New window here**, which opens a launch sheet prefilled from the
+attached pane.
 
 ## Relationship to other pages
 

@@ -33,9 +33,10 @@ Status messages:
 ## Persistence and timeouts
 
 The primary terminal remains mounted while the operator navigates between
-dashboard pages. A terminal that stays hidden is detached after five minutes.
-Separately, a terminal channel automatically detaches after ten minutes without
-terminal activity to prevent stale connections.
+dashboard pages. Warm state retains its xterm buffer and resume token for 30
+minutes by default; after that timeout, a hidden terminal suspends its WebSocket
+and reattaches when shown. Separately, a terminal channel automatically detaches
+after ten minutes without terminal activity to prevent stale connections.
 
 ## Scrollback, search, and history
 
@@ -56,8 +57,14 @@ The UI sends JSON messages:
 - `{ "type": "control" }` to request control
 - `{ "type": "detach" }`
 
-Raw xterm data, paste, the virtual key bar, and the prompt composer share one
-guarded input path so read-only viewers cannot bypass control ownership.
+Raw xterm data, paste, the configurable terminal key rail, and the prompt
+composer share one guarded input path so read-only viewers cannot bypass
+control ownership.
+
+On mobile, the full-bleed terminal adds momentum scrollback, pinch font sizing,
+long-press cursor drag, horizontal window swipes, and a single configurable key
+rail. See [Command Center](command-center.md#mobile-terminal) for the gestures,
+sticky Ctrl modes, per-host prefix, and desktop-attached letterbox rule.
 
 ## Notes
 
