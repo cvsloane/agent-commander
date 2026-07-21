@@ -60,3 +60,5 @@ This is the git-tracked backlog for this workstream. Keep local next steps here;
 - [ ] Window-strip arrow-key navigation dispatches live select_window per keypress (valid ARIA auto-activation but can burst commands) — consider focus-only + Enter-to-activate (Wave-5 review INFO).
 - [ ] Commit a refreshed docs-site screenshot of the Command Center (acceptance checklist residual NOT-MET).
 - [ ] Wave-6 batch-2 review LOWs: prune command-mark seenRef on marker disposal; 4px selection-handle offset; double-tap vs touch-scroll listener ordering; thumbnail "live capture" wording; scroll-freeze anchor drift at 10k scrollback saturation; heuristic ❯/› prompt-glyph tuning; stuck suppressClickRef edge (touch tap then BT-keyboard click).
+- [deps] Dependabot #39 (medium): uuid < 11.1.1 buffer bounds check in v3/v5/v6-with-buf — we only use v4(); bump uuid across lockfile at next dep pass. (2026-07-21)
+- [tests] Journey suite stabilization pass: attach/type input race + launch-sheet fill timeout flake under parallel load (both pass 10/10 isolated; ~3-7% flake in full parallel runs). Consider per-test WS-connected wait helper + launch sheet readiness gate. (2026-07-21)

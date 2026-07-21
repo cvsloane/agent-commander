@@ -334,6 +334,14 @@ test.describe('Command Center program journeys', () => {
 
     const history = page.getByRole('dialog', { name: 'Terminal history' });
     await expect(history).toBeVisible();
+    // The pager anchors to the newest output and virtualizes rows, so which
+    // lines are in the DOM after open depends on when the bottom-anchor rAF
+    // lands. Assert the deterministic count, then pin the viewport to the top
+    // before asserting the oldest captured line renders.
+    await expect(history.getByText('500 lines', { exact: true })).toBeVisible();
+    await history
+      .getByLabel('Captured terminal history')
+      .evaluate((element) => { element.scrollTop = 0; });
     await expect(history.getByText('recent line 1', { exact: true })).toBeVisible();
     await history.getByRole('button', { name: 'Load older' }).click();
     await expect
