@@ -16,17 +16,20 @@ import {
   shouldDismissHistoryOverscroll,
   type ScrollbackRange,
 } from './scrollbackPaging';
+import { classifyTerminalScrollMode, type TerminalScrollMode } from './terminalScrollMode';
 
 interface TerminalHistoryOverlayProps {
   sessionId: string;
   open: boolean;
   fontSize: number;
+  onScrollModeResolved: (mode: TerminalScrollMode) => void;
   onClose: () => void;
 }
 
 interface HistoryPage {
   range: ScrollbackRange;
   lines: string[];
+  scrollMode: TerminalScrollMode;
 }
 
 const OVERSCAN_LINES = 12;
@@ -35,6 +38,7 @@ export function TerminalHistoryOverlay({
   sessionId,
   open,
   fontSize,
+  onScrollModeResolved,
   onClose,
 }: TerminalHistoryOverlayProps) {
   const [pages, setPages] = useState<HistoryPage[]>([]);
@@ -50,21 +54,26 @@ export function TerminalHistoryOverlay({
   const overscrollStartRef = useRef<{ y: number; atBottom: boolean } | null>(null);
   const lineHeight = Math.max(16, Math.round(fontSize * 1.2));
 
-  const fetchPage = useCallback(async (range: ScrollbackRange): Promise<HistoryPage> => {
-    const response = await getSessionScrollback(sessionId, {
-      mode: 'range',
-      start_line: range.startLine,
-      end_line: range.endLine,
-      strip_ansi: true,
-    });
-    if (!response.ok) {
-      throw new Error(response.error?.message || 'Scrollback capture failed.');
-    }
-    return {
-      range,
-      lines: contentScrollbackLines(response.result?.content),
-    };
-  }, [sessionId]);
+  const fetchPage = useCallback(
+    async (range: ScrollbackRange): Promise<HistoryPage> => {
+      const response = await getSessionScrollback(sessionId, {
+        mode: 'range',
+        start_line: range.startLine,
+        end_line: range.endLine,
+        strip_ansi: true,
+      });
+      if (!response.ok) {
+        throw new Error(response.error?.message || 'Scrollback capture failed.');
+      }
+      const content = response.result?.content;
+      return {
+        range,
+        lines: contentScrollbackLines(content),
+        scrollMode: classifyTerminalScrollMode(content),
+      };
+    },
+    [sessionId]
+  );
 
   const loadInitial = useCallback(async () => {
     const generation = ++generationRef.current;
@@ -76,6 +85,7 @@ export function TerminalHistoryOverlay({
     try {
       const page = await fetchPage(initialScrollbackRange());
       if (generationRef.current !== generation) return;
+      onScrollModeResolved(page.scrollMode);
       setPages([page]);
       setHasOlder(page.lines.length >= SCROLLBACK_PAGE_LINES);
       requestAnimationFrame(() => {
@@ -93,7 +103,7 @@ export function TerminalHistoryOverlay({
     } finally {
       if (generationRef.current === generation) setLoadingInitial(false);
     }
-  }, [fetchPage]);
+  }, [fetchPage, onScrollModeResolved]);
 
   useEffect(() => {
     if (!open) {
@@ -245,8 +255,12 @@ export function TerminalHistoryOverlay({
             onClose();
           }
         }}
-        onTouchEnd={() => { overscrollStartRef.current = null; }}
-        onTouchCancel={() => { overscrollStartRef.current = null; }}
+        onTouchEnd={() => {
+          overscrollStartRef.current = null;
+        }}
+        onTouchCancel={() => {
+          overscrollStartRef.current = null;
+        }}
       >
         {loadingInitial ? (
           <div

@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { ConnectionStatus, XTerminal } from './types';
 import { TerminalHistoryOverlay } from './TerminalHistoryOverlay';
+import type { TerminalScrollMode } from './terminalScrollMode';
 import { TerminalSearchSheet, type TerminalSearchControlsProps } from './TerminalSearch';
 import { TerminalTouchSelection } from './TerminalTouchSelection';
 import type { TerminalCommandMarkView } from './commandMarks';
@@ -35,7 +36,9 @@ interface TerminalSurfaceProps {
   onOpenHistory: () => void;
   historyOverlayOpen: boolean;
   historySessionId: string;
+  historyScrollMode?: TerminalScrollMode;
   historyFontSize: number;
+  onHistoryScrollModeResolved: (mode: TerminalScrollMode) => void;
   onCloseHistoryOverlay: () => void;
   tmuxPrefix?: string;
   onPreviousMark: () => void;
@@ -75,7 +78,9 @@ export function TerminalSurface({
   onOpenHistory,
   historyOverlayOpen,
   historySessionId,
+  historyScrollMode: _historyScrollMode,
   historyFontSize,
+  onHistoryScrollModeResolved,
   onCloseHistoryOverlay,
   tmuxPrefix,
   onPreviousMark,
@@ -106,7 +111,8 @@ export function TerminalSurface({
     observer.observe(container, { childList: true, subtree: true });
     return () => {
       observer.disconnect();
-      container.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea')
+      container
+        .querySelector<HTMLTextAreaElement>('.xterm-helper-textarea')
         ?.removeAttribute('inputmode');
     };
   }, [keyboardActive, termRef, touchInputModeEnabled]);
@@ -126,7 +132,8 @@ export function TerminalSurface({
           className={cn(
             'relative h-full w-full cursor-text overflow-hidden bg-[#0a0a0a] p-1 focus:outline-none',
             isMobile && 'touch-none',
-            status === 'connected' && 'border-l-2 border-emerald-500 shadow-[inset_2px_0_0_rgba(16,185,129,0.35)]'
+            status === 'connected' &&
+              'border-l-2 border-emerald-500 shadow-[inset_2px_0_0_rgba(16,185,129,0.35)]'
           )}
           aria-label="Interactive terminal"
         />
@@ -144,12 +151,14 @@ export function TerminalSurface({
             data-testid="terminal-command-header"
             aria-label={`${currentCommandMark.approximate ? 'Approximate agent turn' : 'Shell command'}: ${currentCommandMark.label}`}
           >
-            <span className={cn(
-              'shrink-0 rounded px-1 py-0.5 font-sans text-[8px] font-bold uppercase tracking-wide',
-              currentCommandMark.approximate
-                ? 'bg-violet-500/20 text-violet-200'
-                : 'bg-emerald-500/20 text-emerald-200'
-            )}>
+            <span
+              className={cn(
+                'shrink-0 rounded px-1 py-0.5 font-sans text-[8px] font-bold uppercase tracking-wide',
+                currentCommandMark.approximate
+                  ? 'bg-violet-500/20 text-violet-200'
+                  : 'bg-emerald-500/20 text-emerald-200'
+              )}
+            >
               {currentCommandMark.approximate ? 'Approx.' : 'Command'}
             </span>
             <span className="truncate">{currentCommandMark.label}</span>
@@ -175,6 +184,7 @@ export function TerminalSurface({
           sessionId={historySessionId}
           open={historyOverlayOpen}
           fontSize={historyFontSize}
+          onScrollModeResolved={onHistoryScrollModeResolved}
           onClose={onCloseHistoryOverlay}
         />
       </div>
