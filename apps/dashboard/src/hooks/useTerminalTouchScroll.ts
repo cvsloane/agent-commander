@@ -276,7 +276,9 @@ export function useTerminalTouchScroll({
   terminalRef,
   fontSize,
   onFontSizeChange,
+  cursorArmed = false,
   onCursorInput,
+  onCursorDisarm,
   writable = false,
   onScrollInput = onCursorInput,
   tmuxSessionKey,
@@ -288,7 +290,9 @@ export function useTerminalTouchScroll({
   terminalRef: RefObject<XTerminal | null>;
   fontSize: number;
   onFontSizeChange: (fontSize: number) => void;
+  cursorArmed?: boolean;
   onCursorInput: (data: string) => void;
+  onCursorDisarm?: () => void;
   writable?: boolean;
   onScrollInput?: (data: string) => void;
   tmuxSessionKey?: string;
@@ -298,7 +302,9 @@ export function useTerminalTouchScroll({
   const touchScrollRef = useRef<TouchScrollState>(createTouchScrollState());
   const fontSizeRef = useRef(fontSize);
   const onFontSizeChangeRef = useRef(onFontSizeChange);
+  const cursorArmedRef = useRef(cursorArmed);
   const onCursorInputRef = useRef(onCursorInput);
+  const onCursorDisarmRef = useRef(onCursorDisarm);
   const writableRef = useRef(writable);
   const onScrollInputRef = useRef(onScrollInput);
   const tmuxSessionKeyRef = useRef(tmuxSessionKey);
@@ -306,7 +312,9 @@ export function useTerminalTouchScroll({
   const onHorizontalSwipeRef = useRef(onHorizontalSwipe);
   fontSizeRef.current = fontSize;
   onFontSizeChangeRef.current = onFontSizeChange;
+  cursorArmedRef.current = cursorArmed;
   onCursorInputRef.current = onCursorInput;
+  onCursorDisarmRef.current = onCursorDisarm;
   writableRef.current = writable;
   onScrollInputRef.current = onScrollInput;
   tmuxSessionKeyRef.current = tmuxSessionKey;
@@ -365,6 +373,11 @@ export function useTerminalTouchScroll({
       if (transition.schedule) scheduleNavigateFlush();
     };
 
+    const disarmCursorGesture = () => {
+      cursorArmedRef.current = false;
+      onCursorDisarmRef.current?.();
+    };
+
     const handleTouchStart = (event: TouchEvent) => {
       const terminal = terminalRef.current;
       if (!terminal) return;
@@ -373,6 +386,7 @@ export function useTerminalTouchScroll({
         touchState.momentumRaf = null;
       }
       if (event.touches.length === 2) {
+        if (cursorArmedRef.current) disarmCursorGesture();
         touchState.cursorArmed = false;
         touchState.cursorMode = false;
         const first = event.touches[0];
@@ -412,7 +426,7 @@ export function useTerminalTouchScroll({
       touchState.wheelRemainder = 0;
       touchState.wheelColumn = touchCell.column;
       touchState.wheelRow = touchCell.row;
-      touchState.cursorArmed = false;
+      touchState.cursorArmed = cursorArmedRef.current;
       touchState.cursorMode = false;
       touchState.cursorSentX = 0;
       touchState.cursorSentY = 0;
@@ -565,6 +579,7 @@ export function useTerminalTouchScroll({
     };
 
     const handleTouchEnd = (event: TouchEvent) => {
+      const cursorGestureArmed = touchState.cursorArmed || touchState.cursorMode;
       if (touchState.pinching) {
         if (event.touches.length < 2) touchState.pinching = false;
         touchState.active = false;
@@ -580,9 +595,11 @@ export function useTerminalTouchScroll({
         touchState.active = false;
         touchState.axis = null;
         container.dispatchEvent(new CustomEvent('terminal-cursor-mode-end'));
+        disarmCursorGesture();
         return;
       }
       touchState.cursorArmed = false;
+      if (cursorGestureArmed) disarmCursorGesture();
       touchState.active = false;
       const axis = touchState.axis;
       touchState.axis = null;

@@ -19,6 +19,7 @@ function controller(readOnly: boolean): TerminalController {
     suspend: () => false,
     takeControl: () => undefined,
     navigate: () => false,
+    resetTouchModes: () => undefined,
     focus: () => undefined,
     copySelection: () => undefined,
     copyLastLines: () => undefined,

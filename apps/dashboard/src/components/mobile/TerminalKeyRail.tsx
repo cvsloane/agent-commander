@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 import {
+  EXPANDED_TERMINAL_RAIL_CONFIG,
   MINIMAL_TERMINAL_RAIL_CONFIG,
   isArrowRailKey,
   resolveTerminalRailBinding,
@@ -22,6 +23,10 @@ interface TerminalKeyRailProps {
   onPreviousMark?: () => void;
   onNextMark?: () => void;
   hasCommandMarks?: boolean;
+  keyboardActive: boolean;
+  onKeyboardToggle: () => void;
+  cursorArmed: boolean;
+  onCursorToggle: () => void;
 }
 
 type RailGesture = {
@@ -44,9 +49,18 @@ export function TerminalKeyRail({
   onPreviousMark,
   onNextMark,
   hasCommandMarks = false,
+  keyboardActive,
+  onKeyboardToggle,
+  cursorArmed,
+  onCursorToggle,
 }: TerminalKeyRailProps) {
+  const railPreset = useSettingsStore((state) => state.terminalRailPreset);
   const configuredRail = useSettingsStore((state) => state.terminalRailConfig);
-  const config = configuredRail?.keys?.length ? configuredRail : MINIMAL_TERMINAL_RAIL_CONFIG;
+  const config = railPreset === 'minimal'
+    ? MINIMAL_TERMINAL_RAIL_CONFIG
+    : railPreset === 'expanded'
+      ? EXPANDED_TERMINAL_RAIL_CONFIG
+      : configuredRail?.keys?.length ? configuredRail : MINIMAL_TERMINAL_RAIL_CONFIG;
   const [navLayer, setNavLayer] = useState(false);
   const gestureRef = useRef<RailGesture | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
@@ -88,6 +102,8 @@ export function TerminalKeyRail({
     const action = resolveTerminalRailBinding(binding, tmuxPrefixToSequence(prefix));
     hapticTick();
     if (action.type === 'input') onInput(action.data);
+    else if (action.type === 'keyboard') onKeyboardToggle();
+    else if (action.type === 'cursor') onCursorToggle();
     else if (action.type === 'history') onHistory();
     else if (action.type === 'mark') {
       if (action.direction === 'previous') onPreviousMark?.();
@@ -209,6 +225,11 @@ export function TerminalKeyRail({
         {visibleKeys.map((key, index) => {
           const sourceKey = config.keys[index] ?? key;
           const isCtrl = sourceKey.binding.type === 'keysym' && sourceKey.binding.value === 'ctrl';
+          const isKeyboard = sourceKey.binding.type === 'keysym'
+            && sourceKey.binding.value === 'keyboard';
+          const isCursor = sourceKey.binding.type === 'keysym'
+            && sourceKey.binding.value === 'cursor';
+          const isPressed = isCtrl ? ctrlActive : isKeyboard ? keyboardActive : isCursor ? cursorArmed : false;
           const isCommandMark = sourceKey.binding.type === 'keysym'
             && (sourceKey.binding.value === 'previous_mark' || sourceKey.binding.value === 'next_mark');
           return (
@@ -219,10 +240,18 @@ export function TerminalKeyRail({
                 'flex h-11 min-w-11 items-center justify-center rounded-md border bg-background px-2 text-xs font-semibold outline-none transition-colors active:scale-95 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40',
                 config.keys.length > 6 && 'shrink-0',
                 isCtrl && ctrlActive && 'border-primary bg-primary text-primary-foreground',
+                (isKeyboard || isCursor) && isPressed
+                  && 'border-primary bg-primary text-primary-foreground',
                 navLayer && isArrowRailKey(sourceKey) && 'border-primary/60 bg-primary/10 text-primary'
               )}
-              aria-label={isCtrl ? `Control modifier ${ctrlMode}` : key.label}
-              aria-pressed={isCtrl ? ctrlActive : undefined}
+              aria-label={isCtrl
+                ? `Control modifier ${ctrlMode}`
+                : isKeyboard
+                  ? `Keyboard ${keyboardActive ? 'on' : 'off'}`
+                  : isCursor
+                    ? `Cursor drag ${cursorArmed ? 'armed' : 'inactive'}`
+                    : key.label}
+              aria-pressed={isCtrl || isKeyboard || isCursor ? isPressed : undefined}
               disabled={isCommandMark && !hasCommandMarks}
               onPointerDown={(event) => handlePointerDown(event, sourceKey)}
               onPointerMove={(event) => handlePointerMove(event, sourceKey)}

@@ -13,7 +13,7 @@ import {
   type StickyCtrlEvent,
   type StickyCtrlMode,
 } from '@/components/mobile/stickyCtrl';
-import { useIsMobile } from '@/hooks/useIsMobile';
+import { COMMAND_CENTER_SHELL_BREAKPOINT, useIsMobile } from '@/hooks/useIsMobile';
 import { useTerminalClipboard } from '@/hooks/useTerminalClipboard';
 import { useTerminalConnection } from '@/hooks/useTerminalConnection';
 import { useTerminalScrollAnchor } from '@/hooks/useTerminalScrollAnchor';
@@ -60,6 +60,8 @@ export function TerminalView({
   const [searchOpen, setSearchOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [stickyCtrlMode, setStickyCtrlMode] = useState<StickyCtrlMode>('inactive');
+  const [keyboardActive, setKeyboardActive] = useState(false);
+  const [cursorArmed, setCursorArmed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<XSearchResult>({
     resultIndex: -1,
@@ -70,7 +72,10 @@ export function TerminalView({
   const selectionPopupRef = useRef<SelectionPopupHandle>(null);
   const hasCommittedSelectionRef = useRef(false);
   const stickyCtrlModeRef = useRef<StickyCtrlMode>('inactive');
+  const keyboardActiveRef = useRef(false);
+  const cursorArmedRef = useRef(false);
   const isMobile = useIsMobile();
+  const touchInputModeEnabled = useIsMobile(COMMAND_CENTER_SHELL_BREAKPOINT);
   const terminalFontSize = useSettingsStore((state) => state.terminalFontSize);
   const setTerminalFontSize = useSettingsStore((state) => state.setTerminalFontSize);
   const tmuxPrefix = useSettingsStore((state) => (
@@ -228,21 +233,54 @@ export function TerminalView({
   useEffect(() => {
     sendInputRef.current = handlePhysicalInput;
   }, [handlePhysicalInput]);
+  const applyTouchInputMode = useCallback((active: boolean) => {
+    if (!touchInputModeEnabled) return;
+    const textarea = termRef.current?.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea');
+    if (textarea) textarea.inputMode = active ? 'text' : 'none';
+  }, [touchInputModeEnabled]);
+  const resetTouchModes = useCallback(() => {
+    keyboardActiveRef.current = false;
+    cursorArmedRef.current = false;
+    setKeyboardActive(false);
+    setCursorArmed(false);
+    applyTouchInputMode(false);
+  }, [applyTouchInputMode]);
+  const handleKeyboardToggle = useCallback(() => {
+    const next = !keyboardActiveRef.current;
+    keyboardActiveRef.current = next;
+    setKeyboardActive(next);
+    applyTouchInputMode(next);
+    terminalRef.current?.focus();
+  }, [applyTouchInputMode, terminalRef]);
+  const handleCursorToggle = useCallback(() => {
+    const next = !cursorArmedRef.current;
+    cursorArmedRef.current = next;
+    setCursorArmed(next);
+    terminalRef.current?.focus();
+  }, [terminalRef]);
+  const handleCursorDisarm = useCallback(() => {
+    if (!cursorArmedRef.current) return;
+    cursorArmedRef.current = false;
+    setCursorArmed(false);
+  }, []);
   useEffect(() => {
     if (status === 'connected') return;
     stickyCtrlModeRef.current = 'inactive';
     setStickyCtrlMode('inactive');
-  }, [status]);
+    resetTouchModes();
+  }, [resetTouchModes, status]);
   const handleNavigateScroll = useCallback((lines: number) => {
     navigate({ type: 'navigate', op: 'scroll', lines });
   }, [navigate]);
   const touchScrollRef = useTerminalTouchScroll({
-    enabled: isMobile,
+    enabled: touchInputModeEnabled,
     termRef,
     terminalRef,
     fontSize: terminalFontSize,
     onFontSizeChange: setTerminalFontSize,
+    cursorArmed,
     onCursorInput: sendInput,
+    onCursorDisarm: handleCursorDisarm,
     writable: terminalWritable,
     onScrollInput: sendInput,
     tmuxSessionKey,
@@ -281,6 +319,7 @@ export function TerminalView({
       suspend,
       takeControl,
       navigate,
+      resetTouchModes,
       focus: () => terminalRef.current?.focus(),
       copySelection,
       copyLastLines: (lines = 50) => copyLastLines(lines),
@@ -311,6 +350,7 @@ export function TerminalView({
     onControllerChange,
     navigate,
     paste,
+    resetTouchModes,
     terminalRef,
     suspend,
     takeControl,
@@ -364,6 +404,7 @@ export function TerminalView({
         termRef={termRef}
         terminalRef={terminalRef}
         isMobile={isMobile}
+        touchInputModeEnabled={touchInputModeEnabled}
         status={status}
         readOnly={readOnly}
         selectionTextRef={selectionTextRef}
@@ -371,6 +412,10 @@ export function TerminalView({
         onSelectionStart={handleSelectionStart}
         onSelectionCommit={handleSelectionCommit}
         onVirtualInput={handleVirtualInput}
+        keyboardActive={keyboardActive}
+        onKeyboardToggle={handleKeyboardToggle}
+        cursorArmed={cursorArmed}
+        onCursorToggle={handleCursorToggle}
         stickyCtrlMode={stickyCtrlMode}
         onStickyCtrlEvent={dispatchStickyCtrl}
         onOpenHistory={() => setHistoryOpen(true)}

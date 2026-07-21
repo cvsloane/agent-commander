@@ -20,6 +20,7 @@ export interface TerminalController {
   suspend: () => boolean;
   takeControl: () => void;
   navigate: (message: BrowserTerminalNavigateMessage) => boolean;
+  resetTouchModes: () => void;
   focus: () => void;
   copySelection: () => void;
   copyLastLines: (lines?: number) => void;
