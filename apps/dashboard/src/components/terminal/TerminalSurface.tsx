@@ -36,7 +36,6 @@ interface TerminalSurfaceProps {
   onOpenHistory: () => void;
   historyOverlayOpen: boolean;
   historySessionId: string;
-  historyScrollMode?: TerminalScrollMode;
   historyFontSize: number;
   onHistoryScrollModeResolved: (mode: TerminalScrollMode) => void;
   onCloseHistoryOverlay: () => void;
@@ -78,7 +77,6 @@ export function TerminalSurface({
   onOpenHistory,
   historyOverlayOpen,
   historySessionId,
-  historyScrollMode: _historyScrollMode,
   historyFontSize,
   onHistoryScrollModeResolved,
   onCloseHistoryOverlay,

@@ -339,6 +339,12 @@ export function TerminalView({
       setHistoryOverlaySessionId(null);
     }
   }, [historyOverlaySessionId, historySessionId]);
+  const handleNavigateScroll = useCallback(
+    (lines: number) => {
+      navigate({ type: 'navigate', op: 'scroll', lines });
+    },
+    [navigate]
+  );
   const touchScrollRef = useTerminalTouchScroll({
     enabled: touchInputModeEnabled,
     termRef,
@@ -352,7 +358,9 @@ export function TerminalView({
     onScrollInput: sendInput,
     tmuxSessionKey,
     historySessionId,
+    historyScrollMode: terminalScrollMode,
     onOpenHistory: openHistoryOverlay,
+    onNavigateScroll: handleNavigateScroll,
     onHorizontalSwipe: (direction) => {
       termRef.current?.dispatchEvent(
         new CustomEvent('terminal-window-swipe', {
@@ -492,7 +500,6 @@ export function TerminalView({
         onOpenHistory={() => setHistoryOpen(true)}
         historyOverlayOpen={historyOverlayOpen}
         historySessionId={historySessionId}
-        historyScrollMode={terminalScrollMode}
         historyFontSize={terminalFontSize}
         onHistoryScrollModeResolved={handleHistoryScrollModeResolved}
         onCloseHistoryOverlay={closeHistoryOverlay}
