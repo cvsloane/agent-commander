@@ -2,6 +2,7 @@ import { expect, test, type Page, type Route } from '@playwright/test';
 
 const accessCode = process.env.PLAYWRIGHT_ACCESS_CODE || 'playwright-access';
 let latestTerminalRows = 0;
+let recordedTerminalInputs: string[] = [];
 
 const emptySessionResponse = { sessions: [], total: 0, limit: 200, offset: 0 };
 const tmuxHost = {
@@ -522,9 +523,13 @@ async function mockControlPlane(
   });
   await page.routeWebSocket(/\/v1\/ui\/terminal\/[^?]+\?/, (socket) => {
     latestTerminalRows = Number(new URL(socket.url()).searchParams.get('rows')) || 0;
+    recordedTerminalInputs = [];
     socket.onMessage((message) => {
       if (typeof message !== 'string') return;
-      const parsed = JSON.parse(message) as { type?: string; rows?: number };
+      const parsed = JSON.parse(message) as { type?: string; rows?: number; data?: string };
+      if (parsed.type === 'input' && typeof parsed.data === 'string') {
+        recordedTerminalInputs.push(parsed.data);
+      }
       if (parsed.type === 'resize' && parsed.rows) {
         latestTerminalRows = parsed.rows;
       }
@@ -713,6 +718,13 @@ function tmuxRosterPane(page: Page, title: string) {
 }
 
 test.beforeEach(async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    document.addEventListener('DOMContentLoaded', () => {
+      const style = document.createElement('style');
+      style.textContent = 'nextjs-portal { pointer-events: none !important; }';
+      document.head.appendChild(style);
+    });
+  });
   await mockControlPlane(page, {
     terminalReadOnly: testInfo.title.includes('gates terminal input while read-only'),
   });
@@ -1456,3 +1468,4 @@ test('keeps URL tabs, sheets, and budget context usable at tablet width', async 
   }
   await sheet.getByRole('button', { name: 'Close New automation agent' }).click();
 });
+

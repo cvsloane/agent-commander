@@ -366,6 +366,13 @@ export async function mockControlPlane(
   page: Page,
   options: MockOptions = {}
 ): Promise<JourneyRecorder> {
+  await page.addInitScript(() => {
+    document.addEventListener('DOMContentLoaded', () => {
+      const style = document.createElement('style');
+      style.textContent = 'nextjs-portal { pointer-events: none !important; }';
+      document.head.appendChild(style);
+    });
+  });
   const recorder: JourneyRecorder = {
     approvalDecisions: [],
     commandRequests: [],
