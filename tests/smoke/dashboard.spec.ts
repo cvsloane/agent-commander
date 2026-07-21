@@ -1184,7 +1184,7 @@ test('fits the attached terminal and rail at 412x915 Android metrics', async ({ 
 
   await page.goto('/tmux');
   await page.getByText('agents', { exact: true }).click();
-  await page.getByText('Mobile UX review', { exact: true }).click();
+  await tmuxRosterPane(page, 'Mobile UX review').click();
   await expect(page.getByTestId('tmux-attached-status')).toBeVisible();
   await expect(page.getByTestId('terminal-key-rail')).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Primary mobile navigation' })).toBeHidden();
