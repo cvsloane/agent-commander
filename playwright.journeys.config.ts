@@ -39,10 +39,10 @@ export default defineConfig({
       },
   projects: [
     {
-      name: 'mobile-390x844',
+      name: 'mobile-412x915',
       use: {
         ...devices['Desktop Chrome'],
-        viewport: { width: 390, height: 844 },
+        viewport: { width: 412, height: 915 },
       },
     },
     {

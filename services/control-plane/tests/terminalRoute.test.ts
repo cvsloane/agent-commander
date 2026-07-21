@@ -285,7 +285,7 @@ describe('terminal websocket route', () => {
     const token = await sign('operator');
     const resumeToken = 'viewer-resume-token';
     const socket = browserWebSocket(
-      `${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}&cols=132&rows=41&resume_token=${resumeToken}`
+      `${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}&cols=132&rows=41&resume_token=${resumeToken}&letterbox=1`
     );
 
     await waitForOpen(socket);
@@ -299,6 +299,7 @@ describe('terminal websocket route', () => {
       cols: 132,
       rows: 41,
       resume_token: resumeToken,
+      letterbox: true,
     });
 
     const attachedMessage = waitForMessage(socket);

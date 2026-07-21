@@ -18,7 +18,8 @@ describe('browser terminal protocol', () => {
     const url = buildTerminalWebSocketUrl(
       'wss://control.example/v1/ui/terminal/session-id?ticket=one-time-ticket',
       { cols: 118, rows: 37 },
-      'resume/token+1'
+      'resume/token+1',
+      true
     );
     const parsed = new URL(url);
 
@@ -26,6 +27,7 @@ describe('browser terminal protocol', () => {
     expect(parsed.searchParams.get('cols')).toBe('118');
     expect(parsed.searchParams.get('rows')).toBe('37');
     expect(parsed.searchParams.get('resume_token')).toBe('resume/token+1');
+    expect(parsed.searchParams.get('letterbox')).toBe('1');
   });
 
   it('decodes legacy JSON output (pre-hello race tolerance) and parses typed status messages', () => {

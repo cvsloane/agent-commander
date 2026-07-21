@@ -103,6 +103,7 @@ type viewerPTYOptions struct {
 	ReadOnly      bool
 	Cols          uint16
 	Rows          uint16
+	Letterbox     bool
 	ResumeToken   string
 	InitialOutput []byte
 	BufferChunks  int
@@ -117,9 +118,11 @@ type viewerPTYBridge struct {
 	paneID       string
 	sessionName  string
 	viewSession  string
+	windowTarget string
 	resumeToken  string
 	resumeOption string
 	readonly     bool
+	letterbox    bool
 	size         TerminalSize
 	process      PTYProcess
 	fanout       *terminalFanout
@@ -169,6 +172,27 @@ func newViewerPTYBridge(runner TmuxRunner, opts viewerPTYOptions) (*viewerPTYBri
 	if err := runner.Run("select-pane", "-t", viewSession+":"+parts[1]+"."+parts[2]); err != nil {
 		return nil, fmt.Errorf("select viewer pane: %w", err)
 	}
+	windowTarget := viewSession + ":" + parts[1]
+	letterboxPinned := false
+	if opts.Letterbox {
+		if err := runner.Run("set-option", "-w", "-t", windowTarget, "window-size", "manual"); err != nil {
+			return nil, fmt.Errorf("pin viewer window sizing: %w", err)
+		}
+		letterboxPinned = true
+		if err := runner.Run(
+			"resize-window",
+			"-t", windowTarget,
+			"-x", fmt.Sprintf("%d", opts.Cols),
+			"-y", fmt.Sprintf("%d", opts.Rows),
+		); err != nil {
+			return nil, fmt.Errorf("size letterboxed viewer window: %w", err)
+		}
+	}
+	defer func() {
+		if cleanupGroup && letterboxPinned {
+			_ = runner.Run("set-option", "-w", "-t", windowTarget, "window-size", "latest")
+		}
+	}()
 
 	resumeOption := resumeOptionName(opts.ResumeToken)
 	if err := runner.Run("set-option", "-p", "-t", opts.PaneID, resumeOption, opts.ResumeToken); err != nil {
@@ -206,9 +230,11 @@ func newViewerPTYBridge(runner TmuxRunner, opts viewerPTYOptions) (*viewerPTYBri
 		paneID:       opts.PaneID,
 		sessionName:  parts[0],
 		viewSession:  viewSession,
+		windowTarget: windowTarget,
 		resumeToken:  opts.ResumeToken,
 		resumeOption: resumeOption,
 		readonly:     opts.ReadOnly,
+		letterbox:    opts.Letterbox,
 		size:         size,
 		process:      process,
 		fanout:       fanout,
@@ -268,6 +294,9 @@ func (b *viewerPTYBridge) close(removeResumeToken bool) {
 			_ = b.process.Kill()
 		}
 		b.mu.Unlock()
+		if b.letterbox {
+			_ = b.runner.Run("set-option", "-w", "-t", b.windowTarget, "window-size", "latest")
+		}
 		_ = b.runner.Run("kill-session", "-t", b.viewSession)
 		if b.fanout != nil {
 			b.fanout.Close()

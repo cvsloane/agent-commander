@@ -46,6 +46,7 @@ async function buildServer(
   publishSessionEdgesChanged: ReturnType<typeof vi.fn>;
   publishToUI: ReturnType<typeof vi.fn>;
   subscribeToTmuxTopology: (send: ReturnType<typeof vi.fn>) => () => void;
+  subscribeToCommandResults: (send: ReturnType<typeof vi.fn>) => () => void;
   publishTmuxTopology: (authenticatedHostId: string, message: Record<string, unknown>) => void;
   handleTerminalStatus: ReturnType<typeof vi.fn>;
   createAuditLog: ReturnType<typeof vi.fn>;
@@ -118,6 +119,12 @@ async function buildServer(
     pubsub.setUISubscriptions(clientId, [{ type: 'tmux.topology' }]);
     return () => pubsub.removeUIClient(clientId);
   };
+  const subscribeToCommandResults = (send: ReturnType<typeof vi.fn>) => {
+    const clientId = crypto.randomUUID();
+    pubsub.addUIClient(clientId, { send } as never);
+    pubsub.setUISubscriptions(clientId, [{ type: 'commands.result' }]);
+    return () => pubsub.removeUIClient(clientId);
+  };
   const publishTmuxTopology = (
     authenticatedHostId: string,
     message: Record<string, unknown>
@@ -134,6 +141,7 @@ async function buildServer(
     publishSessionEdgesChanged,
     publishToUI,
     subscribeToTmuxTopology,
+    subscribeToCommandResults,
     publishTmuxTopology,
     handleTerminalStatus,
     createAuditLog,
@@ -302,6 +310,60 @@ describe('agent websocket ingest', () => {
     expect(uiSend).toHaveBeenCalledWith(expect.stringContaining(`"host_id":"${hostId}"`));
     expect(uiSend).not.toHaveBeenCalledWith(expect.stringContaining(forgedHostId));
     unsubscribe();
+    await app.close();
+  });
+
+  it('relays authenticated command outcomes to UI command-result subscribers', async () => {
+    const { app, url, subscribeToCommandResults } = await buildServer(
+      vi.fn(async () => undefined)
+    );
+    const uiSend = vi.fn();
+    const unsubscribe = subscribeToCommandResults(uiSend);
+    const socket = new WebSocket(`${url}/v1/agent/connect`, {
+      headers: { Authorization: 'Bearer test-agent-token' },
+    });
+    await new Promise<void>((resolve) => socket.once('open', resolve));
+    socket.send(JSON.stringify(hello()));
+    await waitForMessage(socket);
+    socket.send(JSON.stringify({
+      v: 1,
+      type: 'sessions.upsert',
+      ts: new Date().toISOString(),
+      seq: 2,
+      payload: { sessions: [] },
+    }));
+    await waitForMessage(socket);
+
+    const ts = '2026-07-20T20:02:00Z';
+    const payload = {
+      cmd_id: 'cmd-select-window',
+      session_id: sessionId,
+      ok: false,
+      error: { code: 'TMUX_COMMAND_FAILED', message: "can't find window: 2" },
+    };
+    socket.send(JSON.stringify({
+      v: 1,
+      type: 'commands.result',
+      ts,
+      seq: 3,
+      payload,
+    }));
+
+    await expect(waitForMessage(socket)).resolves.toMatchObject({
+      type: 'agent.ack',
+      payload: { ack_seq: 3, status: 'ok' },
+    });
+    await vi.waitFor(() => {
+      expect(uiSend).toHaveBeenCalledWith(JSON.stringify({
+        v: 1,
+        type: 'commands.result',
+        ts,
+        payload: { ...payload, host_id: hostId },
+      }));
+    });
+
+    unsubscribe();
+    socket.close();
     await app.close();
   });
 

@@ -91,6 +91,28 @@ export const approvalSession = {
   },
 };
 
+export const windowSession = {
+  ...baseSession,
+  id: '44444444-4444-4444-8444-444444444444',
+  status: 'RUNNING',
+  title: 'Window two shell',
+  tmux_pane_id: '%4',
+  tmux_target: 'agents:1.0',
+  metadata: {
+    tmux: {
+      session_name: 'agents',
+      window_name: 'verification',
+      window_index: 1,
+      pane_index: 0,
+    },
+  },
+  latest_snapshot: {
+    created_at: '2026-07-20T14:00:00.000Z',
+    capture_text: 'verification ready',
+    capture_hash: 'window-two-shell-capture',
+  },
+};
+
 const sessions = [interactiveSession, approvalSession];
 
 export const pendingApproval = {
@@ -112,54 +134,81 @@ export const pendingApproval = {
   ts_decided: null,
 };
 
-const topologyMessage = {
-  v: 1,
-  type: 'tmux.topology',
-  ts: new Date().toISOString(),
-  payload: {
-    host_id: host.id,
-    reason: 'hook:after-select-pane',
-    tmux_sessions: [
-      {
-        session_name: 'agents',
-        attached: true,
-        windows: [
-          {
-            window_index: 0,
-            window_name: 'command-center',
-            active: true,
-            zoomed: false,
-            layout: 'even-horizontal',
-            bell: false,
-            activity: false,
-            panes: [
-              {
-                pane_id: interactiveSession.tmux_pane_id,
-                pane_index: 0,
-                active: true,
-                width: 94,
-                height: 40,
-                title: interactiveSession.title,
-                current_command: 'bash',
-                current_path: interactiveSession.cwd,
-              },
-              {
-                pane_id: approvalSession.tmux_pane_id,
-                pane_index: 1,
-                active: false,
-                width: 94,
-                height: 40,
-                title: approvalSession.title,
-                current_command: 'codex',
-                current_path: approvalSession.cwd,
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-};
+function topologyMessage(includeSecondWindow: boolean) {
+  const windows = [
+    {
+      window_index: 0,
+      window_name: 'command-center',
+      active: true,
+      zoomed: false,
+      layout: 'even-horizontal',
+      bell: false,
+      activity: false,
+      panes: [
+        {
+          pane_id: interactiveSession.tmux_pane_id,
+          pane_index: 0,
+          active: true,
+          width: 94,
+          height: 40,
+          title: interactiveSession.title,
+          current_command: 'bash',
+          current_path: interactiveSession.cwd,
+        },
+        {
+          pane_id: approvalSession.tmux_pane_id,
+          pane_index: 1,
+          active: false,
+          width: 94,
+          height: 40,
+          title: approvalSession.title,
+          current_command: 'codex',
+          current_path: approvalSession.cwd,
+        },
+      ],
+    },
+  ];
+  if (includeSecondWindow) {
+    windows.push({
+      window_index: 1,
+      window_name: 'verification',
+      active: false,
+      zoomed: false,
+      layout: 'even-horizontal',
+      bell: false,
+      activity: false,
+      panes: [
+        {
+          pane_id: windowSession.tmux_pane_id,
+          pane_index: 0,
+          active: true,
+          width: 94,
+          height: 40,
+          title: windowSession.title,
+          current_command: 'bash',
+          current_path: windowSession.cwd,
+        },
+      ],
+    });
+  }
+
+  return {
+    v: 1,
+    type: 'tmux.topology',
+    ts: new Date().toISOString(),
+    payload: {
+      host_id: host.id,
+      reason: 'hook:after-select-pane',
+      tmux_sessions: [
+        {
+          session_name: 'agents',
+          attached: true,
+          windows,
+        },
+      ],
+    },
+  };
+}
 
 export interface JourneyRecorder {
   approvalDecisions: unknown[];
@@ -167,10 +216,12 @@ export interface JourneyRecorder {
   launchRequests: unknown[];
   scrollbackRequests: unknown[];
   terminalMessages: Array<{ type?: string; data?: string }>;
+  terminalSessionIds: string[];
 }
 
 interface MockOptions {
   terminalReadOnly?: boolean;
+  multiWindow?: boolean;
 }
 
 async function fulfillJson(route: Route, body: unknown): Promise<void> {
@@ -181,8 +232,8 @@ async function fulfillJson(route: Route, body: unknown): Promise<void> {
   });
 }
 
-function sessionDetail(id: string): unknown {
-  const session = sessions.find((candidate) => candidate.id === id);
+function sessionDetail(id: string, availableSessions = sessions): unknown {
+  const session = availableSessions.find((candidate) => candidate.id === id);
   if (!session) return {};
   return {
     session,
@@ -192,7 +243,7 @@ function sessionDetail(id: string): unknown {
   };
 }
 
-function apiBody(pathname: string): unknown {
+function apiBody(pathname: string, availableSessions = sessions): unknown {
   if (pathname === '/health') {
     return {
       status: 'ok',
@@ -200,13 +251,13 @@ function apiBody(pathname: string): unknown {
       connections: { uiClients: 0, agents: 0 },
     };
   }
-  if (pathname === '/v1/sessions/total') return { total: sessions.length };
+  if (pathname === '/v1/sessions/total') return { total: availableSessions.length };
   if (pathname === '/v1/sessions/usage-latest') return { usage: [] };
   if (pathname === '/v1/sessions') {
-    return { sessions, total: sessions.length, limit: 200, offset: 0 };
+    return { sessions: availableSessions, total: availableSessions.length, limit: 200, offset: 0 };
   }
   if (pathname === '/v1/tmux/roster') {
-    return { sessions, total: sessions.length, groups: [] };
+    return { sessions: availableSessions, total: availableSessions.length, groups: [] };
   }
   if (pathname === '/v1/orchestrator/fleet') return { orchestrators: [] };
   if (pathname === '/v1/launch/targets') {
@@ -230,7 +281,7 @@ function apiBody(pathname: string): unknown {
               last_used_at: '2026-07-20T14:00:00.000Z',
             },
           ],
-          recent_tmux: sessions.map((session) => ({
+          recent_tmux: availableSessions.map((session) => ({
             session_id: session.id,
             title: session.title,
             tmux_target: session.tmux_target,
@@ -280,7 +331,7 @@ function apiBody(pathname: string): unknown {
   }
   if (pathname.startsWith('/v1/sessions/')) {
     const [, , , sessionId] = pathname.split('/');
-    return sessionDetail(sessionId || '');
+    return sessionDetail(sessionId || '', availableSessions);
   }
   if (pathname === '/v1/groups') return { groups: [], flat: [] };
   if (pathname === '/v1/hosts') return { hosts: [host] };
@@ -321,17 +372,21 @@ export async function mockControlPlane(
     launchRequests: [],
     scrollbackRequests: [],
     terminalMessages: [],
+    terminalSessionIds: [],
   };
+  const availableSessions = options.multiWindow ? [...sessions, windowSession] : sessions;
 
   await page.routeWebSocket(/\/v1\/ui\/stream\?ticket=/, (socket) => {
     let topologySent = false;
     socket.onMessage(() => {
       if (topologySent) return;
       topologySent = true;
-      socket.send(JSON.stringify(topologyMessage));
+      socket.send(JSON.stringify(topologyMessage(options.multiWindow ?? false)));
     });
   });
-  await page.routeWebSocket(/\/v1\/ui\/terminal\/[^?]+\?/, (socket) => {
+  await page.routeWebSocket(/\/v1\/ui\/terminal\//, (socket) => {
+    const sessionId = socket.url().match(/\/v1\/ui\/terminal\/([^?]+)/)?.[1];
+    if (sessionId) recorder.terminalSessionIds.push(decodeURIComponent(sessionId));
     socket.onMessage((message) => {
       if (typeof message !== 'string') return;
       const parsed = JSON.parse(message) as { type?: string; data?: string };
@@ -417,7 +472,7 @@ export async function mockControlPlane(
       return;
     }
     if (request.method() === 'GET') {
-      const body = apiBody(url.pathname);
+      const body = apiBody(url.pathname, availableSessions);
       if (body !== undefined) {
         await fulfillJson(route, body);
         return;

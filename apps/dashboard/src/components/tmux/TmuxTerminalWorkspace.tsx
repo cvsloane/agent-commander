@@ -11,6 +11,7 @@ import { TerminalAttentionOverlay } from '@/components/orchestrator/TerminalAtte
 import { Button } from '@/components/ui/button';
 import { useHydrated } from '@/hooks/useHydrated';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { getLetterboxDimensions } from '@/hooks/terminalGrid';
 import { getSession } from '@/lib/api';
 import { getSessionDisplayName } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
@@ -27,6 +28,7 @@ interface TmuxTerminalWorkspaceProps {
   primaryControllerRef?: MutableRefObject<TerminalController | null>;
   onAttentionRespond?: (item: OrchestratorItem) => void;
   onSendToOtherSession?: (targetSessionId: string) => void;
+  onSelectSession?: (sessionId: string) => void;
 }
 
 function TerminalLabel({
@@ -69,6 +71,7 @@ export function TmuxTerminalWorkspace({
   primaryControllerRef,
   onAttentionRespond,
   onSendToOtherSession,
+  onSelectSession,
 }: TmuxTerminalWorkspaceProps) {
   const promptComposerRef = useRef<PromptComposerHandle>(null);
   const terminalHostSnapshot = useSyncExternalStore(
@@ -84,6 +87,11 @@ export function TmuxTerminalWorkspace({
   const setSecondary = useSettingsStore((state) => state.setTmuxSecondary);
   const rosterSessions = useTmuxTopologyStore(
     (state) => state.rosterByHost[primarySession.host_id]
+  );
+  const hostTopology = useTmuxTopologyStore((state) => state.hosts[primarySession.host_id]);
+  const primaryLetterbox = useMemo(
+    () => getLetterboxDimensions(hostTopology, primarySession),
+    [hostTopology, primarySession]
   );
   const options = useMemo(
     () =>
@@ -116,6 +124,7 @@ export function TmuxTerminalWorkspace({
     sessionId: primarySession.id,
     paneId: primarySession.tmux_pane_id || undefined,
     autoAttach: autoAttachPrimary || showSecondary,
+    letterbox: primaryLetterbox,
   });
   const readOnly = terminalHostSnapshot.descriptorKey === primaryTerminalKey
     && terminalHostSnapshot.readOnly;
@@ -162,7 +171,7 @@ export function TmuxTerminalWorkspace({
       >
         <section className="flex h-full min-h-0 min-w-0 flex-col" aria-label="Primary terminal">
           {showSecondary && <TerminalLabel label="Primary" session={primarySession} />}
-          <TmuxWindowStrip session={primarySession} />
+          <TmuxWindowStrip session={primarySession} onSelectSession={onSelectSession} />
           <TmuxPaneControls session={primarySession} />
           <div className="relative min-h-0 flex-1">
             <PersistentTerminalSlot
@@ -170,6 +179,7 @@ export function TmuxTerminalWorkspace({
               hostId={primarySession.host_id}
               paneId={primarySession.tmux_pane_id || undefined}
               autoAttach={autoAttachPrimary || showSecondary}
+              letterbox={primaryLetterbox}
               controllerRef={primaryControllerRef}
               className="h-full"
             />

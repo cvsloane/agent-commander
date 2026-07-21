@@ -34,9 +34,15 @@ describe('terminal protocol', () => {
         cols: 120,
         rows: 36,
         resume_token: 'resume-token',
+        letterbox: true,
       },
     });
-    expect(attach.payload).toMatchObject({ cols: 120, rows: 36, resume_token: 'resume-token' });
+    expect(attach.payload).toMatchObject({
+      cols: 120,
+      rows: 36,
+      resume_token: 'resume-token',
+      letterbox: true,
+    });
 
     const status = TerminalStatusMessageSchema.parse({
       v: 1,

@@ -16,6 +16,7 @@ interface RunTmuxWindowActionOptions {
   confirm?: (message: string) => boolean;
   optimistic?: () => void;
   rollback?: (error: unknown) => void;
+  onDispatched?: (cmdId: string) => void;
 }
 
 function commandForAction(action: TmuxWindowAction): CommandRequest {
@@ -46,6 +47,7 @@ export async function runTmuxWindowAction({
   confirm = (message) => window.confirm(message),
   optimistic,
   rollback,
+  onDispatched,
 }: RunTmuxWindowActionOptions): Promise<'dispatched' | 'cancelled'> {
   if (action.type === 'close') {
     const confirmation =
@@ -57,11 +59,13 @@ export async function runTmuxWindowAction({
     if (confirmation && !confirm(confirmation)) return 'cancelled';
   }
   optimistic?.();
+  let response: { cmd_id: string };
   try {
-    await dispatch(sessionId, commandForAction(action));
+    response = await dispatch(sessionId, commandForAction(action));
   } catch (error) {
     rollback?.(error);
     throw error;
   }
+  onDispatched?.(response.cmd_id);
   return 'dispatched';
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { getWebSocketTicket } from '@/lib/wsToken';
 import {
   initialReconnectState,
@@ -19,6 +19,26 @@ import {
 import { calculateKeyboardInset, calculateTerminalViewportHeight } from '@/components/terminal/viewport';
 import { handleTerminalOutputFrame } from '@/components/terminal/terminalFrameRouter';
 import { beginTerminalFrameTiming } from '@/components/terminal/terminalFrameTiming';
+import { createSettledTerminalResize } from './terminalGrid';
+import {
+  useTerminalDescriptorKey,
+  useTerminalGrid,
+  useTerminalWarmKey,
+} from './terminalGridContext';
+import {
+  clearProvisionalTerminalWarmBuffer,
+  clearTerminalWarmResumeToken,
+  getTerminalWarmResumeToken,
+  getTerminalResumeNotice,
+  hasTerminalWarmBuffer,
+  setTerminalWarmResumeToken,
+} from './terminalWarmCache';
+import {
+  DEFAULT_TERMINAL_WARM_TIMEOUT_MINUTES,
+  useSettingsStore,
+} from '@/stores/settings';
+import { useNotificationStore } from '@/stores/notifications';
+import { terminalHostStore } from '@/components/terminal/terminalHostStore';
 
 export function useTerminalConnection({
   sessionId,
@@ -43,7 +63,17 @@ export function useTerminalConnection({
   getDimensions: () => { cols: number; rows: number } | undefined;
   onOutputWritten: (terminal: XTerminal) => void;
 }) {
-  const fitTimerRef = useRef<number | null>(null);
+  const letterbox = useTerminalGrid();
+  const warmKey = useTerminalWarmKey();
+  const descriptorKey = useTerminalDescriptorKey();
+  const terminalWarmTimeoutMinutes = useSettingsStore(
+    (state) => state.terminalWarmTimeoutMinutes ?? DEFAULT_TERMINAL_WARM_TIMEOUT_MINUTES
+  );
+  const addNotification = useNotificationStore((state) => state.add);
+  const settledResize = useMemo(
+    () => createSettledTerminalResize(fitAndResize),
+    [fitAndResize]
+  );
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectStateRef = useRef<ReconnectState>(initialReconnectState);
   const readOnlyRef = useRef(false);
@@ -55,6 +85,9 @@ export function useTerminalConnection({
   const connectionGenerationRef = useRef(0);
   const autoAttachedSessionRef = useRef<string | null>(null);
   const resumeTokenRef = useRef<string | null>(null);
+  const requestedResumeRef = useRef(false);
+  const warmBufferOnConnectRef = useRef(false);
+  const restartedAfterResumeFailureRef = useRef(false);
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lagMessage, setLagMessage] = useState<string | null>(null);
@@ -124,6 +157,7 @@ export function useTerminalConnection({
       reconnectStateRef.current = initialReconnectState;
     }
     reconnectEnabledRef.current = true;
+    if (descriptorKey) terminalHostStore.setResumeAvailable(descriptorKey, false);
     intentionalCloseRef.current = false;
     terminalEndedRef.current = false;
     idleTimedOutRef.current = false;
@@ -153,6 +187,15 @@ export function useTerminalConnection({
         return;
       }
 
+      const warmTimeoutMs = terminalWarmTimeoutMinutes * 60 * 1000;
+      if (!resumeTokenRef.current && warmKey) {
+        resumeTokenRef.current = getTerminalWarmResumeToken(warmKey, warmTimeoutMs) ?? null;
+      }
+      requestedResumeRef.current = Boolean(resumeTokenRef.current);
+      warmBufferOnConnectRef.current = warmKey
+        ? hasTerminalWarmBuffer(warmKey, warmTimeoutMs)
+        : false;
+
       const ws = new WebSocket(buildTerminalWebSocketUrl(
         resolveControlPlaneWebSocketUrl({
           type: 'terminal',
@@ -160,7 +203,8 @@ export function useTerminalConnection({
           ticket,
         }),
         getDimensions(),
-        resumeTokenRef.current ?? undefined
+        resumeTokenRef.current ?? undefined,
+        Boolean(letterbox)
       ));
       ws.binaryType = 'arraybuffer';
       wsRef.current = ws;
@@ -189,6 +233,7 @@ export function useTerminalConnection({
           if (handleTerminalOutputFrame(msg, (data) => {
             if (!terminalRef.current) return;
             const terminal = terminalRef.current;
+            if (warmKey) clearProvisionalTerminalWarmBuffer(warmKey, terminal);
             terminal.write(data, () => {
               onOutputWritten(terminal);
               completeFrameTiming?.();
@@ -199,15 +244,51 @@ export function useTerminalConnection({
 
           switch (msg.type) {
             case 'attached':
+              autoAttachedSessionRef.current = sessionId;
+              if (descriptorKey) terminalHostStore.setResumeAvailable(descriptorKey, false);
               markConnected();
               if (msg.resume_token) {
                 resumeTokenRef.current = msg.resume_token;
+                if (warmKey) setTerminalWarmResumeToken(warmKey, msg.resume_token);
               }
+              const resumeNotice = getTerminalResumeNotice({
+                resumed: msg.resumed ?? false,
+                requestedResume: requestedResumeRef.current,
+                hadWarmBuffer: warmBufferOnConnectRef.current,
+                restartedAfterFailure: restartedAfterResumeFailureRef.current,
+              });
+              if (resumeNotice === 'resumed') {
+                addNotification({
+                  type: 'success',
+                  title: 'Terminal resumed',
+                  message: 'Live pane output restored.',
+                  sessionId,
+                });
+              } else if (resumeNotice === 'restarted') {
+                addNotification({
+                  type: 'warning',
+                  title: 'Session restarted — history truncated',
+                  message: 'The live pane could not continue its previous viewer session.',
+                  sessionId,
+                });
+              }
+              requestedResumeRef.current = false;
+              restartedAfterResumeFailureRef.current = false;
               updateReadOnly(msg.readonly ?? false);
               updateLagMessage(null);
               fitAndResize();
-              terminalRef.current?.focus();
-              window.setTimeout(() => terminalRef.current?.focus(), 0);
+              const focusTerminalUnlessEditing = () => {
+                const activeElement = document.activeElement;
+                if (
+                  activeElement instanceof HTMLInputElement
+                  || activeElement instanceof HTMLTextAreaElement
+                  || activeElement instanceof HTMLSelectElement
+                  || (activeElement instanceof HTMLElement && activeElement.isContentEditable)
+                ) return;
+                terminalRef.current?.focus();
+              };
+              focusTerminalUnlessEditing();
+              window.setTimeout(focusTerminalUnlessEditing, 0);
               break;
             case 'readonly':
               markConnected();
@@ -220,17 +301,27 @@ export function useTerminalConnection({
             case 'detached':
               reconnectEnabledRef.current = false;
               terminalEndedRef.current = true;
-              resumeTokenRef.current = null;
               updateStatus('disconnected');
               updateReadOnly(false);
               updateErrorMessage(null);
+              if (descriptorKey) terminalHostStore.setResumeAvailable(descriptorKey, true);
               terminalRef.current?.writeln('\r\n\x1b[33m[Terminal detached]\x1b[0m');
               ws.close(1000, 'terminal detached');
               break;
             case 'error':
+              if (requestedResumeRef.current && /resume token/i.test(msg.message || '')) {
+                requestedResumeRef.current = false;
+                restartedAfterResumeFailureRef.current = true;
+                resumeTokenRef.current = null;
+                if (warmKey) clearTerminalWarmResumeToken(warmKey);
+                if (wsRef.current === ws) wsRef.current = null;
+                intentionalCloseRef.current = true;
+                ws.close(1000, 'retry terminal without stale resume token');
+                void connectTerminal();
+                break;
+              }
               reconnectEnabledRef.current = false;
               terminalEndedRef.current = true;
-              resumeTokenRef.current = null;
               updateStatus('error');
               updateReadOnly(false);
               updateErrorMessage(msg.message || 'Terminal error');
@@ -240,10 +331,10 @@ export function useTerminalConnection({
             case 'idle_timeout':
               reconnectEnabledRef.current = false;
               idleTimedOutRef.current = true;
-              resumeTokenRef.current = null;
               updateStatus('disconnected');
               updateReadOnly(false);
               updateErrorMessage(null);
+              if (descriptorKey) terminalHostStore.setResumeAvailable(descriptorKey, true);
               terminalRef.current?.writeln('\r\n\x1b[33m[Session timed out due to inactivity]\x1b[0m');
               ws.close(1000, 'idle timeout');
               break;
@@ -290,12 +381,7 @@ export function useTerminalConnection({
         }
       };
 
-      if (fitTimerRef.current) {
-        window.clearTimeout(fitTimerRef.current);
-      }
-      fitTimerRef.current = window.setTimeout(() => {
-        fitAndResize();
-      }, 60);
+      settledResize.schedule();
     } finally {
       if (generation === connectionGenerationRef.current) {
         connectingRef.current = false;
@@ -303,19 +389,25 @@ export function useTerminalConnection({
     }
   }, [
     applyReconnectEvent,
+    addNotification,
     clearReconnectTimer,
+    descriptorKey,
     ensureTerminal,
     fitAndResize,
     getDimensions,
+    letterbox,
     onOutputWritten,
     paneId,
     sessionId,
+    settledResize,
+    terminalWarmTimeoutMinutes,
     terminalRef,
     updateErrorMessage,
     updateLagMessage,
     updateReadOnly,
     updateStatus,
     wsRef,
+    warmKey,
   ]);
 
   const reconnectImmediately = useCallback((
@@ -349,12 +441,12 @@ export function useTerminalConnection({
       }
       ws.close();
     }
-    resumeTokenRef.current = null;
     updateStatus('disconnected');
     updateReadOnly(false);
     updateErrorMessage(null);
     updateLagMessage(null);
-  }, [clearReconnectTimer, updateErrorMessage, updateLagMessage, updateReadOnly, updateStatus, wsRef]);
+    if (descriptorKey) terminalHostStore.setResumeAvailable(descriptorKey, true);
+  }, [clearReconnectTimer, descriptorKey, updateErrorMessage, updateLagMessage, updateReadOnly, updateStatus, wsRef]);
 
   const suspend = useCallback(() => {
     const ws = wsRef.current;
@@ -379,8 +471,9 @@ export function useTerminalConnection({
     updateReadOnly(false);
     updateErrorMessage(null);
     updateLagMessage(null);
+    if (descriptorKey) terminalHostStore.setResumeAvailable(descriptorKey, true);
     return true;
-  }, [clearReconnectTimer, updateErrorMessage, updateLagMessage, updateReadOnly, updateStatus, wsRef]);
+  }, [clearReconnectTimer, descriptorKey, updateErrorMessage, updateLagMessage, updateReadOnly, updateStatus, wsRef]);
 
   const takeControl = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -423,13 +516,8 @@ export function useTerminalConnection({
 
   const handleViewportResize = useCallback(() => {
     updateViewportHeight();
-    if (fitTimerRef.current) {
-      window.clearTimeout(fitTimerRef.current);
-    }
-    fitTimerRef.current = window.setTimeout(() => {
-      fitAndResize();
-    }, 100);
-  }, [fitAndResize, updateViewportHeight]);
+    settledResize.schedule();
+  }, [settledResize, updateViewportHeight]);
 
   const handleOnline = useCallback(() => {
     reconnectImmediately({ type: 'online' });
@@ -445,7 +533,6 @@ export function useTerminalConnection({
     if (!autoAttach || !paneId) return;
     if (autoAttachedSessionRef.current === sessionId) return;
     if (status !== 'disconnected') return;
-    autoAttachedSessionRef.current = sessionId;
     void connect();
   }, [autoAttach, connect, paneId, sessionId, status]);
 
@@ -459,7 +546,6 @@ export function useTerminalConnection({
         resizeObserver?.observe(containerRef.current);
       }
       window.visualViewport?.addEventListener('resize', handleViewportResize);
-      window.visualViewport?.addEventListener('scroll', handleViewportResize);
       window.addEventListener('orientationchange', handleViewportResize);
       window.addEventListener('online', handleOnline);
       document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -468,12 +554,9 @@ export function useTerminalConnection({
     return () => {
       resizeObserver?.disconnect();
       disconnect();
-      if (fitTimerRef.current) {
-        window.clearTimeout(fitTimerRef.current);
-      }
+      settledResize.cancel();
       if (typeof window !== 'undefined') {
         window.visualViewport?.removeEventListener('resize', handleViewportResize);
-        window.visualViewport?.removeEventListener('scroll', handleViewportResize);
         window.removeEventListener('orientationchange', handleViewportResize);
         window.removeEventListener('online', handleOnline);
         document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -487,6 +570,7 @@ export function useTerminalConnection({
     handleVisibilityChange,
     paneId,
     sessionId,
+    settledResize,
     updateViewportHeight,
   ]);
 

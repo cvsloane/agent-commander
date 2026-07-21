@@ -5,14 +5,23 @@ import { Bell, MoreHorizontal, Plus, Radio, X } from 'lucide-react';
 import type { Session } from '@agent-command/schema';
 import { Button } from '@/components/ui/button';
 import { useTmuxHostTopology } from '@/hooks/useTmuxTopology';
+import { useTmuxCommandResults } from '@/hooks/useTmuxCommandResults';
 import { cn } from '@/lib/utils';
 import { useNotifications } from '@/stores/notifications';
 import type { TmuxWindowTopologyView } from '@/stores/tmuxTopology';
+import { registerPendingTmuxCommand } from '@/stores/tmuxCommands';
 import { runTmuxWindowAction, type TmuxWindowAction } from './windowActions';
 
 interface TmuxWindowStripProps {
   session: Session;
   className?: string;
+  onSelectSession?: (sessionId: string) => void;
+}
+
+export function getWindowViewerSessionId(window: TmuxWindowTopologyView): string | null {
+  return window.panes.find((pane) => pane.active && pane.sessionId)?.sessionId
+    ?? window.panes.find((pane) => pane.sessionId)?.sessionId
+    ?? null;
 }
 
 function sessionIdentity(session: Session) {
@@ -93,7 +102,7 @@ function optimisticWindows(
   }
 }
 
-export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
+export function TmuxWindowStrip({ session, className, onSelectSession }: TmuxWindowStripProps) {
   const identity = useMemo(() => sessionIdentity(session), [session]);
   const hostTopology = useTmuxHostTopology(session.host_id);
   const topologySession = hostTopology?.sessions.find(
@@ -120,6 +129,7 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
   const longPressTriggeredRef = useRef(false);
   const tablistRef = useRef<HTMLDivElement>(null);
   const notifications = useNotifications();
+  useTmuxCommandResults();
 
   useEffect(() => {
     setWindows(sourceWindows);
@@ -149,6 +159,13 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
   const dispatchAction = async (action: TmuxWindowAction) => {
     if (pending) return;
     const previous = windows;
+    const rollback = () => {
+      setWindows(previous);
+      if (action.type !== 'select') return;
+      const previousWindow = previous.find((window) => window.active);
+      const previousSessionId = previousWindow && getWindowViewerSessionId(previousWindow);
+      if (previousSessionId) onSelectSession?.(previousSessionId);
+    };
     setPending(true);
     try {
       await runTmuxWindowAction({
@@ -157,7 +174,18 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
         windowSource: hostTopology?.source ?? 'roster',
         action,
         optimistic: () => setWindows(optimisticWindows(windows, action)),
-        rollback: () => setWindows(previous),
+        rollback,
+        onDispatched: (cmdId) => {
+          const reconciliation = registerPendingTmuxCommand({
+            cmdId,
+            sessionId: session.id,
+            failureTitle: 'tmux command failed',
+            rollback,
+          });
+          if (reconciliation && !reconciliation.ok) {
+            throw new Error(reconciliation.message);
+          }
+        },
       });
     } catch (error) {
       notifications.error(
@@ -168,6 +196,12 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
     } finally {
       setPending(false);
     }
+  };
+
+  const selectWindow = (window: TmuxWindowTopologyView) => {
+    void dispatchAction({ type: 'select', windowIndex: window.windowIndex });
+    const nextSessionId = getWindowViewerSessionId(window);
+    if (nextSessionId) onSelectSession?.(nextSessionId);
   };
 
   const beginRename = (window: TmuxWindowTopologyView) => {
@@ -205,7 +239,8 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
     if (!nextTab || Number.isNaN(nextWindowIndex)) return;
     event.preventDefault();
     nextTab.focus();
-    void dispatchAction({ type: 'select', windowIndex: nextWindowIndex });
+    const nextWindow = windows.find((window) => window.windowIndex === nextWindowIndex);
+    if (nextWindow) selectWindow(nextWindow);
   };
 
   if (!session.tmux_pane_id) return null;
@@ -266,7 +301,7 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
                       longPressTriggeredRef.current = false;
                       return;
                     }
-                    void dispatchAction({ type: 'select', windowIndex: window.windowIndex });
+                    selectWindow(window);
                   }}
                   onContextMenu={(event) => {
                     event.preventDefault();

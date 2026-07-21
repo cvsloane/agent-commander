@@ -25,6 +25,7 @@ interface SessionWorkbenchProps {
   events: Event[];
   onAssignGroup?: (groupId: string | null) => Promise<void> | void;
   onSendToLinkedSession?: (targetSessionId: string) => void;
+  onSelectTmuxSession?: (sessionId: string) => void;
   initialView?: WorkbenchViewMode;
   viewMode?: WorkbenchViewMode;
   onViewModeChange?: (mode: WorkbenchViewMode) => void;
@@ -42,6 +43,7 @@ export function SessionWorkbench({
   events,
   onAssignGroup,
   onSendToLinkedSession,
+  onSelectTmuxSession,
   initialView = 'console',
   viewMode,
   onViewModeChange,
@@ -202,6 +204,7 @@ export function SessionWorkbench({
               hideCollapsedPrompt={fullBleedMobileTerminal}
               primaryControllerRef={terminalControllerRef}
               onSendToOtherSession={onSendToLinkedSession}
+              onSelectSession={onSelectTmuxSession}
             />
           )}
         </CardContent>

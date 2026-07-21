@@ -14,6 +14,11 @@ export interface RecentSession {
   visitedAt: string;
 }
 
+export interface LastAttachedTmux {
+  hostId: string;
+  sessionId: string;
+}
+
 interface UIStore {
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
@@ -21,6 +26,8 @@ interface UIStore {
   mobileMenuOpen: boolean;
   setMobileMenuOpen: (open: boolean) => void;
   recentSessions: RecentSession[];
+  lastAttachedTmux: LastAttachedTmux | null;
+  setLastAttachedTmux: (attachment: LastAttachedTmux | null) => void;
   addRecentSession: (session: {
     id: string;
     title: string | null;
@@ -49,6 +56,8 @@ export const useUIStore = create<UIStore>()(
       setMobileMenuOpen: (open) => set({ mobileMenuOpen: open }),
 
       recentSessions: [],
+      lastAttachedTmux: null,
+      setLastAttachedTmux: (attachment) => set({ lastAttachedTmux: attachment }),
       addRecentSession: (session) =>
         set((state) => {
           // Remove existing entry for this session if present
@@ -79,6 +88,7 @@ export const useUIStore = create<UIStore>()(
       partialize: (state) => ({
         sidebarCollapsed: state.sidebarCollapsed,
         recentSessions: state.recentSessions,
+        lastAttachedTmux: state.lastAttachedTmux,
       }),
     }
   )

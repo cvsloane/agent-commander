@@ -6,6 +6,7 @@ import {
   mockControlPlane,
   signIn,
   type JourneyRecorder,
+  windowSession,
 } from './controlPlaneMock';
 
 function isMobile(page: Page): Promise<boolean> {
@@ -15,7 +16,7 @@ function isMobile(page: Page): Promise<boolean> {
 async function selectSession(page: Page, title: string): Promise<void> {
   await page.goto('/');
   await page.getByText('agents', { exact: true }).click();
-  await page.getByText(title, { exact: true }).click();
+  await page.getByRole('treeitem').filter({ hasText: title }).last().click();
   if (await isMobile(page)) {
     await expect(page.getByTestId('tmux-window-strip').first()).toBeVisible();
   } else {
@@ -35,13 +36,61 @@ function recordedTerminalInput(recorder: JourneyRecorder): string {
     .join('');
 }
 
+function visibleTerminalInput(page: Page) {
+  return page.locator('[aria-label="Interactive terminal"]:visible .xterm-helper-textarea').first();
+}
+
 test.describe('Command Center program journeys', () => {
   let recorder: JourneyRecorder;
 
   test.beforeEach(async ({ page }, testInfo) => {
     recorder = await mockControlPlane(page, {
       terminalReadOnly: testInfo.title.includes('take-control handoff'),
+      multiWindow: testInfo.title.includes('window tab retargets'),
     });
+  });
+
+  test('412x915 cold open restores the last pane live', async ({ page }) => {
+    test.skip(!(await isMobile(page)), 'mobile owner-locked journey');
+    await page.goto('/signin');
+    await page.evaluate(
+      ({ hostId, sessionId }) => {
+        window.localStorage.setItem(
+          'ui-storage',
+          JSON.stringify({
+            state: { lastAttachedTmux: { hostId, sessionId } },
+            version: 0,
+          })
+        );
+      },
+      { hostId: host.id, sessionId: interactiveSession.id }
+    );
+
+    await signIn(page);
+
+    await expect(page).toHaveURL(
+      new RegExp(`host_id=${host.id}.*session_id=${interactiveSession.id}.*mode=terminal.*attach=1`)
+    );
+    await expect(page.getByLabel('Interactive terminal')).toBeVisible();
+    await expect.poll(() => recorder.terminalSessionIds).toContain(interactiveSession.id);
+  });
+
+  test('412x915 window tab retargets the live viewer', async ({ page }) => {
+    test.skip(!(await isMobile(page)), 'mobile owner-locked journey');
+    await signIn(page);
+    await selectSession(page, interactiveSession.title);
+
+    const strip = page.getByTestId('tmux-window-strip').first();
+    await strip.getByRole('tab', { name: 'Window 1: verification' }).click();
+
+    await expect
+      .poll(() => recorder.commandRequests)
+      .toContainEqual({ type: 'select_window', payload: { window_index: 1 } });
+    await expect(page).toHaveURL(
+      new RegExp(`session_id=${windowSession.id}.*mode=terminal.*attach=1`)
+    );
+    await expect(page.getByLabel('Interactive terminal')).toBeVisible();
+    await expect.poll(() => recorder.terminalSessionIds).toContain(windowSession.id);
   });
 
   test('signin to Command Center first paint', async ({ page }) => {
@@ -63,10 +112,8 @@ test.describe('Command Center program journeys', () => {
     await signIn(page);
     await selectSession(page, interactiveSession.title);
 
-    await page.getByRole('button', { name: 'Attach Terminal', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Detach', exact: true })).toBeVisible();
-    const terminal = page.getByLabel('Interactive terminal');
-    await terminal.locator('.xterm-helper-textarea').focus();
+    await visibleTerminalInput(page).focus();
     await page.keyboard.type('echo journey');
     await expect.poll(() => recordedTerminalInput(recorder)).toContain('echo journey');
 
@@ -158,7 +205,6 @@ test.describe('Command Center program journeys', () => {
     await signIn(page);
     await selectSession(page, interactiveSession.title);
 
-    await page.getByRole('button', { name: 'Attach Terminal', exact: true }).click();
     await expect(page.getByText('Read-only — take control to type')).toBeVisible();
     await page.getByRole('button', { name: 'Take Control', exact: true }).click();
     await expect
@@ -166,8 +212,7 @@ test.describe('Command Center program journeys', () => {
       .toBe(true);
     await expect(page.getByText('Read-only', { exact: true })).toHaveCount(0);
 
-    const terminal = page.getByLabel('Interactive terminal');
-    await terminal.locator('.xterm-helper-textarea').focus();
+    await visibleTerminalInput(page).focus();
     await page.keyboard.type('whoami');
     await expect.poll(() => recordedTerminalInput(recorder)).toContain('whoami');
   });

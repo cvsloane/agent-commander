@@ -292,4 +292,7 @@ func TestParsePaneLineIncludesTopologyFields(t *testing.T) {
 	if !pane.SessionAttached {
 		t.Fatalf("session attached=%v, want true", pane.SessionAttached)
 	}
+	if pane.SessionAttachedClients != 2 {
+		t.Fatalf("session attached clients=%d, want 2", pane.SessionAttachedClients)
+	}
 }

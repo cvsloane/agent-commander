@@ -6,9 +6,10 @@ type TmuxTopologyPayload struct {
 }
 
 type TmuxTopologySession struct {
-	SessionName string               `json:"session_name"`
-	Attached    bool                 `json:"attached"`
-	Windows     []TmuxTopologyWindow `json:"windows"`
+	SessionName     string               `json:"session_name"`
+	Attached        bool                 `json:"attached"`
+	AttachedClients int                  `json:"attached_clients,omitempty"`
+	Windows         []TmuxTopologyWindow `json:"windows"`
 }
 
 type TmuxTopologyWindow struct {

@@ -1,10 +1,11 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore, type MutableRefObject, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MutableRefObject, type ReactNode } from 'react';
 import { ArrowLeft, ListTree, MoreHorizontal, Plus, RefreshCw, Rows3, TerminalSquare } from 'lucide-react';
 import type { Host, Session, SessionWithSnapshot } from '@agent-command/schema';
 import { StatusBadge } from '@/components/StatusBadge';
 import { MobileLaunchSheet } from '@/components/launch/MobileLaunchSheet';
+import { getWindowHereLaunchContext } from '@/components/launch/windowHere';
 import type { TerminalController } from '@/components/TerminalView';
 import { terminalHostStore } from '@/components/terminal/terminalHostStore';
 import { Button } from '@/components/ui/button';
@@ -68,6 +69,7 @@ interface TmuxMobileShellProps {
   onFilterChange: (filter: FleetRosterFilter) => void;
   groups: FleetRosterGroup[];
   filteredSessions: SessionWithSnapshot[];
+  quickSwitchSessions: SessionWithSnapshot[];
   sessionsLoading: boolean;
   sessionsError: unknown;
   sessionsFetching: boolean;
@@ -108,6 +110,7 @@ export function TmuxMobileShell({
   onFilterChange,
   groups,
   filteredSessions,
+  quickSwitchSessions,
   sessionsLoading,
   sessionsError,
   sessionsFetching,
@@ -204,6 +207,12 @@ export function TmuxMobileShell({
       : connectionLabel === 'Error'
         ? 'border-destructive/50 bg-destructive/10 text-destructive'
         : 'border-border bg-muted text-muted-foreground';
+  const windowHere = useMemo(
+    () => terminalVisible && selectedSession
+      ? getWindowHereLaunchContext(selectedSession)
+      : undefined,
+    [selectedSession, terminalVisible]
+  );
 
   return (
     <div className={cn(
@@ -398,7 +407,7 @@ export function TmuxMobileShell({
       <PersistentTerminalRegion visible={terminalVisible} fullBleed={attachedMode}>
           {!attachedMode && (
           <TmuxQuickSwitchStrip
-            sessions={filteredSessions}
+            sessions={quickSwitchSessions}
             selectedSessionId={selectedSessionId}
             onSelectSession={handleSelectSession}
           />
@@ -443,7 +452,9 @@ export function TmuxMobileShell({
       />
       <MobileLaunchSheet
         open={launchOpen}
+        initialView={windowHere ? 'window' : 'new'}
         selectedHostId={selectedHostId}
+        windowHere={windowHere}
         onClose={() => setLaunchOpen(false)}
         onLaunched={onLaunchChange}
       />
