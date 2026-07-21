@@ -1,10 +1,13 @@
 'use client';
 
+import type { MouseEvent } from 'react';
+
 import { ChevronDown, ChevronRight, Monitor } from 'lucide-react';
 import type { TmuxSessionCluster } from '@/lib/tmuxRoster';
 import { Badge } from '@/components/ui/badge';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { TmuxWindowRow } from './TmuxWindowRow';
+import { summarizeRosterTriage } from './rosterTriage';
 
 interface TmuxClusterRowProps {
   cluster: TmuxSessionCluster;
@@ -18,6 +21,7 @@ interface TmuxClusterRowProps {
   onExpandedChange: (expanded: boolean) => void;
   onSelectSession: (sessionId: string) => void;
   onOpenActions?: (sessionId: string) => void;
+  onRevealSession?: (sessionId: string) => void;
 }
 
 export function TmuxClusterRow({
@@ -32,7 +36,16 @@ export function TmuxClusterRow({
   onExpandedChange,
   onSelectSession,
   onOpenActions,
+  onRevealSession,
 }: TmuxClusterRowProps) {
+  const triage = summarizeRosterTriage(
+    cluster.windows.flatMap((window) => window.panes.map((pane) => pane.session))
+  );
+  const revealTriage = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (triage.firstSessionId) onRevealSession?.(triage.firstSessionId);
+  };
   return (
     <details
       open={expanded}
@@ -80,6 +93,26 @@ export function TmuxClusterRow({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {!expanded && triage.approvalCount > 0 && (
+            <button
+              type="button"
+              className="h-7 rounded-full border border-amber-500/50 bg-amber-500/15 px-2 text-[10px] font-semibold text-amber-700 outline-none focus-visible:ring-2 focus-visible:ring-amber-400 dark:text-amber-300"
+              onClick={revealTriage}
+              aria-label={`Reveal ${triage.approvalCount} approval pane${triage.approvalCount === 1 ? '' : 's'}`}
+            >
+              {triage.approvalCount} approval
+            </button>
+          )}
+          {!expanded && triage.waitingCount > 0 && (
+            <button
+              type="button"
+              className="h-7 rounded-full border border-sky-500/50 bg-sky-500/15 px-2 text-[10px] font-semibold text-sky-700 outline-none focus-visible:ring-2 focus-visible:ring-sky-400 dark:text-sky-300"
+              onClick={revealTriage}
+              aria-label={`Reveal ${triage.waitingCount} waiting pane${triage.waitingCount === 1 ? '' : 's'}`}
+            >
+              {triage.waitingCount} waiting
+            </button>
+          )}
           <span className="text-[11px] text-muted-foreground" suppressHydrationWarning>
             {hydrated ? formatRelativeTime(cluster.lastActivityAt) : '—'}
           </span>

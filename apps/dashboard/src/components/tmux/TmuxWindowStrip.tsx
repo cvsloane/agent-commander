@@ -24,6 +24,16 @@ export function getWindowViewerSessionId(window: TmuxWindowTopologyView): string
     ?? null;
 }
 
+export function getAdjacentTmuxWindow(
+  windows: TmuxWindowTopologyView[],
+  direction: 'previous' | 'next'
+): TmuxWindowTopologyView | null {
+  if (windows.length < 2) return null;
+  const currentIndex = Math.max(0, windows.findIndex((window) => window.active));
+  const offset = direction === 'next' ? 1 : -1;
+  return windows[(currentIndex + offset + windows.length) % windows.length] ?? null;
+}
+
 function sessionIdentity(session: Session) {
   const tmux = session.metadata?.tmux;
   const targetIndexes = session.tmux_target?.match(/:(\d+)(?:\.(\d+))?$/);
@@ -128,6 +138,7 @@ export function TmuxWindowStrip({ session, className, onSelectSession }: TmuxWin
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
   const tablistRef = useRef<HTMLDivElement>(null);
+  const selectWindowRef = useRef<(window: TmuxWindowTopologyView) => void>(() => undefined);
   const notifications = useNotifications();
   useTmuxCommandResults();
 
@@ -203,6 +214,21 @@ export function TmuxWindowStrip({ session, className, onSelectSession }: TmuxWin
     const nextSessionId = getWindowViewerSessionId(window);
     if (nextSessionId) onSelectSession?.(nextSessionId);
   };
+  selectWindowRef.current = selectWindow;
+
+  useEffect(() => {
+    const handleTerminalSwipe = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        direction?: 'previous' | 'next';
+        sessionId?: string;
+      }>).detail;
+      if (detail?.sessionId !== session.id || !detail.direction) return;
+      const nextWindow = getAdjacentTmuxWindow(windows, detail.direction);
+      if (nextWindow) selectWindowRef.current(nextWindow);
+    };
+    window.addEventListener('terminal-window-swipe', handleTerminalSwipe);
+    return () => window.removeEventListener('terminal-window-swipe', handleTerminalSwipe);
+  }, [session.id, windows]);
 
   const beginRename = (window: TmuxWindowTopologyView) => {
     setContextWindowIndex(null);

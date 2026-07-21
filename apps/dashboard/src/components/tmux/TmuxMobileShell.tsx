@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MutableRefObject, type ReactNode } from 'react';
-import { ArrowLeft, ListTree, MoreHorizontal, Plus, RefreshCw, Rows3, TerminalSquare } from 'lucide-react';
+import { ArrowLeft, ListTree, MoreHorizontal, PanelsTopLeft, Plus, RefreshCw, Rows3, TerminalSquare } from 'lucide-react';
 import type { Host, Session, SessionWithSnapshot } from '@agent-command/schema';
 import { StatusBadge } from '@/components/StatusBadge';
 import { MobileLaunchSheet } from '@/components/launch/MobileLaunchSheet';
@@ -14,6 +14,7 @@ import { cn, getSessionDisplayName, isHostOnline } from '@/lib/utils';
 import { TmuxActionSheet } from './TmuxActionSheet';
 import { TmuxQuickSwitchStrip } from './TmuxQuickSwitchStrip';
 import { TmuxRoster } from './TmuxRoster';
+import { TmuxPaneSwitcher } from './TmuxPaneSwitcher';
 import {
   ALL_TMUX_HOSTS_ID,
   type FleetRosterFilter,
@@ -139,6 +140,7 @@ export function TmuxMobileShell({
 }: TmuxMobileShellProps) {
   const [mode, setMode] = useState<TmuxMobileMode>(initialMode);
   const [launchOpen, setLaunchOpen] = useState(false);
+  const [paneSwitcherOpen, setPaneSwitcherOpen] = useState(false);
   const previousSelectedSessionIdRef = useRef(selectedSessionId);
   const terminalSnapshot = useSyncExternalStore(
     terminalHostStore.subscribe,
@@ -245,6 +247,15 @@ export function TmuxMobileShell({
         >
           {connectionLabel}
         </span>
+        <button
+          type="button"
+          onClick={() => setPaneSwitcherOpen(true)}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          aria-label="Open pane switcher"
+          aria-expanded={paneSwitcherOpen}
+        >
+          <PanelsTopLeft className="h-4 w-4" aria-hidden="true" />
+        </button>
         <button
           type="button"
           onClick={() => setMode('actions')}
@@ -450,6 +461,13 @@ export function TmuxMobileShell({
         onOpenMcp={onOpenMcp}
         onTerminate={onTerminate}
         onLaunchWindowHere={windowHere ? () => { setMode(selectedSessionId ? 'terminal' : 'roster'); setLaunchOpen(true); } : undefined}
+      />
+      <TmuxPaneSwitcher
+        open={paneSwitcherOpen}
+        sessions={quickSwitchSessions}
+        selectedSessionId={selectedSessionId}
+        onSelectSession={handleSelectSession}
+        onClose={() => setPaneSwitcherOpen(false)}
       />
       <MobileLaunchSheet
         open={launchOpen}

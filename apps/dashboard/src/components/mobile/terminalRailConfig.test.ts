@@ -48,6 +48,10 @@ describe('terminal rail config engine', () => {
       type: 'input',
       data: '\x01[',
     });
+    expect(resolveTerminalRailBinding({ type: 'keysym', value: 'previous_mark' })).toEqual({
+      type: 'mark',
+      direction: 'previous',
+    });
   });
 
   it('rejects duplicate ids and invalid bindings', () => {

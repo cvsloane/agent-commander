@@ -19,6 +19,9 @@ interface TerminalKeyRailProps {
   ctrlMode: StickyCtrlMode;
   onCtrlEvent: (event: StickyCtrlEvent) => void;
   prefix?: string;
+  onPreviousMark?: () => void;
+  onNextMark?: () => void;
+  hasCommandMarks?: boolean;
 }
 
 type RailGesture = {
@@ -38,6 +41,9 @@ export function TerminalKeyRail({
   ctrlMode,
   onCtrlEvent,
   prefix,
+  onPreviousMark,
+  onNextMark,
+  hasCommandMarks = false,
 }: TerminalKeyRailProps) {
   const configuredRail = useSettingsStore((state) => state.terminalRailConfig);
   const config = configuredRail?.keys?.length ? configuredRail : MINIMAL_TERMINAL_RAIL_CONFIG;
@@ -83,6 +89,10 @@ export function TerminalKeyRail({
     hapticTick();
     if (action.type === 'input') onInput(action.data);
     else if (action.type === 'history') onHistory();
+    else if (action.type === 'mark') {
+      if (action.direction === 'previous') onPreviousMark?.();
+      else onNextMark?.();
+    }
     else return;
     if (ctrlMode === 'one-shot') onCtrlEvent('consume');
     if (navLayer && isArrowRailKey(key)) setNavLayer(false);
@@ -196,18 +206,21 @@ export function TerminalKeyRail({
         {visibleKeys.map((key, index) => {
           const sourceKey = config.keys[index] ?? key;
           const isCtrl = sourceKey.binding.type === 'keysym' && sourceKey.binding.value === 'ctrl';
+          const isCommandMark = sourceKey.binding.type === 'keysym'
+            && (sourceKey.binding.value === 'previous_mark' || sourceKey.binding.value === 'next_mark');
           return (
             <button
               key={key.id}
               type="button"
               className={cn(
-                'flex h-11 min-w-11 items-center justify-center rounded-md border bg-background px-2 text-xs font-semibold outline-none transition-colors active:scale-95 focus-visible:ring-2 focus-visible:ring-ring',
+                'flex h-11 min-w-11 items-center justify-center rounded-md border bg-background px-2 text-xs font-semibold outline-none transition-colors active:scale-95 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40',
                 config.keys.length > 6 && 'shrink-0',
                 isCtrl && ctrlActive && 'border-primary bg-primary text-primary-foreground',
                 navLayer && isArrowRailKey(sourceKey) && 'border-primary/60 bg-primary/10 text-primary'
               )}
               aria-label={isCtrl ? `Control modifier ${ctrlMode}` : key.label}
               aria-pressed={isCtrl ? ctrlActive : undefined}
+              disabled={isCommandMark && !hasCommandMarks}
               onPointerDown={(event) => handlePointerDown(event, sourceKey)}
               onPointerMove={(event) => handlePointerMove(event, sourceKey)}
               onPointerUp={() => finishPointer(sourceKey)}

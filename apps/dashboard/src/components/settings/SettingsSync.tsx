@@ -15,6 +15,8 @@ import {
 import { useThemeStore } from '@/stores/theme';
 import { useUIStore } from '@/stores/ui';
 import { useVisualizerThemeStore } from '@/stores/visualizerTheme';
+import { useNotificationStore } from '@/stores/notifications';
+import { createFailSoftSettingsSaver } from '@/lib/settingsSyncFailSoft';
 
 type PersistApi = {
   hasHydrated: () => boolean;
@@ -145,6 +147,20 @@ export function SettingsSync() {
   const initRef = useRef(false);
   const lastSavedHashRef = useRef<string | null>(null);
   const applyingRemoteRef = useRef(false);
+  const saveSettingsRef = useRef<
+    ReturnType<typeof createFailSoftSettingsSaver<UserSettings>> | null
+  >(null);
+
+  if (!saveSettingsRef.current) {
+    saveSettingsRef.current = createFailSoftSettingsSaver(updateUserSettings, () => {
+      useNotificationStore.getState().add({
+        type: 'error',
+        title: 'Settings saved locally',
+        message: 'Cloud sync is unavailable. Your local settings will keep working.',
+        duration: 8000,
+      });
+    });
+  }
 
   useEffect(() => {
     const stores = [
@@ -235,8 +251,10 @@ export function SettingsSync() {
         lastSavedHashRef.current = mergedHash;
       } else {
         const payload = buildPayload();
-        await updateUserSettings(payload);
-        lastSavedHashRef.current = JSON.stringify(payload);
+        const saved = await saveSettingsRef.current!(payload);
+        if (saved) {
+          lastSavedHashRef.current = JSON.stringify(payload);
+        }
       }
 
       setSyncReady(true);
@@ -264,11 +282,12 @@ export function SettingsSync() {
       }
 
       timeout = setTimeout(() => {
-        updateUserSettings(payload)
-          .then(() => {
-            lastSavedHashRef.current = hash;
-          })
-          .catch(() => {});
+        saveSettingsRef.current!(payload)
+          .then((saved) => {
+            if (saved) {
+              lastSavedHashRef.current = hash;
+            }
+          });
       }, 500);
     };
 

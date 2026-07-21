@@ -1,5 +1,6 @@
 'use client';
 
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Rows3, Search, SearchX } from 'lucide-react';
 import type { Host, SessionWithSnapshot } from '@agent-command/schema';
 import type { FleetRosterGroup } from '@/lib/fleetRoster';
@@ -10,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { cn, formatRelativeTime, isHostOnline } from '@/lib/utils';
 import { TmuxClusterRow } from './TmuxClusterRow';
 import { TmuxOrchestratorRow } from './TmuxOrchestratorRow';
+import { firstRosterTriageTarget } from './rosterTriage';
 import {
   FLEET_ROSTER_FILTERS,
   type FleetRosterFilter,
@@ -93,6 +95,38 @@ export function TmuxRoster({
   onOpenActions,
   className,
 }: TmuxRosterProps) {
+  const treeRef = useRef<HTMLDivElement>(null);
+  const [pendingRevealSessionId, setPendingRevealSessionId] = useState<string | null>(null);
+  const lastWaitingTargetRef = useRef<string | null>(null);
+  const revealSession = useCallback((groupKey: string, sessionId: string) => {
+    onExpandedClusterKeyChange(groupKey);
+    setPendingRevealSessionId(sessionId);
+  }, [onExpandedClusterKeyChange]);
+
+  useEffect(() => {
+    if (!pendingRevealSessionId) return;
+    const pane = treeRef.current?.querySelector<HTMLButtonElement>(
+      `[data-tmux-pane-session="${pendingRevealSessionId}"]`
+    );
+    if (!pane) return;
+    pane.focus({ preventScroll: true });
+    pane.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    setPendingRevealSessionId(null);
+  }, [expandedClusterKey, pendingRevealSessionId]);
+
+  useEffect(() => {
+    if (activeFilter !== 'waiting') {
+      lastWaitingTargetRef.current = null;
+      return;
+    }
+    const target = firstRosterTriageTarget(groups);
+    if (!target) return;
+    const targetKey = `${target.groupKey}:${target.sessionId}`;
+    if (lastWaitingTargetRef.current === targetKey) return;
+    lastWaitingTargetRef.current = targetKey;
+    revealSession(target.groupKey, target.sessionId);
+  }, [activeFilter, groups, revealSession]);
+
   return (
     <Card className={cn('min-h-0', className)}>
       <CardHeader className="pb-3">
@@ -170,7 +204,7 @@ export function TmuxRoster({
               className="min-h-72"
             />
           ) : (
-            <div className="space-y-2" role="tree" aria-label="tmux session roster">
+            <div ref={treeRef} className="space-y-2" role="tree" aria-label="tmux session roster">
             {groups.map((group) => group.kind === 'orchestrator' ? (
               <TmuxOrchestratorRow
                 key={group.key}
@@ -183,6 +217,7 @@ export function TmuxRoster({
                 onExpandedChange={(expanded) => onExpandedClusterKeyChange(expanded ? group.key : null)}
                 onSelectSession={onSelectSession}
                 onOpenActions={onOpenActions}
+                onRevealSession={(sessionId) => revealSession(group.key, sessionId)}
               />
             ) : (
               <TmuxClusterRow
@@ -202,6 +237,7 @@ export function TmuxRoster({
                 onExpandedChange={(expanded) => onExpandedClusterKeyChange(expanded ? group.key : null)}
                 onSelectSession={onSelectSession}
                 onOpenActions={onOpenActions}
+                onRevealSession={(sessionId) => revealSession(group.key, sessionId)}
               />
             ))}
             </div>

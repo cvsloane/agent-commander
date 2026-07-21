@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -16,8 +17,9 @@ const promptPlaceholder = "{{prompt}}"
 var environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type LaunchSpec struct {
-	Argv []string
-	Env  map[string]string
+	Argv     []string
+	Env      map[string]string
+	Preamble []string
 }
 
 type LaunchTemplates struct {
@@ -28,6 +30,10 @@ func NewLaunchTemplates(cfg *config.Config) *LaunchTemplates {
 	codexPath := "codex"
 	if cfg != nil && strings.TrimSpace(cfg.Providers.Codex.ExecPath) != "" {
 		codexPath = cfg.Providers.Codex.ExecPath
+	}
+	shellPath := "/bin/bash"
+	if cfg != nil && strings.TrimSpace(cfg.Spawn.DefaultShell) != "" {
+		shellPath = cfg.Spawn.DefaultShell
 	}
 	templates := map[string]config.ProviderLaunchTemplate{
 		"claude_code": {
@@ -43,7 +49,7 @@ func NewLaunchTemplates(cfg *config.Config) *LaunchTemplates {
 		"aider":      {Argv: []string{"aider"}},
 		"cursor":     {Argv: []string{"cursor"}},
 		"continue":   {Argv: []string{"continue"}},
-		"shell":      {},
+		"shell":      {Argv: []string{shellPath, "-i"}},
 	}
 	if cfg != nil {
 		for provider, override := range cfg.Providers.LaunchTemplates {
@@ -58,7 +64,8 @@ func NewLaunchTemplates(cfg *config.Config) *LaunchTemplates {
 }
 
 func (t *LaunchTemplates) Interactive(provider string, flags []string, requestEnv map[string]string) (LaunchSpec, error) {
-	template, ok := t.templates[normalizeLaunchProvider(provider)]
+	normalizedProvider := normalizeLaunchProvider(provider)
+	template, ok := t.templates[normalizedProvider]
 	if !ok {
 		return LaunchSpec{}, fmt.Errorf("unsupported provider %q", provider)
 	}
@@ -66,7 +73,27 @@ func (t *LaunchTemplates) Interactive(provider string, flags []string, requestEn
 	if len(argv) > 0 {
 		argv = append(argv, flags...)
 	}
-	return LaunchSpec{Argv: argv, Env: mergeEnv(template.Env, requestEnv)}, nil
+	env := mergeEnv(template.Env, requestEnv)
+	var preamble []string
+	if normalizedProvider == "shell" && len(argv) > 0 && filepath.Base(argv[0]) == "bash" {
+		env = mergeEnv(env, bashCommandMarkEnv(env))
+		preamble = []string{"tmux set-option -s allow-passthrough on >/dev/null 2>&1 || true"}
+	}
+	return LaunchSpec{Argv: argv, Env: env, Preamble: preamble}, nil
+}
+
+func bashCommandMarkEnv(existing map[string]string) map[string]string {
+	const passthroughStart = "\x1bPtmux;\x1b"
+	const passthroughEnd = "\x1b\\"
+	promptCommand := "__ac_status=$?; printf '\\033Ptmux;\\033\\033]133;D;%s\\007\\033\\\\' \"$__ac_status\"; printf '\\033Ptmux;\\033\\033]133;A\\007\\033\\\\'"
+	if previous := strings.TrimSpace(existing["PROMPT_COMMAND"]); previous != "" {
+		promptCommand += "; " + previous
+	}
+	return map[string]string{
+		"AC_COMMAND_MARKS": "osc133",
+		"PROMPT_COMMAND":   promptCommand,
+		"PS0":              passthroughStart + "\x1b]133;C\a" + passthroughEnd,
+	}
 }
 
 func (t *LaunchTemplates) Headless(provider, prompt string, requestEnv map[string]string) (LaunchSpec, error) {
@@ -99,7 +126,12 @@ func (s LaunchSpec) ShellCommand() (string, error) {
 	}
 	sort.Strings(keys)
 
-	parts := make([]string, 0, 2)
+	parts := make([]string, 0, len(s.Preamble)+2)
+	for _, command := range s.Preamble {
+		if strings.TrimSpace(command) != "" {
+			parts = append(parts, "("+command+")")
+		}
+	}
 	if len(keys) > 0 {
 		exports := make([]string, 0, len(keys))
 		for _, key := range keys {

@@ -15,6 +15,8 @@ export const TERMINAL_RAIL_KEYSYMS = [
   'page_down',
   'prefix',
   'history',
+  'previous_mark',
+  'next_mark',
 ] as const;
 
 export type TerminalRailKeysym = (typeof TERMINAL_RAIL_KEYSYMS)[number];
@@ -41,7 +43,8 @@ export type TerminalRailPreset = 'minimal' | 'expanded' | 'custom';
 export type TerminalRailAction =
   | { type: 'input'; data: string }
   | { type: 'modifier'; modifier: 'ctrl' }
-  | { type: 'history' };
+  | { type: 'history' }
+  | { type: 'mark'; direction: 'previous' | 'next' };
 
 const KEY_DATA: Partial<Record<TerminalRailKeysym, string>> = {
   esc: '\x1b',
@@ -96,6 +99,8 @@ export const EXPANDED_TERMINAL_RAIL_CONFIG: TerminalRailConfig = {
     { id: 'tab', label: 'Tab', binding: { type: 'keysym', value: 'tab' } },
     { id: 'prefix', label: 'Prefix', binding: { type: 'keysym', value: 'prefix' } },
     { id: 'history', label: 'History', binding: { type: 'keysym', value: 'history' } },
+    { id: 'previous-mark', label: '⌃ Mark', binding: { type: 'keysym', value: 'previous_mark' } },
+    { id: 'next-mark', label: '⌄ Mark', binding: { type: 'keysym', value: 'next_mark' } },
     { id: 'approve', label: 'y↵', binding: { type: 'macro', value: 'y\r' } },
     { id: 'compact', label: '/compact', binding: { type: 'macro', value: '/compact' } },
   ],
@@ -177,6 +182,8 @@ export function resolveTerminalRailBinding(
   if (binding.type === 'keysym') {
     if (binding.value === 'ctrl') return { type: 'modifier', modifier: 'ctrl' };
     if (binding.value === 'history') return { type: 'history' };
+    if (binding.value === 'previous_mark') return { type: 'mark', direction: 'previous' };
+    if (binding.value === 'next_mark') return { type: 'mark', direction: 'next' };
     if (binding.value === 'prefix') return { type: 'input', data: prefix };
     return { type: 'input', data: KEY_DATA[binding.value] ?? '' };
   }

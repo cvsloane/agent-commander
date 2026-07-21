@@ -18,6 +18,7 @@ import { useTerminalClipboard } from '@/hooks/useTerminalClipboard';
 import { useTerminalConnection } from '@/hooks/useTerminalConnection';
 import { useTerminalScrollAnchor } from '@/hooks/useTerminalScrollAnchor';
 import { useTerminalTouchScroll } from '@/hooks/useTerminalTouchScroll';
+import { useTerminalCommandMarks } from '@/hooks/useTerminalCommandMarks';
 import { useXtermTerminal } from '@/hooks/useXtermTerminal';
 import { useSettingsStore } from '@/stores/settings';
 
@@ -87,7 +88,33 @@ export function TerminalView({
     setSearchResults(results);
   }, []);
 
-  const scrollAnchor = useTerminalScrollAnchor();
+  const {
+    jumpToLiveButtonRef,
+    jumpToLiveLabelRef,
+    handleViewportScroll,
+    handleOutputStart,
+    handleOutputWritten: handleScrollOutputWritten,
+    jumpToLive,
+  } = useTerminalScrollAnchor();
+  const {
+    bindTerminal: bindCommandMarks,
+    handleOutputWritten: handleCommandMarksOutput,
+    previousMark,
+    nextMark,
+    hasMarks,
+    currentMark,
+  } = useTerminalCommandMarks();
+  const handleTerminalInstanceChange = useCallback((terminal: XTerminal | null) => {
+    bindCommandMarks(terminal);
+    onTerminalInstanceChange(terminal);
+  }, [bindCommandMarks, onTerminalInstanceChange]);
+  const handleTerminalOutputWritten = useCallback((
+    terminal: XTerminal,
+    data: string | Uint8Array
+  ) => {
+    handleScrollOutputWritten(terminal);
+    handleCommandMarksOutput(terminal, data);
+  }, [handleCommandMarksOutput, handleScrollOutputWritten]);
   const {
     terminalRef,
     ensureTerminal,
@@ -102,8 +129,8 @@ export function TerminalView({
     wsRef,
     sendInputRef,
     onSelectionChange: handleTerminalSelectionChange,
-    onViewportScroll: scrollAnchor.handleViewportScroll,
-    onTerminalInstanceChange,
+    onViewportScroll: handleViewportScroll,
+    onTerminalInstanceChange: handleTerminalInstanceChange,
     onSearchRequested: openSearch,
     onSearchResultsChange: handleSearchResultsChange,
   });
@@ -175,7 +202,8 @@ export function TerminalView({
     ensureTerminal,
     fitAndResize,
     getDimensions,
-    onOutputWritten: scrollAnchor.handleOutputWritten,
+    onOutputStart: handleOutputStart,
+    onOutputWritten: handleTerminalOutputWritten,
   });
   controllerReadOnlyRef.current = readOnly;
   const dispatchStickyCtrl = useCallback((event: StickyCtrlEvent) => {
@@ -207,6 +235,12 @@ export function TerminalView({
     onFontSizeChange: setTerminalFontSize,
     cursorEnabled: status === 'connected' && !readOnly,
     onCursorInput: sendInput,
+    onHorizontalSwipe: (direction) => {
+      termRef.current?.dispatchEvent(new CustomEvent('terminal-window-swipe', {
+        bubbles: true,
+        detail: { direction, sessionId },
+      }));
+    },
   });
 
   // Virtual keyboard handlers
@@ -327,14 +361,19 @@ export function TerminalView({
         onStickyCtrlEvent={dispatchStickyCtrl}
         onOpenHistory={() => setHistoryOpen(true)}
         tmuxPrefix={tmuxPrefix}
+        onPreviousMark={previousMark}
+        onNextMark={nextMark}
+        hasCommandMarks={hasMarks}
+        currentCommandMark={currentMark}
         onCopySelection={terminalClipboard.copySelection}
         onCopyLastLines={terminalClipboard.copyLastLines}
         onCopyAll={terminalClipboard.copyAll}
         onPaste={terminalClipboard.paste}
         onClear={terminalClipboard.clear}
         onCopySelectionText={terminalClipboard.copyText}
-        jumpToLiveButtonRef={scrollAnchor.jumpToLiveButtonRef}
-        onJumpToLive={() => scrollAnchor.jumpToLive(terminalRef.current)}
+        jumpToLiveButtonRef={jumpToLiveButtonRef}
+        jumpToLiveLabelRef={jumpToLiveLabelRef}
+        onJumpToLive={() => jumpToLive(terminalRef.current)}
         search={searchControls}
       />
       <ScrollbackPager

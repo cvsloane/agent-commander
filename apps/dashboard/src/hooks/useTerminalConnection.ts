@@ -50,6 +50,7 @@ export function useTerminalConnection({
   ensureTerminal,
   fitAndResize,
   getDimensions,
+  onOutputStart,
   onOutputWritten,
 }: {
   sessionId: string;
@@ -61,7 +62,8 @@ export function useTerminalConnection({
   ensureTerminal: () => Promise<XTerminal | null>;
   fitAndResize: () => void;
   getDimensions: () => { cols: number; rows: number } | undefined;
-  onOutputWritten: (terminal: XTerminal) => void;
+  onOutputStart: (terminal: XTerminal, data: string | Uint8Array) => void;
+  onOutputWritten: (terminal: XTerminal, data: string | Uint8Array) => void;
 }) {
   const letterbox = useTerminalGrid();
   const warmKey = useTerminalWarmKey();
@@ -234,8 +236,9 @@ export function useTerminalConnection({
             if (!terminalRef.current) return;
             const terminal = terminalRef.current;
             if (warmKey) clearProvisionalTerminalWarmBuffer(warmKey, terminal);
+            onOutputStart(terminal, data);
             terminal.write(data, () => {
-              onOutputWritten(terminal);
+              onOutputWritten(terminal, data);
               completeFrameTiming?.();
             });
           })) {
@@ -396,6 +399,7 @@ export function useTerminalConnection({
     fitAndResize,
     getDimensions,
     letterbox,
+    onOutputStart,
     onOutputWritten,
     paneId,
     sessionId,

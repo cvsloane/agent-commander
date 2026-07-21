@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { ConnectionStatus, XTerminal } from './types';
 import { TerminalSearchSheet, type TerminalSearchControlsProps } from './TerminalSearch';
+import { TerminalTouchSelection } from './TerminalTouchSelection';
+import type { TerminalCommandMarkView } from './commandMarks';
 
 interface TerminalSurfaceProps {
   termRef: RefObject<HTMLDivElement | null>;
@@ -26,6 +28,10 @@ interface TerminalSurfaceProps {
   onStickyCtrlEvent: (event: StickyCtrlEvent) => void;
   onOpenHistory: () => void;
   tmuxPrefix?: string;
+  onPreviousMark: () => void;
+  onNextMark: () => void;
+  hasCommandMarks: boolean;
+  currentCommandMark: TerminalCommandMarkView | null;
   onCopySelection: () => void;
   onCopyLastLines: (lines: number) => void;
   onCopyAll: () => void;
@@ -33,6 +39,7 @@ interface TerminalSurfaceProps {
   onClear: () => void;
   onCopySelectionText: (text: string) => void;
   jumpToLiveButtonRef: RefObject<HTMLButtonElement | null>;
+  jumpToLiveLabelRef: RefObject<HTMLSpanElement | null>;
   onJumpToLive: () => void;
   search: TerminalSearchControlsProps;
 }
@@ -52,6 +59,10 @@ export function TerminalSurface({
   onStickyCtrlEvent,
   onOpenHistory,
   tmuxPrefix,
+  onPreviousMark,
+  onNextMark,
+  hasCommandMarks,
+  currentCommandMark,
   onCopySelection,
   onCopyLastLines,
   onCopyAll,
@@ -59,6 +70,7 @@ export function TerminalSurface({
   onClear,
   onCopySelectionText,
   jumpToLiveButtonRef,
+  jumpToLiveLabelRef,
   onJumpToLive,
   search,
 }: TerminalSurfaceProps) {
@@ -74,15 +86,6 @@ export function TerminalSurface({
             window.setTimeout(() => terminalRef.current?.focus(), 0);
           }}
           onMouseUp={onSelectionCommit}
-          onTouchStart={(event) => {
-            const touch = event.touches[0];
-            if (touch) {
-              onSelectionStart({ x: touch.clientX, y: touch.clientY });
-            }
-            terminalRef.current?.focus();
-            window.setTimeout(() => terminalRef.current?.focus(), 0);
-          }}
-          onTouchEnd={onSelectionCommit}
           className={cn(
             'relative h-full w-full cursor-text overflow-hidden bg-[#0a0a0a] p-1 focus:outline-none',
             isMobile && 'touch-none',
@@ -91,18 +94,44 @@ export function TerminalSurface({
           aria-label="Interactive terminal"
         />
 
+        <TerminalTouchSelection
+          enabled={isMobile && status === 'connected'}
+          containerRef={termRef}
+          terminalRef={terminalRef}
+          onCopy={onCopySelectionText}
+        />
+
+        {currentCommandMark && (
+          <div
+            className="pointer-events-none absolute left-2 right-2 top-1 z-10 flex h-7 items-center gap-2 rounded border border-white/10 bg-zinc-950/90 px-2 font-mono text-[10px] text-white shadow backdrop-blur"
+            data-testid="terminal-command-header"
+            aria-label={`${currentCommandMark.approximate ? 'Approximate agent turn' : 'Shell command'}: ${currentCommandMark.label}`}
+          >
+            <span className={cn(
+              'shrink-0 rounded px-1 py-0.5 font-sans text-[8px] font-bold uppercase tracking-wide',
+              currentCommandMark.approximate
+                ? 'bg-violet-500/20 text-violet-200'
+                : 'bg-emerald-500/20 text-emerald-200'
+            )}>
+              {currentCommandMark.approximate ? 'Approx.' : 'Command'}
+            </span>
+            <span className="truncate">{currentCommandMark.label}</span>
+          </div>
+        )}
+
         <Button
           ref={jumpToLiveButtonRef}
           type="button"
           size="sm"
           variant="secondary"
           hidden
+          style={{ display: 'none' }}
           onClick={onJumpToLive}
           className="absolute bottom-3 right-3 z-10 gap-1.5 border shadow-lg"
           aria-label="Jump to live terminal output"
         >
           <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
-          Live
+          <span ref={jumpToLiveLabelRef}>Live</span>
         </Button>
       </div>
 
@@ -136,6 +165,9 @@ export function TerminalSurface({
           ctrlMode={stickyCtrlMode}
           onCtrlEvent={onStickyCtrlEvent}
           prefix={tmuxPrefix}
+          onPreviousMark={onPreviousMark}
+          onNextMark={onNextMark}
+          hasCommandMarks={hasCommandMarks}
         />
       )}
     </>

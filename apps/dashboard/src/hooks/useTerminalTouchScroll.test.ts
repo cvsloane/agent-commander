@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { calculatePinchFontSize, synthesizeCursorDragInput } from './useTerminalTouchScroll';
+import {
+  calculatePinchFontSize,
+  resolveTerminalHorizontalSwipe,
+  synthesizeCursorDragInput,
+} from './useTerminalTouchScroll';
 
 describe('terminal pinch font sizing', () => {
   it('scales from the gesture origin and clamps to the configured range', () => {
@@ -10,6 +14,16 @@ describe('terminal pinch font sizing', () => {
 
   it('keeps the starting size for an invalid distance', () => {
     expect(calculatePinchFontSize(15, 0, 120)).toBe(15);
+  });
+});
+
+describe('terminal horizontal swipe', () => {
+  it('navigates only for a decisive gesture that is not letterbox panning', () => {
+    expect(resolveTerminalHorizontalSwipe(-80, 10, false)).toBe('next');
+    expect(resolveTerminalHorizontalSwipe(80, -10, false)).toBe('previous');
+    expect(resolveTerminalHorizontalSwipe(-80, 10, true)).toBeNull();
+    expect(resolveTerminalHorizontalSwipe(-40, 2, false)).toBeNull();
+    expect(resolveTerminalHorizontalSwipe(-80, 70, false)).toBeNull();
   });
 });
 

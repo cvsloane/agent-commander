@@ -25,6 +25,7 @@ type TouchScrollState = {
   cursorSentX: number;
   cursorSentY: number;
   cellWidth: number;
+  panning: boolean;
 };
 
 function createTouchScrollState(): TouchScrollState {
@@ -49,6 +50,7 @@ function createTouchScrollState(): TouchScrollState {
     cursorSentX: 0,
     cursorSentY: 0,
     cellWidth: 8,
+    panning: false,
   };
 }
 
@@ -89,6 +91,17 @@ export function synthesizeCursorDragInput(
   return { data: `${horizontal}${vertical}`, sentX: nextX, sentY: nextY };
 }
 
+export function resolveTerminalHorizontalSwipe(
+  deltaX: number,
+  deltaY: number,
+  panning: boolean
+): 'previous' | 'next' | null {
+  if (panning || Math.abs(deltaX) < 56 || Math.abs(deltaX) <= Math.abs(deltaY) * 1.25) {
+    return null;
+  }
+  return deltaX < 0 ? 'next' : 'previous';
+}
+
 export function useTerminalTouchScroll({
   enabled,
   termRef,
@@ -97,6 +110,7 @@ export function useTerminalTouchScroll({
   onFontSizeChange,
   cursorEnabled,
   onCursorInput,
+  onHorizontalSwipe,
 }: {
   enabled: boolean;
   termRef: RefObject<HTMLDivElement | null>;
@@ -105,16 +119,19 @@ export function useTerminalTouchScroll({
   onFontSizeChange: (fontSize: number) => void;
   cursorEnabled: boolean;
   onCursorInput: (data: string) => void;
+  onHorizontalSwipe?: (direction: 'previous' | 'next') => void;
 }) {
   const touchScrollRef = useRef<TouchScrollState>(createTouchScrollState());
   const fontSizeRef = useRef(fontSize);
   const onFontSizeChangeRef = useRef(onFontSizeChange);
   const cursorEnabledRef = useRef(cursorEnabled);
   const onCursorInputRef = useRef(onCursorInput);
+  const onHorizontalSwipeRef = useRef(onHorizontalSwipe);
   fontSizeRef.current = fontSize;
   onFontSizeChangeRef.current = onFontSizeChange;
   cursorEnabledRef.current = cursorEnabled;
   onCursorInputRef.current = onCursorInput;
+  onHorizontalSwipeRef.current = onHorizontalSwipe;
 
   useEffect(() => {
     if (!enabled) return;
@@ -191,6 +208,7 @@ export function useTerminalTouchScroll({
       touchState.cursorMode = false;
       touchState.cursorSentX = 0;
       touchState.cursorSentY = 0;
+      touchState.panning = false;
       clearCursorTimer();
       if (cursorEnabledRef.current) {
         touchState.cursorTimer = window.setTimeout(() => {
@@ -296,6 +314,15 @@ export function useTerminalTouchScroll({
       }
 
       if (touchState.axis === 'horizontal') {
+        const panContainer = container.parentElement;
+        const canPan = Boolean(
+          panContainer && panContainer.scrollWidth > panContainer.clientWidth + 1
+        );
+        if (panContainer && canPan) {
+          event.preventDefault();
+          panContainer.scrollLeft -= touch.clientX - touchState.lastX;
+          touchState.panning = true;
+        }
         touchState.lastY = touch.clientY;
         touchState.lastX = touch.clientX;
         touchState.lastTime = performance.now();
@@ -346,6 +373,13 @@ export function useTerminalTouchScroll({
       touchState.active = false;
       const axis = touchState.axis;
       touchState.axis = null;
+
+      if (axis === 'horizontal') {
+        const deltaX = touchState.lastX - touchState.startX;
+        const deltaY = touchState.lastY - touchState.startY;
+        const direction = resolveTerminalHorizontalSwipe(deltaX, deltaY, touchState.panning);
+        if (direction) onHorizontalSwipeRef.current?.(direction);
+      }
 
       if (axis !== 'vertical') {
         touchState.remainder = 0;

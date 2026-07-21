@@ -25,6 +25,7 @@ import { cn, getSessionDisplayName } from '@/lib/utils';
 import { useNotifications } from '@/stores/notifications';
 import { registerPendingTmuxCommand } from '@/stores/tmuxCommands';
 import { buildSplitPaneCommand, hostSupportsPercentSplits } from './paneActions';
+import { resolveDirectionalPaneTargets } from './spatialPaneNavigation';
 
 interface TmuxPaneControlsProps {
   session: Session;
@@ -70,12 +71,11 @@ export function TmuxPaneControls({
     (candidate) => candidate.windowIndex === identity.windowIndex
   );
   const panes = currentWindow?.panes ?? [];
-  const currentPaneIndex = panes.findIndex((pane) => pane.paneId === session.tmux_pane_id);
-  const previousPane = currentPaneIndex > 0 ? panes[currentPaneIndex - 1] : undefined;
-  const nextPane =
-    currentPaneIndex >= 0 && currentPaneIndex < panes.length - 1
-      ? panes[currentPaneIndex + 1]
-      : undefined;
+  const directionalPanes = resolveDirectionalPaneTargets(
+    panes,
+    session.tmux_pane_id || undefined,
+    currentWindow?.layout ?? ''
+  );
   const zoomed = currentWindow?.zoomed ?? false;
   const { terminateSession, isTerminating } = useTerminateSession();
   const labelClassName = variant === 'desktop' ? 'hidden 2xl:inline' : undefined;
@@ -214,8 +214,8 @@ export function TmuxPaneControls({
               type="button"
               variant="outline"
               size="sm"
-              disabled={!previousPane || Boolean(pendingAction)}
-              onClick={() => selectPane(previousPane?.paneId, 'select pane left')}
+              disabled={!directionalPanes.left || Boolean(pendingAction)}
+              onClick={() => selectPane(directionalPanes.left?.paneId, 'select pane left')}
               aria-label="Select pane left"
             >
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
@@ -224,8 +224,8 @@ export function TmuxPaneControls({
               type="button"
               variant="outline"
               size="sm"
-              disabled={!previousPane || Boolean(pendingAction)}
-              onClick={() => selectPane(previousPane?.paneId, 'select pane up')}
+              disabled={!directionalPanes.up || Boolean(pendingAction)}
+              onClick={() => selectPane(directionalPanes.up?.paneId, 'select pane up')}
               aria-label="Select pane up"
             >
               <ArrowUp className="h-4 w-4" aria-hidden="true" />
@@ -234,8 +234,8 @@ export function TmuxPaneControls({
               type="button"
               variant="outline"
               size="sm"
-              disabled={!nextPane || Boolean(pendingAction)}
-              onClick={() => selectPane(nextPane?.paneId, 'select pane down')}
+              disabled={!directionalPanes.down || Boolean(pendingAction)}
+              onClick={() => selectPane(directionalPanes.down?.paneId, 'select pane down')}
               aria-label="Select pane down"
             >
               <ArrowDown className="h-4 w-4" aria-hidden="true" />
@@ -244,8 +244,8 @@ export function TmuxPaneControls({
               type="button"
               variant="outline"
               size="sm"
-              disabled={!nextPane || Boolean(pendingAction)}
-              onClick={() => selectPane(nextPane?.paneId, 'select pane right')}
+              disabled={!directionalPanes.right || Boolean(pendingAction)}
+              onClick={() => selectPane(directionalPanes.right?.paneId, 'select pane right')}
               aria-label="Select pane right"
             >
               <ArrowRight className="h-4 w-4" aria-hidden="true" />
