@@ -54,7 +54,7 @@ async function dragTerminal(page: Page, deltaY: number): Promise<void> {
 }
 
 async function openInlineHistory(page: Page): Promise<void> {
-  await dragTerminal(page, -140);
+  await dragTerminal(page, 140);
   await expect(page.getByTestId('terminal-history-overlay')).toBeVisible();
   await expect(page.getByLabel('Inline terminal history')).toBeVisible();
 }
@@ -122,6 +122,28 @@ test.describe('FW6 mobile Focus journey', () => {
       .join('');
     expect(terminalInput).toBe('');
     expect(terminalInput).not.toMatch(/\x1b\[<6[45];\d+;\d+M/);
+  });
+
+  test('ignores upward swipes at live view without opening history or emitting frames', async ({
+    page,
+  }) => {
+    await signIn(page);
+    await selectSession(page);
+    const messageStart = recorder.terminalMessages.length;
+
+    await dragTerminal(page, -140);
+
+    await expect(page.getByTestId('terminal-history-overlay')).toHaveCount(0);
+    expect(recorder.scrollbackRequests).toHaveLength(0);
+    const gestureMessages = recorder.terminalMessages.slice(messageStart);
+    expect(gestureMessages.filter(
+      (message) => message.type === 'navigate' && message.op === 'scroll'
+    )).toHaveLength(0);
+    const terminalInput = gestureMessages
+      .filter((message) => message.type === 'input')
+      .map((message) => message.data || '')
+      .join('');
+    expect(terminalInput).toBe('');
   });
 
   test('prepends older history without moving the visible transcript', async ({ page }) => {
@@ -238,6 +260,17 @@ test.describe('FW6 mobile Focus journey', () => {
 
     await openInlineHistory(page);
     await expect.poll(() => recorder.scrollbackSessionIds.at(-1)).toBe(windowSession.id);
+  });
+
+  test('keeps the History dialog reachable from pane actions', async ({ page }) => {
+    await signIn(page);
+    await selectSession(page);
+
+    await page.getByRole('button', { name: 'Open pane actions' }).click();
+    const actions = page.getByRole('dialog').filter({ hasText: 'Pane actions' });
+    await actions.getByRole('button', { name: 'View history' }).click();
+    await expect(page.getByRole('dialog', { name: 'Terminal history' })).toBeVisible();
+    await expect.poll(() => recorder.scrollbackRequests.length).toBeGreaterThan(0);
   });
 
   test('round-trips automatic and toggled zoom through topology truth', async ({ page }) => {

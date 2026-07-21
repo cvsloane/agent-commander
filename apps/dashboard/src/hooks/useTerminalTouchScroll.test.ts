@@ -9,6 +9,7 @@ import {
   resolveTerminalHorizontalSwipe,
   resolveTerminalTouchScrollPath,
   resolveTouchCell,
+  shouldOpenHistoryOnGesture,
   synthesizeCursorDragInput,
 } from './useTerminalTouchScroll';
 
@@ -230,7 +231,7 @@ describe('terminal touch scroll dispatch', () => {
     expect(
       dispatchTerminalTouchScroll({
         terminal,
-        lineDelta: 2,
+        lineDelta: -2,
         wheelRemainder: 4,
         column: 12,
         row: 7,
@@ -246,14 +247,14 @@ describe('terminal touch scroll dispatch', () => {
     expect(terminal.scrollLines).not.toHaveBeenCalled();
   });
 
-  it('opens attached tmux history while read-only and ignores downward swipes', () => {
+  it('opens attached tmux history while read-only and ignores upward swipes', () => {
     const terminal = terminalForScroll('normal', 'none');
     const onInput = vi.fn();
     const onOpenHistory = vi.fn();
 
     dispatchTerminalTouchScroll({
       terminal,
-      lineDelta: 3,
+      lineDelta: -3,
       wheelRemainder: 0,
       column: 2,
       row: 3,
@@ -265,7 +266,7 @@ describe('terminal touch scroll dispatch', () => {
     });
     dispatchTerminalTouchScroll({
       terminal,
-      lineDelta: -3,
+      lineDelta: 3,
       wheelRemainder: 0,
       column: 2,
       row: 3,
@@ -281,6 +282,15 @@ describe('terminal touch scroll dispatch', () => {
     expect(terminal.scrollLines).not.toHaveBeenCalled();
   });
 
+  it('gates history opening on a downward drag exactly once per gesture', () => {
+    expect(shouldOpenHistoryOnGesture('history', 24, false)).toBe(true);
+    expect(shouldOpenHistoryOnGesture('history', -24, false)).toBe(false);
+    expect(shouldOpenHistoryOnGesture('history', 24, true)).toBe(false);
+    expect(shouldOpenHistoryOnGesture('none', 24, false)).toBe(false);
+    expect(shouldOpenHistoryOnGesture('local', 24, false)).toBe(false);
+    expect(shouldOpenHistoryOnGesture('sgr', 24, false)).toBe(false);
+  });
+
   it('does nothing for an attached tmux terminal without a history session', () => {
     const terminal = terminalForScroll('alternate', 'drag');
     const onInput = vi.fn();
@@ -288,7 +298,7 @@ describe('terminal touch scroll dispatch', () => {
 
     dispatchTerminalTouchScroll({
       terminal,
-      lineDelta: 4,
+      lineDelta: -4,
       wheelRemainder: 0,
       column: 2,
       row: 3,

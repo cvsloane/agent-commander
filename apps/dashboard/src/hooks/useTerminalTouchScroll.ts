@@ -145,6 +145,14 @@ export function resolveTerminalTouchScrollPath({
   return 'local';
 }
 
+export function shouldOpenHistoryOnGesture(
+  scrollPath: TerminalTouchScrollPath,
+  totalDy: number,
+  historyOpened: boolean
+): boolean {
+  return scrollPath === 'history' && totalDy > 0 && !historyOpened;
+}
+
 export function resolveTouchCell(
   clientX: number,
   clientY: number,
@@ -206,7 +214,7 @@ export function dispatchTerminalTouchScroll({
   });
 
   if (path === 'local') terminal.scrollLines(lineDelta);
-  if (path === 'history' && lineDelta > 0) onOpenHistory();
+  if (path === 'history' && lineDelta < 0) onOpenHistory();
   if (path !== 'sgr') return 0;
 
   const mapped = mapScrollLinesToWheelReports(lineDelta, wheelRemainder);
@@ -453,7 +461,7 @@ export function useTerminalTouchScroll({
           touchState.wheelRemainder = 0;
           if (touchState.scrollPath === 'history' || touchState.scrollPath === 'none') {
             event.preventDefault();
-            if (totalDy < 0 && touchState.scrollPath === 'history') {
+            if (shouldOpenHistoryOnGesture(touchState.scrollPath, totalDy, touchState.historyOpened)) {
               touchState.historyOpened = true;
               onOpenHistoryRef.current?.();
             }
@@ -499,11 +507,7 @@ export function useTerminalTouchScroll({
       event.preventDefault();
 
       if (touchState.scrollPath === 'history' || touchState.scrollPath === 'none') {
-        if (
-          totalDy < 0
-          && touchState.scrollPath === 'history'
-          && !touchState.historyOpened
-        ) {
+        if (shouldOpenHistoryOnGesture(touchState.scrollPath, totalDy, touchState.historyOpened)) {
           touchState.historyOpened = true;
           onOpenHistoryRef.current?.();
         }

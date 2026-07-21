@@ -100,6 +100,7 @@ export function TerminalHistoryOverlay({
       generationRef.current += 1;
       loadingOlderRef.current = false;
       overscrollStartRef.current = null;
+      setLoadingOlder(false);
       return;
     }
     void loadInitial();
@@ -123,7 +124,6 @@ export function TerminalHistoryOverlay({
     const range = olderScrollbackRange(currentOldest);
     const element = scrollRef.current;
     const previousHeight = element?.scrollHeight ?? 0;
-    const previousTop = element?.scrollTop ?? 0;
     loadingOlderRef.current = true;
     setLoadingOlder(true);
     setError(null);
@@ -135,7 +135,7 @@ export function TerminalHistoryOverlay({
       requestAnimationFrame(() => {
         if (!element || generationRef.current !== generation) return;
         const nextTop = compensateScrollbackPrepend(
-          previousTop,
+          element.scrollTop,
           previousHeight,
           element.scrollHeight
         );
@@ -217,7 +217,7 @@ export function TerminalHistoryOverlay({
 
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 overflow-auto overscroll-contain bg-[#0a0a0a] selection:bg-sky-600/70"
+        className="flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain bg-[#0a0a0a] selection:bg-sky-600/70"
         style={{ WebkitOverflowScrolling: 'touch' }}
         tabIndex={0}
         aria-label="Inline terminal history"
@@ -262,7 +262,7 @@ export function TerminalHistoryOverlay({
           </div>
         ) : (
           <div
-            className="relative min-w-full font-mono"
+            className="relative mt-auto min-w-full shrink-0 font-mono"
             style={{
               height: `${allLines.length * lineHeight}px`,
               fontSize: `${fontSize}px`,
