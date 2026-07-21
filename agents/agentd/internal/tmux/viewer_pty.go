@@ -124,6 +124,10 @@ type viewerPTYBridge struct {
 	resumeOption string
 	readonly     bool
 	letterbox    bool
+	// Signed lines not yet converted into app wheel events (alt+mouse panes
+	// scroll ~3 lines per event; discarding the sub-event residue makes slow
+	// drags inert). Mutated only on Navigate paths, under the manager lock.
+	wheelResidue int
 	size         TerminalSize
 	process      PTYProcess
 	fanout       *terminalFanout
@@ -290,7 +294,11 @@ func (b *viewerPTYBridge) SelectWindow(windowIndex int) error {
 	}
 
 	target := b.viewSession + ":" + strconv.Itoa(windowIndex)
-	return b.selectWindowLocked(target)
+	if err := b.selectWindowLocked(target); err != nil {
+		return err
+	}
+	b.wheelResidue = 0
+	return nil
 }
 
 func (b *viewerPTYBridge) SelectPane(paneID string) error {
@@ -323,6 +331,7 @@ func (b *viewerPTYBridge) SelectPane(paneID string) error {
 	if err := b.runner.Run("select-pane", "-t", paneTarget); err != nil {
 		return fmt.Errorf("select viewer pane: %w", err)
 	}
+	b.wheelResidue = 0
 	return nil
 }
 

@@ -101,6 +101,17 @@ const (
 
 const maxTerminalScrollLines = 120
 
+// Mouse-aware alternate-screen apps scroll ~3 lines per wheel event. The
+// sub-event residue must carry across frame-coalesced scroll messages (which
+// are often 1-2 lines each) or slow drags never produce an event.
+const wheelEventLines = 3
+
+func accumulateWheelEvents(residue, lines int) (events, nextResidue int) {
+	total := residue + lines
+	events = total / wheelEventLines
+	return events, total - events*wheelEventLines
+}
+
 // TerminalNavigation describes an operation against a channel's grouped tmux
 // session. It never targets the origin session directly.
 type TerminalNavigation struct {
@@ -836,7 +847,8 @@ func (m *TerminalManager) navigateScrollLocked(bridge *viewerPTYBridge, lines in
 	alternateOn := parts[2] == "1"
 	mouseOn := parts[3] == "1"
 	if alternateOn && mouseOn {
-		events := count / 3
+		events, residue := accumulateWheelEvents(bridge.wheelResidue, lines)
+		bridge.wheelResidue = residue
 		if events == 0 {
 			return nil
 		}
@@ -846,8 +858,9 @@ func (m *TerminalManager) navigateScrollLocked(bridge *viewerPTYBridge, lines in
 			return fmt.Errorf("unexpected viewer pane dimensions %q x %q", parts[4], parts[5])
 		}
 		button := 65
-		if lines < 0 {
+		if events < 0 {
 			button = 64
+			events = -events
 		}
 		column := (width + 1) / 2
 		row := (height + 1) / 2
