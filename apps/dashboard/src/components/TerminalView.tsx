@@ -258,7 +258,8 @@ export function TerminalView({
           strip_ansi: true,
         });
         if (cancelled || !response.ok) return;
-        cacheScrollMode(historySessionId, classifyTerminalScrollMode(response.result?.content));
+        const mode = classifyTerminalScrollMode(response.result?.content);
+        if (mode === 'history') cacheScrollMode(historySessionId, mode);
       } catch {
         // Transport failure leaves the pane unclassified; the overlay path re-probes.
       }

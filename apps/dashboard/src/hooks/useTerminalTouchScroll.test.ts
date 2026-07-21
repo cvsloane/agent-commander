@@ -142,6 +142,8 @@ describe('native terminal touch scroll mapping', () => {
   it.each([
     ['history', true, 'history'],
     ['history', false, 'history'],
+    ['chat', true, 'history'],
+    ['chat', false, 'history'],
     ['app-scroll', true, 'navigate'],
     ['app-scroll', false, 'none'],
     [undefined, true, 'history'],
