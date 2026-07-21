@@ -1,7 +1,34 @@
-import { describe, expect, it } from 'vitest';
-import { buildTerminalHello, buildTerminalWebSocketUrl, decodeTerminalFrame } from './protocol';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  buildTerminalHello,
+  buildTerminalWebSocketUrl,
+  decodeTerminalFrame,
+  sendTerminalNavigation,
+} from './protocol';
 
 describe('browser terminal protocol', () => {
+  it('emits typed navigation frames only on an open terminal socket', () => {
+    const send = vi.fn();
+    const socket = { readyState: 1, send } as unknown as WebSocket;
+    expect(sendTerminalNavigation(socket, {
+      type: 'navigate',
+      op: 'select_pane',
+      pane_id: '%7',
+    })).toBe(true);
+    expect(send).toHaveBeenCalledWith(JSON.stringify({
+      type: 'navigate',
+      op: 'select_pane',
+      pane_id: '%7',
+    }));
+
+    expect(sendTerminalNavigation({ readyState: 3, send } as unknown as WebSocket, {
+      type: 'navigate',
+      op: 'zoom',
+      on: true,
+    })).toBe(false);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
   it('negotiates binary mode and writes ArrayBuffer frames as bytes', () => {
     expect(buildTerminalHello()).toEqual({ type: 'hello', binary: true });
 

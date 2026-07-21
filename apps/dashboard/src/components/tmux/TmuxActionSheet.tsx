@@ -33,11 +33,13 @@ interface TmuxActionSheetProps {
   idlePending: boolean;
   terminating: boolean;
   onClose: () => void;
+  onDetach?: () => void;
   onIdleToggle: () => void;
   onSendTo: () => void;
   onOpenMcp: () => void;
   onTerminate: () => void;
   onLaunchWindowHere?: () => void;
+  onSelectSession: (sessionId: string) => void;
 }
 
 export function TmuxActionSheet({
@@ -47,11 +49,13 @@ export function TmuxActionSheet({
   idlePending,
   terminating,
   onClose,
+  onDetach,
   onIdleToggle,
   onSendTo,
   onOpenMcp,
   onTerminate,
   onLaunchWindowHere,
+  onSelectSession,
 }: TmuxActionSheetProps) {
   const title = session ? getSessionDisplayName(session) : 'No pane selected';
 
@@ -87,7 +91,7 @@ export function TmuxActionSheet({
               variant="outline"
               className="justify-start gap-2"
               disabled={!session}
-              onClick={() => terminalControllerRef.current?.detach()}
+              onClick={() => onDetach ? onDetach() : terminalControllerRef.current?.detach()}
             >
               <Unplug className="h-4 w-4" />
               Detach
@@ -112,7 +116,13 @@ export function TmuxActionSheet({
             </Button>
           </div>
 
-          {session && <TmuxPaneControls session={session} variant="sheet" />}
+          {session && (
+            <TmuxPaneControls
+              session={session}
+              variant="sheet"
+              onSelectSession={onSelectSession}
+            />
+          )}
 
           <div className="grid grid-cols-2 gap-2">
             <Button

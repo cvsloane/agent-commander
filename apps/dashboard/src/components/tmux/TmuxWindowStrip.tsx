@@ -120,7 +120,7 @@ export function TmuxWindowStrip({ session, className, onSelectSession }: TmuxWin
   );
   const sourceWindows = useMemo(() => {
     const windows = topologySession?.windows ?? [fallbackWindow(session)];
-    if (hostTopology?.source === 'topology') return windows;
+    if (hostTopology?.source === 'topology' && !onSelectSession) return windows;
     return windows.map((window) => ({
       ...window,
       active: window.windowIndex === identity.windowIndex,
@@ -129,7 +129,7 @@ export function TmuxWindowStrip({ session, className, onSelectSession }: TmuxWin
         active: pane.sessionId === session.id,
       })),
     }));
-  }, [hostTopology?.source, identity.windowIndex, session, topologySession?.windows]);
+  }, [hostTopology?.source, identity.windowIndex, onSelectSession, session, topologySession?.windows]);
   const [windows, setWindows] = useState(sourceWindows);
   const [contextWindowIndex, setContextWindowIndex] = useState<number | null>(null);
   const [editingWindowIndex, setEditingWindowIndex] = useState<number | null>(null);
@@ -210,9 +210,13 @@ export function TmuxWindowStrip({ session, className, onSelectSession }: TmuxWin
   };
 
   const selectWindow = (window: TmuxWindowTopologyView) => {
-    void dispatchAction({ type: 'select', windowIndex: window.windowIndex });
     const nextSessionId = getWindowViewerSessionId(window);
-    if (nextSessionId) onSelectSession?.(nextSessionId);
+    if (nextSessionId && onSelectSession) {
+      setWindows(optimisticWindows(windows, { type: 'select', windowIndex: window.windowIndex }));
+      onSelectSession(nextSessionId);
+      return;
+    }
+    void dispatchAction({ type: 'select', windowIndex: window.windowIndex });
   };
   selectWindowRef.current = selectWindow;
 

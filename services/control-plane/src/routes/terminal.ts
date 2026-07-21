@@ -383,6 +383,22 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
               });
               break;
 
+            case 'navigate': {
+              if (!canControlTerminal(channel.user)) {
+                socket.close(4008, 'Terminal navigation requires operator role');
+                return;
+              }
+              const { type: _type, ...navigation } = message;
+              pubsub.sendToAgent(channel.hostId, {
+                v: 1,
+                type: 'terminal.navigate',
+                ts: new Date().toISOString(),
+                payload: { channel_id: activeChannelId, ...navigation },
+              });
+              resetIdleTimeout(activeChannelId);
+              break;
+            }
+
             case 'detach':
               detachChannel(activeChannelId, 'client_request');
               break;

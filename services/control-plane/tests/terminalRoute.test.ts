@@ -497,6 +497,38 @@ describe('terminal websocket route', () => {
     await app.close();
   });
 
+  it('relays viewer navigation operations on the attached terminal channel', async () => {
+    const { app, baseWsUrl, agentSend } = await buildServer();
+    const token = await sign('operator');
+    const socket = browserWebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
+
+    await waitForOpen(socket);
+    await eventually(() => {
+      expect(agentSend).toHaveBeenCalledWith(expect.stringContaining('terminal.attach'));
+    });
+    const attach = agentSend.mock.calls
+      .map(([raw]) => JSON.parse(String(raw)) as { type: string; payload: { channel_id: string } })
+      .find((message) => message.type === 'terminal.attach');
+
+    socket.send(JSON.stringify({ type: 'navigate', op: 'select_window', window_index: 2 }));
+    socket.send(JSON.stringify({ type: 'navigate', op: 'select_pane', pane_id: '%7' }));
+    socket.send(JSON.stringify({ type: 'navigate', op: 'zoom', on: true }));
+
+    await eventually(() => {
+      const navigations = agentSend.mock.calls
+        .map(([raw]) => JSON.parse(String(raw)) as { type: string; payload: Record<string, unknown> })
+        .filter((message) => message.type === 'terminal.navigate');
+      expect(navigations.map((message) => message.payload)).toEqual([
+        { channel_id: attach?.payload.channel_id, op: 'select_window', window_index: 2 },
+        { channel_id: attach?.payload.channel_id, op: 'select_pane', pane_id: '%7' },
+        { channel_id: attach?.payload.channel_id, op: 'zoom', on: true },
+      ]);
+    });
+
+    socket.close();
+    await app.close();
+  });
+
   it('allows multiple browser viewers for the same session without evicting the first viewer', async () => {
     const { app, baseWsUrl, agentSend } = await buildServer();
     const token = await sign('operator');

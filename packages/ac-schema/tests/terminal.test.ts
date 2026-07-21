@@ -8,6 +8,33 @@ import {
 } from '../src/index.js';
 
 describe('terminal protocol', () => {
+  it('accepts only complete viewer navigation operations from browsers', () => {
+    expect(BrowserTerminalClientMessageSchema.parse({
+      type: 'navigate',
+      op: 'select_window',
+      window_index: 2,
+    })).toMatchObject({ op: 'select_window', window_index: 2 });
+    expect(BrowserTerminalClientMessageSchema.parse({
+      type: 'navigate',
+      op: 'select_pane',
+      pane_id: '%7',
+    })).toMatchObject({ op: 'select_pane', pane_id: '%7' });
+    expect(BrowserTerminalClientMessageSchema.parse({
+      type: 'navigate',
+      op: 'zoom',
+      on: true,
+    })).toMatchObject({ op: 'zoom', on: true });
+
+    expect(BrowserTerminalClientMessageSchema.safeParse({
+      type: 'navigate',
+      op: 'select_window',
+    }).success).toBe(false);
+    expect(BrowserTerminalClientMessageSchema.safeParse({
+      type: 'navigate',
+      op: 'zoom',
+    }).success).toBe(false);
+  });
+
   it('accepts the additive binary, resume, sizing, idle, and lag messages', () => {
     expect(BrowserTerminalClientMessageSchema.parse({ type: 'hello', binary: true })).toEqual({
       type: 'hello',

@@ -41,6 +41,7 @@ export function PersistentTerminalSlot({
   sessionId,
   hostId,
   paneId,
+  tmuxSessionKey,
   autoAttach,
   letterbox,
   className,
@@ -55,7 +56,7 @@ export function PersistentTerminalSlot({
 
     const unregister = terminalHostStore.registerSurface({
       id,
-      descriptor: { sessionId, hostId, paneId, autoAttach, letterbox },
+      descriptor: { sessionId, hostId, paneId, tmuxSessionKey, autoAttach, letterbox },
       target,
       visible: isSurfaceVisible(target),
       controllerRef,
@@ -69,7 +70,7 @@ export function PersistentTerminalSlot({
       resizeObserver.disconnect();
       unregister();
     };
-  }, [autoAttach, controllerRef, hostId, id, letterbox, paneId, sessionId]);
+  }, [autoAttach, controllerRef, hostId, id, letterbox, paneId, sessionId, tmuxSessionKey]);
 
   return (
     <div
@@ -95,11 +96,12 @@ export function PersistentTerminalHost() {
   const terminalWarmTimeoutMinutes = useSettingsStore(
     (state) => state.terminalWarmTimeoutMinutes ?? DEFAULT_TERMINAL_WARM_TIMEOUT_MINUTES
   );
-  const terminalContext = snapshot.descriptor
+  const attachmentDescriptor = snapshot.attachmentDescriptor ?? snapshot.descriptor;
+  const terminalContext = attachmentDescriptor
     ? {
         descriptorKey: snapshot.descriptorKey!,
-        letterbox: snapshot.descriptor.letterbox,
-        warmKey: getTerminalWarmKey(snapshot.descriptor),
+        letterbox: attachmentDescriptor.letterbox,
+        warmKey: getTerminalWarmKey(attachmentDescriptor),
       }
     : undefined;
 
@@ -165,14 +167,14 @@ export function PersistentTerminalHost() {
   return (
     <>
       <div ref={parkingRef} hidden aria-hidden="true" data-terminal-parking />
-      {portalNode && snapshot.descriptor && createPortal(
+      {portalNode && attachmentDescriptor && createPortal(
         <TerminalGridContext.Provider value={terminalContext}>
           <TerminalView
             key={snapshot.descriptorKey}
-            sessionId={snapshot.descriptor.sessionId}
-            hostId={snapshot.descriptor.hostId}
-            paneId={snapshot.descriptor.paneId}
-            autoAttach={snapshot.descriptor.autoAttach}
+            sessionId={attachmentDescriptor.sessionId}
+            hostId={attachmentDescriptor.hostId}
+            paneId={attachmentDescriptor.paneId}
+            autoAttach={attachmentDescriptor.autoAttach}
             onControllerChange={handleControllerChange}
             onTerminalInstanceChange={handleTerminalInstanceChange}
           />

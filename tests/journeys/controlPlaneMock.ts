@@ -1,4 +1,4 @@
-import type { Page, Route } from '@playwright/test';
+import type { Page, Route, WebSocketRoute } from '@playwright/test';
 
 export const accessCode = process.env.PLAYWRIGHT_ACCESS_CODE || 'playwright-access';
 
@@ -134,13 +134,17 @@ export const pendingApproval = {
   ts_decided: null,
 };
 
-function topologyMessage(includeSecondWindow: boolean) {
+function topologyMessage(
+  secondWindowName: string | null,
+  secondWindowHasTrackedPane: boolean,
+  zoomedWindowIndex: number | null = null
+) {
   const windows = [
     {
       window_index: 0,
       window_name: 'command-center',
       active: true,
-      zoomed: false,
+      zoomed: zoomedWindowIndex === 0,
       layout: '8f5a,160x50,0,0,1',
       bell: false,
       activity: false,
@@ -168,16 +172,16 @@ function topologyMessage(includeSecondWindow: boolean) {
       ],
     },
   ];
-  if (includeSecondWindow) {
+  if (secondWindowName) {
     windows.push({
       window_index: 1,
-      window_name: 'verification',
+      window_name: secondWindowName,
       active: false,
-      zoomed: false,
+      zoomed: zoomedWindowIndex === 1,
       layout: 'even-horizontal',
       bell: false,
       activity: false,
-      panes: [
+      panes: secondWindowHasTrackedPane ? [
         {
           pane_id: windowSession.tmux_pane_id,
           pane_index: 0,
@@ -188,7 +192,7 @@ function topologyMessage(includeSecondWindow: boolean) {
           current_command: 'bash',
           current_path: windowSession.cwd,
         },
-      ],
+      ] : [],
     });
   }
 
@@ -216,7 +220,14 @@ export interface JourneyRecorder {
   commandRequests: unknown[];
   launchRequests: unknown[];
   scrollbackRequests: unknown[];
-  terminalMessages: Array<{ type?: string; data?: string }>;
+  terminalMessages: Array<{
+    type?: string;
+    data?: string;
+    op?: string;
+    on?: boolean;
+    pane_id?: string;
+    window_index?: number;
+  }>;
   terminalSessionIds: string[];
   terminalWebSocketUrls: string[];
 }
@@ -385,13 +396,27 @@ export async function mockControlPlane(
     terminalWebSocketUrls: [],
   };
   const availableSessions = options.multiWindow ? [...sessions, windowSession] : sessions;
+  let selectedWindowIndex = 0;
+  let zoomedWindowIndex: number | null = null;
+  let secondWindowName = options.multiWindow ? 'verification' : null;
+  let secondWindowHasTrackedPane = options.multiWindow ?? false;
+  const topologySockets = new Set<WebSocketRoute>();
+  const sendTopology = () => {
+    const message = JSON.stringify(topologyMessage(
+      secondWindowName,
+      secondWindowHasTrackedPane,
+      zoomedWindowIndex
+    ));
+    for (const socket of topologySockets) socket.send(message);
+  };
 
   await page.routeWebSocket(/\/v1\/ui\/stream\?ticket=/, (socket) => {
+    topologySockets.add(socket);
     let topologySent = false;
     socket.onMessage(() => {
       if (topologySent) return;
       topologySent = true;
-      socket.send(JSON.stringify(topologyMessage(options.multiWindow ?? false)));
+      sendTopology();
     });
   });
   await page.routeWebSocket(/\/v1\/ui\/terminal\//, (socket) => {
@@ -400,7 +425,7 @@ export async function mockControlPlane(
     if (sessionId) recorder.terminalSessionIds.push(decodeURIComponent(sessionId));
     socket.onMessage((message) => {
       if (typeof message !== 'string') return;
-      const parsed = JSON.parse(message) as { type?: string; data?: string };
+      const parsed = JSON.parse(message) as JourneyRecorder['terminalMessages'][number];
       recorder.terminalMessages.push(parsed);
       if (parsed.type === 'hello') {
         socket.send(
@@ -414,6 +439,20 @@ export async function mockControlPlane(
       }
       if (parsed.type === 'control') {
         socket.send(JSON.stringify({ type: 'control' }));
+      }
+      if (parsed.type === 'navigate' && parsed.op === 'select_window' && parsed.window_index !== undefined) {
+        selectedWindowIndex = parsed.window_index;
+        zoomedWindowIndex = null;
+        sendTopology();
+      }
+      if (parsed.type === 'navigate' && parsed.op === 'select_pane' && parsed.pane_id) {
+        selectedWindowIndex = parsed.pane_id === windowSession.tmux_pane_id ? 1 : 0;
+        zoomedWindowIndex = null;
+        sendTopology();
+      }
+      if (parsed.type === 'navigate' && parsed.op === 'zoom' && parsed.on !== undefined) {
+        zoomedWindowIndex = parsed.on ? selectedWindowIndex : null;
+        sendTopology();
       }
     });
   });
@@ -448,7 +487,24 @@ export async function mockControlPlane(
       return;
     }
     if (request.method() === 'POST' && /^\/v1\/sessions\/[^/]+\/commands$/.test(url.pathname)) {
-      recorder.commandRequests.push(request.postDataJSON());
+      const command = request.postDataJSON() as {
+        type?: string;
+        payload?: { name?: string; window_index?: number };
+      };
+      recorder.commandRequests.push(command);
+      if (command.type === 'new_window') {
+        secondWindowName = 'new';
+        secondWindowHasTrackedPane = false;
+        sendTopology();
+      } else if (command.type === 'rename_window' && command.payload?.window_index === 1) {
+        secondWindowName = command.payload.name ?? secondWindowName;
+        sendTopology();
+      } else if (command.type === 'kill_window' && command.payload?.window_index === 1) {
+        secondWindowName = null;
+        secondWindowHasTrackedPane = false;
+        zoomedWindowIndex = null;
+        sendTopology();
+      }
       await fulfillJson(route, { cmd_id: '01JJOURNEYCOMMAND0000000000' });
       return;
     }

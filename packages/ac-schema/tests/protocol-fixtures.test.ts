@@ -44,6 +44,7 @@ describe('protocol fixtures', () => {
     'terminal-attach.json',
     'terminal-attach-letterbox.json',
     'terminal-input.json',
+    'terminal-navigate.json',
     'commands-dispatch-send-input.json',
   ])('validates server-to-agent message fixture %s', (name) => {
     expect(ServerToAgentMessageSchema.safeParse(readFixture(name)).success).toBe(true);
