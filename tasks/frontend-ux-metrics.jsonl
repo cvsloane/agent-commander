@@ -33,3 +33,4 @@
 {"ts":"2026-07-21T06:40:00Z","event":"lane_frozen","lane":"FW6-PRECISION","attempt":1,"frozen_sha":"adc996e","verdict":"accepted"}
 {"ts":"2026-07-21T07:50:00Z","event":"lane_frozen","lane":"FW6-VERIFY","attempt":4,"frozen_sha":"315c828","verdict":"accepted","note":"two honest holds surfaced real defects"}
 {"ts":"2026-07-21T08:50:00Z","event":"wave_complete","wave":6,"reviewer_verdicts":["SHIP-WITH-NOTES","SHIP-WITH-NOTES"],"gate":"green","defects_fixed_at_integration":9}
+{"ts":"2026-07-21T03:40:00Z","event":"wave_deployed","wave":6,"sha":"e8b9ce7","tag":"v0.4.1"}
