@@ -26,12 +26,31 @@ export const BrowserTerminalDetachMessageSchema = z.object({
   type: z.literal('detach'),
 });
 
-export const BrowserTerminalClientMessageSchema = z.discriminatedUnion('type', [
+export const BrowserTerminalNavigateMessageSchema = z.discriminatedUnion('op', [
+  z.object({
+    type: z.literal('navigate'),
+    op: z.literal('select_window'),
+    window_index: z.number().int().nonnegative(),
+  }),
+  z.object({
+    type: z.literal('navigate'),
+    op: z.literal('select_pane'),
+    pane_id: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('navigate'),
+    op: z.literal('zoom'),
+    on: z.boolean(),
+  }),
+]);
+
+export const BrowserTerminalClientMessageSchema = z.union([
   BrowserTerminalHelloMessageSchema,
   BrowserTerminalInputMessageSchema,
   BrowserTerminalResizeMessageSchema,
   BrowserTerminalControlMessageSchema,
   BrowserTerminalDetachMessageSchema,
+  BrowserTerminalNavigateMessageSchema,
 ]);
 export type BrowserTerminalClientMessage = z.infer<typeof BrowserTerminalClientMessageSchema>;
 
