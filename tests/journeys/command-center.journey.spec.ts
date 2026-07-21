@@ -46,7 +46,7 @@ test.describe('Command Center program journeys', () => {
   test.beforeEach(async ({ page }, testInfo) => {
     recorder = await mockControlPlane(page, {
       terminalReadOnly: testInfo.title.includes('take-control handoff'),
-      multiWindow: testInfo.title.includes('window tab retargets'),
+      multiWindow: testInfo.title.includes('window tab'),
     });
   });
 
@@ -89,6 +89,38 @@ test.describe('Command Center program journeys', () => {
     );
     await expect(page.getByLabel('Interactive terminal')).toBeVisible();
     await expect.poll(() => recorder.terminalSessionIds).toContain(windowSession.id);
+  });
+
+  test('window tab keyboard navigation focuses before activation', async ({ page }) => {
+    await signIn(page);
+    await selectSession(page, interactiveSession.title);
+    const terminalRegion = page.getByRole('region', { name: 'Primary terminal' });
+    await expect(terminalRegion.getByText('Connected', { exact: true })).toHaveText('Connected');
+    await page.evaluate(
+      () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    );
+
+    const strip = page.getByTestId('tmux-window-strip').first();
+    const firstWindow = strip.getByRole('tab', { name: 'Window 0: command-center' });
+    const secondWindow = strip.getByRole('tab', { name: 'Window 1: verification' });
+    await firstWindow.focus();
+    await firstWindow.press('ArrowRight');
+
+    await expect(secondWindow).toBeFocused();
+    expect(recorder.commandRequests).toEqual([]);
+
+    await secondWindow.press('Enter');
+    await expect
+      .poll(() => recorder.commandRequests)
+      .toContainEqual({ type: 'select_window', payload: { window_index: 1 } });
+    await expect(page).toHaveURL(new RegExp(`session_id=${windowSession.id}`));
+
+    await firstWindow.focus();
+    await firstWindow.press(' ');
+    await expect
+      .poll(() => recorder.commandRequests)
+      .toContainEqual({ type: 'select_window', payload: { window_index: 0 } });
+    await expect(page).toHaveURL(new RegExp(`session_id=${interactiveSession.id}`));
   });
 
   test('mobile desktop-attached grid stays letterboxed through a keyboard transition', async ({
