@@ -33,6 +33,7 @@ interface TmuxActionSheetProps {
   idlePending: boolean;
   terminating: boolean;
   onClose: () => void;
+  onDetach?: () => void;
   onIdleToggle: () => void;
   onSendTo: () => void;
   onOpenMcp: () => void;
@@ -48,6 +49,7 @@ export function TmuxActionSheet({
   idlePending,
   terminating,
   onClose,
+  onDetach,
   onIdleToggle,
   onSendTo,
   onOpenMcp,
@@ -89,7 +91,7 @@ export function TmuxActionSheet({
               variant="outline"
               className="justify-start gap-2"
               disabled={!session}
-              onClick={() => terminalControllerRef.current?.detach()}
+              onClick={() => onDetach ? onDetach() : terminalControllerRef.current?.detach()}
             >
               <Unplug className="h-4 w-4" />
               Detach
