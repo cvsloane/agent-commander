@@ -1,12 +1,12 @@
 ---
 lane: FW6-VERIFY
 branch: refactor/fw6-verify
-base_sha: 133bb1e3f21764629bd764bb4092448d58225bc5
-partial_sha: 36561897343302013a7e6692e944bfe25fc8ac97
+base_sha: 44ecde7c0b51288b3d11f7705f93515507007bfe
+partial_sha: 0f997f9ad59f8905f0732037b5e3a72141f92d4b
 state: held
 gates:
   setup: pass
-  focused_journeys: pass
+  focused_journeys: fail
   lint: not_run
   typecheck: not_run
   test_ci: not_run
@@ -14,15 +14,16 @@ gates:
   journeys: not_run
   build: not_run
 blockers:
-  - "A connected mobile Prefix rail tap emits no terminal WebSocket input frame; the direct fix is outside this lane's ownership firewall."
+  - 'After rebasing onto 44ecde7, a touch-capable Chromium Prefix tap still emits no terminal WebSocket input frame in the connected journey.'
 ---
 
-# FW6-VERIFY held handoff
+# FW6-VERIFY resumed held handoff
 
 ## Outcome
 
-FW6-VERIFY is held at the first blocked direct-path defect. The pushed partial
-work adds green journey coverage for four batch-1 behaviors:
+The lane fetched origin, rebased its two pushed commits onto the requested
+`44ecde7` frontend integration, and force-pushed the rebased branch. The stable
+pushed partial work remains `0f997f9` and covers four batch-1 behaviors:
 
 - Cold-open restore reaches the saved live pane with zero post-sign-in taps on
   both 412x915 and 1280x720 profiles.
@@ -33,47 +34,45 @@ work adds green journey coverage for four batch-1 behaviors:
 - The mobile rail's one-shot sticky Control converts the next physical `c` to
   one `0x03` input byte and disarms.
 
-Focused Playwright proof ran from the `fw6-partial-proof` tmux TTY: 6 passed and
-2 expected desktop skips. The pushed commit is `3656189`.
+Before the resume, those focused journeys produced 6 passes and 2 expected
+desktop skips from a tmux TTY. The resume stopped at the first three-attempt
+failure, so the mandatory full gate sequence was not started.
 
 ## Wall report
 
-The per-host-prefix journey used a persisted `C-a` host setting and a visible
-Prefix rail key. After the terminal reported Connected and the actual pointer
-tap landed on the button, the journey recorder received no `input` WebSocket
-message (neither `0x01` nor the default prefix byte). The final failure was:
+The integrated source at `44ecde7` contains the pointer-up rail activation and
+the attached pane sheet's **New window here** action. The required per-host
+Prefix journey persisted `C-a`, waited for the terminal WebSocket hello and the
+visible Connected state, and tapped the visible Prefix rail button in the
+touch-capable 412x915 Chromium project. The final assertion failed with:
 
 `Expected recorded terminal input to contain 0x01; received an empty string.`
 
-The trace shows the click completed on the live rail after the server sent the
-terminal `attached` event. Earlier attempts corrected two fixture-level issues:
-the settings PUT route and a Next dev-tools button overlapping an unrealistic
-one-key rail. The remaining failure is in the rail-to-terminal input path.
+Three direct behavioral attempts produced the same empty input stream:
 
-The direct implementation surfaces are
-`apps/dashboard/src/components/mobile/TerminalKeyRail.tsx` and/or
-`apps/dashboard/src/components/TerminalView.tsx`. This lane may not edit either:
-its dashboard ownership is limited to A10 performance components/hooks and A11
-`TmuxWindowStrip.tsx`. Building a synthetic dispatch or alternate test path
-would conceal the shipped journey failure, so work stopped here.
+1. A real rail click after the attached-client letterbox connection.
+2. A touch-capable Playwright `tap()` after the attached-client connection.
+3. A touch-capable `tap()` against a solo, non-letterboxed terminal after both
+   the WebSocket hello and Connected state.
 
-Static inspection also indicates the attached mobile shell hides its only
-`Launch agent` trigger while `windowHere` is populated, then drops the
-`windowHere` context after returning to roster. The required “＋ window here”
-journey was therefore not added before the hold.
+The final trace is local at
+`test-results/command-center.journey-Com-42b52-he-selected-host-prefix-key-mobile-412x915/trace.zip`.
+The failed experimental journey and fixture changes were removed; no failing
+test or synthetic input workaround was committed. The three-attempt ceiling
+and repo wall rule require the lane to stop here.
 
 ## Options for the AI Lead
 
-1. Assign the prefix rail input defect and attached “window here” trigger back
-   to the batch-1 owner, then resume FW6-VERIFY after integration.
-2. Expand this lane's firewall to those exact batch-1 component paths and
-   resume the direct fixes here.
-3. Accept `3656189` as partial journey coverage and move the two missing
-   journeys to the owning lane.
+1. Return the rail-to-terminal pointer-up path to the mobile terminal owner for
+   a direct fix, using the failed journey as its acceptance test.
+2. Expand this lane's firewall to the exact rail and terminal input components
+   so it can diagnose and fix the runtime path before resuming verification.
+3. Reproduce the same touch journey on another Chromium host to determine
+   whether the remaining failure is host-specific before assigning code work.
 
 ## Unstarted work
 
-- Remaining journey assertions: per-host Prefix and “＋ window here”.
+- The **New window here** journey through the newly integrated sheet action.
 - A9 canonical launch/open hrefs.
 - A10 performance gating.
 - A11 focus-only window-strip arrow navigation.
@@ -82,6 +81,5 @@ journey was therefore not added before the hold.
 - Owner device checklist.
 - Full mandatory gate sequence.
 
-No production state, deployment files, secrets, or default tmux sessions were
-changed. Playwright used dedicated tmux TTY sessions, which were removed after
-each run.
+The captured-pointer lesson was added to `tasks/lessons.md`. No production
+state, deployment files, secrets, or default tmux sessions were changed.

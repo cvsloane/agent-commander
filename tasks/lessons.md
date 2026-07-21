@@ -41,6 +41,10 @@
   Rule: Treat `/` as the canonical Command Center route for new tmux navigation while preserving query parameters so incoming `/tmux` redirects remain compatible without adding an avoidable remount to in-app selections.
 
 - Date: 2026-07-20
+  Correction: Captured touch pointers on the mobile terminal rail did not synthesize clicks in real Chromium.
+  Rule: Activate captured touch taps on `pointerup` and verify them with a touch-capable Playwright `tap()` through the terminal WebSocket path; click-only coverage is insufficient.
+
+- Date: 2026-07-20
   Correction: Wave 3 review found that live topology never expired, child roster consumers duplicated fetches and rebuilds, and destructive/version-gated actions trusted non-authoritative signals.
   Rule: Expire optional live feeds back to polling, share page-level query results with child consumers, and gate destructive copy or protocol flags only on authoritative source metadata.
 
