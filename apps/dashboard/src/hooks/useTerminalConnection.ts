@@ -244,6 +244,7 @@ export function useTerminalConnection({
 
           switch (msg.type) {
             case 'attached':
+              autoAttachedSessionRef.current = sessionId;
               if (descriptorKey) terminalHostStore.setResumeAvailable(descriptorKey, false);
               markConnected();
               if (msg.resume_token) {
@@ -522,7 +523,6 @@ export function useTerminalConnection({
     if (!autoAttach || !paneId) return;
     if (autoAttachedSessionRef.current === sessionId) return;
     if (status !== 'disconnected') return;
-    autoAttachedSessionRef.current = sessionId;
     void connect();
   }, [autoAttach, connect, paneId, sessionId, status]);
 
