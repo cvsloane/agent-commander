@@ -59,3 +59,4 @@ This is the git-tracked backlog for this workstream. Keep local next steps here;
 - [ ] Terminal frame-timing probe: short-circuit sampling on isEnabled() before any per-frame work; gate the web-vitals dynamic import on the perf flag (Wave-5 review LOWs).
 - [ ] Window-strip arrow-key navigation dispatches live select_window per keypress (valid ARIA auto-activation but can burst commands) — consider focus-only + Enter-to-activate (Wave-5 review INFO).
 - [ ] Commit a refreshed docs-site screenshot of the Command Center (acceptance checklist residual NOT-MET).
+- [ ] Wave-6 batch-2 review LOWs: prune command-mark seenRef on marker disposal; 4px selection-handle offset; double-tap vs touch-scroll listener ordering; thumbnail "live capture" wording; scroll-freeze anchor drift at 10k scrollback saturation; heuristic ❯/› prompt-glyph tuning; stuck suppressClickRef edge (touch tap then BT-keyboard click).

@@ -215,6 +215,10 @@ export function useTerminalTouchScroll({
           touchState.cursorTimer = null;
           if (!touchState.active || touchState.axis) return;
           touchState.cursorArmed = true;
+          // Tell the context menu's competing 500ms long-press timer to stand
+          // down: a stationary hold that armed cursor mode must not also pop
+          // the copy/paste menu 50ms later.
+          container.dispatchEvent(new CustomEvent('terminal-cursor-armed'));
           navigator.vibrate?.(8);
         }, 450);
       }

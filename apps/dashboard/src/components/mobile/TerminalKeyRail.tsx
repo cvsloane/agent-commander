@@ -152,7 +152,7 @@ export function TerminalKeyRail({
     clearLongPress();
   };
 
-  const finishPointer = (key: TerminalRailKey) => {
+  const finishPointer = (key: TerminalRailKey, cancelled = false) => {
     clearLongPress();
     const gesture = gestureRef.current;
     gestureRef.current = null;
@@ -161,6 +161,9 @@ export function TerminalKeyRail({
       onCtrlEvent('hold-end');
       return;
     }
+    // A cancelled pointer (scroll takeover, palm rejection) must never
+    // activate the key — only clean releases do.
+    if (cancelled) return;
     if (gesture.swiped && key.popup) {
       executeBinding(key.popup, key);
       return;
@@ -224,7 +227,7 @@ export function TerminalKeyRail({
               onPointerDown={(event) => handlePointerDown(event, sourceKey)}
               onPointerMove={(event) => handlePointerMove(event, sourceKey)}
               onPointerUp={() => finishPointer(sourceKey)}
-              onPointerCancel={() => finishPointer(sourceKey)}
+              onPointerCancel={() => finishPointer(sourceKey, true)}
               onClick={() => {
                 if (suppressClickRef.current) {
                   suppressClickRef.current = false;

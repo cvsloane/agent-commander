@@ -89,7 +89,7 @@ func TestOwnedBashShellLaunchEnablesOSC133Passthrough(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(command, "allow-passthrough on") {
+	if !strings.Contains(command, "set-option -p allow-passthrough on") {
 		t.Fatalf("shell command did not enable tmux passthrough: %q", command)
 	}
 }

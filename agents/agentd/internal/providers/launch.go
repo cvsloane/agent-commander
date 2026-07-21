@@ -77,7 +77,7 @@ func (t *LaunchTemplates) Interactive(provider string, flags []string, requestEn
 	var preamble []string
 	if normalizedProvider == "shell" && len(argv) > 0 && filepath.Base(argv[0]) == "bash" {
 		env = mergeEnv(env, bashCommandMarkEnv(env))
-		preamble = []string{"tmux set-option -s allow-passthrough on >/dev/null 2>&1 || true"}
+		preamble = []string{"tmux set-option -p allow-passthrough on >/dev/null 2>&1 || true"}
 	}
 	return LaunchSpec{Argv: argv, Env: env, Preamble: preamble}, nil
 }
