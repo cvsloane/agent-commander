@@ -147,6 +147,7 @@ export function TmuxMobileShell({
   const previousSelectedSessionIdRef = useRef(selectedSessionId);
   const previousFocusTargetRef = useRef<string | null>(null);
   const focusRequestedRef = useRef(false);
+  const focusCleanupTimerRef = useRef<number | null>(null);
   const autoFocusPane = useSettingsStore((state) => state.autoFocusPane);
   const setAutoFocusPane = useSettingsStore((state) => state.setAutoFocusPane);
   const topology = useTmuxHostTopology(selectedSession?.host_id ?? '');
@@ -219,12 +220,21 @@ export function TmuxMobileShell({
     terminalVisible,
   ]);
 
-  useEffect(() => () => {
-    if (focusRequestedRef.current) {
-      terminalControllerRef.current?.navigate({ type: 'navigate', op: 'zoom', on: false });
-      focusRequestedRef.current = false;
+  useEffect(() => {
+    if (focusCleanupTimerRef.current !== null) {
+      window.clearTimeout(focusCleanupTimerRef.current);
+      focusCleanupTimerRef.current = null;
     }
-  }, [terminalControllerRef]);
+    return () => {
+      focusCleanupTimerRef.current = window.setTimeout(() => {
+        if (focusRequestedRef.current) {
+          sendFocus(false);
+          focusRequestedRef.current = false;
+        }
+        focusCleanupTimerRef.current = null;
+      }, 0);
+    };
+  }, [sendFocus]);
 
   const handleFocusToggle = useCallback(() => {
     const next = !(focusZoomed || focusRequestedRef.current);
