@@ -28,3 +28,4 @@
 {"ts":"2026-07-20T23:05:00Z","event":"program_complete","final_sha":"6e928a4","tag":"v0.4.0","waves":5,"lanes":10,"correction_rounds":5,"prs":[86,87,88,89,90],"wall_hours":10}
 {"ts":"2026-07-21T00:30:00Z","event":"wave_launched","wave":6,"batch":1,"lanes":["FW6-CANVAS","FW6-FLOW"]}
 {"ts":"2026-07-21T01:40:00Z","event":"lane_frozen","lane":"FW6-CANVAS","attempt":1,"frozen_sha":"a593fc6","verdict":"accepted"}
+{"ts":"2026-07-21T03:30:00Z","event":"batch_complete","wave":6,"batch":1,"gate":"green","integration_defects_fixed":3}
