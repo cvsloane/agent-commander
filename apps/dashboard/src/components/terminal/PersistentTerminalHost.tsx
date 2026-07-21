@@ -176,6 +176,7 @@ export function PersistentTerminalHost() {
             historySessionId={selectedSessionId}
             hostId={attachmentDescriptor.hostId}
             paneId={attachmentDescriptor.paneId}
+            tmuxSessionKey={attachmentDescriptor.tmuxSessionKey}
             autoAttach={attachmentDescriptor.autoAttach}
             onControllerChange={handleControllerChange}
             onTerminalInstanceChange={handleTerminalInstanceChange}

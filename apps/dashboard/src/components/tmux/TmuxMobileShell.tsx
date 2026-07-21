@@ -244,11 +244,13 @@ export function TmuxMobileShell({
 
   const handleLeaveTerminal = useCallback(() => {
     sendFocus(false);
+    terminalControllerRef.current?.resetTouchModes();
     setMode('roster');
-  }, [sendFocus]);
+  }, [sendFocus, terminalControllerRef]);
 
   const handleDetach = useCallback(() => {
     sendFocus(false);
+    terminalControllerRef.current?.resetTouchModes();
     terminalControllerRef.current?.detach();
   }, [sendFocus, terminalControllerRef]);
 

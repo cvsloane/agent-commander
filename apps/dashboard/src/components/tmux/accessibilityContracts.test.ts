@@ -38,7 +38,12 @@ describe('Command Center accessibility contracts', () => {
     const keyRail = source('src/components/mobile/TerminalKeyRail.tsx');
     expect(keyRail).toContain('role="toolbar"');
     expect(keyRail).toContain('aria-label="Terminal key rail"');
-    expect(keyRail).toContain('aria-pressed={isCtrl ? ctrlActive : undefined}');
+    expect(keyRail).toContain(
+      'aria-pressed={isCtrl || isKeyboard || isCursor ? isPressed : undefined}'
+    );
+
+    const terminalSurface = source('src/components/terminal/TerminalSurface.tsx');
+    expect(terminalSurface).toContain("textarea.inputMode = keyboardActive ? 'text' : 'none'");
   });
 
   it('routes mobile sheets through the focus-trapping dialog primitive', () => {

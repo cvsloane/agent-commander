@@ -352,6 +352,11 @@ export const TerminalNavigatePayloadSchema = z.discriminatedUnion('op', [
     op: z.literal('zoom'),
     on: z.boolean(),
   }),
+  z.object({
+    channel_id: z.string().uuid(),
+    op: z.literal('scroll'),
+    lines: z.number().int().min(-120).max(120),
+  }),
 ]);
 export type TerminalNavigatePayload = z.infer<typeof TerminalNavigatePayloadSchema>;
 

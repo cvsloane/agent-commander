@@ -14,14 +14,14 @@ async function selectSession(page: Page): Promise<void> {
   await expect(page.getByTestId('tmux-attached-status')).toContainText('Connected');
 }
 
-async function swipeTerminalDown(page: Page): Promise<void> {
+async function dragTerminal(page: Page, deltaY: number): Promise<void> {
   const terminal = page.getByLabel('Interactive terminal');
   await expect(terminal).toBeVisible();
-  await terminal.evaluate((element) => {
+  await terminal.evaluate(async (element, requestedDeltaY) => {
     const rect = element.getBoundingClientRect();
     const clientX = rect.left + rect.width / 2;
-    const startY = rect.top + Math.min(100, rect.height / 4);
-    const endY = startY + Math.min(140, Math.max(100, rect.height / 3));
+    const startY = rect.top + rect.height / 2;
+    const endY = Math.max(rect.top + 24, Math.min(rect.bottom - 24, startY + requestedDeltaY));
     const dispatch = (type: 'touchstart' | 'touchmove' | 'touchend', clientY: number) => {
       const touch = new Touch({
         identifier: 1,
@@ -40,12 +40,17 @@ async function swipeTerminalDown(page: Page): Promise<void> {
         changedTouches: [touch],
       }));
     };
+    const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
     dispatch('touchstart', startY);
-    dispatch('touchmove', startY + 8);
+    await nextFrame();
+    dispatch('touchmove', startY + Math.sign(requestedDeltaY) * 8);
+    await nextFrame();
     dispatch('touchmove', endY);
+    await nextFrame();
     dispatch('touchend', endY);
-  });
+    await nextFrame();
+  }, deltaY);
 }
 
 test.describe('FW6 mobile Focus journey', () => {
@@ -61,17 +66,97 @@ test.describe('FW6 mobile Focus journey', () => {
     });
   });
 
-  test('translates a vertical touch swipe into tmux SGR wheel input', async ({ page }) => {
+  test('translates a vertical touch swipe into native tmux scroll frames', async ({ page }) => {
     await signIn(page);
     await selectSession(page);
-    await swipeTerminalDown(page);
-    const wheelUpReport = new RegExp(`${String.fromCharCode(27)}\\[<64;\\d+;\\d+M`);
+    const initialScrollCount = recorder.terminalMessages.filter(
+      (message) => message.type === 'navigate' && message.op === 'scroll'
+    ).length;
+    await dragTerminal(page, 140);
 
-    await expect.poll(() => recorder.terminalMessages
+    await expect.poll(() => recorder.terminalMessages.filter(
+      (message) => message.type === 'navigate' && message.op === 'scroll'
+    ).length).toBeGreaterThan(initialScrollCount);
+    const scrollFrames = recorder.terminalMessages.filter(
+      (message) => message.type === 'navigate' && message.op === 'scroll'
+    );
+    expect(scrollFrames.every(
+      (message) => Number.isInteger(message.lines)
+        && message.lines !== 0
+        && Math.abs(message.lines ?? 0) <= 120
+    )).toBe(true);
+    const terminalInput = recorder.terminalMessages
       .filter((message) => message.type === 'input')
       .map((message) => message.data || '')
-      .join(''))
-      .toMatch(wheelUpReport);
+      .join('');
+    expect(terminalInput).not.toMatch(/\x1b\[<6[45];\d+;\d+M/);
+  });
+
+  test('keeps plain taps keyboard-free until the Keyboard rail key is pressed', async ({ page }) => {
+    await signIn(page);
+    await selectSession(page);
+    const terminal = page.getByLabel('Interactive terminal');
+    const textarea = page
+      .locator('[aria-label="Interactive terminal"]:visible .xterm-helper-textarea')
+      .first();
+    const rail = page.getByTestId('terminal-key-rail');
+
+    await expect(textarea).toHaveAttribute('inputmode', 'none');
+    await terminal.tap();
+    await expect(textarea).toHaveAttribute('inputmode', 'none');
+
+    const keyboardOff = rail.getByRole('button', { name: 'Keyboard off' });
+    await expect(keyboardOff).toHaveAttribute('aria-pressed', 'false');
+    await keyboardOff.tap();
+    const keyboardOn = rail.getByRole('button', { name: 'Keyboard on' });
+    await expect(keyboardOn).toHaveAttribute('aria-pressed', 'true');
+    await expect(textarea).toHaveAttribute('inputmode', 'text');
+
+    await keyboardOn.tap();
+    await expect(rail.getByRole('button', { name: 'Keyboard off' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+    await expect(textarea).toHaveAttribute('inputmode', 'none');
+  });
+
+  test('arms cursor drag for exactly one touch gesture', async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        'settings-storage',
+        JSON.stringify({ state: { terminalRailPreset: 'expanded' }, version: 0 })
+      );
+    });
+    await signIn(page);
+    await selectSession(page);
+    const rail = page.getByTestId('terminal-key-rail');
+    const cursorOff = rail.getByRole('button', { name: 'Cursor drag inactive' });
+    const inputCount = () => recorder.terminalMessages.filter(
+      (message) => message.type === 'input'
+    ).length;
+    const initialInputCount = inputCount();
+
+    await cursorOff.tap();
+    await expect(rail.getByRole('button', { name: 'Cursor drag armed' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    await dragTerminal(page, -140);
+    await expect.poll(inputCount).toBeGreaterThan(initialInputCount);
+    await expect(rail.getByRole('button', { name: 'Cursor drag inactive' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+
+    const inputCountAfterCursorGesture = inputCount();
+    const scrollCountBeforePlainGesture = recorder.terminalMessages.filter(
+      (message) => message.type === 'navigate' && message.op === 'scroll'
+    ).length;
+    await dragTerminal(page, -140);
+    await expect.poll(() => recorder.terminalMessages.filter(
+      (message) => message.type === 'navigate' && message.op === 'scroll'
+    ).length).toBeGreaterThan(scrollCountBeforePlainGesture);
+    expect(inputCount()).toBe(inputCountAfterCursorGesture);
   });
 
   test('loads History from the selected session after an in-place window switch', async ({

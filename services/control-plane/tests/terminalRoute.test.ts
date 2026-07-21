@@ -513,6 +513,7 @@ describe('terminal websocket route', () => {
     socket.send(JSON.stringify({ type: 'navigate', op: 'select_window', window_index: 2 }));
     socket.send(JSON.stringify({ type: 'navigate', op: 'select_pane', pane_id: '%7' }));
     socket.send(JSON.stringify({ type: 'navigate', op: 'zoom', on: true }));
+    socket.send(JSON.stringify({ type: 'navigate', op: 'scroll', lines: -37 }));
 
     await eventually(() => {
       const navigations = agentSend.mock.calls
@@ -522,6 +523,7 @@ describe('terminal websocket route', () => {
         { channel_id: attach?.payload.channel_id, op: 'select_window', window_index: 2 },
         { channel_id: attach?.payload.channel_id, op: 'select_pane', pane_id: '%7' },
         { channel_id: attach?.payload.channel_id, op: 'zoom', on: true },
+        { channel_id: attach?.payload.channel_id, op: 'scroll', lines: -37 },
       ]);
     });
 

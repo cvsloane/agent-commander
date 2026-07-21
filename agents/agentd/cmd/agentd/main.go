@@ -5509,6 +5509,12 @@ func (a *Agent) handleTerminalNavigate(payload json.RawMessage) {
 			return
 		}
 		navigation.On = *req.On
+	case tmux.NavigateScroll:
+		if req.Lines == nil {
+			log.Printf("Failed to parse terminal.navigate: scroll requires lines")
+			return
+		}
+		navigation.Lines = *req.Lines
 	default:
 		log.Printf("Failed to parse terminal.navigate: unsupported op %q", req.Op)
 		return

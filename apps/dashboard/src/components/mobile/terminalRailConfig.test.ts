@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  EXPANDED_TERMINAL_RAIL_CONFIG,
+  MINIMAL_TERMINAL_RAIL_CONFIG,
   parseTerminalRailConfig,
   resolveTerminalRailBinding,
 } from './terminalRailConfig';
@@ -51,6 +53,18 @@ describe('terminal rail config engine', () => {
     expect(resolveTerminalRailBinding({ type: 'keysym', value: 'previous_mark' })).toEqual({
       type: 'mark',
       direction: 'previous',
+    });
+  });
+
+  it('keeps keyboard in the minimal preset and cursor in the expanded preset only', () => {
+    expect(MINIMAL_TERMINAL_RAIL_CONFIG.keys.map((key) => key.id)).toContain('keyboard');
+    expect(MINIMAL_TERMINAL_RAIL_CONFIG.keys.map((key) => key.id)).not.toContain('cursor');
+    expect(EXPANDED_TERMINAL_RAIL_CONFIG.keys.map((key) => key.id)).toContain('cursor');
+    expect(resolveTerminalRailBinding({ type: 'keysym', value: 'keyboard' })).toEqual({
+      type: 'keyboard',
+    });
+    expect(resolveTerminalRailBinding({ type: 'keysym', value: 'cursor' })).toEqual({
+      type: 'cursor',
     });
   });
 
