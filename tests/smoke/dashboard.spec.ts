@@ -698,6 +698,10 @@ async function signIn(page: Page): Promise<void> {
   await page.waitForURL('**/');
 }
 
+function tmuxRosterPane(page: Page, title: string) {
+  return page.getByRole('treeitem').filter({ hasText: title }).last();
+}
+
 test.beforeEach(async ({ page }, testInfo) => {
   await mockControlPlane(page, {
     terminalReadOnly: testInfo.title.includes('gates terminal input while read-only'),
@@ -993,7 +997,7 @@ test('renders tmux roster with windows and panes, supports selection and filteri
   await expect(page.getByRole('heading', { name: 'tmux', exact: true })).toBeVisible();
   await expect(page.getByText('2 sessions · 3 panes')).toBeVisible();
   await expect(page.getByText('agents', { exact: true })).toBeVisible();
-  await expect(page.getByText('ops')).toBeVisible();
+  await expect(page.getByText('ops', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Waiting', exact: true })).toBeVisible();
   let duplicateRosterRequests = 0;
   page.on('request', (request) => {
@@ -1005,10 +1009,10 @@ test('renders tmux roster with windows and panes, supports selection and filteri
 
   await page.getByText('agents', { exact: true }).click();
   await expect(page.getByText('0 · agent-command')).toBeVisible();
-  await expect(page.getByText('Codex implementation')).toBeVisible();
-  await expect(page.getByText('Mobile UX review', { exact: true })).toBeVisible();
+  await expect(tmuxRosterPane(page, 'Codex implementation')).toBeVisible();
+  await expect(tmuxRosterPane(page, 'Mobile UX review')).toBeVisible();
 
-  await page.getByText('Mobile UX review', { exact: true }).click();
+  await tmuxRosterPane(page, 'Mobile UX review').click();
   await expect(page).toHaveURL(/session_id=33333333-3333-4333-8333-333333333333/);
   await expect(page.getByRole('heading', { name: 'Mobile UX review' })).toBeVisible();
   await expect(page.getByTestId('tmux-window-strip')).toBeVisible();
@@ -1026,14 +1030,14 @@ test('renders tmux roster with windows and panes, supports selection and filteri
   await page.getByRole('button', { name: 'All', exact: true }).click();
   await page.getByPlaceholder('Filter by tmux session, cwd, branch, repo, provider...').fill('deploy');
   await expect(page.getByText('1 sessions · 1 panes')).toBeVisible();
-  await expect(page.getByText('ops')).toBeVisible();
+  await expect(page.getByText('ops', { exact: true })).toBeVisible();
 });
 
 test('opens the terminal composer from attention and submits one newline-safe prompt', async ({ page }, testInfo) => {
   await signIn(page);
   await page.goto('/tmux');
   await page.getByText('agents', { exact: true }).click();
-  await page.getByText('Mobile UX review', { exact: true }).click();
+  await tmuxRosterPane(page, 'Mobile UX review').click();
 
   const overlay = page.getByTestId('terminal-attention-overlay');
   await expect(overlay).toBeVisible();
@@ -1074,9 +1078,9 @@ test('gates terminal input while read-only until the viewer takes control', asyn
   await signIn(page);
   await page.goto('/tmux');
   await page.getByText('agents', { exact: true }).click();
-  await page.getByText('Mobile UX review', { exact: true }).click();
-  await page.getByRole('button', { name: 'Attach Terminal', exact: true }).click();
+  await tmuxRosterPane(page, 'Mobile UX review').click();
 
+  await expect(page.getByRole('button', { name: 'Detach', exact: true })).toBeVisible();
   await expect(page.getByText('Read-only', { exact: true })).toBeVisible();
   const overlay = page.getByTestId('terminal-attention-overlay');
   await expect(overlay.getByRole('button', { name: 'Respond' })).toBeDisabled();
@@ -1122,9 +1126,9 @@ test('keeps the tmux roster usable on mobile viewport', async ({ page }, testInf
   await expect(page.getByText('agents', { exact: true })).toBeVisible();
 
   await page.getByText('agents', { exact: true }).click();
-  await expect(page.getByText('Codex implementation')).toBeVisible();
+  await expect(tmuxRosterPane(page, 'Codex implementation')).toBeVisible();
 
-  await page.getByText('Mobile UX review', { exact: true }).click();
+  await tmuxRosterPane(page, 'Mobile UX review').click();
   await expect(page).toHaveURL(/session_id=33333333-3333-4333-8333-333333333333/);
   await expect.poll(() => new URL(page.url()).pathname).toBe('/');
   const mobileSegments = page.getByRole('button', { name: 'Roster', exact: true }).locator('..');
@@ -1166,7 +1170,7 @@ test('renders the tmux window strip and opens range-paged history on mobile', as
 
   await page.goto('/tmux');
   await page.getByText('agents', { exact: true }).click();
-  await page.getByText('Mobile UX review', { exact: true }).click();
+  await tmuxRosterPane(page, 'Mobile UX review').click();
 
   const windowStrip = page.getByTestId('tmux-window-strip').first();
   await expect(windowStrip).toBeVisible();

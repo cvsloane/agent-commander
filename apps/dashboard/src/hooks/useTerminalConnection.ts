@@ -277,8 +277,18 @@ export function useTerminalConnection({
               updateReadOnly(msg.readonly ?? false);
               updateLagMessage(null);
               fitAndResize();
-              terminalRef.current?.focus();
-              window.setTimeout(() => terminalRef.current?.focus(), 0);
+              const focusTerminalUnlessEditing = () => {
+                const activeElement = document.activeElement;
+                if (
+                  activeElement instanceof HTMLInputElement
+                  || activeElement instanceof HTMLTextAreaElement
+                  || activeElement instanceof HTMLSelectElement
+                  || (activeElement instanceof HTMLElement && activeElement.isContentEditable)
+                ) return;
+                terminalRef.current?.focus();
+              };
+              focusTerminalUnlessEditing();
+              window.setTimeout(focusTerminalUnlessEditing, 0);
               break;
             case 'readonly':
               markConnected();
