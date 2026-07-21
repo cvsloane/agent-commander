@@ -1,12 +1,15 @@
-let cachedQueryFlag: boolean | null = null;
+let cachedSearch: string | null = null;
+let cachedQueryFlag = false;
 
 export function isPerformanceTelemetryEnabled(): boolean {
   if (typeof window === 'undefined') return false;
   if ((window as Window & { __sessionsPerf?: boolean }).__sessionsPerf === true) return true;
-  // The URL flag cannot change without a navigation, and this runs on every
-  // terminal output frame — parse the query string once, not per frame.
-  if (cachedQueryFlag === null) {
-    cachedQueryFlag = new URLSearchParams(window.location.search).get('perf') === '1';
+  // This runs on every terminal output frame: avoid a URLSearchParams
+  // allocation per frame by re-parsing only when the query string changes.
+  const search = window.location.search;
+  if (search !== cachedSearch) {
+    cachedSearch = search;
+    cachedQueryFlag = new URLSearchParams(search).get('perf') === '1';
   }
   return cachedQueryFlag;
 }
