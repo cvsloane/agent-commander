@@ -29,10 +29,14 @@ Frozen lanes (handoffs in `tasks/frontend-ux-handoffs/`): FW1-MODERN 76d3c5e · 
 
 ## Remaining for owner
 
-1. **On-device PWA pass** (install, push, terminal typing on your iPhone) — the only unchecked acceptance item that needs you; everything else was verified in Chromium at mobile/desktop viewports.
+1. **On-device pass** (install, push, terminal typing on your Galaxy S25 Ultra in Brave — see the Wave-6 addendum and docs/device-checklist.md) — the only unchecked acceptance item that needs you; everything else was verified in Chromium at mobile/desktop viewports.
 2. BACKLOG.md carries four scoped follow-ups: complete binary-only terminal migration, probe short-circuit polish, window-strip arrow auto-activation review, docs-site screenshot.
 3. GitHub release notes for v0.4.0 generate from the CHANGELOG if the release workflow is run.
 
 ## Recovery
 
 Every wave is an independent merge commit on main (`d565b00`→`effab04`→`f3df15d`→`fa0ba72`→`6e928a4`); rollback = redeploy any prior SHA. agentd backups: `~/.local/bin/agentd.bak-fw2` (heavisidelinux). Pre-program DB backup unchanged (no migrations were needed — 038 remains the head).
+
+## Addendum — Wave 6 (mobile tmux UX, 2026-07-20/21)
+
+The program was reopened by owner directive as Wave 6, run in two batches (4 lanes: FW6-CANVAS, FW6-FLOW, FW6-PRECISION, FW6-VERIFY across both machines) with per-batch adversarial reviews. Delivered on top of v0.4.0: full-bleed mobile terminal (≥40 rows @14px, assertion-tested at S25-Ultra metrics), the single configurable key rail docked in the keyboard inset with sticky-Ctrl and per-host prefixes, touch cursor-drag, attach-everywhere with zero-tap cold-open restore, desktop-shared letterbox grid pinning (agentd `window-size manual` with crash-sweep release), scroll-freeze reading, custom touch selection with exact-range copy, thumbnail pane switcher, spatial pane navigation, command marks (pane-scoped OSC-133 passthrough + labeled agent-turn heuristics), and a 27-journey suite with byte-level input assertions. Nine integration-seam defects were caught internally by gates and reviews before merge — including two in the AI Lead's own fixes, a harness-level dev-overlay tap interception masquerading as a product bug, and a HIGH where the command-marks feature would have shipped inert due to a wrong tmux option scope. Ships as v0.4.1 (PR #91). Final acceptance: owner's on-device checklist (`docs/device-checklist.md`) post-deploy. Next program: Hermes deep integration (owner-selected).

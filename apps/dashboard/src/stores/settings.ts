@@ -692,7 +692,11 @@ export const useSettingsStore = create<SettingsStore>()(
       setTmuxPrefixForHost: (hostId, prefix) => set((state) => {
         const next = { ...state.tmuxPrefixByHost };
         const normalized = prefix.trim();
-        if (!normalized || normalized === DEFAULT_TMUX_PREFIX) delete next[hostId];
+        // Only persist prefixes tmuxPrefixToSequence can actually emit
+        // (C-<key> or M-<char>); anything else would silently fall back to
+        // the default at keypress time, so don't store it at all.
+        const usable = /^C-[A-Za-z@\[\\\]^_?]$/.test(normalized) || /^M-.$/.test(normalized);
+        if (!normalized || normalized === DEFAULT_TMUX_PREFIX || !usable) delete next[hostId];
         else next[hostId] = normalized;
         return { tmuxPrefixByHost: next };
       }),

@@ -54,4 +54,4 @@ Handoffs land in `tasks/frontend-ux-handoffs/` (heavisidelinux lanes commit hand
 - Firewall breach ⇒ objective correction (revert + re-task). Red wave gate ⇒ wave held, independent lanes may continue.
 
 ## Decisions pending Human Owner
-(PROGRAM COMPLETE @ 6e928a4, v0.4.0 — awaiting owner final review + on-device PWA pass. Final Report: tasks/frontend-ux-final-report.md)
+(PROGRAM COMPLETE incl. Wave 6 — v0.4.1 @ PR #91; awaiting owner device checklist (docs/device-checklist.md) as final acceptance. Final Report + Wave-6 addendum: tasks/frontend-ux-final-report.md)

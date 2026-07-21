@@ -123,9 +123,18 @@ function isBinding(value: unknown): value is TerminalRailBinding {
     return TERMINAL_RAIL_KEYSYMS.includes(binding.value as TerminalRailKeysym);
   }
   if (binding.type === 'chord') {
-    return Array.isArray(binding.value)
-      && binding.value.length >= 2
-      && binding.value.every((part) => typeof part === 'string' && part.length > 0);
+    if (!Array.isArray(binding.value) || binding.value.length < 2) return false;
+    if (!binding.value.every((part) => typeof part === 'string' && part.length > 0)) return false;
+    // Validate at parse time what resolveTerminalRailBinding would otherwise
+    // throw on at keypress time: known modifier, and Ctrl chords must reduce
+    // to a single character.
+    const [modifier, ...parts] = binding.value as [string, ...string[]];
+    const normalizedModifier = modifier.toLowerCase();
+    if (normalizedModifier !== 'ctrl' && normalizedModifier !== 'alt' && normalizedModifier !== 'prefix') {
+      return false;
+    }
+    if (normalizedModifier === 'ctrl' && parts.join('').length !== 1) return false;
+    return true;
   }
   return binding.type === 'macro' && typeof binding.value === 'string';
 }
