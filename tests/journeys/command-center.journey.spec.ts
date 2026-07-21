@@ -313,6 +313,33 @@ test.describe('Command Center program journeys', () => {
     await expect(page).toHaveURL(new RegExp(`session_id=${interactiveSession.id}`));
   });
 
+  test('mobile pane actions launch a new window in place', async ({ page }) => {
+    test.skip(!(await isMobile(page)), 'mobile window-here journey');
+    await signIn(page);
+    await selectSession(page, interactiveSession.title);
+
+    const actions = await openPaneActions(page);
+    await actions.getByRole('button', { name: 'New window here' }).click();
+
+    const launch = page.getByRole('dialog', { name: 'Launch agent' });
+    await expect(launch).toContainText('New window in agents');
+    await expect(launch).toContainText(`${host.name} · ${interactiveSession.cwd}`);
+    await launch.getByRole('button', { name: 'Launch window here' }).click();
+
+    await expect
+      .poll(() => recorder.launchRequests)
+      .toEqual([
+        {
+          host_id: host.id,
+          provider: 'codex',
+          working_directory: interactiveSession.cwd,
+          tmux: { target_session: 'agents' },
+          wait: true,
+          wait_timeout_ms: 10_000,
+        },
+      ]);
+  });
+
   test('attention approval is decided from the terminal overlay', async ({ page }) => {
     await signIn(page);
     await selectSession(page, approvalSession.title);
@@ -327,4 +354,3 @@ test.describe('Command Center program journeys', () => {
     await expect(overlay).toHaveCount(0);
   });
 });
-

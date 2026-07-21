@@ -482,6 +482,10 @@ export async function mockControlPlane(
       });
       return;
     }
+    if (request.method() === 'PUT' && url.pathname === '/v1/settings') {
+      await fulfillJson(route, { settings: request.postDataJSON() ?? {} });
+      return;
+    }
     if (request.method() === 'GET') {
       const body = apiBody(url.pathname, availableSessions);
       if (body !== undefined) {
