@@ -1,96 +1,88 @@
 ---
 lane: FW6-VERIFY
 branch: refactor/fw6-verify
-base_sha: 3f2ddf51b49ca12e38e0bbd052058929fc0d237f
-partial_sha: 2d89cd1acb68748beb57e5d3b5f8bfd282bd8e62
-state: held
+base_sha: 427c07a387de52e977d717e7d82a9688aca2a02d
+scope_sha: f01db7c323b5905981030a09fd2b823ac55c2c7d
+state: frozen
 gates:
   setup: pass
-  window_here_journey: pass
-  prefix_journey: fail
-  lint: not_run
-  typecheck: not_run
-  test_ci: not_run
-  smoke: not_run
-  journeys: not_run
-  build: not_run
-blockers:
-  - 'The overlay-transparent touch tap reaches the rail and emits 0x02, but the configured heavisidelinux C-a prefix does not reach the persistent mobile terminal.'
+  lint: pass
+  typecheck: pass
+  test_ci: pass
+  smoke: pass
+  journeys: pass
+  build: pass
+blockers: []
 ---
 
-# FW6-VERIFY Resume 2 held handoff
+# FW6-VERIFY frozen handoff
 
 ## Outcome
 
-The lane fetched origin, rebased onto the requested `3f2ddf5` integration, and
-force-pushed the rewritten branch. The new pane-sheet **New window here**
-journey is committed at `2d89cd1` and passes in the 412x915 Chromium project:
+Wave 6 batch-2 verification is complete and frozen. The branch is rebased on
+the requested `427c07a` integration and every work item is committed and pushed:
 
-- Opens the public pane actions sheet.
-- Selects **New window here**.
-- Verifies the `heavisidelinux`, `agents`, and
-  `/home/cvsloane/dev/agent-command` prefill.
-- Launches through the public action and records the expected `/v1/launch`
-  body with `tmux.target_session: agents`.
+- Cross-viewport journeys cover cold-open restore, live window retargeting, and
+  focus-before-activation window keyboard navigation.
+- Mobile journeys cover desktop-attached letterboxing through a keyboard
+  transition, one-shot sticky Ctrl, the exact `0x01` byte for a host configured
+  with `C-a`, and **New window here** with attached-context prefill.
+- A9 makes launch and tmux-open responses emit canonical `/` Command Center URLs.
+- A10 makes terminal frame timing and Web Vitals collection opt-in before their
+  sampler/import paths do work.
+- A11 makes Arrow/Home/End navigation focus-only; Enter and Space activate.
+- The Wave 6 docs truth pass, Brave push requirement, current 412x915 Command
+  Center screenshot, 0.4.1 changelog, and owner-run S25 Ultra checklist are in
+  the docs site.
 
-The proof ran from the `fw6-r2-journeys` tmux TTY and passed in 3.6 seconds.
+The upstream pointer-up, test-overlay, pane-sheet action, and persistent
+`hostId` fixes are proven on the public paths. The correction chain is retained
+in `tasks/lessons.md` so future touch-byte tests cover all three boundaries.
 
-## Wall report
+## Pushed commits
 
-The `3f2ddf5` harness correction is effective. The retained Prefix trace shows
-that Playwright resolves the visible Prefix button, completes the touch tap,
-and the terminal WebSocket recorder receives one input byte. The received byte
-is the default prefix `0x02` (C-b), while the host-specific expected byte is
-`0x01` (C-a):
+- `b7c37b2` — restored mobile terminal journeys: cold open, window retargeting,
+  letterbox stability, and sticky Ctrl.
+- `5e7864f` — mobile pane-actions **New window here** journey.
+- `9db9565` — exact per-host Prefix byte journey (`C-a` -> `0x01`).
+- `96ae3af` — A9 canonical launch/open response hrefs and route tests.
+- `9264240` — A10 opt-in performance wrappers and focused tests.
+- `d2e2676` — A11 focus-only window navigation and cross-viewport journey.
+- `c55f577` — integrated Wave 6 mobile terminal docs truth pass.
+- `be51dab` — visually inspected 412x915 docs-site screenshot.
+- `01d4977` — accurate 0.4.1 Wave 6 changelog.
+- `f01db7c` — guided Galaxy S25 Ultra/Brave device checklist and docs indexes.
 
-`Expected recorded terminal input to contain 0x01; received 0x02.`
+Earlier held handoff commits remain in history as an honest record of the two
+upstream blockers and their diagnosis. They contain no failing tests or product
+workarounds.
 
-The trace is local at
-`test-results/command-center.journey-Com-1c77d-he-selected-host-prefix-key-mobile-412x915/trace.zip`.
-Its poll record contains `Received string: "\u0002"`, proving this is no longer
-an overlay or pointer-up activation failure.
+## Verification
 
-Three direct journey runs were made:
+The mandatory gate ran after the last product/docs commit:
 
-1. An incomplete expanded-preset fixture exposed that the preset name alone
-   does not materialize its key config during persisted-state hydration.
-2. A complete custom rail plus persisted `tmuxPrefixByHost[heavisidelinux] =
-C-a` tapped successfully but emitted `0x02`.
-3. The public Settings UI selected the expanded rail, filled the visible
-   heavisidelinux prefix control with `C-a`, and verified that field value;
-   after navigating to the terminal, the configured Prefix key was not
-   retained.
+- `pnpm lint` — pass. One existing non-failing exhaustive-deps warning remains
+  in `useXtermTerminal.ts`.
+- `pnpm typecheck` — pass.
+- `pnpm test:ci` — pass: dashboard 57 files/201 tests, control plane 49
+  files/199 tests, schema 8 files/50 tests, and CLI 3 files/44 tests.
+- `pnpm test:smoke:dashboard` from tmux with Next polling — 21/21 passed.
+- `pnpm test:journeys` from tmux with Next polling — 27 passed, 9 declared
+  viewport-specific skips.
+- `pnpm build` with Next polling — pass for all four workspaces; the dashboard
+  production build compiled and generated all routes.
 
-The failed Prefix experiment was removed rather than committed. Direct store
-injection or changing the expected byte would conceal the shipped propagation
-failure. The likely implementation path crosses the persistent terminal
-descriptor/settings integration outside this lane's dashboard ownership, and
-the brief's three-run ceiling requires a hold.
+Focused real-browser receipts also passed for the 412x915 screenshot, Prefix
+byte, New-window-here, and A11 mobile/desktop navigation paths.
 
-## Options for the AI Lead
+## Artifacts
 
-1. Return per-host prefix propagation through the persistent mobile terminal
-   to the terminal/settings owner, using the `0x01` journey as acceptance.
-2. Expand this lane's firewall to the settings store/sync and persistent
-   terminal descriptor path so it can diagnose and fix the direct behavior.
-3. Move the Prefix acceptance journey to the owning lane and resume FW6-VERIFY
-   for the remaining carried items after that commit integrates.
+- Mobile guide: `docs/command-center.md`
+- Device checklist: `docs/device-checklist.md`
+- Screenshot: `docs-site/images/command-center-mobile.png` (412x915 PNG,
+  SHA-256 `43c33feaf8aca49dbf4af3352a808dccf3e3c7fd227b3befd7a211a54fdd3b6f`)
+- Release notes: `CHANGELOG.md` (`0.4.1`, dated 2026-07-20)
 
-## Pushed partial scope
-
-The branch also retains the earlier green journey coverage for cold-open
-restore, window retargeting, attached-client letterbox stability, and one-shot
-sticky Control. No failing test was pushed.
-
-## Unstarted work
-
-- A9 canonical launch/open hrefs.
-- A10 performance gating.
-- A11 focus-only window-strip arrow navigation.
-- Wave 6 docs truth pass and docs-site screenshot.
-- CHANGELOG 0.4.1.
-- Owner device checklist.
-- Full mandatory gate sequence.
-
-The corrected overlay lesson is recorded in `tasks/lessons.md`. No production
-state, deployment files, secrets, or default tmux sessions were changed.
+No production state, deployment files, secrets, or user tmux sessions were
+changed. The branch and origin were identical at `scope_sha` before this final
+handoff commit.
