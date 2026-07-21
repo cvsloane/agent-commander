@@ -45,6 +45,7 @@ export function TerminalKeyRail({
   const gestureRef = useRef<RailGesture | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const suppressClickRef = useRef(false);
+  const railHeightTargetRef = useRef<HTMLElement | null>(null);
   const lastCtrlTapRef = useRef(0);
   const ctrlActive = ctrlMode !== 'inactive';
 
@@ -159,9 +160,16 @@ export function TerminalKeyRail({
     <div
       ref={(el) => {
         // Publish the rail's height so bottom-anchored overlays (attention
-        // card) can dock ABOVE the rail instead of underneath its hit area.
-        const slot = el?.closest<HTMLElement>('[data-terminal-slot]') ?? el?.parentElement ?? null;
-        if (el && slot) slot.style.setProperty('--terminal-rail-height', `${el.offsetHeight}px`);
+        // card) can dock ABOVE the rail. Must live on a COMMON ANCESTOR of
+        // rail and overlay (the workspace) — CSS vars never cross siblings.
+        if (el) {
+          const target = el.closest<HTMLElement>('[data-terminal-workspace]') ?? el.parentElement;
+          railHeightTargetRef.current = target ?? null;
+          target?.style.setProperty('--terminal-rail-height', `${el.offsetHeight}px`);
+        } else {
+          railHeightTargetRef.current?.style.removeProperty('--terminal-rail-height');
+          railHeightTargetRef.current = null;
+        }
       }}
       className="terminal-key-rail sticky z-40 shrink-0 border-t bg-background/95 p-1 backdrop-blur"
       data-terminal-key-controls

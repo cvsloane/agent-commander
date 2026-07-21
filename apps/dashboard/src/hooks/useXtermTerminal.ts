@@ -237,7 +237,10 @@ export function useXtermTerminal({
 
   useEffect(() => {
     const terminal = terminalRef.current;
-    if (!terminal || terminal.options.fontSize === fontSize) return;
+    if (!terminal || baseFontSizeRef.current === fontSize) return;
+    // Keep the letterbox base font in sync: the idempotence key includes the
+    // base font, so updating the ref lets applyLetterbox re-run and rescale.
+    baseFontSizeRef.current = fontSize;
     terminal.options.fontSize = fontSize;
     fontFitRafRef.current = window.requestAnimationFrame(() => {
       fontFitRafRef.current = null;

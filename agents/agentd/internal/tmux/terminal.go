@@ -236,6 +236,13 @@ func (m *TerminalManager) sweepOrphanViewerSessions() {
 		if owned {
 			continue
 		}
+		// A hard crash can leave a letterbox window-size pin on the windows of
+		// this orphan. The windows are SHARED with the origin session (grouped
+		// sessions), so release the pin before reaping or the origin stays
+		// frozen at the crashed viewer's dimensions.
+		if err := m.runner.Run("set-option", "-w", "-t", name+":", "window-size", "latest"); err != nil {
+			log.Printf("Failed to release window-size on orphan viewer session %s: %v", name, err)
+		}
 		if err := m.runner.Run("kill-session", "-t", name); err != nil {
 			log.Printf("Failed to reap orphan terminal viewer session %s: %v", name, err)
 		}
