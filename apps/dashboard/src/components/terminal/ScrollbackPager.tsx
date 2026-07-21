@@ -10,6 +10,8 @@ import { useNotifications } from '@/stores/notifications';
 import {
   SCROLLBACK_PAGE_LINES,
   advanceScrollbackSelection,
+  compensateScrollbackPrepend,
+  contentScrollbackLines,
   initialScrollbackRange,
   numberScrollbackLines,
   olderScrollbackRange,
@@ -32,13 +34,6 @@ interface HistoryPage {
 const LINE_HEIGHT = 32;
 const OVERSCAN = 12;
 const VIEWPORT_LINE_ESTIMATE = 30;
-
-function contentLines(content: unknown): string[] {
-  if (typeof content !== 'string' || content.length === 0) return [];
-  const lines = content.split('\n');
-  if (content.endsWith('\n')) lines.pop();
-  return lines;
-}
 
 export function ScrollbackPager({ sessionId, open, onClose }: ScrollbackPagerProps) {
   const [pages, setPages] = useState<HistoryPage[]>([]);
@@ -68,7 +63,7 @@ export function ScrollbackPager({ sessionId, open, onClose }: ScrollbackPagerPro
       }
       return {
         range,
-        lines: contentLines(response.result?.content),
+        lines: contentScrollbackLines(response.result?.content),
       };
     },
     [sessionId]
@@ -126,7 +121,13 @@ export function ScrollbackPager({ sessionId, open, onClose }: ScrollbackPagerPro
       setPages((current) => [page, ...current]);
       setHasOlder(page.lines.length >= SCROLLBACK_PAGE_LINES);
       requestAnimationFrame(() => {
-        if (element) element.scrollTop += element.scrollHeight - previousHeight;
+        if (element) {
+          element.scrollTop = compensateScrollbackPrepend(
+            element.scrollTop,
+            previousHeight,
+            element.scrollHeight
+          );
+        }
       });
     } catch (loadError) {
       setError(
