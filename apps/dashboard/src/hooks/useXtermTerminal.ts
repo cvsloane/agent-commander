@@ -1,8 +1,16 @@
 'use client';
 
-import { useCallback, useRef, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
 import type { XFitAddon, XSearchAddon, XSearchResult, XTerminal } from '@/components/terminal/types';
 import { canFitTerminalElement } from '@/components/terminal/viewport';
+import {
+  shouldDispatchTerminalResize,
+  type TerminalGridDimensions,
+} from './terminalGrid';
+import { useTerminalGrid, useTerminalWarmKey } from './terminalGridContext';
+import { paintTerminalWarmBuffer } from './terminalWarmCache';
+import { DEFAULT_TERMINAL_WARM_TIMEOUT_MINUTES, useSettingsStore } from '@/stores/settings';
+import { installResilientTerminalWebgl } from './terminalWebgl';
 
 export function useXtermTerminal({
   termRef,
@@ -23,32 +31,90 @@ export function useXtermTerminal({
   onSearchRequested: () => void;
   onSearchResultsChange: (results: XSearchResult) => void;
 }) {
+  const letterbox = useTerminalGrid();
+  const warmKey = useTerminalWarmKey();
+  const terminalWarmTimeoutMinutes = useSettingsStore(
+    (state) => state.terminalWarmTimeoutMinutes ?? DEFAULT_TERMINAL_WARM_TIMEOUT_MINUTES
+  );
   const terminalRef = useRef<XTerminal | null>(null);
   const fitAddonRef = useRef<XFitAddon | null>(null);
   const searchAddonRef = useRef<XSearchAddon | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const fontFitRafRef = useRef<number | null>(null);
+  const fontSize = useSettingsStore((state) => state.terminalFontSize);
+  const fontSizeRef = useRef(fontSize);
+  fontSizeRef.current = fontSize;
+  const baseFontSizeRef = useRef<number | null>(null);
+  const lastSentDimensionsRef = useRef<TerminalGridDimensions | undefined>(undefined);
+  const webglCleanupRef = useRef<(() => void) | null>(null);
+
+  const lastLetterboxKeyRef = useRef<string | null>(null);
+  const applyLetterbox = useCallback(() => {
+    const terminal = terminalRef.current;
+    const fitAddon = fitAddonRef.current;
+    const element = termRef.current;
+    if (!letterbox || !terminal || !fitAddon || !element || !canFitTerminalElement(element)) return;
+
+    const baseFontSize = baseFontSizeRef.current ?? terminal.options.fontSize ?? 14;
+    // Idempotence guard: applying the letterbox mutates the element's height,
+    // which re-fires the ResizeObserver that calls this again. Only container
+    // WIDTH, grid, or base font changes warrant a re-apply — self-inflicted
+    // height changes must settle here or the layout oscillates forever.
+    const letterboxKey = `${element.clientWidth}:${letterbox.cols}x${letterbox.rows}:${baseFontSize}`;
+    if (lastLetterboxKeyRef.current === letterboxKey) return;
+    lastLetterboxKeyRef.current = letterboxKey;
+    terminal.options.fontSize = baseFontSize;
+    const proposed = fitAddon.proposeDimensions();
+    const widthScale = proposed ? Math.min(1, proposed.cols / letterbox.cols) : 1;
+    const scaledFontSize = Math.max(4, Math.floor(baseFontSize * widthScale * 10) / 10);
+    terminal.options.fontSize = scaledFontSize;
+    terminal.resize(letterbox.cols, letterbox.rows);
+
+    const scrollContainer = element.parentElement;
+    if (scrollContainer) {
+      scrollContainer.style.overflowY = 'auto';
+      // Reserve the scrollbar gutter: without this, the scrollbar appearing/
+      // disappearing flips the element's clientWidth, which defeats the
+      // letterbox idempotence key and re-opens the resize feedback loop.
+      scrollContainer.style.scrollbarGutter = 'stable';
+    }
+    const screenHeight = element.querySelector<HTMLElement>('.xterm-screen')?.offsetHeight;
+    element.style.height = `${Math.ceil(screenHeight || letterbox.rows * scaledFontSize * 1.25) + 8}px`;
+  }, [letterbox, termRef]);
 
   const fitAndResize = useCallback(() => {
     if (!fitAddonRef.current || !termRef.current || !canFitTerminalElement(termRef.current)) return;
-    fitAddonRef.current.fit();
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      const dims = fitAddonRef.current.proposeDimensions();
-      if (dims) {
-        wsRef.current.send(JSON.stringify({
-          type: 'resize',
-          cols: dims.cols,
-          rows: dims.rows,
-        }));
-      }
+    if (letterbox) {
+      applyLetterbox();
+      return;
     }
-  }, [termRef, wsRef]);
+    const nextDimensions = fitAddonRef.current.proposeDimensions();
+    if (!nextDimensions) return;
+    const currentDimensions = terminalRef.current
+      ? { cols: terminalRef.current.cols, rows: terminalRef.current.rows }
+      : undefined;
+    if (!shouldDispatchTerminalResize(currentDimensions, nextDimensions)) return;
+    fitAddonRef.current.fit();
+    if (
+      wsRef.current?.readyState === WebSocket.OPEN
+      && shouldDispatchTerminalResize(lastSentDimensionsRef.current, nextDimensions)
+    ) {
+      wsRef.current.send(JSON.stringify({
+        type: 'resize',
+        cols: nextDimensions.cols,
+        rows: nextDimensions.rows,
+      }));
+      lastSentDimensionsRef.current = nextDimensions;
+    }
+  }, [applyLetterbox, letterbox, termRef, wsRef]);
 
   const getDimensions = useCallback(() => {
+    if (letterbox) return letterbox;
     if (!fitAddonRef.current || !termRef.current || !canFitTerminalElement(termRef.current)) {
       return undefined;
     }
     return fitAddonRef.current.proposeDimensions() ?? undefined;
-  }, [termRef]);
+  }, [letterbox, termRef]);
 
   const ensureTerminal = useCallback(async () => {
     if (!termRef.current) return null;
@@ -58,14 +124,12 @@ export function useXtermTerminal({
     const { FitAddon } = await import('@xterm/addon-fit');
     const { SearchAddon } = await import('@xterm/addon-search');
     const { WebLinksAddon } = await import('@xterm/addon-web-links');
-    const fontSize = window.matchMedia('(max-width: 767px)').matches ? 11 : 14;
-
     const terminal = new Terminal({
       allowProposedApi: true,
       cursorBlink: true,
       fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-      fontSize,
-      lineHeight: 1.25,
+      fontSize: fontSizeRef.current,
+      lineHeight: 1.15,
       scrollback: 10000,
       convertEol: true,
       theme: {
@@ -92,6 +156,7 @@ export function useXtermTerminal({
         brightWhite: '#ffffff',
       },
     });
+    baseFontSizeRef.current = fontSize;
 
     const fitAddon = new FitAddon();
     const searchAddon = new SearchAddon();
@@ -101,16 +166,29 @@ export function useXtermTerminal({
     searchAddon.onDidChangeResults(onSearchResultsChange);
 
     terminal.open(termRef.current);
+    terminalRef.current = terminal;
+    fitAddonRef.current = fitAddon;
+    searchAddonRef.current = searchAddon;
+    if (letterbox) {
+      applyLetterbox();
+    } else if (canFitTerminalElement(termRef.current)) {
+      fitAddon.fit();
+    }
+    if (warmKey) {
+      paintTerminalWarmBuffer(
+        warmKey,
+        terminal,
+        terminalWarmTimeoutMinutes * 60 * 1000
+      );
+    }
     try {
       const { WebglAddon } = await import('@xterm/addon-webgl');
-      const webglAddon = new WebglAddon();
-      webglAddon.onContextLoss(() => webglAddon.dispose());
-      terminal.loadAddon(webglAddon);
+      webglCleanupRef.current = installResilientTerminalWebgl(
+        terminal,
+        () => new WebglAddon()
+      );
     } catch {
       // The built-in DOM renderer remains active when WebGL is unavailable.
-    }
-    if (canFitTerminalElement(termRef.current)) {
-      fitAddon.fit();
     }
     terminal.attachCustomKeyEventHandler((event) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
@@ -140,28 +218,41 @@ export function useXtermTerminal({
       onViewportScroll(terminal);
     });
 
-    terminalRef.current = terminal;
-    fitAddonRef.current = fitAddon;
-    searchAddonRef.current = searchAddon;
     onTerminalInstanceChange(terminal);
-
-    const resizeObserver = new ResizeObserver(() => {
-      fitAndResize();
-    });
-    resizeObserver.observe(termRef.current);
-    resizeObserverRef.current = resizeObserver;
 
     return terminal;
   }, [
-    fitAndResize,
+    applyLetterbox,
+    letterbox,
     onSearchRequested,
     onSearchResultsChange,
     onSelectionChange,
     onTerminalInstanceChange,
     onViewportScroll,
     sendInputRef,
+    terminalWarmTimeoutMinutes,
     termRef,
+    warmKey,
   ]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal || baseFontSizeRef.current === fontSize) return;
+    // Keep the letterbox base font in sync: the idempotence key includes the
+    // base font, so updating the ref lets applyLetterbox re-run and rescale.
+    baseFontSizeRef.current = fontSize;
+    terminal.options.fontSize = fontSize;
+    fontFitRafRef.current = window.requestAnimationFrame(() => {
+      fontFitRafRef.current = null;
+      fitAndResize();
+    });
+    return () => {
+      if (fontFitRafRef.current !== null) {
+        window.cancelAnimationFrame(fontFitRafRef.current);
+        fontFitRafRef.current = null;
+      }
+    };
+  }, [fitAndResize, fontSize]);
 
   const findNext = useCallback((query: string, incremental = false) => {
     if (!query || !searchAddonRef.current) return false;
@@ -193,14 +284,26 @@ export function useXtermTerminal({
   }, []);
 
   const disposeTerminal = useCallback(() => {
+    if (fontFitRafRef.current !== null) {
+      window.cancelAnimationFrame(fontFitRafRef.current);
+      fontFitRafRef.current = null;
+    }
     resizeObserverRef.current?.disconnect();
     resizeObserverRef.current = null;
+    const element = termRef.current;
+    if (element) {
+      element.style.removeProperty('height');
+      element.parentElement?.style.removeProperty('overflow-y');
+    }
+    webglCleanupRef.current?.();
+    webglCleanupRef.current = null;
     terminalRef.current?.dispose();
     terminalRef.current = null;
     fitAddonRef.current = null;
     searchAddonRef.current = null;
+    lastSentDimensionsRef.current = undefined;
     onTerminalInstanceChange(null);
-  }, [onTerminalInstanceChange]);
+  }, [onTerminalInstanceChange, termRef]);
 
   return {
     terminalRef,

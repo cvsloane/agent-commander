@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import type { Metric } from 'web-vitals';
 import { recordPerformanceMetric } from '@/lib/sessionsPerf';
+import { isPerformanceTelemetryEnabled } from './isEnabled';
 
 function reportWebVital(metric: Metric) {
   recordPerformanceMetric({
@@ -20,6 +21,8 @@ function reportWebVital(metric: Metric) {
 
 export function WebVitalsReporter() {
   useEffect(() => {
+    if (!isPerformanceTelemetryEnabled()) return;
+
     let active = true;
     const report = (metric: Metric) => {
       if (active) reportWebVital(metric);

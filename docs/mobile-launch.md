@@ -14,6 +14,11 @@ sheet.
 5. Launch or open the pane and land on
    `/?host_id=...&session_id=...&mode=terminal&attach=1`.
 
+While already attached on mobile, open the pane actions sheet and choose **New
+window here**. The launch sheet opens with the current host, tmux session,
+working directory, and supported provider prefilled. Submitting it creates a
+new provider window in that tmux session through `POST /v1/launch`.
+
 The server waits briefly for a newly spawned tmux pane to become openable. When
 it is ready, the response includes `terminal.openable: true`; otherwise the
 dashboard can still navigate to the canonical URL and let normal roster

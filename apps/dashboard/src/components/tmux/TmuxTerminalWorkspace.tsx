@@ -11,6 +11,7 @@ import { TerminalAttentionOverlay } from '@/components/orchestrator/TerminalAtte
 import { Button } from '@/components/ui/button';
 import { useHydrated } from '@/hooks/useHydrated';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { getLetterboxDimensions } from '@/hooks/terminalGrid';
 import { getSession } from '@/lib/api';
 import { getSessionDisplayName } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
@@ -23,9 +24,11 @@ import { PromptComposer, type PromptComposerHandle } from './PromptComposer';
 interface TmuxTerminalWorkspaceProps {
   primarySession: Session;
   autoAttachPrimary?: boolean;
+  hideCollapsedPrompt?: boolean;
   primaryControllerRef?: MutableRefObject<TerminalController | null>;
   onAttentionRespond?: (item: OrchestratorItem) => void;
   onSendToOtherSession?: (targetSessionId: string) => void;
+  onSelectSession?: (sessionId: string) => void;
 }
 
 function TerminalLabel({
@@ -64,9 +67,11 @@ function TerminalLabel({
 export function TmuxTerminalWorkspace({
   primarySession,
   autoAttachPrimary = false,
+  hideCollapsedPrompt = false,
   primaryControllerRef,
   onAttentionRespond,
   onSendToOtherSession,
+  onSelectSession,
 }: TmuxTerminalWorkspaceProps) {
   const promptComposerRef = useRef<PromptComposerHandle>(null);
   const terminalHostSnapshot = useSyncExternalStore(
@@ -82,6 +87,11 @@ export function TmuxTerminalWorkspace({
   const setSecondary = useSettingsStore((state) => state.setTmuxSecondary);
   const rosterSessions = useTmuxTopologyStore(
     (state) => state.rosterByHost[primarySession.host_id]
+  );
+  const hostTopology = useTmuxTopologyStore((state) => state.hosts[primarySession.host_id]);
+  const primaryLetterbox = useMemo(
+    () => getLetterboxDimensions(hostTopology, primarySession),
+    [hostTopology, primarySession]
   );
   const options = useMemo(
     () =>
@@ -114,6 +124,7 @@ export function TmuxTerminalWorkspace({
     sessionId: primarySession.id,
     paneId: primarySession.tmux_pane_id || undefined,
     autoAttach: autoAttachPrimary || showSecondary,
+    letterbox: primaryLetterbox,
   });
   const readOnly = terminalHostSnapshot.descriptorKey === primaryTerminalKey
     && terminalHostSnapshot.readOnly;
@@ -160,13 +171,15 @@ export function TmuxTerminalWorkspace({
       >
         <section className="flex h-full min-h-0 min-w-0 flex-col" aria-label="Primary terminal">
           {showSecondary && <TerminalLabel label="Primary" session={primarySession} />}
-          <TmuxWindowStrip session={primarySession} />
+          <TmuxWindowStrip session={primarySession} onSelectSession={onSelectSession} />
           <TmuxPaneControls session={primarySession} />
           <div className="relative min-h-0 flex-1">
             <PersistentTerminalSlot
               sessionId={primarySession.id}
+              hostId={primarySession.host_id}
               paneId={primarySession.tmux_pane_id || undefined}
               autoAttach={autoAttachPrimary || showSecondary}
+              letterbox={primaryLetterbox}
               controllerRef={primaryControllerRef}
               className="h-full"
             />
@@ -194,6 +207,7 @@ export function TmuxTerminalWorkspace({
                 <TmuxPaneControls session={secondarySession} />
                 <TerminalView
                   sessionId={secondarySession.id}
+                  hostId={secondarySession.host_id}
                   paneId={secondarySession.tmux_pane_id || undefined}
                   autoAttach
                   className="flex-1"
@@ -218,6 +232,7 @@ export function TmuxTerminalWorkspace({
         ref={promptComposerRef}
         session={primarySession}
         readOnly={readOnly}
+        hideCollapsed={hideCollapsedPrompt}
         onSendToOtherSession={onSendToOtherSession}
       />
     </div>

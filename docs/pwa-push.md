@@ -39,6 +39,12 @@ Open the HTTPS dashboard in a supported browser and use its install/add-to-home
 screen action. The installed app and a normal browser tab share the same
 server-side subscription record for that browser profile.
 
+On Brave for Android, open Brave settings and enable **Use Google services for
+push messaging** before enabling Web Push in Agent Commander. Brave cannot
+receive the push subscription while that setting is off. Reload the dashboard
+or reopen the installed PWA after changing it, then grant notification
+permission when prompted.
+
 ## What is delivered
 
 Web Push covers actionable attention such as approvals, waiting input, blocked
@@ -50,6 +56,7 @@ otherwise opens its same-origin deep link.
 
 - "Not configured" means one or more VAPID variables are missing on the control plane.
 - Permission denied must be reversed in browser/site settings before retrying.
+- On Brave for Android, confirm **Use Google services for push messaging** is enabled.
 - Service workers require HTTPS outside local development.
 - A stale or expired browser endpoint is pruned after the push service returns `404` or `410`.
 - Confirm `APP_BASE_URL` matches the public dashboard origin if notification links open the wrong host.

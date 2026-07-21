@@ -19,7 +19,13 @@ import {
 import { isHostOnline } from '@/lib/utils';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useTmuxTopologyFeed } from '@/hooks/useTmuxTopology';
+import {
+  getAttachedTmuxSelectionUpdates,
+  shouldRestoreLastTmuxAttachment,
+} from '@/hooks/tmuxNavigation';
+import { useHydrated } from '@/hooks/useHydrated';
 import { selectFleetRosterGroups, useFleetStore } from '@/stores/fleet';
+import { useUIStore } from '@/stores/ui';
 import {
   useSettingsStore,
   type TmuxSavedRosterFilter,
@@ -64,9 +70,11 @@ export function useTmuxRosterData() {
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const previousSelectedSessionIdRef = useRef<string>('');
+  const restoreAttemptedRef = useRef(false);
   const pendingSearchRef = useRef(searchParams.toString());
   const [expandedClusterKey, setExpandedClusterKey] = useState<string | null>(null);
   const [recentFilterNow, setRecentFilterNow] = useState(() => Date.now());
+  const hydrated = useHydrated();
   const ingestAggregate = useFleetStore((state) => state.ingestAggregate);
   const applySessionsChanged = useFleetStore((state) => state.applySessionsChanged);
   const applySessionEdges = useFleetStore((state) => state.applySessionEdges);
@@ -78,6 +86,8 @@ export function useTmuxRosterData() {
   const setSavedFilter = useSettingsStore((state) => state.setTmuxRosterFilter);
   const savedThisHostId = useSettingsStore((state) => state.tmuxThisHostId);
   const setSavedThisHostId = useSettingsStore((state) => state.setTmuxThisHostId);
+  const lastAttachedTmux = useUIStore((state) => state.lastAttachedTmux);
+  const setLastAttachedTmux = useUIStore((state) => state.setLastAttachedTmux);
 
   const hostIdParam = searchParams.get('host_id') || '';
   const sessionIdParam = searchParams.get('session_id') || '';
@@ -187,6 +197,16 @@ export function useTmuxRosterData() {
     [router, setSavedFilter]
   );
 
+  useEffect(() => {
+    if (!hydrated || restoreAttemptedRef.current) return;
+    restoreAttemptedRef.current = true;
+    if (!lastAttachedTmux || !shouldRestoreLastTmuxAttachment(searchParams.toString())) return;
+    updateTmuxParams(getAttachedTmuxSelectionUpdates({
+      hostId: lastAttachedTmux.hostId,
+      sessionId: lastAttachedTmux.sessionId,
+    }));
+  }, [hydrated, lastAttachedTmux, searchParams, updateTmuxParams]);
+
   const {
     data: sessionsData,
     isLoading: sessionsLoading,
@@ -261,6 +281,14 @@ export function useTmuxRosterData() {
         .map((session) => [session.id, session])
     ).values(),
   ], [rosterByHost, trackedHostIds]);
+  const quickSwitchSessions = useMemo(() => [
+    ...new Map(
+      Object.values(rosterByHost)
+        .flat()
+        .filter((session) => Boolean(session.tmux_pane_id) && !session.archived_at)
+        .map((session) => [session.id, session])
+    ).values(),
+  ], [rosterByHost]);
   useTmuxTopologyFeed(
     trackedHostIds,
     tmuxSessions
@@ -299,8 +327,8 @@ export function useTmuxRosterData() {
   );
 
   const availableSessionIds = useMemo(
-    () => new Set(filteredSessions.map((session) => session.id)),
-    [filteredSessions]
+    () => new Set(tmuxSessions.map((session) => session.id)),
+    [tmuxSessions]
   );
 
   const sessionToClusterKey = useMemo(() => {
@@ -324,11 +352,40 @@ export function useTmuxRosterData() {
     : null;
 
   useEffect(() => {
-    if (!selectedHostId) return;
-    if (!availableSessionIds.has(sessionIdParam) && sessionIdParam) {
-      updateTmuxParams({ session_id: null });
+    if (!selectedHostId || !sessionIdParam || !sessionsData || sessionsFetching) return;
+    if (!sessionsData.sessions.some((session) => session.id === sessionIdParam)) {
+      if (lastAttachedTmux?.sessionId === sessionIdParam) {
+        setLastAttachedTmux(null);
+      }
+      updateTmuxParams({ session_id: null, mode: null, attach: null });
     }
-  }, [availableSessionIds, selectedHostId, sessionIdParam, updateTmuxParams]);
+  }, [
+    lastAttachedTmux?.sessionId,
+    selectedHostId,
+    sessionIdParam,
+    sessionsData,
+    sessionsFetching,
+    setLastAttachedTmux,
+    updateTmuxParams,
+  ]);
+
+  useEffect(() => {
+    if (searchParams.get('attach') !== '1' || !selectedSessionId) return;
+    const session = quickSwitchSessions.find((candidate) => candidate.id === selectedSessionId);
+    if (!session) return;
+    if (
+      lastAttachedTmux?.hostId === session.host_id
+      && lastAttachedTmux.sessionId === session.id
+    ) return;
+    setLastAttachedTmux({ hostId: session.host_id, sessionId: session.id });
+  }, [
+    lastAttachedTmux?.hostId,
+    lastAttachedTmux?.sessionId,
+    quickSwitchSessions,
+    searchParams,
+    selectedSessionId,
+    setLastAttachedTmux,
+  ]);
 
   useEffect(() => {
     setExpandedClusterKey((current) =>
@@ -410,9 +467,13 @@ export function useTmuxRosterData() {
       if (clusterKey) {
         setExpandedClusterKey(clusterKey);
       }
-      updateTmuxParams({ session_id: sessionId });
+      const session = quickSwitchSessions.find((candidate) => candidate.id === sessionId);
+      updateTmuxParams(getAttachedTmuxSelectionUpdates({
+        sessionId,
+        hostId: session?.host_id,
+      }));
     },
-    [sessionToClusterKey, updateTmuxParams]
+    [quickSwitchSessions, sessionToClusterKey, updateTmuxParams]
   );
 
   return {
@@ -427,6 +488,7 @@ export function useTmuxRosterData() {
     sessionsError,
     sessionsFetching,
     tmuxSessions,
+    quickSwitchSessions,
     filteredSessions,
     groups,
     allHostsSelected,

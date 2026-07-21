@@ -12,6 +12,7 @@ import {
   isKnownAgentMessageType,
   validateEventPayload,
   type AgentMessage,
+  type CommandResultMessage,
   type Session,
   type SessionUpsert,
 } from '@agent-command/schema';
@@ -290,7 +291,7 @@ async function processAgentMessage(
       break;
 
     case 'commands.result':
-      await handleCommandResult(app, state, message.payload);
+      await handleCommandResult(app, state, message);
       sendAck(socket, seq, 'ok');
       break;
 
@@ -755,10 +756,12 @@ async function handleEventsAppend(
 async function handleCommandResult(
   app: FastifyInstance,
   state: AgentState,
-  payload: { cmd_id: string; session_id?: string; ok: boolean; result?: Record<string, unknown>; error?: { code: string; message: string } }
+  message: CommandResultMessage
 ): Promise<void> {
+  const payload = message.payload;
   app.log.info({ cmdId: payload.cmd_id, ok: payload.ok }, 'Command result received');
   if (!state.hostId) return;
+  pubsub.publishCommandResult(state.hostId, message);
 
   // Resolve any caller waiting on this command id, including host-level commands.
   await handleCommandResultForPending(state.hostId, payload.cmd_id, {

@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-20
+
+### Added
+
+- A full-bleed mobile tmux workspace with a compact status row and window strip,
+  one configurable terminal rail, sticky Ctrl modes, per-host prefix keys,
+  swipe-up bindings, touch cursor drag, momentum scrollback, and 11–18 px pinch
+  font sizing.
+- Attach-everywhere pane navigation, zero-tap cold-open restore of the last
+  attached pane, 30-minute warm terminal switching, and **New window here**
+  launches prefilled from the current host, tmux session, directory, and provider.
+- Desktop-attached terminal letterboxing, stable grid behavior across the mobile
+  keyboard transition, window swipes and spatial pane navigation, scroll-freeze
+  reading, exact-range history copy, and command-mark navigation.
+- Cross-viewport journeys for cold restore, window retargeting and keyboard
+  activation, letterboxing, sticky Ctrl, per-host prefix bytes, and window-here
+  launches, plus an owner-run Galaxy S25 Ultra/Brave device checklist.
+
+### Changed
+
+- Replaced the Command Center's overlapping mobile key strips with a single
+  Minimal, Expanded, or JSON-defined rail whose input follows the terminal's
+  control/read-only guard.
+- Made launch and tmux-open API responses emit canonical `/` Command Center URLs
+  while retaining `/tmux` as a query-preserving compatibility redirect.
+- Made client frame timing and Web Vitals probes opt-in through `?perf=1` or
+  `window.__sessionsPerf`, avoiding sampler and dynamic-import work by default.
+- Changed window-strip arrow, Home, and End keys to move focus only; Enter or
+  Space now activates the focused window.
+
+### Fixed
+
+- Activated captured touch rail taps on pointer-up, kept the Playwright Next
+  dev-tools overlay from intercepting taps, and carried `hostId` through the
+  persistent terminal descriptor so custom per-host prefixes reach the terminal.
+- Kept the terminal attention card above the key rail, prevented letterbox resize
+  feedback loops, preserved the rail-height inset across responsive mounts, and
+  released orphaned terminal sizes during crash cleanup.
+- Preserved scroll position during incoming output, reconciled command results
+  after reconnect, and prevented one-shot Ctrl from leaking into subsequent IME
+  text.
+
 ## [0.4.0] - 2026-07-20
 
 ### Added
@@ -135,7 +177,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - agentd daemon for tmux session management
 - Alerts and notifications (browser, audio, toasts, OpenClaw)
 
-[Unreleased]: https://github.com/cvsloane/agent-commander/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/cvsloane/agent-commander/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/cvsloane/agent-commander/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/cvsloane/agent-commander/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/cvsloane/agent-commander/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/cvsloane/agent-commander/compare/v0.2.0...v0.2.1

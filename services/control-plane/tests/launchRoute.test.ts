@@ -356,7 +356,7 @@ describe('launch routes', () => {
     expect(response.json()).toMatchObject({
       session_id: sessionId,
       status: 'ready',
-      href: `/tmux?host_id=${hostId}&session_id=${sessionId}&mode=terminal&attach=1`,
+      href: `/?host_id=${hostId}&session_id=${sessionId}&mode=terminal&attach=1`,
       terminal: { openable: true, pane_id: '%1' },
     });
 

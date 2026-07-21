@@ -1,10 +1,14 @@
 import type { MutableRefObject } from 'react';
-import type { TerminalController, XTerminal } from './types';
+import type { ConnectionStatus, TerminalController, XTerminal } from './types';
+import type { TerminalGridDimensions } from '@/hooks/terminalGrid';
+import { captureTerminalWarmBuffer } from '@/hooks/terminalWarmCache';
 
 export interface TerminalHostDescriptor {
   sessionId: string;
+  hostId?: string;
   paneId?: string;
   autoAttach: boolean;
+  letterbox?: TerminalGridDimensions;
 }
 
 export interface TerminalHostSnapshot {
@@ -13,7 +17,9 @@ export interface TerminalHostSnapshot {
   target: HTMLDivElement | null;
   visible: boolean;
   terminalInstance: XTerminal | null;
+  status: ConnectionStatus;
   readOnly: boolean;
+  resumeAvailable: boolean;
 }
 
 interface SurfaceRegistration {
@@ -31,10 +37,19 @@ const EMPTY_SNAPSHOT: TerminalHostSnapshot = {
   target: null,
   visible: false,
   terminalInstance: null,
+  status: 'disconnected',
   readOnly: false,
+  resumeAvailable: false,
 };
 
 export function getTerminalDescriptorKey(descriptor: TerminalHostDescriptor): string {
+  const grid = descriptor.letterbox
+    ? `${descriptor.letterbox.cols}x${descriptor.letterbox.rows}`
+    : 'fit';
+  return `${descriptor.sessionId}\u0000${descriptor.paneId || ''}\u0000${grid}`;
+}
+
+export function getTerminalWarmKey(descriptor: TerminalHostDescriptor): string {
   return `${descriptor.sessionId}\u0000${descriptor.paneId || ''}`;
 }
 
@@ -82,6 +97,12 @@ export function createTerminalHostStore() {
     const descriptorKey = getTerminalDescriptorKey(activeSurface.descriptor);
     const descriptorChanged = descriptorKey !== snapshot.descriptorKey;
     if (descriptorChanged) {
+      if (snapshot.descriptor && snapshot.terminalInstance) {
+        captureTerminalWarmBuffer(
+          getTerminalWarmKey(snapshot.descriptor),
+          snapshot.terminalInstance
+        );
+      }
       controller = null;
     }
     setActiveControllerRef(activeSurface.controllerRef);
@@ -91,7 +112,9 @@ export function createTerminalHostStore() {
       target: activeSurface.target,
       visible: activeSurface.visible,
       terminalInstance: descriptorChanged ? null : snapshot.terminalInstance,
+      status: descriptorChanged ? 'disconnected' : snapshot.status,
       readOnly: descriptorChanged ? false : snapshot.readOnly,
+      resumeAvailable: descriptorChanged ? false : snapshot.resumeAvailable,
     };
     emit();
   };
@@ -132,14 +155,20 @@ export function createTerminalHostStore() {
         activeControllerRef.current = nextController;
       }
       const readOnly = nextController?.readOnly ?? false;
-      if (snapshot.readOnly !== readOnly) {
-        snapshot = { ...snapshot, readOnly };
+      const status = nextController?.status ?? 'disconnected';
+      if (snapshot.readOnly !== readOnly || snapshot.status !== status) {
+        snapshot = { ...snapshot, readOnly, status };
         emit();
       }
     },
     setTerminalInstance(descriptorKey: string, instance: XTerminal | null) {
       if (snapshot.descriptorKey !== descriptorKey) return;
       snapshot = { ...snapshot, terminalInstance: instance };
+      emit();
+    },
+    setResumeAvailable(descriptorKey: string, available: boolean) {
+      if (snapshot.descriptorKey !== descriptorKey || snapshot.resumeAvailable === available) return;
+      snapshot = { ...snapshot, resumeAvailable: available };
       emit();
     },
     reset() {

@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { TMUX_PREFIX, TMUX_SHORTCUT_KEYS } from './tmuxKeys';
+import {
+  DEFAULT_TMUX_PREFIX,
+  TMUX_SHORTCUT_KEYS,
+  buildTmuxShortcutKeys,
+  isValidTmuxPrefix,
+  tmuxPrefixToSequence,
+} from './tmuxKeys';
 
 describe('TMUX_SHORTCUT_KEYS', () => {
   it('starts every tmux shortcut with the configured prefix', () => {
-    expect(TMUX_PREFIX).toBe('\x02');
-    expect(TMUX_SHORTCUT_KEYS.every((key) => key.data.startsWith(TMUX_PREFIX))).toBe(true);
+    const prefix = tmuxPrefixToSequence(DEFAULT_TMUX_PREFIX);
+    expect(DEFAULT_TMUX_PREFIX).toBe('C-b');
+    expect(TMUX_SHORTCUT_KEYS.every((key) => key.data.startsWith(prefix))).toBe(true);
   });
 
   it('includes mobile operator shortcuts for windows, panes, splits, zoom, and copy mode', () => {
@@ -21,5 +28,13 @@ describe('TMUX_SHORTCUT_KEYS', () => {
     expect(byLabel.get('tmux pane down')).toBe('\x02\x1b[B');
     expect(byLabel.get('tmux pane up')).toBe('\x02\x1b[A');
     expect(byLabel.get('tmux pane right')).toBe('\x02\x1b[C');
+  });
+
+  it('builds shortcuts from a per-host prefix setting', () => {
+    const custom = buildTmuxShortcutKeys('C-a');
+    expect(custom.every((key) => key.data.startsWith('\x01'))).toBe(true);
+    expect(tmuxPrefixToSequence('M-a')).toBe('\x1ba');
+    expect(isValidTmuxPrefix('C-a')).toBe(true);
+    expect(isValidTmuxPrefix('not-a-prefix')).toBe(false);
   });
 });

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   AgentMessageSchema,
+  ServerToUIMessageSchema,
   ServerToAgentMessageSchema,
 } from '../src/index.js';
 
@@ -35,8 +36,13 @@ describe('protocol fixtures', () => {
     expect(JSON.stringify(parsed)).toBe(source);
   });
 
+  it('validates the UI command-result topic fixture', () => {
+    expect(ServerToUIMessageSchema.safeParse(readFixture('ui-commands-result.json')).success).toBe(true);
+  });
+
   it.each([
     'terminal-attach.json',
+    'terminal-attach-letterbox.json',
     'terminal-input.json',
     'commands-dispatch-send-input.json',
   ])('validates server-to-agent message fixture %s', (name) => {

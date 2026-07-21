@@ -27,6 +27,7 @@ export function TmuxPaneRow({ pane, selectedSessionId, hydrated, onSelectSession
     <button
       type="button"
       role="treeitem"
+      data-tmux-pane-session={pane.session.id}
       aria-selected={paneActive}
       onClick={() => onSelectSession(pane.session.id)}
       onContextMenu={(event) => {

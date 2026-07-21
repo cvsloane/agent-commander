@@ -65,3 +65,44 @@ func TestLaunchTemplatesAreConfigOverridableAndSupportHeadless(t *testing.T) {
 		t.Fatalf("headless argv=%q", got)
 	}
 }
+
+func TestOwnedBashShellLaunchEnablesOSC133Passthrough(t *testing.T) {
+	templates := NewLaunchTemplates(&config.Config{
+		Spawn: config.SpawnConfig{DefaultShell: "/bin/bash"},
+	})
+	spec, err := templates.Interactive("shell", nil, map[string]string{
+		"PROMPT_COMMAND": "history -a",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(spec.Argv, "|"); got != "/bin/bash|-i" {
+		t.Fatalf("shell argv=%q", got)
+	}
+	if spec.Env["AC_COMMAND_MARKS"] != "osc133" {
+		t.Fatalf("command mark env=%v", spec.Env)
+	}
+	if !strings.Contains(spec.Env["PROMPT_COMMAND"], "]133;A") || !strings.Contains(spec.Env["PROMPT_COMMAND"], "history -a") {
+		t.Fatalf("prompt command=%q", spec.Env["PROMPT_COMMAND"])
+	}
+	command, err := spec.ShellCommand()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(command, "set-option -p allow-passthrough on") {
+		t.Fatalf("shell command did not enable tmux passthrough: %q", command)
+	}
+}
+
+func TestCustomNonBashShellDoesNotInjectBashCommandMarks(t *testing.T) {
+	templates := NewLaunchTemplates(&config.Config{
+		Spawn: config.SpawnConfig{DefaultShell: "/bin/zsh"},
+	})
+	spec, err := templates.Interactive("shell", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := spec.Env["AC_COMMAND_MARKS"]; ok || len(spec.Preamble) != 0 {
+		t.Fatalf("non-bash shell received bash integration: %+v", spec)
+	}
+}

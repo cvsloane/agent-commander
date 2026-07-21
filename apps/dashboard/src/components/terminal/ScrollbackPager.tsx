@@ -9,8 +9,12 @@ import { getSessionScrollback } from '@/lib/api';
 import { useNotifications } from '@/stores/notifications';
 import {
   SCROLLBACK_PAGE_LINES,
+  advanceScrollbackSelection,
   initialScrollbackRange,
+  numberScrollbackLines,
   olderScrollbackRange,
+  selectedScrollbackLines,
+  type ScrollbackLineSelection,
   type ScrollbackRange,
 } from './scrollbackPaging';
 
@@ -25,9 +29,9 @@ interface HistoryPage {
   lines: string[];
 }
 
-const LINE_HEIGHT = 20;
+const LINE_HEIGHT = 32;
 const OVERSCAN = 12;
-const VIEWPORT_LINE_ESTIMATE = 36;
+const VIEWPORT_LINE_ESTIMATE = 30;
 
 function contentLines(content: unknown): string[] {
   if (typeof content !== 'string' || content.length === 0) return [];
@@ -45,6 +49,8 @@ export function ScrollbackPager({ sessionId, open, onClose }: ScrollbackPagerPro
   const [error, setError] = useState<string | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [copiedSelection, setCopiedSelection] = useState(false);
+  const [lineSelection, setLineSelection] = useState<ScrollbackLineSelection | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const generationRef = useRef(0);
   const notifications = useNotifications();
@@ -75,6 +81,7 @@ export function ScrollbackPager({ sessionId, open, onClose }: ScrollbackPagerPro
     setPages([]);
     setHasOlder(true);
     setScrollTop(0);
+    setLineSelection(null);
     try {
       const page = await fetchPage(initialScrollbackRange());
       if (generationRef.current !== generation) return;
@@ -101,6 +108,8 @@ export function ScrollbackPager({ sessionId, open, onClose }: ScrollbackPagerPro
     }
     setFilter('');
     setCopied(false);
+    setCopiedSelection(false);
+    setLineSelection(null);
     void loadInitial();
   }, [loadInitial, open]);
 
@@ -128,13 +137,23 @@ export function ScrollbackPager({ sessionId, open, onClose }: ScrollbackPagerPro
     }
   };
 
-  const allLines = useMemo(() => pages.flatMap((page) => page.lines), [pages]);
+  const allLines = useMemo(
+    () => pages.flatMap((page) => numberScrollbackLines(page.range, page.lines)),
+    [pages]
+  );
   const filteredLines = useMemo(() => {
     const query = filter.trim().toLowerCase();
     return allLines
-      .map((text, index) => ({ text, originalIndex: index }))
       .filter((line) => !query || line.text.toLowerCase().includes(query));
   }, [allLines, filter]);
+  const selectedLines = useMemo(
+    () => selectedScrollbackLines(allLines, lineSelection),
+    [allLines, lineSelection]
+  );
+  const selectedLineNumbers = useMemo(
+    () => new Set(selectedLines.map((line) => line.lineNumber)),
+    [selectedLines]
+  );
   const startIndex = Math.max(0, Math.floor(scrollTop / LINE_HEIGHT) - OVERSCAN);
   const endIndex = Math.min(
     filteredLines.length,
@@ -144,6 +163,8 @@ export function ScrollbackPager({ sessionId, open, onClose }: ScrollbackPagerPro
 
   const changeFilter = (value: string) => {
     setFilter(value);
+    setLineSelection(null);
+    setCopiedSelection(false);
     setScrollTop(0);
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   };
@@ -156,6 +177,19 @@ export function ScrollbackPager({ sessionId, open, onClose }: ScrollbackPagerPro
     } catch (copyError) {
       notifications.error(
         'Could not copy terminal history',
+        copyError instanceof Error ? copyError.message : 'Clipboard access was denied.',
+        { sessionId }
+      );
+    }
+  };
+
+  const copySelectedLines = async () => {
+    try {
+      await navigator.clipboard.writeText(selectedLines.map((line) => line.text).join('\n'));
+      setCopiedSelection(true);
+    } catch (copyError) {
+      notifications.error(
+        'Could not copy selected history lines',
         copyError instanceof Error ? copyError.message : 'Clipboard access was denied.',
         { sessionId }
       );
@@ -207,6 +241,19 @@ export function ScrollbackPager({ sessionId, open, onClose }: ScrollbackPagerPro
             <span className="text-xs text-muted-foreground" aria-live="polite">
               {filteredLines.length.toLocaleString()} {filter ? 'matches' : 'lines'}
             </span>
+            {lineSelection && (
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                className="h-9 gap-1.5"
+                onClick={() => void copySelectedLines()}
+                disabled={selectedLines.length === 0}
+              >
+                <Clipboard className="h-4 w-4" aria-hidden="true" />
+                {copiedSelection ? 'Selected lines copied' : 'Copy selected lines'}
+              </Button>
+            )}
             <Button
               type="button"
               variant="outline"
@@ -219,6 +266,17 @@ export function ScrollbackPager({ sessionId, open, onClose }: ScrollbackPagerPro
               {copied ? 'Copied' : filter ? 'Copy matches' : 'Copy all'}
             </Button>
           </div>
+
+          {lineSelection && (
+            <div
+              className="shrink-0 border-b bg-sky-500/10 px-4 py-1.5 text-xs text-sky-700 dark:text-sky-300"
+              aria-live="polite"
+            >
+              {lineSelection.awaitingExtent
+                ? `Line ${lineSelection.anchorLine} anchored · tap another line to extend`
+                : `${selectedLines.length} lines selected · tap a line to start a new range`}
+            </div>
+          )}
 
           {error && (
             <div
@@ -284,13 +342,32 @@ export function ScrollbackPager({ sessionId, open, onClose }: ScrollbackPagerPro
                 {visibleLines.map((line, offset) => {
                   const virtualIndex = startIndex + offset;
                   return (
-                    <div
-                      key={`${line.originalIndex}:${line.text}`}
-                      className="absolute left-0 min-w-full whitespace-pre px-3 leading-5"
+                    <button
+                      key={line.lineNumber}
+                      type="button"
+                      className={`absolute left-0 grid min-w-full grid-cols-[4.5rem_minmax(max-content,1fr)] items-center whitespace-pre text-left leading-8 outline-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400 ${
+                        selectedLineNumbers.has(line.lineNumber)
+                          ? 'bg-sky-600/35'
+                          : 'hover:bg-white/5'
+                      }`}
                       style={{ top: `${virtualIndex * LINE_HEIGHT}px`, height: `${LINE_HEIGHT}px` }}
+                      onClick={() => {
+                        setCopiedSelection(false);
+                        setLineSelection((current) =>
+                          advanceScrollbackSelection(current, line.lineNumber)
+                        );
+                      }}
+                      aria-pressed={selectedLineNumbers.has(line.lineNumber)}
+                      aria-label={`Select history line ${line.lineNumber}`}
                     >
-                      {line.text || ' '}
-                    </div>
+                      <span
+                        className="select-none border-r border-white/10 px-2 text-right text-white/40"
+                        aria-hidden="true"
+                      >
+                        {line.lineNumber}
+                      </span>
+                      <span className="px-3">{line.text || ' '}</span>
+                    </button>
                   );
                 })}
               </div>

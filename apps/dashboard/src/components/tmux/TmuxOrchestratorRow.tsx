@@ -1,5 +1,7 @@
 'use client';
 
+import type { MouseEvent } from 'react';
+
 import { Bot, ChevronDown, ChevronRight, Network } from 'lucide-react';
 import type { Host } from '@agent-command/schema';
 import type { OrchestratorFleetGroup } from '@/lib/fleetRoster';
@@ -7,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn, formatRelativeTime, getStatusIndicator, isHostOnline } from '@/lib/utils';
 import { TmuxPaneRow } from './TmuxPaneRow';
 import { SessionHealthBadges } from '@/components/session/SessionHealthBadges';
+import { summarizeRosterTriage } from './rosterTriage';
 
 interface TmuxOrchestratorRowProps {
   group: OrchestratorFleetGroup;
@@ -18,6 +21,7 @@ interface TmuxOrchestratorRowProps {
   onExpandedChange: (expanded: boolean) => void;
   onSelectSession: (sessionId: string) => void;
   onOpenActions?: (sessionId: string) => void;
+  onRevealSession?: (sessionId: string) => void;
 }
 
 export function TmuxOrchestratorRow({
@@ -30,13 +34,22 @@ export function TmuxOrchestratorRow({
   onExpandedChange,
   onSelectSession,
   onOpenActions,
+  onRevealSession,
 }: TmuxOrchestratorRowProps) {
   const hostNames = group.hostIds
     .map((hostId) => hosts.find((host) => host.id === hostId)?.name || hostId.slice(0, 8))
     .join(', ');
-  const statuses = [group.orchestrator, ...group.workers].map((pane) => pane.session.status);
-  const waitingCount = statuses.filter((status) => status.startsWith('WAITING')).length;
+  const triage = summarizeRosterTriage([
+    group.orchestrator.session,
+    ...group.workers.map((worker) => worker.session),
+  ]);
+  const waitingCount = triage.approvalCount + triage.waitingCount;
   const status = getStatusIndicator(group.orchestrator.session.status);
+  const revealTriage = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (triage.firstSessionId) onRevealSession?.(triage.firstSessionId);
+  };
 
   return (
     <details
@@ -78,6 +91,26 @@ export function TmuxOrchestratorRow({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {!expanded && triage.approvalCount > 0 && (
+            <button
+              type="button"
+              className="h-7 rounded-full border border-amber-500/50 bg-amber-500/15 px-2 text-[10px] font-semibold text-amber-700 outline-none focus-visible:ring-2 focus-visible:ring-amber-400 dark:text-amber-300"
+              onClick={revealTriage}
+              aria-label={`Reveal ${triage.approvalCount} approval pane${triage.approvalCount === 1 ? '' : 's'}`}
+            >
+              {triage.approvalCount} approval
+            </button>
+          )}
+          {!expanded && triage.waitingCount > 0 && (
+            <button
+              type="button"
+              className="h-7 rounded-full border border-sky-500/50 bg-sky-500/15 px-2 text-[10px] font-semibold text-sky-700 outline-none focus-visible:ring-2 focus-visible:ring-sky-400 dark:text-sky-300"
+              onClick={revealTriage}
+              aria-label={`Reveal ${triage.waitingCount} waiting pane${triage.waitingCount === 1 ? '' : 's'}`}
+            >
+              {triage.waitingCount} waiting
+            </button>
+          )}
           <span className={cn('text-xs font-mono', status.textColor)}>{status.symbol}</span>
           <span className="hidden text-[11px] text-muted-foreground sm:inline" suppressHydrationWarning>
             {hydrated ? formatRelativeTime(group.lastActivityAt) : '—'}

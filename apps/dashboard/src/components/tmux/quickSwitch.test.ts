@@ -19,6 +19,7 @@ describe('mobile tmux quick switch', () => {
     expect(getRecentTmuxPanes(recent, live, 'current').map((session) => session.id)).toEqual([
       'current',
       'recent',
+      'not-recent',
     ]);
   });
 });

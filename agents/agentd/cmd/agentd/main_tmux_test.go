@@ -66,7 +66,7 @@ func TestSyncPanesIncludesExtendedTmuxMetadata(t *testing.T) {
 
 func TestBuildTmuxTopologySortsSessionsWindowsAndPanes(t *testing.T) {
 	panes := []tmux.Pane{
-		{SessionName: "zeta", SessionAttached: true, WindowIndex: 2, WindowName: "later", PaneID: "%9", PaneIndex: 1},
+		{SessionName: "zeta", SessionAttached: true, SessionAttachedClients: 2, WindowIndex: 2, WindowName: "later", PaneID: "%9", PaneIndex: 1},
 		{SessionName: "alpha", WindowIndex: 1, WindowName: "main", WindowActive: true, WindowZoomed: true, WindowLayout: "tiled", WindowBell: true, PaneID: "%2", PaneIndex: 1, PaneWidth: 90, PaneHeight: 30, PaneTitle: "second", CurrentCommand: "bash", CurrentPath: "/tmp/two"},
 		{SessionName: "alpha", WindowIndex: 1, WindowName: "main", WindowActive: true, WindowZoomed: true, WindowLayout: "tiled", WindowBell: true, PaneID: "%1", PaneIndex: 0, PaneActive: true, PaneWidth: 100, PaneHeight: 30, PaneTitle: "first", CurrentCommand: "codex", CurrentPath: "/tmp/one"},
 		{SessionName: "alpha", WindowIndex: 0, WindowName: "early", PaneID: "%0", PaneIndex: 0},
@@ -92,6 +92,9 @@ func TestBuildTmuxTopologySortsSessionsWindowsAndPanes(t *testing.T) {
 	}
 	if !mainWindow.Panes[0].Active || mainWindow.Panes[0].Width != 100 || mainWindow.Panes[0].CurrentCommand != "codex" {
 		t.Fatalf("pane topology=%+v", mainWindow.Panes[0])
+	}
+	if got.TmuxSessions[1].AttachedClients != 2 {
+		t.Fatalf("zeta attached clients=%d, want 2", got.TmuxSessions[1].AttachedClients)
 	}
 }
 

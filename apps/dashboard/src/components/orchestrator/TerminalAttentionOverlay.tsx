@@ -90,10 +90,11 @@ export function TerminalAttentionOverlayCard({
   return (
     <aside
       className={cn(
-        'absolute inset-x-2 bottom-2 z-20 mx-auto max-w-2xl rounded-lg border border-amber-500/40 bg-background/95 p-2.5 shadow-xl backdrop-blur-sm',
+        'absolute inset-x-2 z-50 mx-auto max-w-2xl rounded-lg border border-amber-500/40 bg-background/95 p-2.5 shadow-xl backdrop-blur-sm',
         item.sessionStatus === 'ERROR' && 'border-destructive/50',
         className
       )}
+      style={{ bottom: 'calc(var(--terminal-rail-height, 0px) + 0.5rem)' }}
       aria-label="Session attention"
       data-testid="terminal-attention-overlay"
     >

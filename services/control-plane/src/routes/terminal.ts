@@ -268,6 +268,8 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
       const parsedCols = TerminalDimensionSchema.safeParse(Number(url.searchParams.get('cols')));
       const parsedRows = TerminalDimensionSchema.safeParse(Number(url.searchParams.get('rows')));
       const resumeToken = url.searchParams.get('resume_token') || undefined;
+      const letterbox =
+        url.searchParams.get('letterbox') === '1' && parsedCols.success && parsedRows.success;
 
       const user = await authenticateBrowserWebSocket(app, socket, request);
       if (!user) return;
@@ -420,6 +422,7 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
             ? { cols: parsedCols.data, rows: parsedRows.data }
             : {}),
           ...(resumeToken ? { resume_token: resumeToken } : {}),
+          ...(letterbox ? { letterbox: true } : {}),
         },
       });
 

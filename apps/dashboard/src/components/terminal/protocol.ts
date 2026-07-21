@@ -18,7 +18,8 @@ export function buildTerminalHello(): BrowserTerminalClientMessage {
 export function buildTerminalWebSocketUrl(
   baseUrl: string,
   dimensions?: { cols: number; rows: number },
-  resumeToken?: string
+  resumeToken?: string,
+  letterbox = false
 ): string {
   const url = new URL(baseUrl);
   const cols = TerminalDimensionSchema.safeParse(dimensions?.cols);
@@ -26,6 +27,9 @@ export function buildTerminalWebSocketUrl(
   if (cols.success && rows.success) {
     url.searchParams.set('cols', String(cols.data));
     url.searchParams.set('rows', String(rows.data));
+    if (letterbox) {
+      url.searchParams.set('letterbox', '1');
+    }
   }
   if (resumeToken) {
     url.searchParams.set('resume_token', resumeToken);

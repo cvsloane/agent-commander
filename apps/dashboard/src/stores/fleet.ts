@@ -59,6 +59,7 @@ export interface TmuxWindowTopologyView {
 export interface TmuxSessionTopologyView {
   sessionName: string;
   attached: boolean;
+  attachedClients: number;
   windows: TmuxWindowTopologyView[];
 }
 
@@ -136,6 +137,7 @@ export function buildRosterTopology(
       .map(([sessionName, windows]) => ({
         sessionName,
         attached: false,
+        attachedClients: 0,
         windows: [...windows.values()]
           .map((window) => ({
             ...window,
@@ -154,6 +156,7 @@ function joinLiveSession(
   return {
     sessionName: topologySession.session_name,
     attached: topologySession.attached,
+    attachedClients: topologySession.attached_clients ?? (topologySession.attached ? 1 : 0),
     windows: topologySession.windows
       .map((window) => ({
         windowIndex: window.window_index,

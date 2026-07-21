@@ -120,13 +120,16 @@ export function VirtualKeyboard({
           return;
         }
       } catch {
-        // Clipboard read failed (iOS Safari often blocks this)
-        setPasteError('Tap and hold to paste');
-        setTimeout(() => setPasteError(null), 2000);
+        const text = window.prompt('Clipboard access is blocked. Paste text here:');
+        if (text) onPaste?.(text);
+        else setPasteError('Clipboard access was blocked');
+        setTimeout(() => setPasteError(null), 2500);
       }
     } else {
-      setPasteError('Tap and hold to paste');
-      setTimeout(() => setPasteError(null), 2000);
+      const text = window.prompt('Clipboard API unavailable. Paste text here:');
+      if (text) onPaste?.(text);
+      else setPasteError('No text pasted');
+      setTimeout(() => setPasteError(null), 2500);
     }
   }, [onPaste]);
 

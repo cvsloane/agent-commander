@@ -50,7 +50,10 @@ export function TerminalToolbar({
   const connectionPending = status === 'connecting' || status === 'reconnecting';
 
   return (
-    <div className="flex min-h-12 min-w-0 items-center gap-2 border-b bg-muted/30 p-2">
+    <div
+      className="flex min-h-12 min-w-0 items-center gap-2 border-b bg-muted/30 p-2"
+      data-terminal-toolbar
+    >
       {status === 'connected' ? (
         <Button size="sm" variant="outline" onClick={onDisconnect}>
           Detach

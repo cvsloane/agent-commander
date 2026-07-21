@@ -1,17 +1,20 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
-import { ListTree, MoreHorizontal, Plus, RefreshCw, Rows3, TerminalSquare } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MutableRefObject, type ReactNode } from 'react';
+import { ArrowLeft, ListTree, MoreHorizontal, PanelsTopLeft, Plus, RefreshCw, Rows3, TerminalSquare } from 'lucide-react';
 import type { Host, Session, SessionWithSnapshot } from '@agent-command/schema';
 import { StatusBadge } from '@/components/StatusBadge';
 import { MobileLaunchSheet } from '@/components/launch/MobileLaunchSheet';
+import { getWindowHereLaunchContext } from '@/components/launch/windowHere';
 import type { TerminalController } from '@/components/TerminalView';
+import { terminalHostStore } from '@/components/terminal/terminalHostStore';
 import { Button } from '@/components/ui/button';
 import type { FleetRosterGroup } from '@/lib/fleetRoster';
 import { cn, getSessionDisplayName, isHostOnline } from '@/lib/utils';
 import { TmuxActionSheet } from './TmuxActionSheet';
 import { TmuxQuickSwitchStrip } from './TmuxQuickSwitchStrip';
 import { TmuxRoster } from './TmuxRoster';
+import { TmuxPaneSwitcher } from './TmuxPaneSwitcher';
 import {
   ALL_TMUX_HOSTS_ID,
   type FleetRosterFilter,
@@ -21,16 +24,23 @@ type TmuxMobileMode = 'roster' | 'terminal' | 'actions';
 
 export function PersistentTerminalRegion({
   visible,
+  fullBleed = false,
   children,
 }: {
   visible: boolean;
+  fullBleed?: boolean;
   children?: ReactNode;
 }) {
   return (
     <div
       hidden={!visible}
       aria-hidden={!visible}
-      className={cn('space-y-3', visible && 'command-center-mode-view', !visible && 'hidden')}
+      className={cn(
+        'space-y-3',
+        visible && 'command-center-mode-view',
+        fullBleed && 'flex min-h-0 flex-1 flex-col space-y-0',
+        !visible && 'hidden'
+      )}
     >
       {children}
     </div>
@@ -60,6 +70,7 @@ interface TmuxMobileShellProps {
   onFilterChange: (filter: FleetRosterFilter) => void;
   groups: FleetRosterGroup[];
   filteredSessions: SessionWithSnapshot[];
+  quickSwitchSessions: SessionWithSnapshot[];
   sessionsLoading: boolean;
   sessionsError: unknown;
   sessionsFetching: boolean;
@@ -82,6 +93,7 @@ interface TmuxMobileShellProps {
   onLaunchChange: () => void;
   terminalControllerRef: MutableRefObject<TerminalController | null>;
   initialMode?: TmuxMobileMode;
+  onAttachedModeChange?: (attached: boolean) => void;
   terminal: ReactNode;
   emptyTerminal: ReactNode;
 }
@@ -99,6 +111,7 @@ export function TmuxMobileShell({
   onFilterChange,
   groups,
   filteredSessions,
+  quickSwitchSessions,
   sessionsLoading,
   sessionsError,
   sessionsFetching,
@@ -121,12 +134,19 @@ export function TmuxMobileShell({
   onLaunchChange,
   terminalControllerRef,
   initialMode = 'roster',
+  onAttachedModeChange,
   terminal,
   emptyTerminal,
 }: TmuxMobileShellProps) {
   const [mode, setMode] = useState<TmuxMobileMode>(initialMode);
   const [launchOpen, setLaunchOpen] = useState(false);
+  const [paneSwitcherOpen, setPaneSwitcherOpen] = useState(false);
   const previousSelectedSessionIdRef = useRef(selectedSessionId);
+  const terminalSnapshot = useSyncExternalStore(
+    terminalHostStore.subscribe,
+    terminalHostStore.getSnapshot,
+    terminalHostStore.getServerSnapshot
+  );
 
   useEffect(() => {
     if (previousSelectedSessionIdRef.current && !selectedSessionId && mode !== 'roster') {
@@ -141,6 +161,17 @@ export function TmuxMobileShell({
     }
   }, [initialMode, selectedSessionId]);
 
+  const terminalVisible = mode === 'terminal' || mode === 'actions';
+  const attachedMode = terminalVisible && Boolean(selectedSessionId);
+
+  useEffect(() => {
+    onAttachedModeChange?.(attachedMode);
+    const root = document.documentElement;
+    if (attachedMode) root.setAttribute('data-mobile-terminal-attached', 'true');
+    else root.removeAttribute('data-mobile-terminal-attached');
+    return () => root.removeAttribute('data-mobile-terminal-attached');
+  }, [attachedMode, onAttachedModeChange]);
+
   const handleSelectSession = useCallback((sessionId: string) => {
     onSelectSession(sessionId);
     setMode('terminal');
@@ -152,13 +183,93 @@ export function TmuxMobileShell({
   }, [onSelectSession]);
 
   const actionSheetOpen = mode === 'actions';
-  const terminalVisible = mode === 'terminal' || mode === 'actions';
   const hostForStatus = selectedSessionHost || selectedHost;
   const selectedTitle = selectedSession ? getSessionDisplayName(selectedSession) : 'No pane selected';
+  const selectedWindowName = selectedSession?.metadata?.tmux?.window_name
+    || selectedSession?.tmux_target?.split(':')[1]?.split('.')[0]
+    || 'window';
+  const activeTerminalSnapshot = terminalSnapshot.descriptor?.sessionId === selectedSessionId
+    ? terminalSnapshot
+    : null;
+  const connectionLabel = activeTerminalSnapshot?.status === 'connected' && activeTerminalSnapshot.readOnly
+    ? 'Read-only'
+    : activeTerminalSnapshot?.status === 'connected'
+      ? 'Connected'
+      : activeTerminalSnapshot?.status === 'connecting'
+        ? 'Connecting'
+        : activeTerminalSnapshot?.status === 'reconnecting'
+          ? 'Reconnecting'
+          : activeTerminalSnapshot?.status === 'error'
+            ? 'Error'
+            : 'Detached';
+  const connectionTone = connectionLabel === 'Connected'
+    ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+    : connectionLabel === 'Read-only'
+      ? 'border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+      : connectionLabel === 'Error'
+        ? 'border-destructive/50 bg-destructive/10 text-destructive'
+        : 'border-border bg-muted text-muted-foreground';
+  const windowHere = useMemo(
+    () => terminalVisible && selectedSession
+      ? getWindowHereLaunchContext(selectedSession)
+      : undefined,
+    [selectedSession, terminalVisible]
+  );
 
   return (
-    <div className="space-y-3 pb-[env(safe-area-inset-bottom)] lg:hidden">
-      <div className="sticky top-0 z-30 -mx-4 border-b bg-background/95 px-4 py-3 backdrop-blur">
+    <div className={cn(
+      'space-y-3 pb-[env(safe-area-inset-bottom)] lg:hidden',
+      attachedMode && 'fixed inset-0 z-50 flex h-dvh min-h-0 flex-col space-y-0 bg-background pb-0'
+    )}>
+      <div
+        className={cn(
+          'z-30 flex h-10 shrink-0 items-center gap-1 border-b bg-background/95 px-1 backdrop-blur',
+          !attachedMode && 'hidden'
+        )}
+        data-testid="tmux-attached-status"
+      >
+        <button
+          type="button"
+          onClick={() => setMode('roster')}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          aria-label="Back to tmux roster"
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+        </button>
+        <div className="min-w-0 flex-1 truncate px-1 text-xs font-medium">
+          <span>{selectedTitle}</span>
+          <span className="px-1 text-muted-foreground" aria-hidden="true">·</span>
+          <span className="text-muted-foreground">{selectedWindowName}</span>
+        </div>
+        <span
+          className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium', connectionTone)}
+          role="status"
+        >
+          {connectionLabel}
+        </span>
+        <button
+          type="button"
+          onClick={() => setPaneSwitcherOpen(true)}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          aria-label="Open pane switcher"
+          aria-expanded={paneSwitcherOpen}
+        >
+          <PanelsTopLeft className="h-4 w-4" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode('actions')}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          aria-label="Open pane actions"
+        >
+          <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
+        </button>
+      </div>
+
+      <div className={cn(
+        'sticky top-0 z-30 -mx-4 border-b bg-background/95 px-4 py-3 backdrop-blur',
+        attachedMode && 'hidden'
+      )}>
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -304,14 +415,16 @@ export function TmuxMobileShell({
         </div>
       )}
 
-      <PersistentTerminalRegion visible={terminalVisible}>
+      <PersistentTerminalRegion visible={terminalVisible} fullBleed={attachedMode}>
+          {!attachedMode && (
           <TmuxQuickSwitchStrip
-            sessions={filteredSessions}
+            sessions={quickSwitchSessions}
             selectedSessionId={selectedSessionId}
             onSelectSession={handleSelectSession}
           />
+          )}
 
-          {terminalVisible && selectedSession && (
+          {!attachedMode && terminalVisible && selectedSession && (
             <div className="rounded-lg border bg-card px-3 py-2">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -347,10 +460,20 @@ export function TmuxMobileShell({
         onSendTo={onSendTo}
         onOpenMcp={onOpenMcp}
         onTerminate={onTerminate}
+        onLaunchWindowHere={windowHere ? () => { setMode(selectedSessionId ? 'terminal' : 'roster'); setLaunchOpen(true); } : undefined}
+      />
+      <TmuxPaneSwitcher
+        open={paneSwitcherOpen}
+        sessions={quickSwitchSessions}
+        selectedSessionId={selectedSessionId}
+        onSelectSession={handleSelectSession}
+        onClose={() => setPaneSwitcherOpen(false)}
       />
       <MobileLaunchSheet
         open={launchOpen}
+        initialView={windowHere ? 'window' : 'new'}
         selectedHostId={selectedHostId}
+        windowHere={windowHere}
         onClose={() => setLaunchOpen(false)}
         onLaunched={onLaunchChange}
       />

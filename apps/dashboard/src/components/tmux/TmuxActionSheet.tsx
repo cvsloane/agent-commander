@@ -4,6 +4,7 @@ import type { MutableRefObject } from 'react';
 import Link from 'next/link';
 import {
   Clipboard,
+  Plus,
   ClipboardPaste,
   Copy,
   ExternalLink,
@@ -36,6 +37,7 @@ interface TmuxActionSheetProps {
   onSendTo: () => void;
   onOpenMcp: () => void;
   onTerminate: () => void;
+  onLaunchWindowHere?: () => void;
 }
 
 export function TmuxActionSheet({
@@ -49,6 +51,7 @@ export function TmuxActionSheet({
   onSendTo,
   onOpenMcp,
   onTerminate,
+  onLaunchWindowHere,
 }: TmuxActionSheetProps) {
   const title = session ? getSessionDisplayName(session) : 'No pane selected';
 
@@ -195,6 +198,17 @@ export function TmuxActionSheet({
             <Power className="h-4 w-4" />
             Kill pane
           </Button>
+          {onLaunchWindowHere && (
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-2"
+              disabled={!session}
+              onClick={onLaunchWindowHere}
+            >
+              <Plus className="h-4 w-4" />
+              New window here
+            </Button>
+          )}
         </div>
       </SheetContent>
     </Sheet>

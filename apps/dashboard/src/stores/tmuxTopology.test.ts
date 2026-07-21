@@ -45,6 +45,7 @@ describe('tmux topology store', () => {
         {
           session_name: 'agents',
           attached: true,
+          attached_clients: 2,
           windows: [
             {
               window_index: 1,
@@ -83,6 +84,7 @@ describe('tmux topology store', () => {
         {
           sessionName: 'agents',
           attached: true,
+          attachedClients: 2,
           windows: [
             {
               windowIndex: 1,

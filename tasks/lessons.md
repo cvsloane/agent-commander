@@ -41,6 +41,10 @@
   Rule: Treat `/` as the canonical Command Center route for new tmux navigation while preserving query parameters so incoming `/tmux` redirects remain compatible without adding an avoidable remount to in-app selections.
 
 - Date: 2026-07-20
+  Correction: Captured touch pointers on the mobile terminal rail did not synthesize clicks in real Chromium, the Next dev-tools portal intercepted harness taps even after the pointer-up fix, and the persistent terminal descriptor dropped `hostId`, forcing per-host prefixes back to `C-b`.
+  Rule: Activate captured touch taps on `pointerup`, make `nextjs-portal` pointer-transparent in Playwright harnesses, thread host-scoped identity through every persistent slot/descriptor/portal boundary, and assert the exact terminal WebSocket byte; click-only coverage and action-completed traces are insufficient.
+
+- Date: 2026-07-20
   Correction: Wave 3 review found that live topology never expired, child roster consumers duplicated fetches and rebuilds, and destructive/version-gated actions trusted non-authoritative signals.
   Rule: Expire optional live feeds back to polling, share page-level query results with child consumers, and gate destructive copy or protocol flags only on authoritative source metadata.
 

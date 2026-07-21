@@ -2,17 +2,15 @@
 import { Clock, ExternalLink, Rows3 } from 'lucide-react';
 import { useUIStore, type RecentSession } from '@/stores/ui';
 import { cn } from '@/lib/utils';
+import { buildAttachedTmuxHref } from '@/hooks/tmuxNavigation';
 
 function getRecentSessionLabel(session: RecentSession) {
   return session.title || session.tmuxSessionName || session.cwd?.split('/').filter(Boolean).pop() || 'Untitled';
 }
 
-function getRecentSessionHref(session: RecentSession) {
+export function getRecentSessionHref(session: RecentSession) {
   if (session.kind === 'tmux_pane') {
-    const params = new URLSearchParams();
-    if (session.hostId) params.set('host_id', session.hostId);
-    params.set('session_id', session.id);
-    return `/?${params.toString()}`;
+    return buildAttachedTmuxHref({ sessionId: session.id, hostId: session.hostId });
   }
 
   return `/sessions/${session.id}`;

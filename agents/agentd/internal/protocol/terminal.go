@@ -7,6 +7,7 @@ type TerminalAttachPayload struct {
 	Cols        int    `json:"cols,omitempty"`
 	Rows        int    `json:"rows,omitempty"`
 	ResumeToken string `json:"resume_token,omitempty"`
+	Letterbox   bool   `json:"letterbox,omitempty"`
 }
 
 type TerminalInputPayload struct {

@@ -5397,6 +5397,7 @@ func (a *Agent) handleTerminalAttach(payload json.RawMessage) {
 		Cols:        req.Cols,
 		Rows:        req.Rows,
 		ResumeToken: req.ResumeToken,
+		Letterbox:   req.Letterbox,
 	})
 	if err != nil {
 		log.Printf("Failed to attach terminal: %v", err)

@@ -1,9 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TerminalController, XTerminal } from './types';
-import { createTerminalHostStore, getTerminalDescriptorKey } from './terminalHostStore';
+import {
+  createTerminalHostStore,
+  getTerminalDescriptorKey,
+  getTerminalWarmKey,
+} from './terminalHostStore';
+import {
+  paintTerminalWarmBuffer,
+  resetTerminalWarmCache,
+} from '@/hooks/terminalWarmCache';
 
 function controller(readOnly: boolean): TerminalController {
   return {
+    status: 'connected',
     readOnly,
     attach: () => undefined,
     detach: () => undefined,
@@ -18,6 +27,8 @@ function controller(readOnly: boolean): TerminalController {
 }
 
 describe('persistent terminal host', () => {
+  beforeEach(resetTerminalWarmCache);
+
   it('preserves the same xterm instance and buffer through roster flips and route navigation', () => {
     const host = createTerminalHostStore();
     const descriptor = { sessionId: 'session-a', paneId: '%1', autoAttach: true };
@@ -81,6 +92,36 @@ describe('persistent terminal host', () => {
     expect(host.getSnapshot().terminalInstance).toBeNull();
   });
 
+  it('snapshots the prior pane buffer when a different session takes the host', () => {
+    const host = createTerminalHostStore();
+    const first = { sessionId: 'session-a', paneId: '%1', autoAttach: true };
+    host.registerSurface({
+      id: 'first',
+      descriptor: first,
+      target: {} as HTMLDivElement,
+      visible: true,
+    });
+    host.setTerminalInstance(getTerminalDescriptorKey(first), {
+      buffer: {
+        active: {
+          length: 1,
+          getLine: () => ({ isWrapped: false, translateToString: () => '$ still warm' }),
+        },
+      },
+    } as unknown as XTerminal);
+
+    host.registerSurface({
+      id: 'second',
+      descriptor: { sessionId: 'session-b', paneId: '%2', autoAttach: true },
+      target: {} as HTMLDivElement,
+      visible: true,
+    });
+
+    const target = { write: vi.fn() } as unknown as XTerminal;
+    expect(paintTerminalWarmBuffer(getTerminalWarmKey(first), target, 60_000)).toBe(true);
+    expect(target.write).toHaveBeenCalledWith('$ still warm');
+  });
+
   it('publishes the active terminal read-only permission from its controller', () => {
     const host = createTerminalHostStore();
     host.registerSurface({
@@ -95,6 +136,22 @@ describe('persistent terminal host', () => {
 
     host.setController(controller(false));
     expect(host.getSnapshot().readOnly).toBe(false);
+  });
+
+  it('publishes a resumable terminal state only for the active descriptor', () => {
+    const host = createTerminalHostStore();
+    const descriptor = { sessionId: 'session-a', paneId: '%1', autoAttach: true };
+    host.registerSurface({
+      id: 'tmux-workbench',
+      descriptor,
+      target: {} as HTMLDivElement,
+      visible: true,
+    });
+
+    host.setResumeAvailable(getTerminalDescriptorKey(descriptor), true);
+    expect(host.getSnapshot().resumeAvailable).toBe(true);
+    host.setResumeAvailable('another-terminal', false);
+    expect(host.getSnapshot().resumeAvailable).toBe(true);
   });
 
   it('retains terminal permission while the same pane moves between responsive surfaces', () => {

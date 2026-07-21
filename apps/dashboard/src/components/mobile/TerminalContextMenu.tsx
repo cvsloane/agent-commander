@@ -103,6 +103,7 @@ export function TerminalContextMenu({
 
   // Handle long press start
   const handleTouchStart = useCallback((e: TouchEvent) => {
+    if (e.touches.length !== 1) return;
     const touch = e.touches[0];
     touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
 
@@ -149,12 +150,30 @@ export function TerminalContextMenu({
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    const handleCursorModeStart = () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+      touchStartPosRef.current = null;
+      hideMenu();
+    };
 
     container.addEventListener('touchstart', handleTouchStart, { passive: true });
     container.addEventListener('touchmove', handleTouchMove, { passive: true });
     container.addEventListener('touchend', handleTouchEnd);
     container.addEventListener('touchcancel', handleTouchEnd);
     container.addEventListener('contextmenu', handleContextMenu);
+    container.addEventListener('terminal-cursor-mode-start', handleCursorModeStart);
+    // Cursor mode armed at 450ms — cancel our 500ms menu timer so a hold-to-
+    // move-cursor gesture never flashes the copy/paste menu.
+    const handleCursorArmed = () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+    };
+    container.addEventListener('terminal-cursor-armed', handleCursorArmed);
 
     return () => {
       container.removeEventListener('touchstart', handleTouchStart);
@@ -162,12 +181,14 @@ export function TerminalContextMenu({
       container.removeEventListener('touchend', handleTouchEnd);
       container.removeEventListener('touchcancel', handleTouchEnd);
       container.removeEventListener('contextmenu', handleContextMenu);
+      container.removeEventListener('terminal-cursor-mode-start', handleCursorModeStart);
+      container.removeEventListener('terminal-cursor-armed', handleCursorArmed);
 
       if (longPressTimerRef.current) {
         clearTimeout(longPressTimerRef.current);
       }
     };
-  }, [containerRef, handleTouchStart, handleTouchMove, handleTouchEnd, handleContextMenu]);
+  }, [containerRef, handleTouchStart, handleTouchMove, handleTouchEnd, handleContextMenu, hideMenu]);
 
   // Hide when clicking outside
   useEffect(() => {

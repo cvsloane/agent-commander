@@ -81,6 +81,7 @@ type terminalViewer struct {
 	sessionID   string
 	resumeToken string
 	readOnly    bool
+	letterbox   bool
 	bridge      *viewerPTYBridge
 	detachedAt  time.Time
 	stale       bool
@@ -93,6 +94,7 @@ type AttachOptions struct {
 	Cols        int
 	Rows        int
 	ResumeToken string
+	Letterbox   bool
 }
 
 // AttachResult describes the selected terminal transport and viewer role.
@@ -233,6 +235,13 @@ func (m *TerminalManager) sweepOrphanViewerSessions() {
 		m.mu.RUnlock()
 		if owned {
 			continue
+		}
+		// A hard crash can leave a letterbox window-size pin on the windows of
+		// this orphan. The windows are SHARED with the origin session (grouped
+		// sessions), so release the pin before reaping or the origin stays
+		// frozen at the crashed viewer's dimensions.
+		if err := m.runner.Run("set-option", "-w", "-t", name+":", "window-size", "latest"); err != nil {
+			log.Printf("Failed to release window-size on orphan viewer session %s: %v", name, err)
 		}
 		if err := m.runner.Run("kill-session", "-t", name); err != nil {
 			log.Printf("Failed to reap orphan terminal viewer session %s: %v", name, err)
@@ -389,6 +398,7 @@ func (m *TerminalManager) attachViewerPTY(channelID, paneID string, opts AttachO
 		ReadOnly:      readonly,
 		Cols:          uint16(opts.Cols),
 		Rows:          uint16(opts.Rows),
+		Letterbox:     opts.Letterbox,
 		ResumeToken:   resumeToken,
 		InitialOutput: initialOutput,
 		OnOutput:      m.onOutput,
@@ -411,6 +421,7 @@ func (m *TerminalManager) attachViewerPTY(channelID, paneID string, opts AttachO
 	viewer.sessionID = opts.SessionID
 	viewer.resumeToken = resumeToken
 	viewer.readOnly = readonly
+	viewer.letterbox = opts.Letterbox
 	viewer.bridge = bridge
 	viewer.detachedAt = time.Time{}
 	viewer.stale = false
@@ -593,9 +604,16 @@ func (m *TerminalManager) Detach(channelID string) (string, bool) {
 		viewer.detachedAt = time.Now()
 		viewer.stale = false
 		viewer.staleAt = time.Time{}
+		bridge := viewer.bridge
+		if viewer.letterbox {
+			viewer.bridge = nil
+		}
 		m.mu.Unlock()
 
-		viewer.bridge.DetachChannel(channelID)
+		bridge.DetachChannel(channelID)
+		if viewer.letterbox {
+			bridge.close(false)
+		}
 		if m.onStatus != nil {
 			m.onStatus(channelID, "detached", "")
 		}
@@ -903,6 +921,7 @@ func (m *TerminalManager) replaceViewerBridge(viewer *terminalViewer, readonly b
 		ReadOnly:    readonly,
 		Cols:        size.Cols,
 		Rows:        size.Rows,
+		Letterbox:   viewer.letterbox,
 		ResumeToken: viewer.resumeToken,
 		OnOutput:    m.onOutput,
 		OnStatus:    m.onStatus,

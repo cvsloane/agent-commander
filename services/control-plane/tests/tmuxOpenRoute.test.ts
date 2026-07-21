@@ -122,7 +122,7 @@ describe('tmux open route', () => {
       session_id: sessionId,
       adopted: false,
       terminal: { openable: true, pane_id: '%1' },
-      href: `/tmux?host_id=${hostId}&session_id=${sessionId}&mode=terminal&attach=1`,
+      href: `/?host_id=${hostId}&session_id=${sessionId}&mode=terminal&attach=1`,
     });
     expect(adoptOrphanPanes).not.toHaveBeenCalled();
     await app.close();
