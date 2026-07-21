@@ -39,6 +39,7 @@ function isSurfaceVisible(element: HTMLDivElement): boolean {
 
 export function PersistentTerminalSlot({
   sessionId,
+  hostId,
   paneId,
   autoAttach,
   letterbox,
@@ -54,7 +55,7 @@ export function PersistentTerminalSlot({
 
     const unregister = terminalHostStore.registerSurface({
       id,
-      descriptor: { sessionId, paneId, autoAttach, letterbox },
+      descriptor: { sessionId, hostId, paneId, autoAttach, letterbox },
       target,
       visible: isSurfaceVisible(target),
       controllerRef,
@@ -68,7 +69,7 @@ export function PersistentTerminalSlot({
       resizeObserver.disconnect();
       unregister();
     };
-  }, [autoAttach, controllerRef, id, letterbox, paneId, sessionId]);
+  }, [autoAttach, controllerRef, hostId, id, letterbox, paneId, sessionId]);
 
   return (
     <div
