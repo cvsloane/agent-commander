@@ -6,6 +6,11 @@ import type { SelectionPopupHandle } from '@/components/mobile';
 import { TerminalSurface } from '@/components/terminal/TerminalSurface';
 import { TerminalToolbar } from '@/components/terminal/TerminalToolbar';
 import { ScrollbackPager } from '@/components/terminal/ScrollbackPager';
+import { initialScrollbackRange } from '@/components/terminal/scrollbackPaging';
+import {
+  classifyTerminalScrollMode,
+  type TerminalScrollMode,
+} from '@/components/terminal/terminalScrollMode';
 import type { TerminalController, XSearchResult, XTerminal } from '@/components/terminal/types';
 import {
   applyStickyCtrl,
@@ -20,6 +25,7 @@ import { useTerminalScrollAnchor } from '@/hooks/useTerminalScrollAnchor';
 import { useTerminalTouchScroll } from '@/hooks/useTerminalTouchScroll';
 import { useTerminalCommandMarks } from '@/hooks/useTerminalCommandMarks';
 import { useXtermTerminal } from '@/hooks/useXtermTerminal';
+import { getSessionScrollback } from '@/lib/api';
 import { useSettingsStore } from '@/stores/settings';
 
 interface TerminalViewProps {
@@ -57,9 +63,11 @@ export function TerminalView({
   const sendInputRef = useRef<(data: string) => void>(() => undefined);
   const controllerInstanceRef = useRef<TerminalController | null>(null);
   const controllerReadOnlyRef = useRef(false);
+  const scrollModeCacheRef = useRef(new Map<string, TerminalScrollMode>());
   const [searchOpen, setSearchOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyOverlaySessionId, setHistoryOverlaySessionId] = useState<string | null>(null);
+  const [, setScrollModeCacheVersion] = useState(0);
   const [stickyCtrlMode, setStickyCtrlMode] = useState<StickyCtrlMode>('inactive');
   const [keyboardActive, setKeyboardActive] = useState(false);
   const [cursorArmed, setCursorArmed] = useState(false);
@@ -79,9 +87,9 @@ export function TerminalView({
   const touchInputModeEnabled = useIsMobile(COMMAND_CENTER_SHELL_BREAKPOINT);
   const terminalFontSize = useSettingsStore((state) => state.terminalFontSize);
   const setTerminalFontSize = useSettingsStore((state) => state.setTerminalFontSize);
-  const tmuxPrefix = useSettingsStore((state) => (
+  const tmuxPrefix = useSettingsStore((state) =>
     hostId ? state.tmuxPrefixByHost[hostId] : undefined
-  ));
+  );
   const handleTerminalSelectionChange = useCallback((selection: string) => {
     selectionTextRef.current = selection;
     if (selection || !hasCommittedSelectionRef.current) return;
@@ -114,17 +122,20 @@ export function TerminalView({
     hasMarks,
     currentMark,
   } = useTerminalCommandMarks();
-  const handleTerminalInstanceChange = useCallback((terminal: XTerminal | null) => {
-    bindCommandMarks(terminal);
-    onTerminalInstanceChange(terminal);
-  }, [bindCommandMarks, onTerminalInstanceChange]);
-  const handleTerminalOutputWritten = useCallback((
-    terminal: XTerminal,
-    data: string | Uint8Array
-  ) => {
-    handleScrollOutputWritten(terminal);
-    handleCommandMarksOutput(terminal, data);
-  }, [handleCommandMarksOutput, handleScrollOutputWritten]);
+  const handleTerminalInstanceChange = useCallback(
+    (terminal: XTerminal | null) => {
+      bindCommandMarks(terminal);
+      onTerminalInstanceChange(terminal);
+    },
+    [bindCommandMarks, onTerminalInstanceChange]
+  );
+  const handleTerminalOutputWritten = useCallback(
+    (terminal: XTerminal, data: string | Uint8Array) => {
+      handleScrollOutputWritten(terminal);
+      handleCommandMarksOutput(terminal, data);
+    },
+    [handleCommandMarksOutput, handleScrollOutputWritten]
+  );
   const {
     terminalRef,
     ensureTerminal,
@@ -151,15 +162,18 @@ export function TerminalView({
     clearSearch();
     terminalRef.current?.focus();
   }, [clearSearch, terminalRef]);
-  const handleSearchQueryChange = useCallback((query: string) => {
-    setSearchQuery(query);
-    if (!query) {
-      clearSearch();
-      setSearchResults({ resultIndex: -1, resultCount: 0 });
-      return;
-    }
-    findNext(query, true);
-  }, [clearSearch, findNext]);
+  const handleSearchQueryChange = useCallback(
+    (query: string) => {
+      setSearchQuery(query);
+      if (!query) {
+        clearSearch();
+        setSearchResults({ resultIndex: -1, resultCount: 0 });
+        return;
+      }
+      findNext(query, true);
+    },
+    [clearSearch, findNext]
+  );
   const handleSearchNext = useCallback(() => {
     if (searchQuery) findNext(searchQuery);
   }, [findNext, searchQuery]);
@@ -186,7 +200,10 @@ export function TerminalView({
         hasCommittedSelectionRef.current = hasSelection;
       }
       if (hasSelection) {
-        selectionPopupRef.current?.showSelection(selection, selectionAnchorRef.current ?? undefined);
+        selectionPopupRef.current?.showSelection(
+          selection,
+          selectionAnchorRef.current ?? undefined
+        );
       } else {
         selectionPopupRef.current?.hide();
       }
@@ -218,27 +235,73 @@ export function TerminalView({
   });
   const terminalWritable = status === 'connected' && !readOnly;
   controllerReadOnlyRef.current = readOnly;
+  const cacheScrollMode = useCallback((targetSessionId: string, mode: TerminalScrollMode) => {
+    scrollModeCacheRef.current.set(targetSessionId, mode);
+    setScrollModeCacheVersion((version) => version + 1);
+  }, []);
+  const terminalScrollMode = scrollModeCacheRef.current.get(historySessionId);
+  useEffect(() => {
+    scrollModeCacheRef.current.delete(historySessionId);
+    setScrollModeCacheVersion((version) => version + 1);
+    if (!touchInputModeEnabled || status !== 'connected' || !tmuxSessionKey || !historySessionId) {
+      return;
+    }
+
+    let cancelled = false;
+    const primeScrollMode = async () => {
+      try {
+        const range = initialScrollbackRange();
+        const response = await getSessionScrollback(historySessionId, {
+          mode: 'range',
+          start_line: range.startLine,
+          end_line: range.endLine,
+          strip_ansi: true,
+        });
+        if (cancelled || !response.ok) return;
+        cacheScrollMode(historySessionId, classifyTerminalScrollMode(response.result?.content));
+      } catch {
+        // Transport failure leaves the pane unclassified; the overlay path re-probes.
+      }
+    };
+    void primeScrollMode();
+    return () => {
+      cancelled = true;
+    };
+  }, [cacheScrollMode, historySessionId, status, tmuxSessionKey, touchInputModeEnabled]);
+  const handleHistoryScrollModeResolved = useCallback(
+    (mode: TerminalScrollMode) => {
+      cacheScrollMode(historySessionId, mode);
+    },
+    [cacheScrollMode, historySessionId]
+  );
   const dispatchStickyCtrl = useCallback((event: StickyCtrlEvent) => {
     const nextMode = reduceStickyCtrl(stickyCtrlModeRef.current, event);
     stickyCtrlModeRef.current = nextMode;
     setStickyCtrlMode(nextMode);
   }, []);
-  const handlePhysicalInput = useCallback((data: string) => {
-    const result = applyStickyCtrl(stickyCtrlModeRef.current, data);
-    if (result.mode !== stickyCtrlModeRef.current) {
-      stickyCtrlModeRef.current = result.mode;
-      setStickyCtrlMode(result.mode);
-    }
-    sendInput(result.data);
-  }, [sendInput]);
+  const handlePhysicalInput = useCallback(
+    (data: string) => {
+      const result = applyStickyCtrl(stickyCtrlModeRef.current, data);
+      if (result.mode !== stickyCtrlModeRef.current) {
+        stickyCtrlModeRef.current = result.mode;
+        setStickyCtrlMode(result.mode);
+      }
+      sendInput(result.data);
+    },
+    [sendInput]
+  );
   useEffect(() => {
     sendInputRef.current = handlePhysicalInput;
   }, [handlePhysicalInput]);
-  const applyTouchInputMode = useCallback((active: boolean) => {
-    if (!touchInputModeEnabled) return;
-    const textarea = termRef.current?.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea');
-    if (textarea) textarea.inputMode = active ? 'text' : 'none';
-  }, [touchInputModeEnabled]);
+  const applyTouchInputMode = useCallback(
+    (active: boolean) => {
+      if (!touchInputModeEnabled) return;
+      const textarea =
+        termRef.current?.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea');
+      if (textarea) textarea.inputMode = active ? 'text' : 'none';
+    },
+    [touchInputModeEnabled]
+  );
   const resetTouchModes = useCallback(() => {
     keyboardActiveRef.current = false;
     cursorArmedRef.current = false;
@@ -282,6 +345,12 @@ export function TerminalView({
       setHistoryOverlaySessionId(null);
     }
   }, [historyOverlaySessionId, historySessionId]);
+  const handleNavigateScroll = useCallback(
+    (lines: number) => {
+      navigate({ type: 'navigate', op: 'scroll', lines });
+    },
+    [navigate]
+  );
   const touchScrollRef = useTerminalTouchScroll({
     enabled: touchInputModeEnabled,
     termRef,
@@ -295,30 +364,32 @@ export function TerminalView({
     onScrollInput: sendInput,
     tmuxSessionKey,
     historySessionId,
+    historyScrollMode: terminalScrollMode,
     onOpenHistory: openHistoryOverlay,
+    onNavigateScroll: handleNavigateScroll,
     onHorizontalSwipe: (direction) => {
-      termRef.current?.dispatchEvent(new CustomEvent('terminal-window-swipe', {
-        bubbles: true,
-        detail: { direction, sessionId },
-      }));
+      termRef.current?.dispatchEvent(
+        new CustomEvent('terminal-window-swipe', {
+          bubbles: true,
+          detail: { direction, sessionId },
+        })
+      );
     },
   });
 
   // Virtual keyboard handlers
-  const handleVirtualInput = useCallback((data: string) => {
-    sendInput(data);
-  }, [sendInput]);
+  const handleVirtualInput = useCallback(
+    (data: string) => {
+      sendInput(data);
+    },
+    [sendInput]
+  );
 
   const terminalClipboard = useTerminalClipboard({
     terminalRef,
     sendInput,
   });
-  const {
-    copySelection,
-    copyLastLines,
-    copyAll,
-    paste,
-  } = terminalClipboard;
+  const { copySelection, copyLastLines, copyAll, paste } = terminalClipboard;
 
   useEffect(() => {
     if (!controllerRef && !onControllerChange) return;
@@ -398,7 +469,10 @@ export function TerminalView({
   }
 
   return (
-    <div ref={containerRef} className={cn('terminal-viewport flex flex-col h-full min-h-0', className)}>
+    <div
+      ref={containerRef}
+      className={cn('terminal-viewport flex flex-col h-full min-h-0', className)}
+    >
       <TerminalToolbar
         status={status}
         readOnly={readOnly}
@@ -433,6 +507,7 @@ export function TerminalView({
         historyOverlayOpen={historyOverlayOpen}
         historySessionId={historySessionId}
         historyFontSize={terminalFontSize}
+        onHistoryScrollModeResolved={handleHistoryScrollModeResolved}
         onCloseHistoryOverlay={closeHistoryOverlay}
         tmuxPrefix={tmuxPrefix}
         onPreviousMark={previousMark}

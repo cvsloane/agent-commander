@@ -89,6 +89,10 @@ test.describe('FW6 mobile precision journeys', () => {
     await signIn(page);
     await selectSession(page, interactiveSession.title);
     const history = await openHistory(page);
+    await expect(history.getByText('500 lines', { exact: true })).toBeVisible();
+    await history.getByLabel('Captured terminal history').evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
     await expect(history.getByRole('button', {
       name: 'Select history line -3',
       exact: true,
