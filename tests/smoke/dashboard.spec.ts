@@ -679,6 +679,10 @@ async function mockControlPlane(
       await fulfillJson(route, { work_item: { id: 'mock-work-item', status: 'done' } });
       return;
     }
+    if (route.request().method() === 'PUT' && url.pathname === '/v1/settings') {
+      await fulfillJson(route, { settings: route.request().postDataJSON() ?? {} });
+      return;
+    }
     if (route.request().method() === 'GET') {
       const body = apiBody(url.pathname);
       if (body !== undefined) {
