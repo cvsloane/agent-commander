@@ -238,7 +238,7 @@ test.describe('FW6 mobile Focus journey', () => {
     );
 
     const inputCountAfterCursorGesture = inputCount();
-    await dragTerminal(page, -140);
+    await dragTerminal(page, 140);
     await expect(page.getByTestId('terminal-history-overlay')).toBeVisible();
     expect(inputCount()).toBe(inputCountAfterCursorGesture);
   });
