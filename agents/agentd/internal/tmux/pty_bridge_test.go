@@ -72,6 +72,37 @@ func TestViewerPTYBridgePinsAndReleasesLetterboxedWindow(t *testing.T) {
 	}
 }
 
+func TestViewerPTYBridgeMovesLetterboxPinWhenSelectingWindow(t *testing.T) {
+	runner := newFakeTmuxRunner()
+	runner.outputs["display-message -p -t %7 #{session_name}\t#{window_index}\t#{pane_index}"] = []byte("agents\t2\t1\n")
+	bridge, err := newViewerPTYBridge(runner, viewerPTYOptions{
+		ChannelID:   "channel-1",
+		PaneID:      "%7",
+		Cols:        160,
+		Rows:        50,
+		Letterbox:   true,
+		ResumeToken: "resume-1",
+	})
+	if err != nil {
+		t.Fatalf("newViewerPTYBridge: %v", err)
+	}
+	defer bridge.close(false)
+
+	if err := bridge.SelectWindow(3); err != nil {
+		t.Fatalf("select letterboxed viewer window: %v", err)
+	}
+	for _, want := range [][]string{
+		{"set-option", "-w", "-t", "ac-view-channel-1:2", "window-size", "latest"},
+		{"select-window", "-t", "ac-view-channel-1:3"},
+		{"set-option", "-w", "-t", "ac-view-channel-1:3", "window-size", "manual"},
+		{"resize-window", "-t", "ac-view-channel-1:3", "-x", "160", "-y", "50"},
+	} {
+		if !runner.hasRun(want) {
+			t.Fatalf("missing letterbox navigation command %v; runs=%v", want, runner.runs)
+		}
+	}
+}
+
 func TestViewerPTYBridgeLetterboxUsesPrivateTmuxSocket(t *testing.T) {
 	client, _ := newPrivateTmuxClient(t)
 	panes, err := client.ListPanes()
@@ -110,6 +141,128 @@ func TestViewerPTYBridgeLetterboxUsesPrivateTmuxSocket(t *testing.T) {
 		t.Fatalf("show released window-size: %v", err)
 	} else if got := strings.TrimSpace(string(output)); got != "latest" {
 		t.Fatalf("released window-size=%q, want latest", got)
+	}
+}
+
+func TestTerminalNavigateSelectWindowUsesViewerSessionOnPrivateTmuxSocket(t *testing.T) {
+	client, _ := newPrivateTmuxClient(t)
+	panes, err := client.ListPanes()
+	if err != nil || len(panes) != 1 {
+		t.Fatalf("initial private panes=%+v err=%v", panes, err)
+	}
+	if _, err := client.NewWindow("hook-test", "second", ""); err != nil {
+		t.Fatalf("create second private window: %v", err)
+	}
+	if err := client.SelectWindow("hook-test:0"); err != nil {
+		t.Fatalf("restore origin window: %v", err)
+	}
+
+	runner := newExecTmuxRunner(client)
+	manager := newTerminalManagerWithRunner(client, runner, t.TempDir())
+	defer manager.Close()
+	if _, err := manager.AttachWithOptions("navigate-integration", panes[0].PaneID, AttachOptions{
+		SessionID: "session-1",
+		Cols:      120,
+		Rows:      40,
+	}); err != nil {
+		t.Fatalf("attach viewer: %v", err)
+	}
+
+	if err := manager.Navigate("navigate-integration", TerminalNavigation{Op: NavigateSelectWindow, WindowIndex: 1}); err != nil {
+		t.Fatalf("navigate viewer window: %v", err)
+	}
+
+	if output, err := runner.Output("display-message", "-p", "-t", "hook-test", "#{window_index}"); err != nil {
+		t.Fatalf("read origin current window: %v", err)
+	} else if got := strings.TrimSpace(string(output)); got != "0" {
+		t.Fatalf("origin current window=%q, want 0", got)
+	}
+	if output, err := runner.Output("display-message", "-p", "-t", viewerSessionName("navigate-integration"), "#{window_index}"); err != nil {
+		t.Fatalf("read viewer current window: %v", err)
+	} else if got := strings.TrimSpace(string(output)); got != "1" {
+		t.Fatalf("viewer current window=%q, want 1", got)
+	}
+}
+
+func TestTerminalNavigateSelectPaneUsesViewerSessionOnPrivateTmuxSocket(t *testing.T) {
+	client, _ := newPrivateTmuxClient(t)
+	panes, err := client.ListPanes()
+	if err != nil || len(panes) != 1 {
+		t.Fatalf("initial private panes=%+v err=%v", panes, err)
+	}
+	originPaneID := panes[0].PaneID
+	target, err := client.SplitPaneWithOptions(originPaneID, "horizontal", nil, "")
+	if err != nil {
+		t.Fatalf("split private pane: %v", err)
+	}
+	if err := client.SelectPane(originPaneID); err != nil {
+		t.Fatalf("restore origin pane: %v", err)
+	}
+
+	runner := newExecTmuxRunner(client)
+	manager := newTerminalManagerWithRunner(client, runner, t.TempDir())
+	defer manager.Close()
+	if _, err := manager.AttachWithOptions("pane-navigation", originPaneID, AttachOptions{SessionID: "session-1"}); err != nil {
+		t.Fatalf("attach viewer: %v", err)
+	}
+	if err := manager.Navigate("pane-navigation", TerminalNavigation{Op: NavigateSelectPane, PaneID: target.PaneID}); err != nil {
+		t.Fatalf("navigate viewer pane: %v", err)
+	}
+
+	if output, err := runner.Output("display-message", "-p", "-t", "hook-test", "#{window_index}"); err != nil {
+		t.Fatalf("read origin current window: %v", err)
+	} else if got := strings.TrimSpace(string(output)); got != "0" {
+		t.Fatalf("origin current window=%q, want 0", got)
+	}
+	if output, err := runner.Output("display-message", "-p", "-t", viewerSessionName("pane-navigation"), "#{pane_id}"); err != nil {
+		t.Fatalf("read viewer current pane: %v", err)
+	} else if got := strings.TrimSpace(string(output)); got != target.PaneID {
+		t.Fatalf("viewer current pane=%q, want %q", got, target.PaneID)
+	}
+}
+
+func TestTerminalNavigateZoomSetsRequestedStateOnPrivateTmuxSocket(t *testing.T) {
+	client, _ := newPrivateTmuxClient(t)
+	panes, err := client.ListPanes()
+	if err != nil || len(panes) != 1 {
+		t.Fatalf("initial private panes=%+v err=%v", panes, err)
+	}
+	if _, err := client.SplitPaneWithOptions(panes[0].PaneID, "horizontal", nil, ""); err != nil {
+		t.Fatalf("split private pane: %v", err)
+	}
+
+	manager := newTerminalManagerWithRunner(client, newExecTmuxRunner(client), t.TempDir())
+	defer manager.Close()
+	if _, err := manager.AttachWithOptions("zoom-navigation", panes[0].PaneID, AttachOptions{SessionID: "session-1"}); err != nil {
+		t.Fatalf("attach viewer: %v", err)
+	}
+	if err := manager.Navigate("zoom-navigation", TerminalNavigation{Op: NavigateZoom, On: true}); err != nil {
+		t.Fatalf("enable viewer zoom: %v", err)
+	}
+	assertWindowZoomed(t, client, true)
+
+	// The operation is a state setter, not resize-pane's raw toggle.
+	if err := manager.Navigate("zoom-navigation", TerminalNavigation{Op: NavigateZoom, On: true}); err != nil {
+		t.Fatalf("keep viewer zoom enabled: %v", err)
+	}
+	assertWindowZoomed(t, client, true)
+
+	if err := manager.Navigate("zoom-navigation", TerminalNavigation{Op: NavigateZoom, On: false}); err != nil {
+		t.Fatalf("disable viewer zoom: %v", err)
+	}
+	assertWindowZoomed(t, client, false)
+}
+
+func assertWindowZoomed(t *testing.T, client *Client, want bool) {
+	t.Helper()
+	panes, err := client.ListPanes()
+	if err != nil {
+		t.Fatalf("list panes for zoom state: %v", err)
+	}
+	for _, pane := range panes {
+		if pane.WindowZoomed != want {
+			t.Fatalf("pane %s zoomed=%v, want %v", pane.PaneID, pane.WindowZoomed, want)
+		}
 	}
 }
 

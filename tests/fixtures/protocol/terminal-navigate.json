@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "type": "terminal.navigate",
+  "ts": "2026-07-21T15:00:00.000Z",
+  "payload": {
+    "channel_id": "33333333-3333-4333-8333-333333333333",
+    "op": "select_window",
+    "window_index": 2
+  }
+}

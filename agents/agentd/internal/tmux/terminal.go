@@ -88,6 +88,23 @@ type terminalViewer struct {
 	staleAt     time.Time
 }
 
+type TerminalNavigationOp string
+
+const (
+	NavigateSelectWindow TerminalNavigationOp = "select_window"
+	NavigateSelectPane   TerminalNavigationOp = "select_pane"
+	NavigateZoom         TerminalNavigationOp = "zoom"
+)
+
+// TerminalNavigation describes an operation against a channel's grouped tmux
+// session. It never targets the origin session directly.
+type TerminalNavigation struct {
+	Op          TerminalNavigationOp
+	WindowIndex int
+	PaneID      string
+	On          bool
+}
+
 // AttachOptions contains additive terminal.attach fields.
 type AttachOptions struct {
 	SessionID   string
@@ -721,6 +738,43 @@ func (m *TerminalManager) SendInput(channelID string, data string) error {
 
 	// In FIFO mode, use send-keys (legacy behavior)
 	return m.client.SendKeysRaw(paneID, data)
+}
+
+// Navigate changes the current target of a grouped viewer without replacing
+// its PTY bridge. The origin tmux session keeps its own current window.
+func (m *TerminalManager) Navigate(channelID string, navigation TerminalNavigation) error {
+	m.mu.RLock()
+	_, exists := m.channelToPane[channelID]
+	viewer := m.viewerByChannel[channelID]
+	var bridge *viewerPTYBridge
+	if viewer != nil {
+		bridge = viewer.bridge
+	}
+	m.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("channel %s not found", channelID)
+	}
+	if bridge == nil {
+		return fmt.Errorf("channel %s does not use a grouped viewer session", channelID)
+	}
+
+	switch navigation.Op {
+	case NavigateSelectWindow:
+		if navigation.WindowIndex < 0 {
+			return fmt.Errorf("window index must be non-negative")
+		}
+		return bridge.SelectWindow(navigation.WindowIndex)
+	case NavigateSelectPane:
+		if strings.TrimSpace(navigation.PaneID) == "" {
+			return fmt.Errorf("pane id is required")
+		}
+		return bridge.SelectPane(navigation.PaneID)
+	case NavigateZoom:
+		return bridge.SetZoom(navigation.On)
+	default:
+		return fmt.Errorf("unsupported terminal navigation op %q", navigation.Op)
+	}
 }
 
 // TakeControl promotes the given channel to controller for its pane.

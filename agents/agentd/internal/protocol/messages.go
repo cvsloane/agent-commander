@@ -32,6 +32,7 @@ const (
 	TypeTerminalAttach      = "terminal.attach"
 	TypeTerminalInput       = "terminal.input"
 	TypeTerminalResize      = "terminal.resize"
+	TypeTerminalNavigate    = "terminal.navigate"
 	TypeTerminalDetach      = "terminal.detach"
 	TypeTerminalControl     = "terminal.control"
 	TypeTerminalOutput      = "terminal.output"
