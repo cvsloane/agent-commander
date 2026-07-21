@@ -31,3 +31,4 @@
 {"ts":"2026-07-21T03:30:00Z","event":"batch_complete","wave":6,"batch":1,"gate":"green","integration_defects_fixed":3}
 {"ts":"2026-07-21T04:20:00Z","event":"batch_launched","wave":6,"batch":2,"lanes":["FW6-PRECISION","FW6-VERIFY"]}
 {"ts":"2026-07-21T06:40:00Z","event":"lane_frozen","lane":"FW6-PRECISION","attempt":1,"frozen_sha":"adc996e","verdict":"accepted"}
+{"ts":"2026-07-21T07:50:00Z","event":"lane_frozen","lane":"FW6-VERIFY","attempt":4,"frozen_sha":"315c828","verdict":"accepted","note":"two honest holds surfaced real defects"}
