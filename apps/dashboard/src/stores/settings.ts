@@ -425,6 +425,8 @@ interface SettingsStore {
   setTmuxSecondary: (primarySessionId: string, secondarySessionId: string | null) => void;
   terminalWarmTimeoutMinutes: number;
   setTerminalWarmTimeoutMinutes: (minutes: number) => void;
+  autoFocusPane: boolean;
+  setAutoFocusPane: (enabled: boolean) => void;
   promptHistoryBySession: Record<string, string[]>;
   addPromptHistory: (sessionId: string, prompt: string) => void;
   tmuxRosterFilter: TmuxSavedRosterFilter;
@@ -715,6 +717,8 @@ export const useSettingsStore = create<SettingsStore>()(
       terminalWarmTimeoutMinutes: DEFAULT_TERMINAL_WARM_TIMEOUT_MINUTES,
       setTerminalWarmTimeoutMinutes: (minutes) =>
         set({ terminalWarmTimeoutMinutes: normalizeTerminalWarmTimeoutMinutes(minutes) }),
+      autoFocusPane: true,
+      setAutoFocusPane: (enabled) => set({ autoFocusPane: enabled }),
       promptHistoryBySession: {},
       addPromptHistory: (sessionId, prompt) =>
         set((state) => {

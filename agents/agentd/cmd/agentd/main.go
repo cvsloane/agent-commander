@@ -1914,6 +1914,8 @@ func (a *Agent) handleMessage(msgType string, payload json.RawMessage) {
 		a.handleTerminalInput(payload)
 	case "terminal.resize":
 		a.handleTerminalResize(payload)
+	case "terminal.navigate":
+		a.handleTerminalNavigate(payload)
 	case "terminal.control":
 		a.handleTerminalControl(payload)
 	case "terminal.detach":
@@ -5477,6 +5479,43 @@ func (a *Agent) handleTerminalResize(payload json.RawMessage) {
 
 	if err := a.terminalManager.Resize(req.ChannelID, req.Cols, req.Rows); err != nil {
 		log.Printf("Failed to resize terminal: %v", err)
+	}
+}
+
+func (a *Agent) handleTerminalNavigate(payload json.RawMessage) {
+	var req protocol.TerminalNavigatePayload
+	if err := json.Unmarshal(payload, &req); err != nil {
+		log.Printf("Failed to parse terminal.navigate: %v", err)
+		return
+	}
+
+	navigation := tmux.TerminalNavigation{Op: tmux.TerminalNavigationOp(req.Op)}
+	switch navigation.Op {
+	case tmux.NavigateSelectWindow:
+		if req.WindowIndex == nil {
+			log.Printf("Failed to parse terminal.navigate: select_window requires window_index")
+			return
+		}
+		navigation.WindowIndex = *req.WindowIndex
+	case tmux.NavigateSelectPane:
+		if strings.TrimSpace(req.PaneID) == "" {
+			log.Printf("Failed to parse terminal.navigate: select_pane requires pane_id")
+			return
+		}
+		navigation.PaneID = req.PaneID
+	case tmux.NavigateZoom:
+		if req.On == nil {
+			log.Printf("Failed to parse terminal.navigate: zoom requires on")
+			return
+		}
+		navigation.On = *req.On
+	default:
+		log.Printf("Failed to parse terminal.navigate: unsupported op %q", req.Op)
+		return
+	}
+
+	if err := a.terminalManager.Navigate(req.ChannelID, navigation); err != nil {
+		log.Printf("Failed to navigate terminal: %v", err)
 	}
 }
 

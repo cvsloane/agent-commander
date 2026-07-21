@@ -71,6 +71,7 @@ func TestProtocolFixtureMatrixRoundTripsProductionTypes(t *testing.T) {
 		protocol.TypeMCPGetProjectConfig, protocol.TypeMCPUpdateProject, protocol.TypeMCPServers,
 		protocol.TypeMCPConfig, protocol.TypeMCPProjectConfig, protocol.TypeMCPUpdateResult,
 		protocol.TypeTerminalAttach, protocol.TypeTerminalInput, protocol.TypeTerminalResize,
+		protocol.TypeTerminalNavigate,
 		protocol.TypeTerminalDetach, protocol.TypeTerminalControl, protocol.TypeTerminalOutput,
 		protocol.TypeTerminalAttached, protocol.TypeTerminalDetached, protocol.TypeTerminalError,
 		protocol.TypeTerminalReadOnly, protocol.TypeTerminalLag, protocol.TypeTerminalAudit,
@@ -151,6 +152,8 @@ func fixtureMessageTarget(t *testing.T, messageType string, agentMessage bool) a
 		return &protocol.ServerMessage[protocol.TerminalInputPayload]{}
 	case protocol.TypeTerminalResize:
 		return &protocol.ServerMessage[protocol.TerminalResizePayload]{}
+	case protocol.TypeTerminalNavigate:
+		return &protocol.ServerMessage[protocol.TerminalNavigatePayload]{}
 	case protocol.TypeTerminalDetach:
 		return &protocol.ServerMessage[protocol.TerminalChannelPayload]{}
 	case protocol.TypeTerminalOutput:

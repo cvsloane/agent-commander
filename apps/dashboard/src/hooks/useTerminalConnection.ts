@@ -15,7 +15,9 @@ import {
   buildTerminalHello,
   buildTerminalWebSocketUrl,
   decodeTerminalFrame,
+  sendTerminalNavigation,
 } from '@/components/terminal/protocol';
+import type { BrowserTerminalNavigateMessage } from '@agent-command/schema';
 import { calculateKeyboardInset, calculateTerminalViewportHeight } from '@/components/terminal/viewport';
 import { handleTerminalOutputFrame } from '@/components/terminal/terminalFrameRouter';
 import { beginTerminalFrameTimingIfEnabled } from '@/components/performance/terminalFrameTiming';
@@ -485,6 +487,10 @@ export function useTerminalConnection({
     }
   }, [wsRef]);
 
+  const navigate = useCallback((message: BrowserTerminalNavigateMessage) => (
+    sendTerminalNavigation(wsRef.current, message)
+  ), [wsRef]);
+
   const sendInput = useCallback((data: string) => {
     if (readOnlyRef.current) return;
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -587,6 +593,7 @@ export function useTerminalConnection({
     disconnect,
     suspend,
     takeControl,
+    navigate,
     sendInput,
   };
 }

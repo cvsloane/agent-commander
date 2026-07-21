@@ -21,6 +21,14 @@ type TerminalResizePayload struct {
 	Rows      int    `json:"rows"`
 }
 
+type TerminalNavigatePayload struct {
+	ChannelID   string `json:"channel_id"`
+	Op          string `json:"op"`
+	WindowIndex *int   `json:"window_index,omitempty"`
+	PaneID      string `json:"pane_id,omitempty"`
+	On          *bool  `json:"on,omitempty"`
+}
+
 type TerminalChannelPayload struct {
 	ChannelID string `json:"channel_id"`
 }

@@ -67,6 +67,48 @@ func TestTerminalAuditHandlerEmitsAdditiveAuditEvent(t *testing.T) {
 	}
 }
 
+func TestHandleTerminalNavigateRoutesToGroupedViewerOnPrivateSocket(t *testing.T) {
+	tmuxClient := newPrivateCommandTmux(t)
+	panes, err := tmuxClient.ListPanes()
+	if err != nil || len(panes) != 1 {
+		t.Fatalf("initial panes=%+v err=%v", panes, err)
+	}
+	if _, err := tmuxClient.NewWindow("command-test", "second", ""); err != nil {
+		t.Fatalf("create second window: %v", err)
+	}
+	if err := tmuxClient.SelectWindow("command-test:0"); err != nil {
+		t.Fatalf("restore origin window: %v", err)
+	}
+
+	manager := tmux.NewTerminalManager(tmuxClient, t.TempDir())
+	manager.SetPerViewerPTY(true)
+	defer manager.Close()
+	if _, err := manager.AttachWithOptions("navigate-channel", panes[0].PaneID, tmux.AttachOptions{SessionID: "session-1"}); err != nil {
+		t.Fatalf("attach viewer: %v", err)
+	}
+	agent := &Agent{terminalManager: manager}
+	windowIndex := 1
+	payload, err := json.Marshal(protocol.TerminalNavigatePayload{
+		ChannelID:   "navigate-channel",
+		Op:          "select_window",
+		WindowIndex: &windowIndex,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent.handleMessage(protocol.TypeTerminalNavigate, payload)
+
+	panes, err = tmuxClient.ListPanes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pane := range panes {
+		if pane.SessionName == "command-test" && pane.WindowIndex == 0 && !pane.WindowActive {
+			t.Fatal("terminal.navigate changed the origin session's current window")
+		}
+	}
+}
+
 func TestTerminalAttachSupersedesStaleChannelAfterControlPlaneReconnect(t *testing.T) {
 	tmuxClient := newPrivateCommandTmux(t)
 	panes, err := tmuxClient.ListPanes()

@@ -21,8 +21,11 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import { useTmuxTopologyFeed } from '@/hooks/useTmuxTopology';
 import {
   getAttachedTmuxSelectionUpdates,
+  getTmuxViewerNavigation,
+  getTmuxViewerSessionKey,
   shouldRestoreLastTmuxAttachment,
 } from '@/hooks/tmuxNavigation';
+import { terminalHostStore } from '@/components/terminal/terminalHostStore';
 import { useHydrated } from '@/hooks/useHydrated';
 import { selectFleetRosterGroups, useFleetStore } from '@/stores/fleet';
 import { useUIStore } from '@/stores/ui';
@@ -468,6 +471,15 @@ export function useTmuxRosterData() {
         setExpandedClusterKey(clusterKey);
       }
       const session = quickSwitchSessions.find((candidate) => candidate.id === sessionId);
+      if (session) {
+        terminalHostStore.navigateWithinAttachment({
+          sessionId: session.id,
+          hostId: session.host_id,
+          paneId: session.tmux_pane_id || undefined,
+          tmuxSessionKey: getTmuxViewerSessionKey(session),
+          autoAttach: true,
+        }, getTmuxViewerNavigation(session));
+      }
       updateTmuxParams(getAttachedTmuxSelectionUpdates({
         sessionId,
         hostId: session?.host_id,

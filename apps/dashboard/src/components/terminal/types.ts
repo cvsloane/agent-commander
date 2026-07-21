@@ -1,3 +1,5 @@
+import type { BrowserTerminalNavigateMessage } from '@agent-command/schema';
+
 export type XTerminal = import('@xterm/xterm').Terminal;
 export type XFitAddon = import('@xterm/addon-fit').FitAddon;
 export type XSearchAddon = import('@xterm/addon-search').SearchAddon;
@@ -17,6 +19,7 @@ export interface TerminalController {
   detach: () => void;
   suspend: () => boolean;
   takeControl: () => void;
+  navigate: (message: BrowserTerminalNavigateMessage) => boolean;
   focus: () => void;
   copySelection: () => void;
   copyLastLines: (lines?: number) => void;

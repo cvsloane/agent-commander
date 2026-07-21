@@ -1,4 +1,5 @@
 import type { MutableRefObject } from 'react';
+import type { BrowserTerminalNavigateMessage } from '@agent-command/schema';
 import type { ConnectionStatus, TerminalController, XTerminal } from './types';
 import type { TerminalGridDimensions } from '@/hooks/terminalGrid';
 import { captureTerminalWarmBuffer } from '@/hooks/terminalWarmCache';
@@ -7,12 +8,14 @@ export interface TerminalHostDescriptor {
   sessionId: string;
   hostId?: string;
   paneId?: string;
+  tmuxSessionKey?: string;
   autoAttach: boolean;
   letterbox?: TerminalGridDimensions;
 }
 
 export interface TerminalHostSnapshot {
   descriptor: TerminalHostDescriptor | null;
+  attachmentDescriptor: TerminalHostDescriptor | null;
   descriptorKey: string | null;
   target: HTMLDivElement | null;
   visible: boolean;
@@ -33,6 +36,7 @@ interface SurfaceRegistration {
 
 const EMPTY_SNAPSHOT: TerminalHostSnapshot = {
   descriptor: null,
+  attachmentDescriptor: null,
   descriptorKey: null,
   target: null,
   visible: false,
@@ -43,10 +47,9 @@ const EMPTY_SNAPSHOT: TerminalHostSnapshot = {
 };
 
 export function getTerminalDescriptorKey(descriptor: TerminalHostDescriptor): string {
-  // Identity is session+pane ONLY. Letterbox dims must never be part of the
-  // key: they can change while attached (topology updates), and a key change
-  // remounts the terminal — which detaches, releases the agentd size pin,
-  // changes the dims again, and loops attach/detach indefinitely.
+  // Identity starts as session+pane. A successful viewer-scoped navigation
+  // explicitly preserves the existing key in the store. Letterbox dims must
+  // never be part of this identity or they recreate the attach/detach loop.
   return `${descriptor.sessionId}\u0000${descriptor.paneId || ''}`;
 }
 
@@ -61,6 +64,7 @@ export function createTerminalHostStore() {
   let order = 0;
   let controller: TerminalController | null = null;
   let activeControllerRef: MutableRefObject<TerminalController | null> | undefined;
+  const pendingRetargetDescriptorKeys = new Set<string>();
 
   const emit = () => {
     for (const listener of listeners) listener();
@@ -95,12 +99,27 @@ export function createTerminalHostStore() {
       return;
     }
 
-    const descriptorKey = getTerminalDescriptorKey(activeSurface.descriptor);
+    const targetDescriptorKey = getTerminalDescriptorKey(activeSurface.descriptor);
+    const sameTmuxSession = Boolean(
+      activeSurface.descriptor.tmuxSessionKey
+      && activeSurface.descriptor.tmuxSessionKey === snapshot.attachmentDescriptor?.tmuxSessionKey
+    );
+    const alreadySelected = snapshot.descriptor
+      ? getTerminalDescriptorKey(snapshot.descriptor) === targetDescriptorKey
+      : false;
+    const preserveNavigatedAttachment = sameTmuxSession && (
+      pendingRetargetDescriptorKeys.has(targetDescriptorKey) || alreadySelected
+    );
+    const descriptorKey = preserveNavigatedAttachment && snapshot.descriptorKey
+      ? snapshot.descriptorKey
+      : targetDescriptorKey;
+    pendingRetargetDescriptorKeys.delete(targetDescriptorKey);
     const descriptorChanged = descriptorKey !== snapshot.descriptorKey;
     if (descriptorChanged) {
-      if (snapshot.descriptor && snapshot.terminalInstance) {
+      const attachmentDescriptor = snapshot.attachmentDescriptor ?? snapshot.descriptor;
+      if (attachmentDescriptor && snapshot.terminalInstance) {
         captureTerminalWarmBuffer(
-          getTerminalWarmKey(snapshot.descriptor),
+          getTerminalWarmKey(attachmentDescriptor),
           snapshot.terminalInstance
         );
       }
@@ -109,6 +128,9 @@ export function createTerminalHostStore() {
     setActiveControllerRef(activeSurface.controllerRef);
     snapshot = {
       descriptor: activeSurface.descriptor,
+      attachmentDescriptor: descriptorChanged
+        ? activeSurface.descriptor
+        : snapshot.attachmentDescriptor ?? activeSurface.descriptor,
       descriptorKey,
       target: activeSurface.target,
       visible: activeSurface.visible,
@@ -162,6 +184,24 @@ export function createTerminalHostStore() {
         emit();
       }
     },
+    navigateWithinAttachment(
+      descriptor: TerminalHostDescriptor,
+      messages: BrowserTerminalNavigateMessage[]
+    ) {
+      if (
+        !descriptor.tmuxSessionKey
+        || descriptor.tmuxSessionKey !== snapshot.attachmentDescriptor?.tmuxSessionKey
+        || controller?.status !== 'connected'
+      ) {
+        return false;
+      }
+      const navigated = messages.length > 0
+        && messages.every((message) => controller?.navigate(message) ?? false);
+      if (navigated) {
+        pendingRetargetDescriptorKeys.add(getTerminalDescriptorKey(descriptor));
+      }
+      return navigated;
+    },
     setTerminalInstance(descriptorKey: string, instance: XTerminal | null) {
       if (snapshot.descriptorKey !== descriptorKey) return;
       snapshot = { ...snapshot, terminalInstance: instance };
@@ -177,6 +217,7 @@ export function createTerminalHostStore() {
       setActiveControllerRef(undefined);
       controller = null;
       order = 0;
+      pendingRetargetDescriptorKeys.clear();
       snapshot = EMPTY_SNAPSHOT;
       emit();
     },

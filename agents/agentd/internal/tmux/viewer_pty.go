@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -277,6 +278,106 @@ func (b *viewerPTYBridge) Size() TerminalSize {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.size
+}
+
+func (b *viewerPTYBridge) SelectWindow(windowIndex int) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	select {
+	case <-b.closed:
+		return fmt.Errorf("viewer PTY is closed")
+	default:
+	}
+
+	target := b.viewSession + ":" + strconv.Itoa(windowIndex)
+	return b.selectWindowLocked(target)
+}
+
+func (b *viewerPTYBridge) SelectPane(paneID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	select {
+	case <-b.closed:
+		return fmt.Errorf("viewer PTY is closed")
+	default:
+	}
+
+	described, err := b.runner.Output("display-message", "-p", "-t", paneID, "#{window_index}\t#{pane_index}")
+	if err != nil {
+		return fmt.Errorf("describe viewer pane %s: %w", paneID, err)
+	}
+	parts := strings.Split(strings.TrimSpace(string(described)), "\t")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return fmt.Errorf("unexpected tmux pane target %q for %s", strings.TrimSpace(string(described)), paneID)
+	}
+
+	windowTarget := b.viewSession + ":" + parts[0]
+	paneTarget := windowTarget + "." + parts[1]
+	resolved, err := b.runner.Output("display-message", "-p", "-t", paneTarget, "#{pane_id}")
+	if err != nil || strings.TrimSpace(string(resolved)) != paneID {
+		return fmt.Errorf("pane %s is not in grouped viewer session", paneID)
+	}
+	if err := b.selectWindowLocked(windowTarget); err != nil {
+		return fmt.Errorf("select viewer pane window: %w", err)
+	}
+	if err := b.runner.Run("select-pane", "-t", paneTarget); err != nil {
+		return fmt.Errorf("select viewer pane: %w", err)
+	}
+	return nil
+}
+
+func (b *viewerPTYBridge) selectWindowLocked(target string) error {
+	previous := b.windowTarget
+	if b.letterbox && previous != target {
+		if err := b.runner.Run("set-option", "-w", "-t", previous, "window-size", "latest"); err != nil {
+			return fmt.Errorf("release previous viewer window sizing: %w", err)
+		}
+	}
+	if err := b.runner.Run("select-window", "-t", target); err != nil {
+		return fmt.Errorf("select viewer window: %w", err)
+	}
+	if b.letterbox && previous != target {
+		if err := b.runner.Run("set-option", "-w", "-t", target, "window-size", "manual"); err != nil {
+			_ = b.runner.Run("set-option", "-w", "-t", target, "window-size", "latest")
+			return fmt.Errorf("pin selected viewer window sizing: %w", err)
+		}
+		if err := b.runner.Run(
+			"resize-window",
+			"-t", target,
+			"-x", fmt.Sprintf("%d", b.size.Cols),
+			"-y", fmt.Sprintf("%d", b.size.Rows),
+		); err != nil {
+			_ = b.runner.Run("set-option", "-w", "-t", target, "window-size", "latest")
+			return fmt.Errorf("size selected viewer window: %w", err)
+		}
+	}
+	b.windowTarget = target
+	return nil
+}
+
+func (b *viewerPTYBridge) SetZoom(on bool) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	select {
+	case <-b.closed:
+		return fmt.Errorf("viewer PTY is closed")
+	default:
+	}
+
+	zoomed, err := b.runner.Output("display-message", "-p", "-t", b.viewSession, "#{window_zoomed_flag}")
+	if err != nil {
+		return fmt.Errorf("read viewer zoom state: %w", err)
+	}
+	isZoomed := strings.TrimSpace(string(zoomed)) == "1"
+	if isZoomed == on {
+		return nil
+	}
+	// Zoom is a window-shared tmux property even though navigation targets the
+	// grouped viewer. Callers must surface that shared effect predictably.
+	if err := b.runner.Run("resize-pane", "-Z", "-t", b.viewSession+":"); err != nil {
+		return fmt.Errorf("set viewer zoom state: %w", err)
+	}
+	return nil
 }
 
 func (b *viewerPTYBridge) DetachChannel(channelID string) {

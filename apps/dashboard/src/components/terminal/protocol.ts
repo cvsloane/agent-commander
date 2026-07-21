@@ -2,6 +2,7 @@ import {
   BrowserTerminalServerMessageSchema,
   TerminalDimensionSchema,
   type BrowserTerminalClientMessage,
+  type BrowserTerminalNavigateMessage,
   type BrowserTerminalServerMessage,
 } from '@agent-command/schema';
 
@@ -13,6 +14,15 @@ export type DecodedTerminalFrame =
 
 export function buildTerminalHello(): BrowserTerminalClientMessage {
   return { type: 'hello', binary: true };
+}
+
+export function sendTerminalNavigation(
+  socket: WebSocket | null,
+  message: BrowserTerminalNavigateMessage
+): boolean {
+  if (socket?.readyState !== 1) return false;
+  socket.send(JSON.stringify(message));
+  return true;
 }
 
 export function buildTerminalWebSocketUrl(

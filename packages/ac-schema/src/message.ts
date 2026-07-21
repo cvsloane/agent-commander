@@ -336,6 +336,31 @@ export const TerminalResizeMessageSchema = ServerMessageEnvelopeSchema.extend({
 });
 export type TerminalResizeMessage = z.infer<typeof TerminalResizeMessageSchema>;
 
+export const TerminalNavigatePayloadSchema = z.discriminatedUnion('op', [
+  z.object({
+    channel_id: z.string().uuid(),
+    op: z.literal('select_window'),
+    window_index: z.number().int().nonnegative(),
+  }),
+  z.object({
+    channel_id: z.string().uuid(),
+    op: z.literal('select_pane'),
+    pane_id: z.string().min(1),
+  }),
+  z.object({
+    channel_id: z.string().uuid(),
+    op: z.literal('zoom'),
+    on: z.boolean(),
+  }),
+]);
+export type TerminalNavigatePayload = z.infer<typeof TerminalNavigatePayloadSchema>;
+
+export const TerminalNavigateMessageSchema = ServerMessageEnvelopeSchema.extend({
+  type: z.literal('terminal.navigate'),
+  payload: TerminalNavigatePayloadSchema,
+});
+export type TerminalNavigateMessage = z.infer<typeof TerminalNavigateMessageSchema>;
+
 export const TerminalDetachMessageSchema = ServerMessageEnvelopeSchema.extend({
   type: z.literal('terminal.detach'),
   payload: z.object({
@@ -366,6 +391,7 @@ export const ServerToAgentMessageSchema = z.discriminatedUnion('type', [
   TerminalAttachMessageSchema,
   TerminalInputMessageSchema,
   TerminalResizeMessageSchema,
+  TerminalNavigateMessageSchema,
   TerminalDetachMessageSchema,
   TerminalControlMessageSchema,
   ApprovalsDecisionMessageSchema,

@@ -79,16 +79,26 @@ test.describe('Command Center program journeys', () => {
     await selectSession(page, interactiveSession.title);
 
     const strip = page.getByTestId('tmux-window-strip').first();
+    await expect.poll(() => recorder.terminalWebSocketUrls.length).toBeGreaterThan(0);
+    const terminalWebSocketCount = recorder.terminalWebSocketUrls.length;
     await strip.getByRole('tab', { name: 'Window 1: verification' }).click();
 
     await expect
-      .poll(() => recorder.commandRequests)
-      .toContainEqual({ type: 'select_window', payload: { window_index: 1 } });
+      .poll(() => recorder.terminalMessages)
+      .toContainEqual({ type: 'navigate', op: 'select_window', window_index: 1 });
+    await expect
+      .poll(() => recorder.terminalMessages)
+      .toContainEqual({ type: 'navigate', op: 'select_pane', pane_id: windowSession.tmux_pane_id });
     await expect(page).toHaveURL(
       new RegExp(`session_id=${windowSession.id}.*mode=terminal.*attach=1`)
     );
     await expect(page.getByLabel('Interactive terminal')).toBeVisible();
-    await expect.poll(() => recorder.terminalSessionIds).toContain(windowSession.id);
+    await expect.poll(() => recorder.terminalWebSocketUrls.length).toBe(terminalWebSocketCount);
+    expect(recorder.terminalSessionIds).not.toContain(windowSession.id);
+    expect(recorder.commandRequests).not.toContainEqual({
+      type: 'select_window',
+      payload: { window_index: 1 },
+    });
   });
 
   test('window tab keyboard navigation focuses before activation', async ({ page }) => {
@@ -111,15 +121,15 @@ test.describe('Command Center program journeys', () => {
 
     await secondWindow.press('Enter');
     await expect
-      .poll(() => recorder.commandRequests)
-      .toContainEqual({ type: 'select_window', payload: { window_index: 1 } });
+      .poll(() => recorder.terminalMessages)
+      .toContainEqual({ type: 'navigate', op: 'select_window', window_index: 1 });
     await expect(page).toHaveURL(new RegExp(`session_id=${windowSession.id}`));
 
     await firstWindow.focus();
     await firstWindow.press(' ');
     await expect
-      .poll(() => recorder.commandRequests)
-      .toContainEqual({ type: 'select_window', payload: { window_index: 0 } });
+      .poll(() => recorder.terminalMessages)
+      .toContainEqual({ type: 'navigate', op: 'select_window', window_index: 0 });
     await expect(page).toHaveURL(new RegExp(`session_id=${interactiveSession.id}`));
   });
 
