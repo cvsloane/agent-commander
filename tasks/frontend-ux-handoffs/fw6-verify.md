@@ -1,12 +1,13 @@
 ---
 lane: FW6-VERIFY
 branch: refactor/fw6-verify
-base_sha: 44ecde7c0b51288b3d11f7705f93515507007bfe
-partial_sha: 0f997f9ad59f8905f0732037b5e3a72141f92d4b
+base_sha: 3f2ddf51b49ca12e38e0bbd052058929fc0d237f
+partial_sha: 2d89cd1acb68748beb57e5d3b5f8bfd282bd8e62
 state: held
 gates:
   setup: pass
-  focused_journeys: fail
+  window_here_journey: pass
+  prefix_journey: fail
   lint: not_run
   typecheck: not_run
   test_ci: not_run
@@ -14,65 +15,75 @@ gates:
   journeys: not_run
   build: not_run
 blockers:
-  - 'After rebasing onto 44ecde7, a touch-capable Chromium Prefix tap still emits no terminal WebSocket input frame in the connected journey.'
+  - 'The overlay-transparent touch tap reaches the rail and emits 0x02, but the configured heavisidelinux C-a prefix does not reach the persistent mobile terminal.'
 ---
 
-# FW6-VERIFY resumed held handoff
+# FW6-VERIFY Resume 2 held handoff
 
 ## Outcome
 
-The lane fetched origin, rebased its two pushed commits onto the requested
-`44ecde7` frontend integration, and force-pushed the rebased branch. The stable
-pushed partial work remains `0f997f9` and covers four batch-1 behaviors:
+The lane fetched origin, rebased onto the requested `3f2ddf5` integration, and
+force-pushed the rewritten branch. The new pane-sheet **New window here**
+journey is committed at `2d89cd1` and passes in the 412x915 Chromium project:
 
-- Cold-open restore reaches the saved live pane with zero post-sign-in taps on
-  both 412x915 and 1280x720 profiles.
-- Window-strip selection retargets the live viewer on both profiles.
-- A topology reporting one attached client opens the mobile terminal with a
-  fixed 160x50 letterbox and emits no resize while three keyboard-transition
-  viewport sizes are applied.
-- The mobile rail's one-shot sticky Control converts the next physical `c` to
-  one `0x03` input byte and disarms.
+- Opens the public pane actions sheet.
+- Selects **New window here**.
+- Verifies the `heavisidelinux`, `agents`, and
+  `/home/cvsloane/dev/agent-command` prefill.
+- Launches through the public action and records the expected `/v1/launch`
+  body with `tmux.target_session: agents`.
 
-Before the resume, those focused journeys produced 6 passes and 2 expected
-desktop skips from a tmux TTY. The resume stopped at the first three-attempt
-failure, so the mandatory full gate sequence was not started.
+The proof ran from the `fw6-r2-journeys` tmux TTY and passed in 3.6 seconds.
 
 ## Wall report
 
-The integrated source at `44ecde7` contains the pointer-up rail activation and
-the attached pane sheet's **New window here** action. The required per-host
-Prefix journey persisted `C-a`, waited for the terminal WebSocket hello and the
-visible Connected state, and tapped the visible Prefix rail button in the
-touch-capable 412x915 Chromium project. The final assertion failed with:
+The `3f2ddf5` harness correction is effective. The retained Prefix trace shows
+that Playwright resolves the visible Prefix button, completes the touch tap,
+and the terminal WebSocket recorder receives one input byte. The received byte
+is the default prefix `0x02` (C-b), while the host-specific expected byte is
+`0x01` (C-a):
 
-`Expected recorded terminal input to contain 0x01; received an empty string.`
+`Expected recorded terminal input to contain 0x01; received 0x02.`
 
-Three direct behavioral attempts produced the same empty input stream:
+The trace is local at
+`test-results/command-center.journey-Com-1c77d-he-selected-host-prefix-key-mobile-412x915/trace.zip`.
+Its poll record contains `Received string: "\u0002"`, proving this is no longer
+an overlay or pointer-up activation failure.
 
-1. A real rail click after the attached-client letterbox connection.
-2. A touch-capable Playwright `tap()` after the attached-client connection.
-3. A touch-capable `tap()` against a solo, non-letterboxed terminal after both
-   the WebSocket hello and Connected state.
+Three direct journey runs were made:
 
-The final trace is local at
-`test-results/command-center.journey-Com-42b52-he-selected-host-prefix-key-mobile-412x915/trace.zip`.
-The failed experimental journey and fixture changes were removed; no failing
-test or synthetic input workaround was committed. The three-attempt ceiling
-and repo wall rule require the lane to stop here.
+1. An incomplete expanded-preset fixture exposed that the preset name alone
+   does not materialize its key config during persisted-state hydration.
+2. A complete custom rail plus persisted `tmuxPrefixByHost[heavisidelinux] =
+C-a` tapped successfully but emitted `0x02`.
+3. The public Settings UI selected the expanded rail, filled the visible
+   heavisidelinux prefix control with `C-a`, and verified that field value;
+   after navigating to the terminal, the configured Prefix key was not
+   retained.
+
+The failed Prefix experiment was removed rather than committed. Direct store
+injection or changing the expected byte would conceal the shipped propagation
+failure. The likely implementation path crosses the persistent terminal
+descriptor/settings integration outside this lane's dashboard ownership, and
+the brief's three-run ceiling requires a hold.
 
 ## Options for the AI Lead
 
-1. Return the rail-to-terminal pointer-up path to the mobile terminal owner for
-   a direct fix, using the failed journey as its acceptance test.
-2. Expand this lane's firewall to the exact rail and terminal input components
-   so it can diagnose and fix the runtime path before resuming verification.
-3. Reproduce the same touch journey on another Chromium host to determine
-   whether the remaining failure is host-specific before assigning code work.
+1. Return per-host prefix propagation through the persistent mobile terminal
+   to the terminal/settings owner, using the `0x01` journey as acceptance.
+2. Expand this lane's firewall to the settings store/sync and persistent
+   terminal descriptor path so it can diagnose and fix the direct behavior.
+3. Move the Prefix acceptance journey to the owning lane and resume FW6-VERIFY
+   for the remaining carried items after that commit integrates.
+
+## Pushed partial scope
+
+The branch also retains the earlier green journey coverage for cold-open
+restore, window retargeting, attached-client letterbox stability, and one-shot
+sticky Control. No failing test was pushed.
 
 ## Unstarted work
 
-- The **New window here** journey through the newly integrated sheet action.
 - A9 canonical launch/open hrefs.
 - A10 performance gating.
 - A11 focus-only window-strip arrow navigation.
@@ -81,5 +92,5 @@ and repo wall rule require the lane to stop here.
 - Owner device checklist.
 - Full mandatory gate sequence.
 
-The captured-pointer lesson was added to `tasks/lessons.md`. No production
+The corrected overlay lesson is recorded in `tasks/lessons.md`. No production
 state, deployment files, secrets, or default tmux sessions were changed.
