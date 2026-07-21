@@ -145,6 +145,43 @@ test.describe('Command Center program journeys', () => {
     );
   });
 
+  test.describe('touch rail input', () => {
+    test.use({ hasTouch: true });
+
+    test('mobile rail honors the selected host prefix key', async ({ page }) => {
+      test.skip(!(await isMobile(page)), 'mobile key rail journey');
+      await page.addInitScript(
+        ({ hostId }) => {
+          window.localStorage.setItem(
+            'settings-storage',
+            JSON.stringify({
+              state: {
+                terminalRailPreset: 'custom',
+                terminalRailConfig: {
+                  version: 1,
+                  keys: [
+                    { id: 'esc', label: 'Esc', binding: { type: 'keysym', value: 'esc' } },
+                    { id: 'prefix', label: 'Prefix', binding: { type: 'keysym', value: 'prefix' } },
+                  ],
+                },
+                tmuxPrefixByHost: { [hostId]: 'C-a' },
+              },
+              version: 0,
+            })
+          );
+        },
+        { hostId: host.id }
+      );
+      await signIn(page);
+      await selectSession(page, interactiveSession.title);
+
+      await expect(page.getByTestId('tmux-attached-status')).toContainText('Connected');
+      await page.getByTestId('terminal-key-rail').getByRole('button', { name: 'Prefix' }).tap();
+
+      await expect.poll(() => recordedTerminalInput(recorder)).toContain('\x01');
+    });
+  });
+
   test('signin to Command Center first paint', async ({ page }) => {
     await page.goto('/');
     await expect(page).toHaveURL(/\/signin/);
