@@ -347,7 +347,7 @@ test.describe('Command Center program journeys', () => {
     await expect(history.getByText('recent line 1', { exact: true })).toBeVisible();
     await history.getByRole('button', { name: 'Load older' }).click();
     await expect
-      .poll(() => recorder.scrollbackRequests)
+      .poll(() => recorder.scrollbackRequests.slice(-2))
       .toEqual([
         { mode: 'range', start_line: -500, end_line: -1, strip_ansi: true },
         { mode: 'range', start_line: -1000, end_line: -501, strip_ansi: true },

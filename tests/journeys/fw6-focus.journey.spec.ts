@@ -59,6 +59,20 @@ async function openInlineHistory(page: Page): Promise<void> {
   await expect(page.getByLabel('Inline terminal history')).toBeVisible();
 }
 
+async function waitForScrollModeProbe(
+  page: Page,
+  recorder: JourneyRecorder,
+  sessionId: string,
+  previousCount = 0
+): Promise<void> {
+  await expect
+    .poll(() => recorder.scrollbackSessionIds.filter((candidate) => candidate === sessionId).length)
+    .toBeGreaterThan(previousCount);
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+}
+
 async function overscrollHistoryPastBottom(page: Page): Promise<void> {
   const history = page.getByLabel('Inline terminal history');
   await history.evaluate((element) => {
@@ -101,16 +115,19 @@ test.describe('FW6 mobile Focus journey', () => {
     recorder = await mockControlPlane(page, {
       multiWindow: true,
       terminalOutput: '\x1b[?1049h\x1b[?1002h\x1b[?1006h',
+      appScrollSessionIds: [windowSession.id],
     });
   });
 
   test('opens inline history without emitting terminal scroll or SGR frames', async ({ page }) => {
     await signIn(page);
     await selectSession(page);
+    await waitForScrollModeProbe(page, recorder, interactiveSession.id);
+    const scrollbackStart = recorder.scrollbackRequests.length;
     const messageStart = recorder.terminalMessages.length;
 
     await openInlineHistory(page);
-    await expect.poll(() => recorder.scrollbackRequests.length).toBe(1);
+    await expect.poll(() => recorder.scrollbackRequests.length).toBe(scrollbackStart + 1);
 
     const gestureMessages = recorder.terminalMessages.slice(messageStart);
     expect(gestureMessages.filter(
@@ -129,12 +146,14 @@ test.describe('FW6 mobile Focus journey', () => {
   }) => {
     await signIn(page);
     await selectSession(page);
+    await waitForScrollModeProbe(page, recorder, interactiveSession.id);
+    const scrollbackStart = recorder.scrollbackRequests.length;
     const messageStart = recorder.terminalMessages.length;
 
     await dragTerminal(page, -140);
 
     await expect(page.getByTestId('terminal-history-overlay')).toHaveCount(0);
-    expect(recorder.scrollbackRequests).toHaveLength(0);
+    expect(recorder.scrollbackRequests).toHaveLength(scrollbackStart);
     const gestureMessages = recorder.terminalMessages.slice(messageStart);
     expect(gestureMessages.filter(
       (message) => message.type === 'navigate' && message.op === 'scroll'
@@ -149,6 +168,7 @@ test.describe('FW6 mobile Focus journey', () => {
   test('prepends older history without moving the visible transcript', async ({ page }) => {
     await signIn(page);
     await selectSession(page);
+    await waitForScrollModeProbe(page, recorder, interactiveSession.id);
     await openInlineHistory(page);
     const history = page.getByLabel('Inline terminal history');
     const initialHeight = await history.evaluate((element) => element.scrollHeight);
@@ -158,7 +178,7 @@ test.describe('FW6 mobile Focus journey', () => {
       element.dispatchEvent(new Event('scroll', { bubbles: true }));
     });
 
-    await expect.poll(() => recorder.scrollbackRequests).toEqual([
+    await expect.poll(() => recorder.scrollbackRequests.slice(-2)).toEqual([
       { mode: 'range', start_line: -500, end_line: -1, strip_ansi: true },
       { mode: 'range', start_line: -1000, end_line: -501, strip_ansi: true },
     ]);
@@ -243,12 +263,20 @@ test.describe('FW6 mobile Focus journey', () => {
     expect(inputCount()).toBe(inputCountAfterCursorGesture);
   });
 
-  test('loads History from the selected session after an in-place window switch', async ({
+  test('re-resolves hybrid scroll mode across in-place codex and claude window switches', async ({
     page,
   }) => {
     await signIn(page);
     await selectSession(page);
+    await waitForScrollModeProbe(page, recorder, interactiveSession.id);
     const terminalWebSocketCount = recorder.terminalWebSocketUrls.length;
+
+    const codexMessageStart = recorder.terminalMessages.length;
+    await openInlineHistory(page);
+    expect(recorder.terminalMessages.slice(codexMessageStart).filter(
+      (message) => message.type === 'navigate' && message.op === 'scroll'
+    )).toHaveLength(0);
+    await page.getByRole('button', { name: 'Live terminal' }).click();
 
     await page
       .getByTestId('tmux-window-strip')
@@ -257,9 +285,63 @@ test.describe('FW6 mobile Focus journey', () => {
       .click();
     await expect(page).toHaveURL(new RegExp(`session_id=${windowSession.id}`));
     await expect.poll(() => recorder.terminalWebSocketUrls.length).toBe(terminalWebSocketCount);
+    await waitForScrollModeProbe(page, recorder, windowSession.id);
 
+    const claudeMessageStart = recorder.terminalMessages.length;
+    await dragTerminal(page, 140);
+    await expect.poll(() => recorder.terminalMessages.slice(claudeMessageStart).filter(
+      (message) => message.type === 'navigate' && message.op === 'scroll'
+    ).length).toBeGreaterThan(0);
+    await expect(page.getByTestId('terminal-history-overlay')).toHaveCount(0);
+
+    const priorInteractiveProbeCount = recorder.scrollbackSessionIds.filter(
+      (sessionId) => sessionId === interactiveSession.id
+    ).length;
+    await page
+      .getByTestId('tmux-window-strip')
+      .first()
+      .getByRole('tab', { name: 'Window 0: command-center' })
+      .click();
+    await expect(page).toHaveURL(new RegExp(`session_id=${interactiveSession.id}`));
+    await waitForScrollModeProbe(
+      page,
+      recorder,
+      interactiveSession.id,
+      priorInteractiveProbeCount
+    );
+
+    const returnedCodexMessageStart = recorder.terminalMessages.length;
     await openInlineHistory(page);
-    await expect.poll(() => recorder.scrollbackSessionIds.at(-1)).toBe(windowSession.id);
+    expect(recorder.terminalMessages.slice(returnedCodexMessageStart).filter(
+      (message) => message.type === 'navigate' && message.op === 'scroll'
+    )).toHaveLength(0);
+  });
+
+  test('routes a resolved claude-like pane to app scroll without leaving an overlay', async ({
+    page,
+  }) => {
+    await signIn(page);
+    await selectSession(page);
+    await page
+      .getByTestId('tmux-window-strip')
+      .first()
+      .getByRole('tab', { name: 'Window 1: verification' })
+      .click();
+    await expect(page).toHaveURL(new RegExp(`session_id=${windowSession.id}`));
+    await waitForScrollModeProbe(page, recorder, windowSession.id);
+    const scrollbackCount = recorder.scrollbackRequests.length;
+    const messageStart = recorder.terminalMessages.length;
+
+    await dragTerminal(page, 140);
+
+    await expect.poll(() => recorder.terminalMessages.slice(messageStart).filter(
+      (message) => message.type === 'navigate' && message.op === 'scroll'
+    ).length).toBeGreaterThan(0);
+    await expect(page.getByTestId('terminal-history-overlay')).toHaveCount(0);
+    expect(recorder.scrollbackRequests).toHaveLength(scrollbackCount);
+    expect(recorder.terminalMessages.slice(messageStart).filter(
+      (message) => message.type === 'input'
+    )).toHaveLength(0);
   });
 
   test('keeps the History dialog reachable from pane actions', async ({ page }) => {

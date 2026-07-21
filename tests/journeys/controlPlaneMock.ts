@@ -93,9 +93,10 @@ export const approvalSession = {
 
 export const windowSession = {
   ...baseSession,
+  provider: 'claude_code',
   id: '44444444-4444-4444-8444-444444444444',
   status: 'RUNNING',
-  title: 'Window two shell',
+  title: 'Claude Code',
   tmux_pane_id: '%4',
   tmux_target: 'agents:1.0',
   metadata: {
@@ -189,7 +190,7 @@ function topologyMessage(
           width: 94,
           height: 40,
           title: windowSession.title,
-          current_command: 'bash',
+          current_command: 'claude',
           current_path: windowSession.cwd,
         },
       ] : [],
@@ -238,6 +239,7 @@ interface MockOptions {
   terminalReadOnly?: boolean;
   terminalOutput?: string;
   multiWindow?: boolean;
+  appScrollSessionIds?: string[];
 }
 
 async function fulfillJson(route: Route, body: unknown): Promise<void> {
@@ -521,18 +523,23 @@ export async function mockControlPlane(
     }
     if (request.method() === 'POST' && /^\/v1\/sessions\/[^/]+\/scrollback$/.test(url.pathname)) {
       const body = request.postDataJSON() as { start_line?: number };
+      const scrollbackSessionId = url.pathname.split('/')[3] || '';
       recorder.scrollbackRequests.push(body);
-      recorder.scrollbackSessionIds.push(url.pathname.split('/')[3] || '');
+      recorder.scrollbackSessionIds.push(scrollbackSessionId);
       const initialPage = body.start_line === -500;
+      const appScrollPage = initialPage && options.appScrollSessionIds?.includes(
+        scrollbackSessionId
+      );
+      const lineCount = appScrollPage ? 1 : initialPage ? 500 : 12;
       await fulfillJson(route, {
         cmd_id: '01JJOURNEYHISTORY0000000000',
         ok: true,
         result: {
           content: historyContent(
-            initialPage ? 'recent line' : 'older line',
-            initialPage ? 500 : 12
+            appScrollPage ? 'claude prompt' : initialPage ? 'recent line' : 'older line',
+            lineCount
           ),
-          line_count: initialPage ? 500 : 12,
+          line_count: lineCount,
           capture_mode: 'range',
         },
       });
