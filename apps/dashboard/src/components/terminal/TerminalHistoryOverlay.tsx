@@ -86,6 +86,10 @@ export function TerminalHistoryOverlay({
       const page = await fetchPage(initialScrollbackRange());
       if (generationRef.current !== generation) return;
       onScrollModeResolved(page.scrollMode);
+      if (page.scrollMode === 'app-scroll') {
+        onClose();
+        return;
+      }
       setPages([page]);
       setHasOlder(page.lines.length >= SCROLLBACK_PAGE_LINES);
       requestAnimationFrame(() => {
@@ -103,7 +107,7 @@ export function TerminalHistoryOverlay({
     } finally {
       if (generationRef.current === generation) setLoadingInitial(false);
     }
-  }, [fetchPage, onScrollModeResolved]);
+  }, [fetchPage, onClose, onScrollModeResolved]);
 
   useEffect(() => {
     if (!open) {
