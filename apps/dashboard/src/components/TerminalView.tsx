@@ -24,6 +24,7 @@ import { useSettingsStore } from '@/stores/settings';
 
 interface TerminalViewProps {
   sessionId: string;
+  historySessionId?: string;
   hostId?: string;
   paneId?: string;
   className?: string;
@@ -39,6 +40,7 @@ export type { TerminalController } from '@/components/terminal/types';
 
 export function TerminalView({
   sessionId,
+  historySessionId = sessionId,
   hostId,
   paneId,
   className,
@@ -206,6 +208,7 @@ export function TerminalView({
     onOutputStart: handleOutputStart,
     onOutputWritten: handleTerminalOutputWritten,
   });
+  const terminalWritable = status === 'connected' && !readOnly;
   controllerReadOnlyRef.current = readOnly;
   const dispatchStickyCtrl = useCallback((event: StickyCtrlEvent) => {
     const nextMode = reduceStickyCtrl(stickyCtrlModeRef.current, event);
@@ -234,8 +237,10 @@ export function TerminalView({
     terminalRef,
     fontSize: terminalFontSize,
     onFontSizeChange: setTerminalFontSize,
-    cursorEnabled: status === 'connected' && !readOnly,
+    cursorEnabled: terminalWritable,
     onCursorInput: sendInput,
+    writable: terminalWritable,
+    onScrollInput: sendInput,
     onHorizontalSwipe: (direction) => {
       termRef.current?.dispatchEvent(new CustomEvent('terminal-window-swipe', {
         bubbles: true,
@@ -380,7 +385,7 @@ export function TerminalView({
         search={searchControls}
       />
       <ScrollbackPager
-        sessionId={sessionId}
+        sessionId={historySessionId}
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
       />
