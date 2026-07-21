@@ -36,6 +36,10 @@ function recordedTerminalInput(recorder: JourneyRecorder): string {
     .join('');
 }
 
+function visibleTerminalInput(page: Page) {
+  return page.locator('[aria-label="Interactive terminal"]:visible .xterm-helper-textarea').first();
+}
+
 test.describe('Command Center program journeys', () => {
   let recorder: JourneyRecorder;
 
@@ -109,8 +113,7 @@ test.describe('Command Center program journeys', () => {
     await selectSession(page, interactiveSession.title);
 
     await expect(page.getByRole('button', { name: 'Detach', exact: true })).toBeVisible();
-    const terminal = page.getByLabel('Interactive terminal');
-    await terminal.locator('.xterm-helper-textarea').focus();
+    await visibleTerminalInput(page).focus();
     await page.keyboard.type('echo journey');
     await expect.poll(() => recordedTerminalInput(recorder)).toContain('echo journey');
 
@@ -202,7 +205,6 @@ test.describe('Command Center program journeys', () => {
     await signIn(page);
     await selectSession(page, interactiveSession.title);
 
-    await page.getByRole('button', { name: 'Attach Terminal', exact: true }).click();
     await expect(page.getByText('Read-only — take control to type')).toBeVisible();
     await page.getByRole('button', { name: 'Take Control', exact: true }).click();
     await expect
@@ -210,8 +212,7 @@ test.describe('Command Center program journeys', () => {
       .toBe(true);
     await expect(page.getByText('Read-only', { exact: true })).toHaveCount(0);
 
-    const terminal = page.getByLabel('Interactive terminal');
-    await terminal.locator('.xterm-helper-textarea').focus();
+    await visibleTerminalInput(page).focus();
     await page.keyboard.type('whoami');
     await expect.poll(() => recordedTerminalInput(recorder)).toContain('whoami');
   });
