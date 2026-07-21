@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Bot, ChevronRight, Folder, Loader2, Play, Server, TerminalSquare, X } from 'lucide-react';
+import { Bot, ChevronRight, Folder, Loader2, Play, Plus, Server, TerminalSquare, X } from 'lucide-react';
 import type { LaunchTarget, MobileLaunchProvider } from '@agent-command/schema';
 import { useLaunchTargets } from '@/hooks/useLaunchTargets';
 import { launchAgent, openTmuxTarget } from '@/lib/api';
@@ -16,14 +16,16 @@ import {
   useRecentLaunch,
   writeRecentLaunch,
 } from './recentLaunchStore';
+import type { WindowHereLaunchContext } from './windowHere';
 
-type LaunchMode = 'new' | 'existing';
+type LaunchMode = 'new' | 'existing' | 'window';
 export type LaunchSheetView = LaunchMode | 'recent';
 
 interface MobileLaunchSheetProps {
   open: boolean;
   initialView?: LaunchSheetView;
   selectedHostId?: string;
+  windowHere?: WindowHereLaunchContext;
   onClose: () => void;
   onLaunched?: () => void;
 }
@@ -44,6 +46,7 @@ export function MobileLaunchSheet({
   open,
   initialView = 'new',
   selectedHostId,
+  windowHere,
   onClose,
   onLaunched,
 }: MobileLaunchSheetProps) {
@@ -86,10 +89,22 @@ export function MobileLaunchSheet({
 
   useEffect(() => {
     if (!open) return;
-    setMode(initialView === 'existing' ? 'existing' : 'new');
+    setMode(initialView === 'existing' ? 'existing' : initialView === 'window' && windowHere ? 'window' : 'new');
     setProvider(defaultMobileLaunchProvider);
     setTmuxTarget(defaultMobileLaunchTmuxTarget || '');
-  }, [defaultMobileLaunchProvider, defaultMobileLaunchTmuxTarget, initialView, open]);
+  }, [defaultMobileLaunchProvider, defaultMobileLaunchTmuxTarget, initialView, open, windowHere]);
+
+  useEffect(() => {
+    if (!open || mode !== 'window') return;
+    if (!windowHere) {
+      setMode('new');
+      return;
+    }
+    setHostId(windowHere.hostId);
+    setWorkingDirectory(windowHere.workingDirectory);
+    setTmuxTarget(windowHere.tmuxSession);
+    if (windowHere.provider) setProvider(windowHere.provider);
+  }, [mode, open, windowHere]);
 
   useEffect(() => {
     if (!selectedTarget) return;
@@ -246,7 +261,7 @@ export function MobileLaunchSheet({
           </Button>
         </div>
 
-        <div className="grid grid-cols-2 gap-1 border-b bg-muted p-1">
+        <div className={cn('grid gap-1 border-b bg-muted p-1', windowHere ? 'grid-cols-3' : 'grid-cols-2')}>
           <button
             type="button"
             onClick={() => setMode('new')}
@@ -269,6 +284,19 @@ export function MobileLaunchSheet({
             <TerminalSquare className="h-4 w-4" />
             Existing
           </button>
+          {windowHere && (
+            <button
+              type="button"
+              onClick={() => setMode('window')}
+              className={cn(
+                'flex h-10 items-center justify-center gap-2 rounded text-sm font-medium',
+                mode === 'window' ? 'bg-background shadow-sm' : 'text-muted-foreground'
+              )}
+            >
+              <Plus className="h-4 w-4" />
+              Window here
+            </button>
+          )}
         </div>
 
         <div className="max-h-[calc(92dvh-9.5rem)] space-y-4 overflow-y-auto px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
@@ -339,7 +367,7 @@ export function MobileLaunchSheet({
                 </section>
               ) : null}
 
-              <section className="space-y-2">
+              {mode !== 'window' && <section className="space-y-2">
                 <div className="flex items-center gap-2 text-xs font-medium uppercase text-muted-foreground">
                   <Server className="h-3.5 w-3.5" />
                   Machine
@@ -366,7 +394,7 @@ export function MobileLaunchSheet({
                     ))}
                   </div>
                 </div>
-              </section>
+              </section>}
 
               {mode === 'existing' ? (
                 <section className="space-y-3">
@@ -429,6 +457,36 @@ export function MobileLaunchSheet({
                     </div>
                   )}
                 </section>
+              ) : mode === 'window' && windowHere ? (
+                <>
+                  <section className="rounded-md border border-primary/30 bg-primary/10 p-3">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Server className="h-4 w-4 text-primary" />
+                      New window in {windowHere.tmuxSession}
+                    </div>
+                    <div className="mt-1 truncate text-xs text-muted-foreground">
+                      {selectedTarget?.alias || 'Attached machine'} · {windowHere.workingDirectory}
+                    </div>
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      {providerLabel(provider)} will open in this tmux session.
+                    </div>
+                  </section>
+                  <section className="space-y-2">
+                    <div className="text-xs font-medium uppercase text-muted-foreground">Prompt</div>
+                    <textarea
+                      value={prompt}
+                      onChange={(event) => setPrompt(event.target.value)}
+                      rows={5}
+                      placeholder="What should the new window do?"
+                      className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                    />
+                  </section>
+                  {launchError && (
+                    <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                      {launchError}
+                    </div>
+                  )}
+                </>
               ) : (
                 <>
                   <section className="space-y-2">
@@ -533,7 +591,7 @@ export function MobileLaunchSheet({
           )}
         </div>
 
-        {mode === 'new' && (
+        {(mode === 'new' || mode === 'window') && (
           <div className="border-t bg-background p-4">
             <Button
               size="mobile"
@@ -542,7 +600,11 @@ export function MobileLaunchSheet({
               onClick={handleLaunch}
             >
               {launching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              {launching ? 'Launching' : `Launch ${providerLabel(provider)}`}
+              {launching
+                ? 'Launching'
+                : mode === 'window'
+                  ? 'Launch window here'
+                  : `Launch ${providerLabel(provider)}`}
             </Button>
           </div>
         )}
