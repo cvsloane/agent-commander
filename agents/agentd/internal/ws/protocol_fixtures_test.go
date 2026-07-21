@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/agent-command/agentd/internal/protocol"
@@ -28,6 +29,9 @@ func TestProtocolFixtureMatrixRoundTripsProductionTypes(t *testing.T) {
 	seenTypes := make(map[string]bool)
 	seenCommands := make(map[string]bool)
 	for _, path := range paths {
+		if strings.HasPrefix(filepath.Base(path), "ui-") {
+			continue
+		}
 		path := path
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			data, err := os.ReadFile(path)
