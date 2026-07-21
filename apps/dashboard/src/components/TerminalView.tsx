@@ -243,25 +243,31 @@ export function TerminalView({
   useEffect(() => {
     scrollModeCacheRef.current.delete(historySessionId);
     setScrollModeCacheVersion((version) => version + 1);
-    if (status !== 'connected' || !tmuxSessionKey || !historySessionId) return;
+    if (!touchInputModeEnabled || status !== 'connected' || !tmuxSessionKey || !historySessionId) {
+      return;
+    }
 
     let cancelled = false;
     const primeScrollMode = async () => {
-      const range = initialScrollbackRange();
-      const response = await getSessionScrollback(historySessionId, {
-        mode: 'range',
-        start_line: range.startLine,
-        end_line: range.endLine,
-        strip_ansi: true,
-      });
-      if (cancelled || !response.ok) return;
-      cacheScrollMode(historySessionId, classifyTerminalScrollMode(response.result?.content));
+      try {
+        const range = initialScrollbackRange();
+        const response = await getSessionScrollback(historySessionId, {
+          mode: 'range',
+          start_line: range.startLine,
+          end_line: range.endLine,
+          strip_ansi: true,
+        });
+        if (cancelled || !response.ok) return;
+        cacheScrollMode(historySessionId, classifyTerminalScrollMode(response.result?.content));
+      } catch {
+        // Transport failure leaves the pane unclassified; the overlay path re-probes.
+      }
     };
     void primeScrollMode();
     return () => {
       cancelled = true;
     };
-  }, [cacheScrollMode, historySessionId, status, tmuxSessionKey]);
+  }, [cacheScrollMode, historySessionId, status, tmuxSessionKey, touchInputModeEnabled]);
   const handleHistoryScrollModeResolved = useCallback(
     (mode: TerminalScrollMode) => {
       cacheScrollMode(historySessionId, mode);

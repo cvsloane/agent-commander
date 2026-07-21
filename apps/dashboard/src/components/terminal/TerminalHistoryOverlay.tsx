@@ -84,8 +84,8 @@ export function TerminalHistoryOverlay({
     setScrollTop(0);
     try {
       const page = await fetchPage(initialScrollbackRange());
-      if (generationRef.current !== generation) return;
       onScrollModeResolved(page.scrollMode);
+      if (generationRef.current !== generation) return;
       if (page.scrollMode === 'app-scroll') {
         onClose();
         return;

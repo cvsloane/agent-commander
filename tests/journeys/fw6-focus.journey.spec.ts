@@ -344,6 +344,37 @@ test.describe('FW6 mobile Focus journey', () => {
     )).toHaveLength(0);
   });
 
+  test('auto-closes an unclassified thin overlay and caches app scroll', async ({ page }) => {
+    await page.route(/\/v1\/sessions\/[^/]+\/scrollback$/, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      await route.fallback();
+    });
+    await signIn(page);
+    await selectSession(page);
+    await page
+      .getByTestId('tmux-window-strip')
+      .first()
+      .getByRole('tab', { name: 'Window 1: verification' })
+      .click();
+    await expect(page).toHaveURL(new RegExp(`session_id=${windowSession.id}`));
+
+    const messageStart = recorder.terminalMessages.length;
+    await dragTerminal(page, 140);
+    const overlay = page.getByTestId('terminal-history-overlay');
+    await expect(overlay).toBeVisible();
+    await expect(overlay).toHaveCount(0, { timeout: 8000 });
+    expect(recorder.terminalMessages.slice(messageStart).filter(
+      (message) => message.type === 'navigate' && message.op === 'scroll'
+    )).toHaveLength(0);
+
+    const appScrollStart = recorder.terminalMessages.length;
+    await dragTerminal(page, 140);
+    await expect.poll(() => recorder.terminalMessages.slice(appScrollStart).filter(
+      (message) => message.type === 'navigate' && message.op === 'scroll'
+    ).length).toBeGreaterThan(0);
+    await expect(overlay).toHaveCount(0);
+  });
+
   test('keeps the History dialog reachable from pane actions', async ({ page }) => {
     await signIn(page);
     await selectSession(page);

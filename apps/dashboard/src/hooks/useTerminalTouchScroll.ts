@@ -778,6 +778,7 @@ export function useTerminalTouchScroll({
         cancelAnimationFrame(touchState.navigateRaf);
         touchState.navigateRaf = null;
       }
+      touchState.navigateCoalescer = { ...INITIAL_SCROLL_COALESCER };
     };
   }, [enabled, termRef, terminalRef]);
 
