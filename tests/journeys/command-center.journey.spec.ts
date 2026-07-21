@@ -244,7 +244,9 @@ test.describe('Command Center program journeys', () => {
     await selectSession(page, interactiveSession.title);
 
     if (await isMobile(page)) {
-      await expect(page.getByTestId('tmux-attached-status')).toBeVisible();
+      // Wait for writability, not just attachment: typing during the WS
+      // handshake drops keystrokes and flakes under parallel load.
+      await expect(page.getByTestId('tmux-attached-status')).toContainText('Connected');
       await visibleTerminalInput(page).focus();
       await page.keyboard.type('echo journey');
       await expect.poll(() => recordedTerminalInput(recorder)).toContain('echo journey');
