@@ -220,6 +220,7 @@ test.describe('Command Center program journeys', () => {
       await expect(page.getByTestId('tmux-attached-status')).toContainText('Read-only');
       const actions = await openPaneActions(page);
       await actions.getByRole('button', { name: 'Take Control', exact: true }).click();
+      await page.getByRole('button', { name: 'Close actions' }).click();
     } else {
       await expect(page.getByText('Read-only — take control to type')).toBeVisible();
       await page.getByRole('button', { name: 'Take Control', exact: true }).click();
