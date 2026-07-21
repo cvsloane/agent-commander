@@ -13,6 +13,7 @@ import {
   DEFAULT_TERMINAL_WARM_TIMEOUT_MINUTES,
   useSettingsStore,
 } from '@/stores/settings';
+import { installResilientTerminalWebgl } from './terminalWebgl';
 
 export function useXtermTerminal({
   termRef,
@@ -43,6 +44,7 @@ export function useXtermTerminal({
   const searchAddonRef = useRef<XSearchAddon | null>(null);
   const baseFontSizeRef = useRef<number | null>(null);
   const lastSentDimensionsRef = useRef<TerminalGridDimensions | undefined>(undefined);
+  const webglCleanupRef = useRef<(() => void) | null>(null);
 
   const applyLetterbox = useCallback(() => {
     const terminal = terminalRef.current;
@@ -167,9 +169,10 @@ export function useXtermTerminal({
     }
     try {
       const { WebglAddon } = await import('@xterm/addon-webgl');
-      const webglAddon = new WebglAddon();
-      webglAddon.onContextLoss(() => webglAddon.dispose());
-      terminal.loadAddon(webglAddon);
+      webglCleanupRef.current = installResilientTerminalWebgl(
+        terminal,
+        () => new WebglAddon()
+      );
     } catch {
       // The built-in DOM renderer remains active when WebGL is unavailable.
     }
@@ -253,6 +256,8 @@ export function useXtermTerminal({
       element.style.removeProperty('height');
       element.parentElement?.style.removeProperty('overflow-y');
     }
+    webglCleanupRef.current?.();
+    webglCleanupRef.current = null;
     terminalRef.current?.dispose();
     terminalRef.current = null;
     fitAddonRef.current = null;
