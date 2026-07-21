@@ -165,15 +165,6 @@ export function TerminalContextMenu({
     container.addEventListener('touchcancel', handleTouchEnd);
     container.addEventListener('contextmenu', handleContextMenu);
     container.addEventListener('terminal-cursor-mode-start', handleCursorModeStart);
-    // Cursor mode armed at 450ms — cancel our 500ms menu timer so a hold-to-
-    // move-cursor gesture never flashes the copy/paste menu.
-    const handleCursorArmed = () => {
-      if (longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
-      }
-    };
-    container.addEventListener('terminal-cursor-armed', handleCursorArmed);
 
     return () => {
       container.removeEventListener('touchstart', handleTouchStart);
@@ -182,7 +173,6 @@ export function TerminalContextMenu({
       container.removeEventListener('touchcancel', handleTouchEnd);
       container.removeEventListener('contextmenu', handleContextMenu);
       container.removeEventListener('terminal-cursor-mode-start', handleCursorModeStart);
-      container.removeEventListener('terminal-cursor-armed', handleCursorArmed);
 
       if (longPressTimerRef.current) {
         clearTimeout(longPressTimerRef.current);

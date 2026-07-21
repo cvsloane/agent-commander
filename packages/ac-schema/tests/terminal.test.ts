@@ -24,6 +24,11 @@ describe('terminal protocol', () => {
       op: 'zoom',
       on: true,
     })).toMatchObject({ op: 'zoom', on: true });
+    expect(BrowserTerminalClientMessageSchema.parse({
+      type: 'navigate',
+      op: 'scroll',
+      lines: -120,
+    })).toMatchObject({ op: 'scroll', lines: -120 });
 
     expect(BrowserTerminalClientMessageSchema.safeParse({
       type: 'navigate',
@@ -32,6 +37,16 @@ describe('terminal protocol', () => {
     expect(BrowserTerminalClientMessageSchema.safeParse({
       type: 'navigate',
       op: 'zoom',
+    }).success).toBe(false);
+    expect(BrowserTerminalClientMessageSchema.safeParse({
+      type: 'navigate',
+      op: 'scroll',
+      lines: -121,
+    }).success).toBe(false);
+    expect(BrowserTerminalClientMessageSchema.safeParse({
+      type: 'navigate',
+      op: 'scroll',
+      lines: 121,
     }).success).toBe(false);
   });
 

@@ -97,6 +97,16 @@ func TestHandleTerminalNavigateRoutesToGroupedViewerOnPrivateSocket(t *testing.T
 		t.Fatal(err)
 	}
 	agent.handleMessage(protocol.TypeTerminalNavigate, payload)
+	scrollLines := 1
+	payload, err = json.Marshal(protocol.TerminalNavigatePayload{
+		ChannelID: "navigate-channel",
+		Op:        "scroll",
+		Lines:     &scrollLines,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent.handleMessage(protocol.TypeTerminalNavigate, payload)
 
 	panes, err = tmuxClient.ListPanes()
 	if err != nil {

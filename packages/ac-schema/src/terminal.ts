@@ -42,6 +42,11 @@ export const BrowserTerminalNavigateMessageSchema = z.discriminatedUnion('op', [
     op: z.literal('zoom'),
     on: z.boolean(),
   }),
+  z.object({
+    type: z.literal('navigate'),
+    op: z.literal('scroll'),
+    lines: z.number().int().min(-120).max(120),
+  }),
 ]);
 export type BrowserTerminalNavigateMessage = z.infer<typeof BrowserTerminalNavigateMessageSchema>;
 

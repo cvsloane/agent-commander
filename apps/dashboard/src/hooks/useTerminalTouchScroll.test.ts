@@ -4,8 +4,11 @@ import {
   buildSgrWheelReports,
   calculatePinchFontSize,
   dispatchTerminalTouchScroll,
+  mapTouchScrollPixelsToLines,
   mapScrollLinesToWheelReports,
+  reduceTerminalScrollCoalescer,
   resolveTerminalHorizontalSwipe,
+  resolveTerminalTouchScrollPath,
   resolveTouchCell,
   synthesizeCursorDragInput,
 } from './useTerminalTouchScroll';
@@ -98,6 +101,94 @@ describe('terminal touch wheel synthesis', () => {
   });
 });
 
+describe('native terminal touch scroll mapping', () => {
+  it('maps pixel motion to one line per row while carrying sub-line pixels', () => {
+    expect(mapTouchScrollPixelsToLines(8, 0, 16)).toEqual({ lines: 0, remainder: 8 });
+    expect(mapTouchScrollPixelsToLines(12, 8, 16)).toEqual({ lines: 1, remainder: 4 });
+    expect(mapTouchScrollPixelsToLines(-36, 4, 16)).toEqual({ lines: -2, remainder: 0 });
+  });
+
+  it('gates native navigation to writable alternate tmux attachments', () => {
+    expect(
+      resolveTerminalTouchScrollPath({
+        bufferType: 'normal',
+        mouseTrackingMode: 'any',
+        writable: true,
+        hasTmuxNavigate: true,
+      })
+    ).toBe('local');
+    expect(
+      resolveTerminalTouchScrollPath({
+        bufferType: 'alternate',
+        mouseTrackingMode: 'none',
+        writable: true,
+        hasTmuxNavigate: true,
+      })
+    ).toBe('navigate');
+    expect(
+      resolveTerminalTouchScrollPath({
+        bufferType: 'alternate',
+        mouseTrackingMode: 'drag',
+        writable: true,
+        hasTmuxNavigate: false,
+      })
+    ).toBe('sgr');
+    expect(
+      resolveTerminalTouchScrollPath({
+        bufferType: 'alternate',
+        mouseTrackingMode: 'none',
+        writable: true,
+        hasTmuxNavigate: false,
+      })
+    ).toBe('local');
+    expect(
+      resolveTerminalTouchScrollPath({
+        bufferType: 'alternate',
+        mouseTrackingMode: 'drag',
+        writable: false,
+        hasTmuxNavigate: true,
+      })
+    ).toBe('none');
+  });
+
+  it('coalesces one batch per frame, skips zero, and carries values beyond the schema cap', () => {
+    let transition = reduceTerminalScrollCoalescer(
+      { pendingLines: 0, scheduled: false },
+      { type: 'enqueue', lines: -70 }
+    );
+    expect(transition).toMatchObject({ schedule: true, sendLines: 0 });
+
+    transition = reduceTerminalScrollCoalescer(transition.state, { type: 'enqueue', lines: -80 });
+    expect(transition).toMatchObject({
+      state: { pendingLines: -150, scheduled: true },
+      schedule: false,
+      sendLines: 0,
+    });
+
+    transition = reduceTerminalScrollCoalescer(transition.state, { type: 'flush' });
+    expect(transition).toMatchObject({
+      state: { pendingLines: -30, scheduled: true },
+      schedule: true,
+      sendLines: -120,
+    });
+    transition = reduceTerminalScrollCoalescer(transition.state, { type: 'flush' });
+    expect(transition).toMatchObject({
+      state: { pendingLines: 0, scheduled: false },
+      schedule: false,
+      sendLines: -30,
+    });
+
+    transition = reduceTerminalScrollCoalescer(
+      { pendingLines: 0, scheduled: false },
+      { type: 'enqueue', lines: 4 }
+    );
+    transition = reduceTerminalScrollCoalescer(transition.state, { type: 'enqueue', lines: -4 });
+    transition = reduceTerminalScrollCoalescer(transition.state, { type: 'flush' });
+    expect(transition.sendLines).toBe(0);
+    expect(transition.schedule).toBe(false);
+  });
+});
+
 describe('terminal touch scroll dispatch', () => {
   it('keeps normal-buffer scrolling in xterm', () => {
     const terminal = terminalForScroll('normal', 'none');
@@ -141,6 +232,29 @@ describe('terminal touch scroll dispatch', () => {
     expect(terminal.scrollLines).not.toHaveBeenCalled();
     expect(onInput).toHaveBeenCalledOnce();
     expect(onInput).toHaveBeenCalledWith('\x1b[<64;12;7M');
+  });
+
+  it('sends one-to-one native navigate lines for an attached tmux terminal', () => {
+    const terminal = terminalForScroll('alternate', 'drag');
+    const onInput = vi.fn();
+    const onNavigateScroll = vi.fn();
+
+    expect(
+      dispatchTerminalTouchScroll({
+        terminal,
+        lineDelta: -2,
+        wheelRemainder: 4,
+        column: 12,
+        row: 7,
+        writable: true,
+        onInput,
+        hasTmuxNavigate: true,
+        onNavigateScroll,
+      })
+    ).toBe(0);
+    expect(onNavigateScroll).toHaveBeenCalledWith(-2);
+    expect(onInput).not.toHaveBeenCalled();
+    expect(terminal.scrollLines).not.toHaveBeenCalled();
   });
 
   it('falls back to xterm scrolling when the alternate buffer has no mouse tracking', () => {

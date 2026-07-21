@@ -1,6 +1,6 @@
 'use client';
 
-import type { RefObject } from 'react';
+import { useEffect, type RefObject } from 'react';
 import { ArrowDown } from 'lucide-react';
 import { SelectionPopup, TerminalContextMenu } from '@/components/mobile';
 import type { SelectionPopupHandle } from '@/components/mobile';
@@ -17,6 +17,7 @@ interface TerminalSurfaceProps {
   termRef: RefObject<HTMLDivElement | null>;
   terminalRef: RefObject<XTerminal | null>;
   isMobile: boolean;
+  touchInputModeEnabled: boolean;
   status: ConnectionStatus;
   readOnly: boolean;
   selectionTextRef: RefObject<string>;
@@ -24,6 +25,10 @@ interface TerminalSurfaceProps {
   onSelectionStart: (anchor: { x: number; y: number }) => void;
   onSelectionCommit: () => void;
   onVirtualInput: (data: string) => void;
+  keyboardActive: boolean;
+  onKeyboardToggle: () => void;
+  cursorArmed: boolean;
+  onCursorToggle: () => void;
   stickyCtrlMode: StickyCtrlMode;
   onStickyCtrlEvent: (event: StickyCtrlEvent) => void;
   onOpenHistory: () => void;
@@ -48,6 +53,7 @@ export function TerminalSurface({
   termRef,
   terminalRef,
   isMobile,
+  touchInputModeEnabled,
   status,
   readOnly,
   selectionTextRef,
@@ -55,6 +61,10 @@ export function TerminalSurface({
   onSelectionStart,
   onSelectionCommit,
   onVirtualInput,
+  keyboardActive,
+  onKeyboardToggle,
+  cursorArmed,
+  onCursorToggle,
   stickyCtrlMode,
   onStickyCtrlEvent,
   onOpenHistory,
@@ -74,6 +84,24 @@ export function TerminalSurface({
   onJumpToLive,
   search,
 }: TerminalSurfaceProps) {
+  useEffect(() => {
+    if (!touchInputModeEnabled) return;
+    const container = termRef.current;
+    if (!container) return;
+    const applyInputMode = () => {
+      const textarea = container.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea');
+      if (textarea) textarea.inputMode = keyboardActive ? 'text' : 'none';
+    };
+    applyInputMode();
+    const observer = new MutationObserver(applyInputMode);
+    observer.observe(container, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+      container.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea')
+        ?.removeAttribute('inputmode');
+    };
+  }, [keyboardActive, termRef, touchInputModeEnabled]);
+
   return (
     <>
       <div className="relative flex-1 min-h-0 overflow-hidden bg-[#0a0a0a]">
@@ -168,6 +196,10 @@ export function TerminalSurface({
           onPreviousMark={onPreviousMark}
           onNextMark={onNextMark}
           hasCommandMarks={hasCommandMarks}
+          keyboardActive={keyboardActive}
+          onKeyboardToggle={onKeyboardToggle}
+          cursorArmed={cursorArmed}
+          onCursorToggle={onCursorToggle}
         />
       )}
     </>

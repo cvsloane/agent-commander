@@ -2,6 +2,8 @@ import { DEFAULT_TMUX_PREFIX, tmuxPrefixToSequence } from '@/lib/tmuxKeys';
 
 export const TERMINAL_RAIL_KEYSYMS = [
   'ctrl',
+  'keyboard',
+  'cursor',
   'esc',
   'tab',
   'enter',
@@ -43,6 +45,8 @@ export type TerminalRailPreset = 'minimal' | 'expanded' | 'custom';
 export type TerminalRailAction =
   | { type: 'input'; data: string }
   | { type: 'modifier'; modifier: 'ctrl' }
+  | { type: 'keyboard' }
+  | { type: 'cursor' }
   | { type: 'history' }
   | { type: 'mark'; direction: 'previous' | 'next' };
 
@@ -65,6 +69,7 @@ export const MINIMAL_TERMINAL_RAIL_CONFIG: TerminalRailConfig = {
   keys: [
     { id: 'esc', label: 'Esc', binding: { type: 'keysym', value: 'esc' } },
     { id: 'ctrl', label: 'Ctrl', binding: { type: 'keysym', value: 'ctrl' } },
+    { id: 'keyboard', label: 'Keyboard', binding: { type: 'keysym', value: 'keyboard' } },
     {
       id: 'up',
       label: '↑',
@@ -96,6 +101,7 @@ export const EXPANDED_TERMINAL_RAIL_CONFIG: TerminalRailConfig = {
   version: 1,
   keys: [
     ...MINIMAL_TERMINAL_RAIL_CONFIG.keys,
+    { id: 'cursor', label: 'Cursor', binding: { type: 'keysym', value: 'cursor' } },
     { id: 'tab', label: 'Tab', binding: { type: 'keysym', value: 'tab' } },
     { id: 'prefix', label: 'Prefix', binding: { type: 'keysym', value: 'prefix' } },
     { id: 'history', label: 'History', binding: { type: 'keysym', value: 'history' } },
@@ -190,6 +196,8 @@ export function resolveTerminalRailBinding(
   if (binding.type === 'macro') return { type: 'input', data: binding.value };
   if (binding.type === 'keysym') {
     if (binding.value === 'ctrl') return { type: 'modifier', modifier: 'ctrl' };
+    if (binding.value === 'keyboard') return { type: 'keyboard' };
+    if (binding.value === 'cursor') return { type: 'cursor' };
     if (binding.value === 'history') return { type: 'history' };
     if (binding.value === 'previous_mark') return { type: 'mark', direction: 'previous' };
     if (binding.value === 'next_mark') return { type: 'mark', direction: 'next' };

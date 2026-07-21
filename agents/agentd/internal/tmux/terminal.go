@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -95,7 +96,10 @@ const (
 	NavigateSelectWindow TerminalNavigationOp = "select_window"
 	NavigateSelectPane   TerminalNavigationOp = "select_pane"
 	NavigateZoom         TerminalNavigationOp = "zoom"
+	NavigateScroll       TerminalNavigationOp = "scroll"
 )
+
+const maxTerminalScrollLines = 120
 
 // TerminalNavigation describes an operation against a channel's grouped tmux
 // session. It never targets the origin session directly.
@@ -104,6 +108,7 @@ type TerminalNavigation struct {
 	WindowIndex int
 	PaneID      string
 	On          bool
+	Lines       int
 }
 
 // AttachOptions contains additive terminal.attach fields.
@@ -787,9 +792,84 @@ func (m *TerminalManager) Navigate(channelID string, navigation TerminalNavigati
 		}
 		viewer.zoomApplied = navigation.On
 		return nil
+	case NavigateScroll:
+		if m.channelReadOnly[channelID] {
+			return ErrReadOnly
+		}
+		return m.navigateScrollLocked(bridge, navigation.Lines)
 	default:
 		return fmt.Errorf("unsupported terminal navigation op %q", navigation.Op)
 	}
+}
+
+func (m *TerminalManager) navigateScrollLocked(bridge *viewerPTYBridge, lines int) error {
+	if lines > maxTerminalScrollLines {
+		lines = maxTerminalScrollLines
+	} else if lines < -maxTerminalScrollLines {
+		lines = -maxTerminalScrollLines
+	}
+	if lines == 0 {
+		return nil
+	}
+
+	const paneStateFormat = "#{pane_id}\t#{pane_in_mode}\t#{alternate_on}\t#{mouse_any_flag}\t#{pane_width}\t#{pane_height}"
+	state, err := m.runner.Output("display-message", "-p", "-t", bridge.viewSession, paneStateFormat)
+	if err != nil {
+		return fmt.Errorf("read viewer scroll state: %w", err)
+	}
+	parts := strings.Split(strings.TrimSpace(string(state)), "\t")
+	if len(parts) != 6 || parts[0] == "" {
+		return fmt.Errorf("unexpected viewer scroll state %q", strings.TrimSpace(string(state)))
+	}
+	paneID := parts[0]
+	count := lines
+	direction := "scroll-down"
+	if count < 0 {
+		count = -count
+		direction = "scroll-up"
+	}
+
+	if parts[1] == "1" {
+		return m.runner.Run("send-keys", "-X", "-t", paneID, "-N", strconv.Itoa(count), direction)
+	}
+
+	alternateOn := parts[2] == "1"
+	mouseOn := parts[3] == "1"
+	if alternateOn && mouseOn {
+		events := count / 3
+		if events == 0 {
+			return nil
+		}
+		width, widthErr := strconv.Atoi(parts[4])
+		height, heightErr := strconv.Atoi(parts[5])
+		if widthErr != nil || heightErr != nil || width < 1 || height < 1 {
+			return fmt.Errorf("unexpected viewer pane dimensions %q x %q", parts[4], parts[5])
+		}
+		button := 65
+		if lines < 0 {
+			button = 64
+		}
+		column := (width + 1) / 2
+		row := (height + 1) / 2
+		report := fmt.Sprintf("\x1b[<%d;%d;%dM", button, column, row)
+		return m.runner.Run("send-keys", "-t", paneID, "-l", strings.Repeat(report, events))
+	}
+
+	if alternateOn {
+		key := "Down"
+		if lines < 0 {
+			key = "Up"
+		}
+		return m.runner.Run("send-keys", "-t", paneID, "-N", strconv.Itoa(count), key)
+	}
+
+	if lines > 0 {
+		return nil
+	}
+	if err := m.runner.Run("copy-mode", "-e", "-t", paneID); err != nil {
+		return fmt.Errorf("enter viewer copy mode: %w", err)
+	}
+	return m.runner.Run("send-keys", "-X", "-t", paneID, "-N", strconv.Itoa(count), "scroll-up")
 }
 
 func (m *TerminalManager) unzoomViewerLocked(viewer *terminalViewer, reason string) error {

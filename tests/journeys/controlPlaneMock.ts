@@ -228,6 +228,7 @@ export interface JourneyRecorder {
     on?: boolean;
     pane_id?: string;
     window_index?: number;
+    lines?: number;
   }>;
   terminalSessionIds: string[];
   terminalWebSocketUrls: string[];
