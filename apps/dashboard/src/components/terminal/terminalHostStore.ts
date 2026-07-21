@@ -43,10 +43,11 @@ const EMPTY_SNAPSHOT: TerminalHostSnapshot = {
 };
 
 export function getTerminalDescriptorKey(descriptor: TerminalHostDescriptor): string {
-  const grid = descriptor.letterbox
-    ? `${descriptor.letterbox.cols}x${descriptor.letterbox.rows}`
-    : 'fit';
-  return `${descriptor.sessionId}\u0000${descriptor.paneId || ''}\u0000${grid}`;
+  // Identity is session+pane ONLY. Letterbox dims must never be part of the
+  // key: they can change while attached (topology updates), and a key change
+  // remounts the terminal — which detaches, releases the agentd size pin,
+  // changes the dims again, and loops attach/detach indefinitely.
+  return `${descriptor.sessionId}\u0000${descriptor.paneId || ''}`;
 }
 
 export function getTerminalWarmKey(descriptor: TerminalHostDescriptor): string {
