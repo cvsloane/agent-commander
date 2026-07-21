@@ -9,6 +9,7 @@ import type { StickyCtrlEvent, StickyCtrlMode } from '@/components/mobile/sticky
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { ConnectionStatus, XTerminal } from './types';
+import { TerminalHistoryOverlay } from './TerminalHistoryOverlay';
 import { TerminalSearchSheet, type TerminalSearchControlsProps } from './TerminalSearch';
 import { TerminalTouchSelection } from './TerminalTouchSelection';
 import type { TerminalCommandMarkView } from './commandMarks';
@@ -32,6 +33,10 @@ interface TerminalSurfaceProps {
   stickyCtrlMode: StickyCtrlMode;
   onStickyCtrlEvent: (event: StickyCtrlEvent) => void;
   onOpenHistory: () => void;
+  historyOverlayOpen: boolean;
+  historySessionId: string;
+  historyFontSize: number;
+  onCloseHistoryOverlay: () => void;
   tmuxPrefix?: string;
   onPreviousMark: () => void;
   onNextMark: () => void;
@@ -68,6 +73,10 @@ export function TerminalSurface({
   stickyCtrlMode,
   onStickyCtrlEvent,
   onOpenHistory,
+  historyOverlayOpen,
+  historySessionId,
+  historyFontSize,
+  onCloseHistoryOverlay,
   tmuxPrefix,
   onPreviousMark,
   onNextMark,
@@ -161,6 +170,13 @@ export function TerminalSurface({
           <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
           <span ref={jumpToLiveLabelRef}>Live</span>
         </Button>
+
+        <TerminalHistoryOverlay
+          sessionId={historySessionId}
+          open={historyOverlayOpen}
+          fontSize={historyFontSize}
+          onClose={onCloseHistoryOverlay}
+        />
       </div>
 
       {isMobile && <TerminalSearchSheet {...search} />}

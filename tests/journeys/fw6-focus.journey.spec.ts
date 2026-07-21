@@ -53,6 +53,44 @@ async function dragTerminal(page: Page, deltaY: number): Promise<void> {
   }, deltaY);
 }
 
+async function openInlineHistory(page: Page): Promise<void> {
+  await dragTerminal(page, 140);
+  await expect(page.getByTestId('terminal-history-overlay')).toBeVisible();
+  await expect(page.getByLabel('Inline terminal history')).toBeVisible();
+}
+
+async function overscrollHistoryPastBottom(page: Page): Promise<void> {
+  const history = page.getByLabel('Inline terminal history');
+  await history.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    const rect = element.getBoundingClientRect();
+    const clientX = rect.left + rect.width / 2;
+    const startY = rect.top + rect.height / 2;
+    const dispatch = (type: 'touchstart' | 'touchmove' | 'touchend', clientY: number) => {
+      const touch = new Touch({
+        identifier: 2,
+        target: element,
+        clientX,
+        clientY,
+        pageX: clientX,
+        pageY: clientY,
+        screenX: clientX,
+        screenY: clientY,
+      });
+      element.dispatchEvent(new TouchEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        touches: type === 'touchend' ? [] : [touch],
+        changedTouches: [touch],
+      }));
+    };
+
+    dispatch('touchstart', startY);
+    dispatch('touchmove', startY - 64);
+    dispatch('touchend', startY - 64);
+  });
+}
+
 test.describe('FW6 mobile Focus journey', () => {
   test.use({ hasTouch: true });
 
@@ -66,30 +104,81 @@ test.describe('FW6 mobile Focus journey', () => {
     });
   });
 
-  test('translates a vertical touch swipe into native tmux scroll frames', async ({ page }) => {
+  test('opens inline history without emitting terminal scroll or SGR frames', async ({ page }) => {
     await signIn(page);
     await selectSession(page);
-    const initialScrollCount = recorder.terminalMessages.filter(
-      (message) => message.type === 'navigate' && message.op === 'scroll'
-    ).length;
-    await dragTerminal(page, 140);
+    const messageStart = recorder.terminalMessages.length;
 
-    await expect.poll(() => recorder.terminalMessages.filter(
+    await openInlineHistory(page);
+    await expect.poll(() => recorder.scrollbackRequests.length).toBe(1);
+
+    const gestureMessages = recorder.terminalMessages.slice(messageStart);
+    expect(gestureMessages.filter(
       (message) => message.type === 'navigate' && message.op === 'scroll'
-    ).length).toBeGreaterThan(initialScrollCount);
-    const scrollFrames = recorder.terminalMessages.filter(
-      (message) => message.type === 'navigate' && message.op === 'scroll'
-    );
-    expect(scrollFrames.every(
-      (message) => Number.isInteger(message.lines)
-        && message.lines !== 0
-        && Math.abs(message.lines ?? 0) <= 120
-    )).toBe(true);
-    const terminalInput = recorder.terminalMessages
+    )).toHaveLength(0);
+    const terminalInput = gestureMessages
       .filter((message) => message.type === 'input')
       .map((message) => message.data || '')
       .join('');
+    expect(terminalInput).toBe('');
     expect(terminalInput).not.toMatch(/\x1b\[<6[45];\d+;\d+M/);
+  });
+
+  test('ignores upward swipes at live view without opening history or emitting frames', async ({
+    page,
+  }) => {
+    await signIn(page);
+    await selectSession(page);
+    const messageStart = recorder.terminalMessages.length;
+
+    await dragTerminal(page, -140);
+
+    await expect(page.getByTestId('terminal-history-overlay')).toHaveCount(0);
+    expect(recorder.scrollbackRequests).toHaveLength(0);
+    const gestureMessages = recorder.terminalMessages.slice(messageStart);
+    expect(gestureMessages.filter(
+      (message) => message.type === 'navigate' && message.op === 'scroll'
+    )).toHaveLength(0);
+    const terminalInput = gestureMessages
+      .filter((message) => message.type === 'input')
+      .map((message) => message.data || '')
+      .join('');
+    expect(terminalInput).toBe('');
+  });
+
+  test('prepends older history without moving the visible transcript', async ({ page }) => {
+    await signIn(page);
+    await selectSession(page);
+    await openInlineHistory(page);
+    const history = page.getByLabel('Inline terminal history');
+    const initialHeight = await history.evaluate((element) => element.scrollHeight);
+
+    await history.evaluate((element) => {
+      element.scrollTop = 0;
+      element.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+
+    await expect.poll(() => recorder.scrollbackRequests).toEqual([
+      { mode: 'range', start_line: -500, end_line: -1, strip_ansi: true },
+      { mode: 'range', start_line: -1000, end_line: -501, strip_ansi: true },
+    ]);
+    await expect.poll(async () => history.evaluate((element, previousHeight) => (
+      Math.abs(element.scrollTop - (element.scrollHeight - previousHeight)) <= 1
+    ), initialHeight)).toBe(true);
+    await expect(page.getByText('Start of history', { exact: true })).toBeVisible();
+  });
+
+  test('bottom over-scroll returns live without reconnecting the terminal', async ({ page }) => {
+    await signIn(page);
+    await selectSession(page);
+    const terminalWebSocketCount = recorder.terminalWebSocketUrls.length;
+    await openInlineHistory(page);
+
+    await overscrollHistoryPastBottom(page);
+
+    await expect(page.getByTestId('terminal-history-overlay')).toHaveCount(0);
+    await expect(page.getByLabel('Interactive terminal')).toBeVisible();
+    await expect.poll(() => recorder.terminalWebSocketUrls.length).toBe(terminalWebSocketCount);
   });
 
   test('keeps plain taps keyboard-free until the Keyboard rail key is pressed', async ({ page }) => {
@@ -149,13 +238,8 @@ test.describe('FW6 mobile Focus journey', () => {
     );
 
     const inputCountAfterCursorGesture = inputCount();
-    const scrollCountBeforePlainGesture = recorder.terminalMessages.filter(
-      (message) => message.type === 'navigate' && message.op === 'scroll'
-    ).length;
-    await dragTerminal(page, -140);
-    await expect.poll(() => recorder.terminalMessages.filter(
-      (message) => message.type === 'navigate' && message.op === 'scroll'
-    ).length).toBeGreaterThan(scrollCountBeforePlainGesture);
+    await dragTerminal(page, 140);
+    await expect(page.getByTestId('terminal-history-overlay')).toBeVisible();
     expect(inputCount()).toBe(inputCountAfterCursorGesture);
   });
 
@@ -174,11 +258,19 @@ test.describe('FW6 mobile Focus journey', () => {
     await expect(page).toHaveURL(new RegExp(`session_id=${windowSession.id}`));
     await expect.poll(() => recorder.terminalWebSocketUrls.length).toBe(terminalWebSocketCount);
 
+    await openInlineHistory(page);
+    await expect.poll(() => recorder.scrollbackSessionIds.at(-1)).toBe(windowSession.id);
+  });
+
+  test('keeps the History dialog reachable from pane actions', async ({ page }) => {
+    await signIn(page);
+    await selectSession(page);
+
     await page.getByRole('button', { name: 'Open pane actions' }).click();
     const actions = page.getByRole('dialog').filter({ hasText: 'Pane actions' });
     await actions.getByRole('button', { name: 'View history' }).click();
     await expect(page.getByRole('dialog', { name: 'Terminal history' })).toBeVisible();
-    await expect.poll(() => recorder.scrollbackSessionIds.at(-1)).toBe(windowSession.id);
+    await expect.poll(() => recorder.scrollbackRequests.length).toBeGreaterThan(0);
   });
 
   test('round-trips automatic and toggled zoom through topology truth', async ({ page }) => {

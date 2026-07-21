@@ -6,10 +6,10 @@ import {
   dispatchTerminalTouchScroll,
   mapTouchScrollPixelsToLines,
   mapScrollLinesToWheelReports,
-  reduceTerminalScrollCoalescer,
   resolveTerminalHorizontalSwipe,
   resolveTerminalTouchScrollPath,
   resolveTouchCell,
+  shouldOpenHistoryOnGesture,
   synthesizeCursorDragInput,
 } from './useTerminalTouchScroll';
 
@@ -108,29 +108,53 @@ describe('native terminal touch scroll mapping', () => {
     expect(mapTouchScrollPixelsToLines(-36, 4, 16)).toEqual({ lines: -2, remainder: 0 });
   });
 
-  it('gates native navigation to writable alternate tmux attachments', () => {
+  it('routes attached tmux history ahead of buffer and permission state', () => {
     expect(
       resolveTerminalTouchScrollPath({
         bufferType: 'normal',
         mouseTrackingMode: 'any',
         writable: true,
-        hasTmuxNavigate: true,
+        tmuxAttached: true,
+        historyAvailable: true,
       })
-    ).toBe('local');
+    ).toBe('history');
     expect(
       resolveTerminalTouchScrollPath({
         bufferType: 'alternate',
         mouseTrackingMode: 'none',
-        writable: true,
-        hasTmuxNavigate: true,
+        writable: false,
+        tmuxAttached: true,
+        historyAvailable: true,
       })
-    ).toBe('navigate');
+    ).toBe('history');
     expect(
       resolveTerminalTouchScrollPath({
         bufferType: 'alternate',
         mouseTrackingMode: 'drag',
         writable: true,
-        hasTmuxNavigate: false,
+        tmuxAttached: true,
+        historyAvailable: false,
+      })
+    ).toBe('none');
+  });
+
+  it('keeps non-tmux local and SGR paths unchanged', () => {
+    expect(
+      resolveTerminalTouchScrollPath({
+        bufferType: 'normal',
+        mouseTrackingMode: 'any',
+        writable: true,
+        tmuxAttached: false,
+        historyAvailable: false,
+      })
+    ).toBe('local');
+    expect(
+      resolveTerminalTouchScrollPath({
+        bufferType: 'alternate',
+        mouseTrackingMode: 'drag',
+        writable: true,
+        tmuxAttached: false,
+        historyAvailable: false,
       })
     ).toBe('sgr');
     expect(
@@ -138,7 +162,8 @@ describe('native terminal touch scroll mapping', () => {
         bufferType: 'alternate',
         mouseTrackingMode: 'none',
         writable: true,
-        hasTmuxNavigate: false,
+        tmuxAttached: false,
+        historyAvailable: false,
       })
     ).toBe('local');
     expect(
@@ -146,46 +171,10 @@ describe('native terminal touch scroll mapping', () => {
         bufferType: 'alternate',
         mouseTrackingMode: 'drag',
         writable: false,
-        hasTmuxNavigate: true,
+        tmuxAttached: false,
+        historyAvailable: false,
       })
     ).toBe('none');
-  });
-
-  it('coalesces one batch per frame, skips zero, and carries values beyond the schema cap', () => {
-    let transition = reduceTerminalScrollCoalescer(
-      { pendingLines: 0, scheduled: false },
-      { type: 'enqueue', lines: -70 }
-    );
-    expect(transition).toMatchObject({ schedule: true, sendLines: 0 });
-
-    transition = reduceTerminalScrollCoalescer(transition.state, { type: 'enqueue', lines: -80 });
-    expect(transition).toMatchObject({
-      state: { pendingLines: -150, scheduled: true },
-      schedule: false,
-      sendLines: 0,
-    });
-
-    transition = reduceTerminalScrollCoalescer(transition.state, { type: 'flush' });
-    expect(transition).toMatchObject({
-      state: { pendingLines: -30, scheduled: true },
-      schedule: true,
-      sendLines: -120,
-    });
-    transition = reduceTerminalScrollCoalescer(transition.state, { type: 'flush' });
-    expect(transition).toMatchObject({
-      state: { pendingLines: 0, scheduled: false },
-      schedule: false,
-      sendLines: -30,
-    });
-
-    transition = reduceTerminalScrollCoalescer(
-      { pendingLines: 0, scheduled: false },
-      { type: 'enqueue', lines: 4 }
-    );
-    transition = reduceTerminalScrollCoalescer(transition.state, { type: 'enqueue', lines: -4 });
-    transition = reduceTerminalScrollCoalescer(transition.state, { type: 'flush' });
-    expect(transition.sendLines).toBe(0);
-    expect(transition.schedule).toBe(false);
   });
 });
 
@@ -234,10 +223,10 @@ describe('terminal touch scroll dispatch', () => {
     expect(onInput).toHaveBeenCalledWith('\x1b[<64;12;7M');
   });
 
-  it('sends one-to-one native navigate lines for an attached tmux terminal', () => {
+  it('opens history without terminal input for an attached tmux terminal', () => {
     const terminal = terminalForScroll('alternate', 'drag');
     const onInput = vi.fn();
-    const onNavigateScroll = vi.fn();
+    const onOpenHistory = vi.fn();
 
     expect(
       dispatchTerminalTouchScroll({
@@ -248,11 +237,79 @@ describe('terminal touch scroll dispatch', () => {
         row: 7,
         writable: true,
         onInput,
-        hasTmuxNavigate: true,
-        onNavigateScroll,
+        tmuxAttached: true,
+        historyAvailable: true,
+        onOpenHistory,
       })
     ).toBe(0);
-    expect(onNavigateScroll).toHaveBeenCalledWith(-2);
+    expect(onOpenHistory).toHaveBeenCalledOnce();
+    expect(onInput).not.toHaveBeenCalled();
+    expect(terminal.scrollLines).not.toHaveBeenCalled();
+  });
+
+  it('opens attached tmux history while read-only and ignores upward swipes', () => {
+    const terminal = terminalForScroll('normal', 'none');
+    const onInput = vi.fn();
+    const onOpenHistory = vi.fn();
+
+    dispatchTerminalTouchScroll({
+      terminal,
+      lineDelta: -3,
+      wheelRemainder: 0,
+      column: 2,
+      row: 3,
+      writable: false,
+      onInput,
+      tmuxAttached: true,
+      historyAvailable: true,
+      onOpenHistory,
+    });
+    dispatchTerminalTouchScroll({
+      terminal,
+      lineDelta: 3,
+      wheelRemainder: 0,
+      column: 2,
+      row: 3,
+      writable: false,
+      onInput,
+      tmuxAttached: true,
+      historyAvailable: true,
+      onOpenHistory,
+    });
+
+    expect(onOpenHistory).toHaveBeenCalledOnce();
+    expect(onInput).not.toHaveBeenCalled();
+    expect(terminal.scrollLines).not.toHaveBeenCalled();
+  });
+
+  it('gates history opening on a downward drag exactly once per gesture', () => {
+    expect(shouldOpenHistoryOnGesture('history', 24, false)).toBe(true);
+    expect(shouldOpenHistoryOnGesture('history', -24, false)).toBe(false);
+    expect(shouldOpenHistoryOnGesture('history', 24, true)).toBe(false);
+    expect(shouldOpenHistoryOnGesture('none', 24, false)).toBe(false);
+    expect(shouldOpenHistoryOnGesture('local', 24, false)).toBe(false);
+    expect(shouldOpenHistoryOnGesture('sgr', 24, false)).toBe(false);
+  });
+
+  it('does nothing for an attached tmux terminal without a history session', () => {
+    const terminal = terminalForScroll('alternate', 'drag');
+    const onInput = vi.fn();
+    const onOpenHistory = vi.fn();
+
+    dispatchTerminalTouchScroll({
+      terminal,
+      lineDelta: -4,
+      wheelRemainder: 0,
+      column: 2,
+      row: 3,
+      writable: true,
+      onInput,
+      tmuxAttached: true,
+      historyAvailable: false,
+      onOpenHistory,
+    });
+
+    expect(onOpenHistory).not.toHaveBeenCalled();
     expect(onInput).not.toHaveBeenCalled();
     expect(terminal.scrollLines).not.toHaveBeenCalled();
   });
