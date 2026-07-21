@@ -50,8 +50,7 @@ test.describe('Command Center program journeys', () => {
     });
   });
 
-  test('412x915 cold open restores the last pane live', async ({ page }) => {
-    test.skip(!(await isMobile(page)), 'mobile owner-locked journey');
+  test('cold open restores the last pane live with zero taps', async ({ page }) => {
     await page.goto('/signin');
     await page.evaluate(
       ({ hostId, sessionId }) => {
@@ -75,8 +74,7 @@ test.describe('Command Center program journeys', () => {
     await expect.poll(() => recorder.terminalSessionIds).toContain(interactiveSession.id);
   });
 
-  test('412x915 window tab retargets the live viewer', async ({ page }) => {
-    test.skip(!(await isMobile(page)), 'mobile owner-locked journey');
+  test('window tab retargets the live viewer', async ({ page }) => {
     await signIn(page);
     await selectSession(page, interactiveSession.title);
 
@@ -91,6 +89,60 @@ test.describe('Command Center program journeys', () => {
     );
     await expect(page.getByLabel('Interactive terminal')).toBeVisible();
     await expect.poll(() => recorder.terminalSessionIds).toContain(windowSession.id);
+  });
+
+  test('mobile desktop-attached grid stays letterboxed through a keyboard transition', async ({
+    page,
+  }) => {
+    test.skip(!(await isMobile(page)), 'mobile keyboard journey');
+    await signIn(page);
+    await selectSession(page, interactiveSession.title);
+
+    await expect
+      .poll(() =>
+        recorder.terminalWebSocketUrls.some((value) => {
+          const url = new URL(value);
+          return (
+            url.searchParams.get('letterbox') === '1' &&
+            url.searchParams.get('cols') === '160' &&
+            url.searchParams.get('rows') === '50'
+          );
+        })
+      )
+      .toBe(true);
+
+    const resizeCount = () =>
+      recorder.terminalMessages.filter((message) => message.type === 'resize').length;
+    const initialResizeCount = resizeCount();
+    await page.setViewportSize({ width: 412, height: 760 });
+    await page.waitForTimeout(100);
+    await page.setViewportSize({ width: 412, height: 620 });
+    await page.waitForTimeout(100);
+    await page.setViewportSize({ width: 412, height: 560 });
+    await page.waitForTimeout(350);
+
+    expect(resizeCount()).toBe(initialResizeCount);
+  });
+
+  test('mobile rail sticky Control sends one control byte', async ({ page }) => {
+    test.skip(!(await isMobile(page)), 'mobile key rail journey');
+    await signIn(page);
+    await selectSession(page, interactiveSession.title);
+
+    const rail = page.getByTestId('terminal-key-rail');
+    await rail.getByRole('button', { name: 'Control modifier inactive' }).click();
+    await expect(rail.getByRole('button', { name: 'Control modifier one-shot' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    await visibleTerminalInput(page).focus();
+    await page.keyboard.press('c');
+
+    await expect.poll(() => recordedTerminalInput(recorder)).toContain('\x03');
+    await expect(rail.getByRole('button', { name: 'Control modifier inactive' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
   });
 
   test('signin to Command Center first paint', async ({ page }) => {
@@ -128,7 +180,9 @@ test.describe('Command Center program journeys', () => {
       await expect.poll(() => recordedTerminalInput(recorder)).toContain('echo journey');
 
       await page.getByRole('button', { name: 'Detach', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Attach Terminal', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('button', { name: 'Attach Terminal', exact: true })
+      ).toBeVisible();
     }
   });
 
