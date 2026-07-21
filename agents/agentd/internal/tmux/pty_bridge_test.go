@@ -253,6 +253,134 @@ func TestTerminalNavigateZoomSetsRequestedStateOnPrivateTmuxSocket(t *testing.T)
 	assertWindowZoomed(t, client, false)
 }
 
+func TestTerminalDetachUnzoomsChannelAppliedFocusOnPrivateTmuxSocket(t *testing.T) {
+	client, _ := newPrivateTmuxClient(t)
+	panes, err := client.ListPanes()
+	if err != nil || len(panes) != 1 {
+		t.Fatalf("initial private panes=%+v err=%v", panes, err)
+	}
+	if _, err := client.SplitPaneWithOptions(panes[0].PaneID, "horizontal", nil, ""); err != nil {
+		t.Fatalf("split private pane: %v", err)
+	}
+
+	manager := newTerminalManagerWithRunner(client, newExecTmuxRunner(client), t.TempDir())
+	defer manager.Close()
+	if _, err := manager.AttachWithOptions("detach-zoom", panes[0].PaneID, AttachOptions{SessionID: "session-1"}); err != nil {
+		t.Fatalf("attach viewer: %v", err)
+	}
+	if err := manager.Navigate("detach-zoom", TerminalNavigation{Op: NavigateZoom, On: true}); err != nil {
+		t.Fatalf("enable viewer zoom: %v", err)
+	}
+	assertWindowZoomed(t, client, true)
+
+	manager.Detach("detach-zoom")
+	assertWindowZoomed(t, client, false)
+}
+
+func TestTerminalNavigationUnzoomsAppliedFocusBeforeSwitchingWindows(t *testing.T) {
+	runner := newFakeTmuxRunner()
+	runner.outputs["display-message -p -t %7 #{session_name}\t#{window_index}\t#{pane_index}"] = []byte("agents\t2\t1\n")
+	manager := newTerminalManagerWithRunner(nil, runner, t.TempDir())
+	defer manager.Close()
+	if _, err := manager.AttachWithOptions("switch-focused", "%7", AttachOptions{SessionID: "session-1"}); err != nil {
+		t.Fatalf("attach viewer: %v", err)
+	}
+	if err := manager.Navigate("switch-focused", TerminalNavigation{Op: NavigateZoom, On: true}); err != nil {
+		t.Fatalf("enable viewer zoom: %v", err)
+	}
+	if err := manager.Navigate("switch-focused", TerminalNavigation{Op: NavigateSelectWindow, WindowIndex: 3}); err != nil {
+		t.Fatalf("switch focused viewer window: %v", err)
+	}
+
+	if got := runner.lastRunIndex([]string{"resize-pane", "-Z", "-t", "ac-view-switch-focused:"}); got < 0 {
+		t.Fatal("focused viewer was never unzoomed")
+	} else if selected := runner.runIndex([]string{"select-window", "-t", "ac-view-switch-focused:3"}); selected < 0 || got > selected {
+		t.Fatalf("unzoom index=%d select index=%d; runs=%v", got, selected, runner.runs)
+	}
+	manager.mu.RLock()
+	zoomApplied := manager.viewerByChannel["switch-focused"].zoomApplied
+	manager.mu.RUnlock()
+	if zoomApplied {
+		t.Fatal("viewer still records applied zoom after switching away")
+	}
+}
+
+func TestTerminalDroppedAndSweptViewerUnzoomsAppliedFocus(t *testing.T) {
+	runner := newFakeTmuxRunner()
+	runner.outputs["display-message -p -t %7 #{session_name}\t#{window_index}\t#{pane_index}"] = []byte("agents\t2\t1\n")
+	manager := newTerminalManagerWithRunner(nil, runner, t.TempDir())
+	defer manager.Close()
+	attached, err := manager.AttachWithOptions("stale-focused", "%7", AttachOptions{SessionID: "session-1"})
+	if err != nil {
+		t.Fatalf("attach viewer: %v", err)
+	}
+	if err := manager.Navigate("stale-focused", TerminalNavigation{Op: NavigateZoom, On: true}); err != nil {
+		t.Fatalf("enable viewer zoom: %v", err)
+	}
+
+	manager.MarkChannelsStale()
+	if runner.zoomState() {
+		t.Fatal("dropped channel left its applied zoom active")
+	}
+
+	manager.mu.Lock()
+	viewer := manager.viewerByToken[attached.ResumeToken]
+	viewer.zoomApplied = true
+	runner.setZoomState(true)
+	viewer.staleAt = time.Now().Add(-manager.viewerTTL - time.Second)
+	manager.mu.Unlock()
+	manager.Sweep(time.Now())
+	if runner.zoomState() {
+		t.Fatal("swept channel left its applied zoom active")
+	}
+}
+
+func TestTerminalSupersededViewerUnzoomsAppliedFocus(t *testing.T) {
+	runner := newFakeTmuxRunner()
+	runner.outputs["display-message -p -t %7 #{session_name}\t#{window_index}\t#{pane_index}"] = []byte("agents\t2\t1\n")
+	manager := newTerminalManagerWithRunner(nil, runner, t.TempDir())
+	defer manager.Close()
+	attached, err := manager.AttachWithOptions("superseded-focused", "%7", AttachOptions{SessionID: "session-1"})
+	if err != nil {
+		t.Fatalf("attach viewer: %v", err)
+	}
+	if err := manager.Navigate("superseded-focused", TerminalNavigation{Op: NavigateZoom, On: true}); err != nil {
+		t.Fatalf("enable viewer zoom: %v", err)
+	}
+	manager.mu.Lock()
+	manager.viewerByChannel["superseded-focused"].stale = true
+	manager.mu.Unlock()
+
+	if _, err := manager.AttachWithOptions("replacement", "%7", AttachOptions{
+		SessionID:   "session-1",
+		ResumeToken: attached.ResumeToken,
+	}); err != nil {
+		t.Fatalf("resume stale viewer: %v", err)
+	}
+	if runner.zoomState() {
+		t.Fatal("superseded channel left its applied zoom active")
+	}
+}
+
+func TestTerminalOwnsSuccessfulZoomRequestWhenWindowWasAlreadyZoomed(t *testing.T) {
+	runner := newFakeTmuxRunner()
+	runner.outputs["display-message -p -t %7 #{session_name}\t#{window_index}\t#{pane_index}"] = []byte("agents\t2\t1\n")
+	manager := newTerminalManagerWithRunner(nil, runner, t.TempDir())
+	defer manager.Close()
+	if _, err := manager.AttachWithOptions("already-focused", "%7", AttachOptions{SessionID: "session-1"}); err != nil {
+		t.Fatalf("attach viewer: %v", err)
+	}
+	runner.setZoomState(true)
+	if err := manager.Navigate("already-focused", TerminalNavigation{Op: NavigateZoom, On: true}); err != nil {
+		t.Fatalf("adopt existing zoom: %v", err)
+	}
+
+	manager.Detach("already-focused")
+	if runner.zoomState() {
+		t.Fatal("successful zoom request was not owned and cleared on detach")
+	}
+}
+
 func assertWindowZoomed(t *testing.T, client *Client, want bool) {
 	t.Helper()
 	panes, err := client.ListPanes()
@@ -612,6 +740,7 @@ type fakeTmuxRunner struct {
 	starts    []fakePTYStart
 	processes []*fakePTYProcess
 	options   map[string]string
+	zoomed    bool
 }
 
 type fakePTYStart struct {
@@ -629,6 +758,12 @@ func newFakeTmuxRunner() *fakeTmuxRunner {
 func (r *fakeTmuxRunner) Output(args ...string) ([]byte, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if len(args) == 5 && args[0] == "display-message" && args[4] == "#{window_zoomed_flag}" {
+		if r.zoomed {
+			return []byte("1\n"), nil
+		}
+		return []byte("0\n"), nil
+	}
 	if len(args) == 6 && args[0] == "show-options" && args[1] == "-p" && args[2] == "-v" && args[3] == "-t" {
 		return []byte(r.options[args[4]+" "+args[5]]), nil
 	}
@@ -639,6 +774,9 @@ func (r *fakeTmuxRunner) Run(args ...string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.runs = append(r.runs, append([]string(nil), args...))
+	if len(args) == 4 && args[0] == "resize-pane" && args[1] == "-Z" {
+		r.zoomed = !r.zoomed
+	}
 	if len(args) == 6 && args[0] == "set-option" && args[1] == "-p" && args[2] == "-t" {
 		r.options[args[3]+" "+args[4]] = args[5]
 	}
@@ -646,6 +784,40 @@ func (r *fakeTmuxRunner) Run(args ...string) error {
 		delete(r.options, args[3]+" "+args[4])
 	}
 	return nil
+}
+
+func (r *fakeTmuxRunner) runIndex(want []string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for index, args := range r.runs {
+		if reflect.DeepEqual(args, want) {
+			return index
+		}
+	}
+	return -1
+}
+
+func (r *fakeTmuxRunner) lastRunIndex(want []string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for index := len(r.runs) - 1; index >= 0; index-- {
+		if reflect.DeepEqual(r.runs[index], want) {
+			return index
+		}
+	}
+	return -1
+}
+
+func (r *fakeTmuxRunner) zoomState() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.zoomed
+}
+
+func (r *fakeTmuxRunner) setZoomState(zoomed bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.zoomed = zoomed
 }
 
 func (r *fakeTmuxRunner) StartPTY(args []string, env []string, size TerminalSize) (PTYProcess, error) {

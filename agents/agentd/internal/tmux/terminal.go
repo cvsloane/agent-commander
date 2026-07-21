@@ -82,6 +82,7 @@ type terminalViewer struct {
 	resumeToken string
 	readOnly    bool
 	letterbox   bool
+	zoomApplied bool
 	bridge      *viewerPTYBridge
 	detachedAt  time.Time
 	stale       bool
@@ -216,6 +217,7 @@ func (m *TerminalManager) Sweep(now time.Time) {
 			}
 		}
 		if viewer.bridge != nil {
+			m.cleanupViewerZoomLocked(viewer, "sweep")
 			expiredBridges = append(expiredBridges, viewer.bridge)
 			viewer.bridge = nil
 		}
@@ -294,6 +296,7 @@ func (m *TerminalManager) MarkChannelsStale() {
 		}
 		viewer.stale = true
 		viewer.staleAt = now
+		m.cleanupViewerZoomLocked(viewer, "connection drop")
 	}
 }
 
@@ -439,6 +442,7 @@ func (m *TerminalManager) attachViewerPTY(channelID, paneID string, opts AttachO
 	viewer.resumeToken = resumeToken
 	viewer.readOnly = readonly
 	viewer.letterbox = opts.Letterbox
+	viewer.zoomApplied = false
 	viewer.bridge = bridge
 	viewer.detachedAt = time.Time{}
 	viewer.stale = false
@@ -469,6 +473,7 @@ func (m *TerminalManager) supersedeStaleViewerLocked(viewer *terminalViewer) {
 	if m.paneController[viewer.paneID] == channelID {
 		delete(m.paneController, viewer.paneID)
 	}
+	m.cleanupViewerZoomLocked(viewer, "supersede")
 	if viewer.bridge != nil {
 		viewer.bridge.close(false)
 		viewer.bridge = nil
@@ -615,6 +620,7 @@ func (m *TerminalManager) Detach(channelID string) (string, bool) {
 
 	if m.channelPerViewer[channelID] {
 		viewer := m.viewerByChannel[channelID]
+		m.cleanupViewerZoomLocked(viewer, "detach")
 		delete(m.viewerByChannel, channelID)
 		delete(m.channelPerViewer, channelID)
 		viewer.channelID = ""
@@ -743,15 +749,14 @@ func (m *TerminalManager) SendInput(channelID string, data string) error {
 // Navigate changes the current target of a grouped viewer without replacing
 // its PTY bridge. The origin tmux session keeps its own current window.
 func (m *TerminalManager) Navigate(channelID string, navigation TerminalNavigation) error {
-	m.mu.RLock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	_, exists := m.channelToPane[channelID]
 	viewer := m.viewerByChannel[channelID]
 	var bridge *viewerPTYBridge
 	if viewer != nil {
 		bridge = viewer.bridge
 	}
-	m.mu.RUnlock()
-
 	if !exists {
 		return fmt.Errorf("channel %s not found", channelID)
 	}
@@ -764,16 +769,43 @@ func (m *TerminalManager) Navigate(channelID string, navigation TerminalNavigati
 		if navigation.WindowIndex < 0 {
 			return fmt.Errorf("window index must be non-negative")
 		}
+		if err := m.unzoomViewerLocked(viewer, "window switch"); err != nil {
+			return err
+		}
 		return bridge.SelectWindow(navigation.WindowIndex)
 	case NavigateSelectPane:
 		if strings.TrimSpace(navigation.PaneID) == "" {
 			return fmt.Errorf("pane id is required")
 		}
+		if err := m.unzoomViewerLocked(viewer, "pane switch"); err != nil {
+			return err
+		}
 		return bridge.SelectPane(navigation.PaneID)
 	case NavigateZoom:
-		return bridge.SetZoom(navigation.On)
+		if err := bridge.SetZoom(navigation.On); err != nil {
+			return err
+		}
+		viewer.zoomApplied = navigation.On
+		return nil
 	default:
 		return fmt.Errorf("unsupported terminal navigation op %q", navigation.Op)
+	}
+}
+
+func (m *TerminalManager) unzoomViewerLocked(viewer *terminalViewer, reason string) error {
+	if viewer == nil || !viewer.zoomApplied || viewer.bridge == nil {
+		return nil
+	}
+	if err := viewer.bridge.SetZoom(false); err != nil {
+		return fmt.Errorf("unzoom viewer during %s: %w", reason, err)
+	}
+	viewer.zoomApplied = false
+	return nil
+}
+
+func (m *TerminalManager) cleanupViewerZoomLocked(viewer *terminalViewer, reason string) {
+	if err := m.unzoomViewerLocked(viewer, reason); err != nil {
+		log.Printf("Failed to %v", err)
 	}
 }
 
@@ -913,6 +945,7 @@ func (m *TerminalManager) Close() {
 	seenViewerBridges := make(map[*viewerPTYBridge]struct{})
 	for _, viewer := range m.viewerByToken {
 		if viewer.bridge != nil {
+			m.cleanupViewerZoomLocked(viewer, "manager close")
 			if _, seen := seenViewerBridges[viewer.bridge]; !seen {
 				viewerBridges = append(viewerBridges, viewer.bridge)
 				seenViewerBridges[viewer.bridge] = struct{}{}
