@@ -25,7 +25,7 @@ async function selectSession(page: Page, title: string): Promise<void> {
 }
 
 async function openPaneActions(page: Page) {
-  await page.getByRole('button', { name: 'Actions', exact: true }).click();
+  await page.getByRole('button', { name: 'Open pane actions' }).click();
   return page.getByRole('dialog').filter({ hasText: 'Pane actions' });
 }
 
@@ -112,13 +112,24 @@ test.describe('Command Center program journeys', () => {
     await signIn(page);
     await selectSession(page, interactiveSession.title);
 
-    await expect(page.getByRole('button', { name: 'Detach', exact: true })).toBeVisible();
-    await visibleTerminalInput(page).focus();
-    await page.keyboard.type('echo journey');
-    await expect.poll(() => recordedTerminalInput(recorder)).toContain('echo journey');
+    if (await isMobile(page)) {
+      await expect(page.getByTestId('tmux-attached-status')).toBeVisible();
+      await visibleTerminalInput(page).focus();
+      await page.keyboard.type('echo journey');
+      await expect.poll(() => recordedTerminalInput(recorder)).toContain('echo journey');
 
-    await page.getByRole('button', { name: 'Detach', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Attach Terminal', exact: true })).toBeVisible();
+      const actions = await openPaneActions(page);
+      await actions.getByRole('button', { name: 'Detach', exact: true }).click();
+      await expect(page.getByRole('button', { name: /Attach Terminal|Resume/ })).toBeVisible();
+    } else {
+      await expect(page.getByRole('button', { name: 'Detach', exact: true })).toBeVisible();
+      await visibleTerminalInput(page).focus();
+      await page.keyboard.type('echo journey');
+      await expect.poll(() => recordedTerminalInput(recorder)).toContain('echo journey');
+
+      await page.getByRole('button', { name: 'Detach', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Attach Terminal', exact: true })).toBeVisible();
+    }
   });
 
   test('window create, rename, kill, and last-window confirmation', async ({ page }) => {
@@ -205,8 +216,14 @@ test.describe('Command Center program journeys', () => {
     await signIn(page);
     await selectSession(page, interactiveSession.title);
 
-    await expect(page.getByText('Read-only — take control to type')).toBeVisible();
-    await page.getByRole('button', { name: 'Take Control', exact: true }).click();
+    if (await isMobile(page)) {
+      await expect(page.getByTestId('tmux-attached-status')).toContainText('Read-only');
+      const actions = await openPaneActions(page);
+      await actions.getByRole('button', { name: 'Take Control', exact: true }).click();
+    } else {
+      await expect(page.getByText('Read-only — take control to type')).toBeVisible();
+      await page.getByRole('button', { name: 'Take Control', exact: true }).click();
+    }
     await expect
       .poll(() => recorder.terminalMessages.some((message) => message.type === 'control'))
       .toBe(true);
