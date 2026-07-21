@@ -25,8 +25,13 @@ type TouchScrollState = {
   cursorSentX: number;
   cursorSentY: number;
   cellWidth: number;
+  wheelRemainder: number;
+  wheelColumn: number;
+  wheelRow: number;
   panning: boolean;
 };
+
+const TMUX_LINES_PER_WHEEL_REPORT = 5;
 
 function createTouchScrollState(): TouchScrollState {
   return {
@@ -50,6 +55,9 @@ function createTouchScrollState(): TouchScrollState {
     cursorSentX: 0,
     cursorSentY: 0,
     cellWidth: 8,
+    wheelRemainder: 0,
+    wheelColumn: 1,
+    wheelRow: 1,
     panning: false,
   };
 }
@@ -91,6 +99,79 @@ export function synthesizeCursorDragInput(
   return { data: `${horizontal}${vertical}`, sentX: nextX, sentY: nextY };
 }
 
+export function mapScrollLinesToWheelReports(
+  lineDelta: number,
+  remainder = 0
+): { reportDelta: number; remainder: number } {
+  const total = lineDelta + remainder;
+  const reportDelta = Math.trunc(total / TMUX_LINES_PER_WHEEL_REPORT) || 0;
+  return {
+    reportDelta,
+    remainder: total - reportDelta * TMUX_LINES_PER_WHEEL_REPORT,
+  };
+}
+
+export function resolveTouchCell(
+  clientX: number,
+  clientY: number,
+  rect: Pick<DOMRect, 'left' | 'top'>,
+  cellWidth: number,
+  lineHeight: number,
+  cols: number,
+  rows: number
+): { column: number; row: number } {
+  const safeCellWidth = cellWidth > 0 ? cellWidth : 1;
+  const safeLineHeight = lineHeight > 0 ? lineHeight : 1;
+  const maxColumn = Math.max(1, cols);
+  const maxRow = Math.max(1, rows);
+  return {
+    column: Math.max(1, Math.min(maxColumn, Math.floor((clientX - rect.left) / safeCellWidth) + 1)),
+    row: Math.max(1, Math.min(maxRow, Math.floor((clientY - rect.top) / safeLineHeight) + 1)),
+  };
+}
+
+export function buildSgrWheelReports(
+  reportDelta: number,
+  column: number,
+  row: number
+): string {
+  if (reportDelta === 0) return '';
+  const button = reportDelta < 0 ? 64 : 65;
+  return `\x1b[<${button};${column};${row}M`.repeat(Math.abs(reportDelta));
+}
+
+export function dispatchTerminalTouchScroll({
+  terminal,
+  lineDelta,
+  wheelRemainder,
+  column,
+  row,
+  writable,
+  onInput,
+}: {
+  terminal: XTerminal;
+  lineDelta: number;
+  wheelRemainder: number;
+  column: number;
+  row: number;
+  writable: boolean;
+  onInput: (data: string) => void;
+}): number {
+  const usesMouseReports = terminal.buffer.active.type === 'alternate'
+    && terminal.modes.mouseTrackingMode !== 'none';
+
+  if (!usesMouseReports) {
+    terminal.scrollLines(lineDelta);
+    return 0;
+  }
+  if (!writable) return 0;
+
+  const mapped = mapScrollLinesToWheelReports(lineDelta, wheelRemainder);
+  const data = buildSgrWheelReports(mapped.reportDelta, column, row);
+  if (data) onInput(data);
+  return mapped.remainder;
+}
+
 export function resolveTerminalHorizontalSwipe(
   deltaX: number,
   deltaY: number,
@@ -110,6 +191,8 @@ export function useTerminalTouchScroll({
   onFontSizeChange,
   cursorEnabled,
   onCursorInput,
+  writable = false,
+  onScrollInput = onCursorInput,
   onHorizontalSwipe,
 }: {
   enabled: boolean;
@@ -119,6 +202,8 @@ export function useTerminalTouchScroll({
   onFontSizeChange: (fontSize: number) => void;
   cursorEnabled: boolean;
   onCursorInput: (data: string) => void;
+  writable?: boolean;
+  onScrollInput?: (data: string) => void;
   onHorizontalSwipe?: (direction: 'previous' | 'next') => void;
 }) {
   const touchScrollRef = useRef<TouchScrollState>(createTouchScrollState());
@@ -126,11 +211,15 @@ export function useTerminalTouchScroll({
   const onFontSizeChangeRef = useRef(onFontSizeChange);
   const cursorEnabledRef = useRef(cursorEnabled);
   const onCursorInputRef = useRef(onCursorInput);
+  const writableRef = useRef(writable);
+  const onScrollInputRef = useRef(onScrollInput);
   const onHorizontalSwipeRef = useRef(onHorizontalSwipe);
   fontSizeRef.current = fontSize;
   onFontSizeChangeRef.current = onFontSizeChange;
   cursorEnabledRef.current = cursorEnabled;
   onCursorInputRef.current = onCursorInput;
+  writableRef.current = writable;
+  onScrollInputRef.current = onScrollInput;
   onHorizontalSwipeRef.current = onHorizontalSwipe;
 
   useEffect(() => {
@@ -204,6 +293,18 @@ export function useTerminalTouchScroll({
       touchState.lastTime = performance.now();
       touchState.lineHeight = computeLineHeight(terminal);
       touchState.cellWidth = computeCellWidth(terminal);
+      const touchCell = resolveTouchCell(
+        touch.clientX,
+        touch.clientY,
+        container.getBoundingClientRect(),
+        touchState.cellWidth,
+        touchState.lineHeight,
+        terminal.cols,
+        terminal.rows
+      );
+      touchState.wheelRemainder = 0;
+      touchState.wheelColumn = touchCell.column;
+      touchState.wheelRow = touchCell.row;
       touchState.cursorArmed = false;
       touchState.cursorMode = false;
       touchState.cursorSentX = 0;
@@ -299,6 +400,7 @@ export function useTerminalTouchScroll({
           touchState.lastTime = performance.now();
           touchState.velocity = 0;
           touchState.remainder = 0;
+          touchState.wheelRemainder = 0;
           return;
         }
         if (absDx > absDy * AXIS_RATIO) {
@@ -308,6 +410,7 @@ export function useTerminalTouchScroll({
           touchState.lastTime = performance.now();
           touchState.velocity = 0;
           touchState.remainder = 0;
+          touchState.wheelRemainder = 0;
           return;
         }
 
@@ -332,6 +435,7 @@ export function useTerminalTouchScroll({
         touchState.lastTime = performance.now();
         touchState.velocity = 0;
         touchState.remainder = 0;
+        touchState.wheelRemainder = 0;
         return;
       }
 
@@ -343,7 +447,15 @@ export function useTerminalTouchScroll({
       const lines = Math.trunc(totalDelta / lineHeight);
       touchState.remainder = totalDelta - lines * lineHeight;
       if (lines !== 0) {
-        terminal.scrollLines(-lines);
+        touchState.wheelRemainder = dispatchTerminalTouchScroll({
+          terminal,
+          lineDelta: -lines,
+          wheelRemainder: touchState.wheelRemainder,
+          column: touchState.wheelColumn,
+          row: touchState.wheelRow,
+          writable: writableRef.current,
+          onInput: onScrollInputRef.current,
+        });
       }
       const now = performance.now();
       const dt = now - touchState.lastTime;
@@ -362,6 +474,7 @@ export function useTerminalTouchScroll({
         touchState.active = false;
         touchState.axis = null;
         touchState.remainder = 0;
+        touchState.wheelRemainder = 0;
         touchState.velocity = 0;
         return;
       }
@@ -387,6 +500,7 @@ export function useTerminalTouchScroll({
 
       if (axis !== 'vertical') {
         touchState.remainder = 0;
+        touchState.wheelRemainder = 0;
         touchState.velocity = 0;
         return;
       }
@@ -423,7 +537,15 @@ export function useTerminalTouchScroll({
         accum += currentVelocity * dt;
         const lines = Math.trunc(accum / lineHeight);
         if (lines !== 0) {
-          terminal.scrollLines(-lines);
+          touchState.wheelRemainder = dispatchTerminalTouchScroll({
+            terminal,
+            lineDelta: -lines,
+            wheelRemainder: touchState.wheelRemainder,
+            column: touchState.wheelColumn,
+            row: touchState.wheelRow,
+            writable: writableRef.current,
+            onInput: onScrollInputRef.current,
+          });
           accum -= lines * lineHeight;
         }
         touchState.momentumRaf = requestAnimationFrame(tick);

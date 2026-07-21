@@ -97,6 +97,7 @@ export function PersistentTerminalHost() {
     (state) => state.terminalWarmTimeoutMinutes ?? DEFAULT_TERMINAL_WARM_TIMEOUT_MINUTES
   );
   const attachmentDescriptor = snapshot.attachmentDescriptor ?? snapshot.descriptor;
+  const selectedSessionId = snapshot.descriptor?.sessionId;
   const terminalContext = attachmentDescriptor
     ? {
         descriptorKey: snapshot.descriptorKey!,
@@ -167,11 +168,12 @@ export function PersistentTerminalHost() {
   return (
     <>
       <div ref={parkingRef} hidden aria-hidden="true" data-terminal-parking />
-      {portalNode && attachmentDescriptor && createPortal(
+      {portalNode && attachmentDescriptor && selectedSessionId && createPortal(
         <TerminalGridContext.Provider value={terminalContext}>
           <TerminalView
             key={snapshot.descriptorKey}
             sessionId={attachmentDescriptor.sessionId}
+            historySessionId={selectedSessionId}
             hostId={attachmentDescriptor.hostId}
             paneId={attachmentDescriptor.paneId}
             autoAttach={attachmentDescriptor.autoAttach}
