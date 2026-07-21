@@ -220,6 +220,7 @@ export interface JourneyRecorder {
   commandRequests: unknown[];
   launchRequests: unknown[];
   scrollbackRequests: unknown[];
+  scrollbackSessionIds: string[];
   terminalMessages: Array<{
     type?: string;
     data?: string;
@@ -234,6 +235,7 @@ export interface JourneyRecorder {
 
 interface MockOptions {
   terminalReadOnly?: boolean;
+  terminalOutput?: string;
   multiWindow?: boolean;
 }
 
@@ -391,6 +393,7 @@ export async function mockControlPlane(
     commandRequests: [],
     launchRequests: [],
     scrollbackRequests: [],
+    scrollbackSessionIds: [],
     terminalMessages: [],
     terminalSessionIds: [],
     terminalWebSocketUrls: [],
@@ -436,6 +439,13 @@ export async function mockControlPlane(
             resume_token: 'dashboard-journey-terminal-resume',
           })
         );
+        if (options.terminalOutput) {
+          socket.send(JSON.stringify({
+            type: 'output',
+            data: options.terminalOutput,
+            encoding: 'utf8',
+          }));
+        }
       }
       if (parsed.type === 'control') {
         socket.send(JSON.stringify({ type: 'control' }));
@@ -511,6 +521,7 @@ export async function mockControlPlane(
     if (request.method() === 'POST' && /^\/v1\/sessions\/[^/]+\/scrollback$/.test(url.pathname)) {
       const body = request.postDataJSON() as { start_line?: number };
       recorder.scrollbackRequests.push(body);
+      recorder.scrollbackSessionIds.push(url.pathname.split('/')[3] || '');
       const initialPage = body.start_line === -500;
       await fulfillJson(route, {
         cmd_id: '01JJOURNEYHISTORY0000000000',

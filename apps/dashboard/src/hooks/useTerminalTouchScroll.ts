@@ -104,7 +104,7 @@ export function mapScrollLinesToWheelReports(
   remainder = 0
 ): { reportDelta: number; remainder: number } {
   const total = lineDelta + remainder;
-  const reportDelta = Math.trunc(total / TMUX_LINES_PER_WHEEL_REPORT);
+  const reportDelta = Math.trunc(total / TMUX_LINES_PER_WHEEL_REPORT) || 0;
   return {
     reportDelta,
     remainder: total - reportDelta * TMUX_LINES_PER_WHEEL_REPORT,
