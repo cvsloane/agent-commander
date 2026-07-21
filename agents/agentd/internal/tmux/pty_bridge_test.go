@@ -2,8 +2,13 @@ package tmux
 
 import (
 	"encoding/base64"
+	"errors"
+	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -253,6 +258,87 @@ func TestTerminalNavigateZoomSetsRequestedStateOnPrivateTmuxSocket(t *testing.T)
 	assertWindowZoomed(t, client, false)
 }
 
+func TestTerminalNavigateScrollsExistingCopyModeOnPrivateTmuxSocket(t *testing.T) {
+	manager, runner, paneID := newScrollablePrivateViewer(t, "copy-scroll")
+	if err := runner.Run("copy-mode", "-e", "-t", paneID); err != nil {
+		t.Fatalf("enter copy mode: %v", err)
+	}
+	before := privatePaneScrollPosition(t, runner, paneID)
+	if err := manager.Navigate("copy-scroll", TerminalNavigation{Op: NavigateScroll, Lines: -7}); err != nil {
+		t.Fatalf("scroll existing copy mode: %v", err)
+	}
+	after := privatePaneScrollPosition(t, runner, paneID)
+	if after-before != 7 {
+		t.Fatalf("copy-mode scroll position changed by %d, want 7 (before=%d after=%d)", after-before, before, after)
+	}
+}
+
+func TestTerminalNavigateScrollEntersAndAutoExitsCopyModeOnPrivateTmuxSocket(t *testing.T) {
+	manager, runner, paneID := newScrollablePrivateViewer(t, "live-scroll")
+	if err := manager.Navigate("live-scroll", TerminalNavigation{Op: NavigateScroll, Lines: 12}); err != nil {
+		t.Fatalf("scroll down at live view: %v", err)
+	}
+	if got := privatePaneFormat(t, runner, paneID, "#{pane_in_mode}"); got != "0" {
+		t.Fatalf("live scroll-down entered copy mode: pane_in_mode=%q", got)
+	}
+
+	if err := manager.Navigate("live-scroll", TerminalNavigation{Op: NavigateScroll, Lines: -5}); err != nil {
+		t.Fatalf("scroll live view into history: %v", err)
+	}
+	if got := privatePaneFormat(t, runner, paneID, "#{pane_in_mode}"); got != "1" {
+		t.Fatalf("scroll-up did not enter copy mode: pane_in_mode=%q", got)
+	}
+	if got := privatePaneScrollPosition(t, runner, paneID); got != 5 {
+		t.Fatalf("entered copy mode at scroll position %d, want 5", got)
+	}
+
+	if err := manager.Navigate("live-scroll", TerminalNavigation{Op: NavigateScroll, Lines: 120}); err != nil {
+		t.Fatalf("scroll copy mode back to live: %v", err)
+	}
+	if got := privatePaneFormat(t, runner, paneID, "#{pane_in_mode}"); got != "0" {
+		t.Fatalf("copy-mode -e did not auto-exit at live view: pane_in_mode=%q", got)
+	}
+}
+
+func TestTerminalNavigateScrollPassesWheelReportsToMouseAppOnPrivateTmuxSocket(t *testing.T) {
+	manager, runner, paneID, capturePath := newAlternateCaptureViewer(t, "mouse-scroll", true)
+	state := strings.Split(privatePaneFormat(
+		t, runner, paneID, "#{alternate_on}\t#{mouse_any_flag}\t#{pane_width}\t#{pane_height}",
+	), "\t")
+	if len(state) != 4 || state[0] != "1" || state[1] != "1" {
+		t.Fatalf("mouse app state=%q, want alternate+mouse", strings.Join(state, "\t"))
+	}
+	width, widthErr := strconv.Atoi(state[2])
+	height, heightErr := strconv.Atoi(state[3])
+	if widthErr != nil || heightErr != nil {
+		t.Fatalf("parse mouse app dimensions %q: width=%v height=%v", state, widthErr, heightErr)
+	}
+	report := fmt.Sprintf("\x1b[<64;%d;%dM", (width+1)/2, (height+1)/2)
+	want := report + report
+
+	if err := manager.Navigate("mouse-scroll", TerminalNavigation{Op: NavigateScroll, Lines: -7}); err != nil {
+		t.Fatalf("scroll mouse app: %v", err)
+	}
+	if got := waitForCapturedInput(t, capturePath, len(want)); got != want {
+		t.Fatalf("mouse app input=%q, want %q", got, want)
+	}
+}
+
+func TestTerminalNavigateScrollSendsArrowsToAlternateAppOnPrivateTmuxSocket(t *testing.T) {
+	manager, runner, paneID, capturePath := newAlternateCaptureViewer(t, "alternate-scroll", false)
+	if got := privatePaneFormat(t, runner, paneID, "#{alternate_on}\t#{mouse_any_flag}"); got != "1\t0" {
+		t.Fatalf("alternate app state=%q, want alternate without mouse", got)
+	}
+	want := strings.Repeat("\x1b[A", 4)
+
+	if err := manager.Navigate("alternate-scroll", TerminalNavigation{Op: NavigateScroll, Lines: -4}); err != nil {
+		t.Fatalf("scroll alternate app: %v", err)
+	}
+	if got := waitForCapturedInput(t, capturePath, len(want)); got != want {
+		t.Fatalf("alternate app input=%q, want %q", got, want)
+	}
+}
+
 func TestTerminalDetachUnzoomsChannelAppliedFocusOnPrivateTmuxSocket(t *testing.T) {
 	client, _ := newPrivateTmuxClient(t)
 	panes, err := client.ListPanes()
@@ -302,6 +388,31 @@ func TestTerminalNavigationUnzoomsAppliedFocusBeforeSwitchingWindows(t *testing.
 	manager.mu.RUnlock()
 	if zoomApplied {
 		t.Fatal("viewer still records applied zoom after switching away")
+	}
+}
+
+func TestTerminalNavigateScrollClampsAndRejectsReadOnlyViewers(t *testing.T) {
+	runner := newFakeTmuxRunner()
+	runner.outputs["display-message -p -t %7 #{session_name}\t#{window_index}\t#{pane_index}"] = []byte("agents\t2\t1\n")
+	stateFormat := "#{pane_id}\t#{pane_in_mode}\t#{alternate_on}\t#{mouse_any_flag}\t#{pane_width}\t#{pane_height}"
+	runner.outputs["display-message -p -t ac-view-controller "+stateFormat] = []byte("%7\t1\t0\t0\t80\t24\n")
+	manager := newTerminalManagerWithRunner(nil, runner, t.TempDir())
+	defer manager.Close()
+	if _, err := manager.AttachWithOptions("controller", "%7", AttachOptions{SessionID: "session-1"}); err != nil {
+		t.Fatalf("attach controller: %v", err)
+	}
+	if _, err := manager.AttachWithOptions("readonly", "%7", AttachOptions{SessionID: "session-1"}); err != nil {
+		t.Fatalf("attach read-only viewer: %v", err)
+	}
+
+	if err := manager.Navigate("controller", TerminalNavigation{Op: NavigateScroll, Lines: -999}); err != nil {
+		t.Fatalf("scroll controller: %v", err)
+	}
+	if !runner.hasRun([]string{"send-keys", "-X", "-t", "%7", "-N", "120", "scroll-up"}) {
+		t.Fatalf("scroll was not clamped to 120 lines; runs=%v", runner.runs)
+	}
+	if err := manager.Navigate("readonly", TerminalNavigation{Op: NavigateScroll, Lines: -3}); !errors.Is(err, ErrReadOnly) {
+		t.Fatalf("read-only scroll error=%v, want ErrReadOnly", err)
 	}
 }
 
@@ -391,6 +502,123 @@ func assertWindowZoomed(t *testing.T, client *Client, want bool) {
 		if pane.WindowZoomed != want {
 			t.Fatalf("pane %s zoomed=%v, want %v", pane.PaneID, pane.WindowZoomed, want)
 		}
+	}
+}
+
+func newScrollablePrivateViewer(t *testing.T, channelID string) (*TerminalManager, TmuxRunner, string) {
+	t.Helper()
+	client, _ := newPrivateTmuxClient(t)
+	panes, err := client.ListPanes()
+	if err != nil || len(panes) != 1 {
+		t.Fatalf("initial private panes=%+v err=%v", panes, err)
+	}
+	paneID := panes[0].PaneID
+	runner := newExecTmuxRunner(client)
+	command := "i=0; while [ $i -lt 200 ]; do printf 'SCROLL-%03d\\n' \"$i\"; i=$((i + 1)); done; exec sleep 30"
+	if err := runner.Run("respawn-pane", "-k", "-t", paneID, command); err != nil {
+		t.Fatalf("seed scrollable pane: %v", err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for privatePaneScrollHistory(t, runner, paneID) < 100 {
+		if time.Now().After(deadline) {
+			t.Fatalf("pane history did not become scrollable")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	manager := newTerminalManagerWithRunner(client, runner, t.TempDir())
+	t.Cleanup(manager.Close)
+	if _, err := manager.AttachWithOptions(channelID, paneID, AttachOptions{SessionID: "session-1"}); err != nil {
+		t.Fatalf("attach scroll viewer: %v", err)
+	}
+	return manager, runner, paneID
+}
+
+func newAlternateCaptureViewer(t *testing.T, channelID string, mouse bool) (*TerminalManager, TmuxRunner, string, string) {
+	t.Helper()
+	client, _ := newPrivateTmuxClient(t)
+	panes, err := client.ListPanes()
+	if err != nil || len(panes) != 1 {
+		t.Fatalf("initial private panes=%+v err=%v", panes, err)
+	}
+	paneID := panes[0].PaneID
+	runner := newExecTmuxRunner(client)
+	tempDir := t.TempDir()
+	capturePath := filepath.Join(tempDir, "input.bin")
+	scriptPath := filepath.Join(tempDir, "capture-input.sh")
+	modes := "\\033[?1049h"
+	if mouse {
+		modes += "\\033[?1003h"
+	}
+	script := fmt.Sprintf("#!/bin/sh\nstty raw -echo\nprintf '%s'\nexec cat > \"$1\"\n", modes)
+	if err := os.WriteFile(scriptPath, []byte(script), 0700); err != nil {
+		t.Fatalf("write capture app: %v", err)
+	}
+	if err := runner.Run("respawn-pane", "-k", "-t", paneID, fmt.Sprintf("%q %q", scriptPath, capturePath)); err != nil {
+		t.Fatalf("start capture app: %v", err)
+	}
+	wantState := "1\t0"
+	if mouse {
+		wantState = "1\t1"
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for privatePaneFormat(t, runner, paneID, "#{alternate_on}\t#{mouse_any_flag}") != wantState {
+		if time.Now().After(deadline) {
+			t.Fatalf("capture app did not reach state %q", wantState)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	manager := newTerminalManagerWithRunner(client, runner, t.TempDir())
+	t.Cleanup(manager.Close)
+	if _, err := manager.AttachWithOptions(channelID, paneID, AttachOptions{SessionID: "session-1"}); err != nil {
+		t.Fatalf("attach alternate viewer: %v", err)
+	}
+	return manager, runner, paneID, capturePath
+}
+
+func privatePaneFormat(t *testing.T, runner TmuxRunner, paneID, format string) string {
+	t.Helper()
+	output, err := runner.Output("display-message", "-p", "-t", paneID, format)
+	if err != nil {
+		t.Fatalf("read private pane format %q: %v", format, err)
+	}
+	return strings.TrimSpace(string(output))
+}
+
+func privatePaneScrollHistory(t *testing.T, runner TmuxRunner, paneID string) int {
+	t.Helper()
+	value, err := strconv.Atoi(privatePaneFormat(t, runner, paneID, "#{history_size}"))
+	if err != nil {
+		t.Fatalf("parse private pane history: %v", err)
+	}
+	return value
+}
+
+func privatePaneScrollPosition(t *testing.T, runner TmuxRunner, paneID string) int {
+	t.Helper()
+	value, err := strconv.Atoi(privatePaneFormat(t, runner, paneID, "#{scroll_position}"))
+	if err != nil {
+		t.Fatalf("parse private pane scroll position: %v", err)
+	}
+	return value
+}
+
+func waitForCapturedInput(t *testing.T, capturePath string, length int) string {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		data, err := os.ReadFile(capturePath)
+		if err == nil && len(data) >= length {
+			return string(data)
+		}
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatalf("read captured input: %v", err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("captured input did not reach %d bytes", length)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
