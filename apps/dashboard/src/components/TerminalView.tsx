@@ -59,6 +59,7 @@ export function TerminalView({
   const controllerReadOnlyRef = useRef(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyOverlaySessionId, setHistoryOverlaySessionId] = useState<string | null>(null);
   const [stickyCtrlMode, setStickyCtrlMode] = useState<StickyCtrlMode>('inactive');
   const [keyboardActive, setKeyboardActive] = useState(false);
   const [cursorArmed, setCursorArmed] = useState(false);
@@ -268,10 +269,19 @@ export function TerminalView({
     stickyCtrlModeRef.current = 'inactive';
     setStickyCtrlMode('inactive');
     resetTouchModes();
+    setHistoryOverlaySessionId(null);
   }, [resetTouchModes, status]);
-  const handleNavigateScroll = useCallback((lines: number) => {
-    navigate({ type: 'navigate', op: 'scroll', lines });
-  }, [navigate]);
+  const closeHistoryOverlay = useCallback(() => setHistoryOverlaySessionId(null), []);
+  const openHistoryOverlay = useCallback(() => {
+    if (!tmuxSessionKey || !historySessionId) return;
+    setHistoryOverlaySessionId(historySessionId);
+  }, [historySessionId, tmuxSessionKey]);
+  const historyOverlayOpen = historyOverlaySessionId === historySessionId;
+  useEffect(() => {
+    if (historyOverlaySessionId && historyOverlaySessionId !== historySessionId) {
+      setHistoryOverlaySessionId(null);
+    }
+  }, [historyOverlaySessionId, historySessionId]);
   const touchScrollRef = useTerminalTouchScroll({
     enabled: touchInputModeEnabled,
     termRef,
@@ -284,7 +294,8 @@ export function TerminalView({
     writable: terminalWritable,
     onScrollInput: sendInput,
     tmuxSessionKey,
-    onNavigateScroll: handleNavigateScroll,
+    historySessionId,
+    onOpenHistory: openHistoryOverlay,
     onHorizontalSwipe: (direction) => {
       termRef.current?.dispatchEvent(new CustomEvent('terminal-window-swipe', {
         bubbles: true,
@@ -419,6 +430,10 @@ export function TerminalView({
         stickyCtrlMode={stickyCtrlMode}
         onStickyCtrlEvent={dispatchStickyCtrl}
         onOpenHistory={() => setHistoryOpen(true)}
+        historyOverlayOpen={historyOverlayOpen}
+        historySessionId={historySessionId}
+        historyFontSize={terminalFontSize}
+        onCloseHistoryOverlay={closeHistoryOverlay}
         tmuxPrefix={tmuxPrefix}
         onPreviousMark={previousMark}
         onNextMark={nextMark}

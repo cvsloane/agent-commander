@@ -1,4 +1,6 @@
 export const SCROLLBACK_PAGE_LINES = 500;
+export const HISTORY_OVERSCROLL_DISMISS_PX = 48;
+export const SCROLLBACK_TOP_THRESHOLD_LINES = 6;
 
 export interface ScrollbackRange {
   startLine: number;
@@ -16,6 +18,18 @@ export interface ScrollbackLineSelection {
   awaitingExtent: boolean;
 }
 
+export interface ScrollbackVirtualWindow {
+  startIndex: number;
+  endIndex: number;
+}
+
+export function contentScrollbackLines(content: unknown): string[] {
+  if (typeof content !== 'string' || content.length === 0) return [];
+  const lines = content.split('\n');
+  if (content.endsWith('\n')) lines.pop();
+  return lines;
+}
+
 export function initialScrollbackRange(): ScrollbackRange {
   return {
     startLine: -SCROLLBACK_PAGE_LINES,
@@ -29,6 +43,53 @@ export function olderScrollbackRange(range: ScrollbackRange): ScrollbackRange {
     startLine: endLine - SCROLLBACK_PAGE_LINES + 1,
     endLine,
   };
+}
+
+export function compensateScrollbackPrepend(
+  previousScrollTop: number,
+  previousScrollHeight: number,
+  nextScrollHeight: number
+): number {
+  return previousScrollTop + Math.max(0, nextScrollHeight - previousScrollHeight);
+}
+
+export function isNearScrollbackTop(
+  scrollTop: number,
+  lineHeight: number,
+  thresholdLines = SCROLLBACK_TOP_THRESHOLD_LINES
+): boolean {
+  return scrollTop <= Math.max(1, lineHeight) * thresholdLines;
+}
+
+export function resolveScrollbackVirtualWindow({
+  lineCount,
+  scrollTop,
+  viewportHeight,
+  lineHeight,
+  overscan,
+}: {
+  lineCount: number;
+  scrollTop: number;
+  viewportHeight: number;
+  lineHeight: number;
+  overscan: number;
+}): ScrollbackVirtualWindow {
+  const safeLineHeight = Math.max(1, lineHeight);
+  const safeOverscan = Math.max(0, Math.floor(overscan));
+  const startIndex = Math.max(0, Math.floor(scrollTop / safeLineHeight) - safeOverscan);
+  const visibleCount = Math.ceil(Math.max(0, viewportHeight) / safeLineHeight);
+  return {
+    startIndex,
+    endIndex: Math.min(lineCount, startIndex + visibleCount + safeOverscan * 2),
+  };
+}
+
+export function shouldDismissHistoryOverscroll(
+  startedAtBottom: boolean,
+  touchDeltaY: number,
+  threshold = HISTORY_OVERSCROLL_DISMISS_PX
+): boolean {
+  return startedAtBottom && touchDeltaY <= -Math.max(1, threshold);
 }
 
 export function numberScrollbackLines(
