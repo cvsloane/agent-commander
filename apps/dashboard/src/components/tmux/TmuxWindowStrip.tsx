@@ -265,8 +265,6 @@ export function TmuxWindowStrip({ session, className, onSelectSession }: TmuxWin
     if (!nextTab || Number.isNaN(nextWindowIndex)) return;
     event.preventDefault();
     nextTab.focus();
-    const nextWindow = windows.find((window) => window.windowIndex === nextWindowIndex);
-    if (nextWindow) selectWindow(nextWindow);
   };
 
   if (!session.tmux_pane_id) return null;

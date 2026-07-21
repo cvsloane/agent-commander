@@ -18,8 +18,8 @@ scores or a substitute for profiling a changed interaction.
 - Raw xterm data, Shift+Enter, paste, virtual keys, and composed prompts use the
   single `sendInput` transport and its read-only guard.
 - The persistent host retains at most one background terminal. A terminal hidden
-  by navigation suspends its WebSocket after five minutes instead of growing a
-  pool of live connections.
+  by navigation suspends its WebSocket after the 30-minute warm timeout instead
+  of growing a pool of live connections.
 
 Named proofs:
 
@@ -33,6 +33,12 @@ Named proofs:
 Any terminal change that adds work per output frame must include a focused
 measurement and justify why the zero-write bar can no longer be met. Do not hide
 frame-rate regressions behind throttled React updates.
+
+Client performance probes are opt-in. Add `?perf=1` to the dashboard URL or set
+`window.__sessionsPerf = true` before mounting the relevant surface. With the
+flag off, the terminal frame-timing wrapper returns before invoking its sampler
+and the Web Vitals reporter does not import `web-vitals`, leaving no per-frame
+probe work on the normal path.
 
 ## Fleet reconciliation
 

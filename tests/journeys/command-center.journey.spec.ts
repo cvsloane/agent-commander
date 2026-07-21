@@ -46,12 +46,11 @@ test.describe('Command Center program journeys', () => {
   test.beforeEach(async ({ page }, testInfo) => {
     recorder = await mockControlPlane(page, {
       terminalReadOnly: testInfo.title.includes('take-control handoff'),
-      multiWindow: testInfo.title.includes('window tab retargets'),
+      multiWindow: testInfo.title.includes('window tab'),
     });
   });
 
-  test('412x915 cold open restores the last pane live', async ({ page }) => {
-    test.skip(!(await isMobile(page)), 'mobile owner-locked journey');
+  test('cold open restores the last pane live with zero taps', async ({ page }) => {
     await page.goto('/signin');
     await page.evaluate(
       ({ hostId, sessionId }) => {
@@ -75,8 +74,7 @@ test.describe('Command Center program journeys', () => {
     await expect.poll(() => recorder.terminalSessionIds).toContain(interactiveSession.id);
   });
 
-  test('412x915 window tab retargets the live viewer', async ({ page }) => {
-    test.skip(!(await isMobile(page)), 'mobile owner-locked journey');
+  test('window tab retargets the live viewer', async ({ page }) => {
     await signIn(page);
     await selectSession(page, interactiveSession.title);
 
@@ -91,6 +89,129 @@ test.describe('Command Center program journeys', () => {
     );
     await expect(page.getByLabel('Interactive terminal')).toBeVisible();
     await expect.poll(() => recorder.terminalSessionIds).toContain(windowSession.id);
+  });
+
+  test('window tab keyboard navigation focuses before activation', async ({ page }) => {
+    await signIn(page);
+    await selectSession(page, interactiveSession.title);
+    const terminalRegion = page.getByRole('region', { name: 'Primary terminal' });
+    await expect(terminalRegion.getByText('Connected', { exact: true })).toHaveText('Connected');
+    await page.evaluate(
+      () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    );
+
+    const strip = page.getByTestId('tmux-window-strip').first();
+    const firstWindow = strip.getByRole('tab', { name: 'Window 0: command-center' });
+    const secondWindow = strip.getByRole('tab', { name: 'Window 1: verification' });
+    await firstWindow.focus();
+    await firstWindow.press('ArrowRight');
+
+    await expect(secondWindow).toBeFocused();
+    expect(recorder.commandRequests).toEqual([]);
+
+    await secondWindow.press('Enter');
+    await expect
+      .poll(() => recorder.commandRequests)
+      .toContainEqual({ type: 'select_window', payload: { window_index: 1 } });
+    await expect(page).toHaveURL(new RegExp(`session_id=${windowSession.id}`));
+
+    await firstWindow.focus();
+    await firstWindow.press(' ');
+    await expect
+      .poll(() => recorder.commandRequests)
+      .toContainEqual({ type: 'select_window', payload: { window_index: 0 } });
+    await expect(page).toHaveURL(new RegExp(`session_id=${interactiveSession.id}`));
+  });
+
+  test('mobile desktop-attached grid stays letterboxed through a keyboard transition', async ({
+    page,
+  }) => {
+    test.skip(!(await isMobile(page)), 'mobile keyboard journey');
+    await signIn(page);
+    await selectSession(page, interactiveSession.title);
+
+    await expect
+      .poll(() =>
+        recorder.terminalWebSocketUrls.some((value) => {
+          const url = new URL(value);
+          return (
+            url.searchParams.get('letterbox') === '1' &&
+            url.searchParams.get('cols') === '160' &&
+            url.searchParams.get('rows') === '50'
+          );
+        })
+      )
+      .toBe(true);
+
+    const resizeCount = () =>
+      recorder.terminalMessages.filter((message) => message.type === 'resize').length;
+    const initialResizeCount = resizeCount();
+    await page.setViewportSize({ width: 412, height: 760 });
+    await page.waitForTimeout(100);
+    await page.setViewportSize({ width: 412, height: 620 });
+    await page.waitForTimeout(100);
+    await page.setViewportSize({ width: 412, height: 560 });
+    await page.waitForTimeout(350);
+
+    expect(resizeCount()).toBe(initialResizeCount);
+  });
+
+  test('mobile rail sticky Control sends one control byte', async ({ page }) => {
+    test.skip(!(await isMobile(page)), 'mobile key rail journey');
+    await signIn(page);
+    await selectSession(page, interactiveSession.title);
+
+    const rail = page.getByTestId('terminal-key-rail');
+    await rail.getByRole('button', { name: 'Control modifier inactive' }).click();
+    await expect(rail.getByRole('button', { name: 'Control modifier one-shot' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    await visibleTerminalInput(page).focus();
+    await page.keyboard.press('c');
+
+    await expect.poll(() => recordedTerminalInput(recorder)).toContain('\x03');
+    await expect(rail.getByRole('button', { name: 'Control modifier inactive' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+  });
+
+  test.describe('touch rail input', () => {
+    test.use({ hasTouch: true });
+
+    test('mobile rail honors the selected host prefix key', async ({ page }) => {
+      test.skip(!(await isMobile(page)), 'mobile key rail journey');
+      await page.addInitScript(
+        ({ hostId }) => {
+          window.localStorage.setItem(
+            'settings-storage',
+            JSON.stringify({
+              state: {
+                terminalRailPreset: 'custom',
+                terminalRailConfig: {
+                  version: 1,
+                  keys: [
+                    { id: 'esc', label: 'Esc', binding: { type: 'keysym', value: 'esc' } },
+                    { id: 'prefix', label: 'Prefix', binding: { type: 'keysym', value: 'prefix' } },
+                  ],
+                },
+                tmuxPrefixByHost: { [hostId]: 'C-a' },
+              },
+              version: 0,
+            })
+          );
+        },
+        { hostId: host.id }
+      );
+      await signIn(page);
+      await selectSession(page, interactiveSession.title);
+
+      await expect(page.getByTestId('tmux-attached-status')).toContainText('Connected');
+      await page.getByTestId('terminal-key-rail').getByRole('button', { name: 'Prefix' }).tap();
+
+      await expect.poll(() => recordedTerminalInput(recorder)).toContain('\x01');
+    });
   });
 
   test('signin to Command Center first paint', async ({ page }) => {
@@ -128,7 +249,9 @@ test.describe('Command Center program journeys', () => {
       await expect.poll(() => recordedTerminalInput(recorder)).toContain('echo journey');
 
       await page.getByRole('button', { name: 'Detach', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Attach Terminal', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('button', { name: 'Attach Terminal', exact: true })
+      ).toBeVisible();
     }
   });
 
@@ -259,6 +382,33 @@ test.describe('Command Center program journeys', () => {
     await expect(page).toHaveURL(new RegExp(`session_id=${interactiveSession.id}`));
   });
 
+  test('mobile pane actions launch a new window in place', async ({ page }) => {
+    test.skip(!(await isMobile(page)), 'mobile window-here journey');
+    await signIn(page);
+    await selectSession(page, interactiveSession.title);
+
+    const actions = await openPaneActions(page);
+    await actions.getByRole('button', { name: 'New window here' }).click();
+
+    const launch = page.getByRole('dialog', { name: 'Launch agent' });
+    await expect(launch).toContainText('New window in agents');
+    await expect(launch).toContainText(`${host.name} · ${interactiveSession.cwd}`);
+    await launch.getByRole('button', { name: 'Launch window here' }).click();
+
+    await expect
+      .poll(() => recorder.launchRequests)
+      .toEqual([
+        {
+          host_id: host.id,
+          provider: 'codex',
+          working_directory: interactiveSession.cwd,
+          tmux: { target_session: 'agents' },
+          wait: true,
+          wait_timeout_ms: 10_000,
+        },
+      ]);
+  });
+
   test('attention approval is decided from the terminal overlay', async ({ page }) => {
     await signIn(page);
     await selectSession(page, approvalSession.title);
@@ -273,4 +423,3 @@ test.describe('Command Center program journeys', () => {
     await expect(overlay).toHaveCount(0);
   });
 });
-

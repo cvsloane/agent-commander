@@ -9,12 +9,14 @@ autonomous orchestration without leaving the normal session runtime.
 **Command Center UX**
 
 - `/` for fleet status, tmux windows and panes, and persistent terminals
-- Desktop two-up terminals and compact quick switching
+- Desktop two-up terminals and a full-bleed mobile workspace
 - New, recent, and existing-pane launch paths
 - Prompt composition, in-context attention, and command-palette navigation
 
 [Open the Command Center guide](#/docs/command-center.md)
 [See release history](#/docs/releases.md)
 [GitHub](https://github.com/cvsloane/agent-commander)
+
+![Command Center mobile](/images/command-center-mobile.png)
 
 ![Dashboard Overview](/docs/images/dashboard-overview.png)

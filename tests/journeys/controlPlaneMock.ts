@@ -141,7 +141,7 @@ function topologyMessage(includeSecondWindow: boolean) {
       window_name: 'command-center',
       active: true,
       zoomed: false,
-      layout: 'even-horizontal',
+      layout: '8f5a,160x50,0,0,1',
       bell: false,
       activity: false,
       panes: [
@@ -203,6 +203,7 @@ function topologyMessage(includeSecondWindow: boolean) {
         {
           session_name: 'agents',
           attached: true,
+          attached_clients: 1,
           windows,
         },
       ],
@@ -217,6 +218,7 @@ export interface JourneyRecorder {
   scrollbackRequests: unknown[];
   terminalMessages: Array<{ type?: string; data?: string }>;
   terminalSessionIds: string[];
+  terminalWebSocketUrls: string[];
 }
 
 interface MockOptions {
@@ -380,6 +382,7 @@ export async function mockControlPlane(
     scrollbackRequests: [],
     terminalMessages: [],
     terminalSessionIds: [],
+    terminalWebSocketUrls: [],
   };
   const availableSessions = options.multiWindow ? [...sessions, windowSession] : sessions;
 
@@ -392,6 +395,7 @@ export async function mockControlPlane(
     });
   });
   await page.routeWebSocket(/\/v1\/ui\/terminal\//, (socket) => {
+    recorder.terminalWebSocketUrls.push(socket.url());
     const sessionId = socket.url().match(/\/v1\/ui\/terminal\/([^?]+)/)?.[1];
     if (sessionId) recorder.terminalSessionIds.push(decodeURIComponent(sessionId));
     socket.onMessage((message) => {
@@ -476,6 +480,10 @@ export async function mockControlPlane(
           ts_decided: new Date().toISOString(),
         },
       });
+      return;
+    }
+    if (request.method() === 'PUT' && url.pathname === '/v1/settings') {
+      await fulfillJson(route, { settings: request.postDataJSON() ?? {} });
       return;
     }
     if (request.method() === 'GET') {
