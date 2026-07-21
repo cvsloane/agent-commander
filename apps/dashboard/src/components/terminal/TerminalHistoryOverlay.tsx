@@ -232,7 +232,7 @@ export function TerminalHistoryOverlay({
       <div
         ref={scrollRef}
         className="flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain bg-[#0a0a0a] selection:bg-sky-600/70"
-        style={{ WebkitOverflowScrolling: 'touch' }}
+        style={{ WebkitOverflowScrolling: 'touch', overflowAnchor: 'none' }}
         tabIndex={0}
         aria-label="Inline terminal history"
         onScroll={(event) => {
