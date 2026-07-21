@@ -449,6 +449,7 @@ export function TmuxMobileShell({
         onSendTo={onSendTo}
         onOpenMcp={onOpenMcp}
         onTerminate={onTerminate}
+        onLaunchWindowHere={windowHere ? () => { setMode(selectedSessionId ? 'terminal' : 'roster'); setLaunchOpen(true); } : undefined}
       />
       <MobileLaunchSheet
         open={launchOpen}

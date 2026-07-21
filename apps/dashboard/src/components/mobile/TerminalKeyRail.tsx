@@ -153,7 +153,18 @@ export function TerminalKeyRail({
     }
     if (gesture.swiped && key.popup) {
       executeBinding(key.popup, key);
+      return;
     }
+    if (gesture.longPressed) return;
+    // Activate on pointerup: captured touch-pointer sequences do not reliably
+    // synthesize a click in real Chromium, so the tap path must not depend on
+    // it. suppressClickRef swallows any click the browser DOES synthesize;
+    // keyboard activation (Enter/Space produce click with no pointer gesture)
+    // still flows through onClick.
+    suppressClickRef.current = true;
+    const isCtrl = key.binding.type === 'keysym' && key.binding.value === 'ctrl';
+    if (isCtrl) handleCtrlClick();
+    else executeBinding(key.binding, key);
   };
 
   return (
