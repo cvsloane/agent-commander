@@ -57,7 +57,10 @@ export function useTerminalClipboard({
   }, [copyToClipboard, terminalRef]);
 
   const paste = useCallback(async (text?: string) => {
-    const pasteText = text || await readFromClipboard();
+    let pasteText = text ?? await readFromClipboard();
+    if (pasteText === null) {
+      pasteText = window.prompt('Clipboard access is blocked. Paste terminal text here:');
+    }
     if (pasteText) {
       sendInput(pasteText);
     }

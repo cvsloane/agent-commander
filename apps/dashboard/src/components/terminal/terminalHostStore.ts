@@ -1,8 +1,9 @@
 import type { MutableRefObject } from 'react';
-import type { TerminalController, XTerminal } from './types';
+import type { ConnectionStatus, TerminalController, XTerminal } from './types';
 
 export interface TerminalHostDescriptor {
   sessionId: string;
+  hostId?: string;
   paneId?: string;
   autoAttach: boolean;
 }
@@ -13,6 +14,7 @@ export interface TerminalHostSnapshot {
   target: HTMLDivElement | null;
   visible: boolean;
   terminalInstance: XTerminal | null;
+  status: ConnectionStatus;
   readOnly: boolean;
 }
 
@@ -31,6 +33,7 @@ const EMPTY_SNAPSHOT: TerminalHostSnapshot = {
   target: null,
   visible: false,
   terminalInstance: null,
+  status: 'disconnected',
   readOnly: false,
 };
 
@@ -91,6 +94,7 @@ export function createTerminalHostStore() {
       target: activeSurface.target,
       visible: activeSurface.visible,
       terminalInstance: descriptorChanged ? null : snapshot.terminalInstance,
+      status: descriptorChanged ? 'disconnected' : snapshot.status,
       readOnly: descriptorChanged ? false : snapshot.readOnly,
     };
     emit();
@@ -132,8 +136,9 @@ export function createTerminalHostStore() {
         activeControllerRef.current = nextController;
       }
       const readOnly = nextController?.readOnly ?? false;
-      if (snapshot.readOnly !== readOnly) {
-        snapshot = { ...snapshot, readOnly };
+      const status = nextController?.status ?? 'disconnected';
+      if (snapshot.readOnly !== readOnly || snapshot.status !== status) {
+        snapshot = { ...snapshot, readOnly, status };
         emit();
       }
     },

@@ -96,6 +96,11 @@
   max-height: 100%;
 }
 
+.terminal-key-rail {
+  bottom: max(env(keyboard-inset-height, 0px), var(--keyboard-inset-height, 0px));
+  padding-bottom: max(0.25rem, env(safe-area-inset-bottom));
+}
+
 @keyframes command-center-mode-view-in {
   from {
     opacity: 0;
@@ -111,6 +116,23 @@
   animation: command-center-mode-view-in 180ms ease-out;
 }
 
+@media (max-width: 1023px) {
+  html[data-mobile-terminal-attached='true'] body > div > header:first-child {
+    display: none;
+  }
+
+  html[data-mobile-terminal-attached='true'] main {
+    min-height: 0;
+    overflow: hidden;
+    padding-bottom: 0;
+  }
+
+  html[data-mobile-terminal-attached='true'] nav[aria-label='Primary mobile navigation'],
+  html[data-mobile-terminal-attached='true'] [data-terminal-toolbar] {
+    display: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .command-center-mode-view {
     animation: none;
@@ -124,10 +146,6 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-}
-
-html[data-virtual-keyboard-open='true'] [data-terminal-key-controls] {
-  display: none;
 }
 
 /* Mobile text selection support */

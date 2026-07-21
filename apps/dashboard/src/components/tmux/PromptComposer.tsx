@@ -52,11 +52,15 @@ export interface PromptComposerHandle {
 interface PromptComposerProps {
   session: Session;
   readOnly?: boolean;
+  hideCollapsed?: boolean;
   onSendToOtherSession?: (targetSessionId: string) => void;
 }
 
 export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerProps>(
-  function PromptComposer({ session, readOnly = false, onSendToOtherSession }, ref) {
+  function PromptComposer(
+    { session, readOnly = false, hideCollapsed = false, onSendToOtherSession },
+    ref
+  ) {
     const [expanded, setExpanded] = useState(false);
     const [prompt, setPrompt] = useState('');
     const [historyIndex, setHistoryIndex] = useState(-1);
@@ -153,6 +157,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     };
 
     if (!expanded) {
+      if (hideCollapsed) return null;
       const readOnlyHintId = `prompt-composer-readonly-${session.id}`;
       return (
         <div

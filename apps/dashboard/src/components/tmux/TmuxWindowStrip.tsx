@@ -125,6 +125,13 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
     setWindows(sourceWindows);
   }, [sourceWindows]);
 
+  useEffect(() => {
+    const activeTab = tablistRef.current?.querySelector<HTMLElement>(
+      '[role="tab"][aria-selected="true"]'
+    );
+    activeTab?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }, [windows]);
+
   useEffect(
     () => () => {
       if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
@@ -207,7 +214,7 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
     <div className={cn('shrink-0 border-b bg-muted/20', className)} data-testid="tmux-window-strip">
       <div
         ref={tablistRef}
-        className="flex min-h-10 items-stretch gap-1 overflow-x-auto px-2 pt-1 touch-pan-x"
+        className="flex min-h-7 items-stretch gap-1 overflow-x-auto px-1 touch-pan-x lg:min-h-10 lg:px-2 lg:pt-1"
         role="tablist"
         aria-label={`${identity.sessionName} tmux windows`}
       >
@@ -240,7 +247,7 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
                       setEditingWindowIndex(null);
                     }
                   }}
-                  className="h-8 w-28 bg-background px-2 text-xs outline-none ring-inset focus:ring-2 focus:ring-primary"
+                  className="h-7 w-28 bg-background px-2 text-xs outline-none ring-inset focus:ring-2 focus:ring-primary lg:h-8"
                   aria-label={`Rename window ${window.windowIndex}`}
                   disabled={pending}
                 />
@@ -277,7 +284,7 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
                   }}
                   onPointerUp={clearLongPress}
                   onPointerCancel={clearLongPress}
-                  className="flex h-8 max-w-44 min-w-20 items-center gap-1.5 px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                  className="flex h-7 max-w-44 min-w-16 items-center gap-1.5 px-2 text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:h-8 lg:min-w-20 lg:text-xs"
                   aria-label={`Window ${window.windowIndex}: ${window.windowName}`}
                 >
                   <span className="font-mono text-[10px] opacity-70">{window.windowIndex}</span>
@@ -294,7 +301,7 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
                 <button
                   type="button"
                   onClick={() => setContextWindowIndex(contextOpen ? null : window.windowIndex)}
-                  className="flex h-8 w-7 items-center justify-center rounded-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+                  className="flex h-7 w-7 items-center justify-center rounded-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring lg:h-8"
                   aria-label={`Window ${window.windowIndex} actions`}
                   aria-expanded={contextOpen}
                   disabled={pending}
@@ -309,7 +316,7 @@ export function TmuxWindowStrip({ session, className }: TmuxWindowStripProps) {
           type="button"
           variant="ghost"
           size="sm"
-          className="h-8 w-9 shrink-0 rounded-t-md rounded-b-none border border-b-0 px-0"
+          className="h-7 w-8 shrink-0 rounded-t-md rounded-b-none border border-b-0 px-0 lg:h-8 lg:w-9"
           onClick={() => void dispatchAction({ type: 'new', cwd: session.cwd || undefined })}
           disabled={pending}
           aria-label="New tmux window"

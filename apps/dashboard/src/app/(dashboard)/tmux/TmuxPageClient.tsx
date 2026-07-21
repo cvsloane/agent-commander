@@ -32,6 +32,7 @@ export default function TmuxPageClient() {
   const { setSessionIdle, isSessionIdlePending } = useSessionIdle();
   const { terminateSession, isTerminating } = useTerminateSession();
   const [workbenchViewMode, setWorkbenchViewMode] = useState<'console' | 'terminal'>('terminal');
+  const [mobileTerminalAttached, setMobileTerminalAttached] = useState(false);
   const [sendToDialogOpen, setSendToDialogOpen] = useState(false);
   const [sendToTargetId, setSendToTargetId] = useState<string | undefined>(undefined);
   const terminalModeRequested = searchParams.get('mode') === 'terminal';
@@ -179,7 +180,7 @@ export default function TmuxPageClient() {
           onViewModeChange={setWorkbenchViewMode}
           initialView="terminal"
           showDetails={!options?.mobileTerminalOnly}
-          terminalCardClassName={options?.mobileTerminalOnly ? 'h-[calc(100dvh-15rem)] min-h-[420px]' : undefined}
+          fullBleedMobileTerminal={Boolean(options?.mobileTerminalOnly && mobileTerminalAttached)}
           autoAttachTerminal={autoAttachRequested}
           terminalControllerRef={terminalControllerRef}
         />
@@ -206,8 +207,17 @@ export default function TmuxPageClient() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1800px] px-4 py-6 space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <div
+      className={cn(
+        'mx-auto w-full max-w-[1800px] px-4 py-6 space-y-6',
+        mobileTerminalAttached && 'h-full max-w-none px-0 py-0 space-y-0'
+      )}
+      data-mobile-terminal-page={mobileTerminalAttached ? 'attached' : 'roster'}
+    >
+      <div className={cn(
+        'flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between',
+        mobileTerminalAttached && 'hidden'
+      )}>
         <div className="space-y-1">
           <div className="flex items-center gap-3">
             <Rows3 className="h-6 w-6 text-primary" />
@@ -259,6 +269,7 @@ export default function TmuxPageClient() {
           onLaunchChange={handleRefresh}
           terminalControllerRef={terminalControllerRef}
           initialMode={terminalModeRequested && selectedSessionId ? 'terminal' : 'roster'}
+          onAttachedModeChange={setMobileTerminalAttached}
           terminal={renderWorkbench({ mobileTerminalOnly: true })}
           emptyTerminal={emptyWorkbench}
         />

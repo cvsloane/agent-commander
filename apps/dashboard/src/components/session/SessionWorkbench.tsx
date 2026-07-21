@@ -31,6 +31,7 @@ interface SessionWorkbenchProps {
   className?: string;
   showDetails?: boolean;
   terminalCardClassName?: string;
+  fullBleedMobileTerminal?: boolean;
   autoAttachTerminal?: boolean;
   terminalControllerRef?: MutableRefObject<TerminalController | null>;
 }
@@ -47,6 +48,7 @@ export function SessionWorkbench({
   className,
   showDetails = true,
   terminalCardClassName,
+  fullBleedMobileTerminal = false,
   autoAttachTerminal = false,
   terminalControllerRef,
 }: SessionWorkbenchProps) {
@@ -131,17 +133,24 @@ export function SessionWorkbench({
         : '');
 
   return (
-    <div className={cn('space-y-6', isMobile && 'space-y-4', className)}>
+    <div className={cn(
+      'space-y-6',
+      isMobile && 'space-y-4',
+      fullBleedMobileTerminal && 'h-full min-h-0 space-y-0',
+      className
+    )}>
       <Card
         className={cn(
           'flex flex-col',
           maximized
             ? 'fixed inset-0 z-[60] h-dvh rounded-none border-0 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]'
-            : isMobile ? 'h-[66dvh] min-h-[360px]' : 'h-[66dvh]',
+            : fullBleedMobileTerminal
+              ? 'h-full min-h-0 rounded-none border-x-0 border-b-0'
+              : isMobile ? 'h-[66dvh] min-h-[360px]' : 'h-[66dvh]',
           terminalCardClassName
         )}
       >
-        <CardHeader className="py-3">
+        <CardHeader className={cn('py-3', fullBleedMobileTerminal && 'hidden')}>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">
               {activeViewMode === 'console' ? 'Console' : 'Terminal'}
@@ -190,6 +199,7 @@ export function SessionWorkbench({
             <TmuxTerminalWorkspace
               primarySession={session}
               autoAttachPrimary={autoAttachTerminal}
+              hideCollapsedPrompt={fullBleedMobileTerminal}
               primaryControllerRef={terminalControllerRef}
               onSendToOtherSession={onSendToLinkedSession}
             />

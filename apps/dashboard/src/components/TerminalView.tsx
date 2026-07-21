@@ -5,16 +5,25 @@ import { cn } from '@/lib/utils';
 import type { SelectionPopupHandle } from '@/components/mobile';
 import { TerminalSurface } from '@/components/terminal/TerminalSurface';
 import { TerminalToolbar } from '@/components/terminal/TerminalToolbar';
+import { ScrollbackPager } from '@/components/terminal/ScrollbackPager';
 import type { TerminalController, XSearchResult, XTerminal } from '@/components/terminal/types';
+import {
+  applyStickyCtrl,
+  reduceStickyCtrl,
+  type StickyCtrlEvent,
+  type StickyCtrlMode,
+} from '@/components/mobile/stickyCtrl';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useTerminalClipboard } from '@/hooks/useTerminalClipboard';
 import { useTerminalConnection } from '@/hooks/useTerminalConnection';
 import { useTerminalScrollAnchor } from '@/hooks/useTerminalScrollAnchor';
 import { useTerminalTouchScroll } from '@/hooks/useTerminalTouchScroll';
 import { useXtermTerminal } from '@/hooks/useXtermTerminal';
+import { useSettingsStore } from '@/stores/settings';
 
 interface TerminalViewProps {
   sessionId: string;
+  hostId?: string;
   paneId?: string;
   className?: string;
   autoAttach?: boolean;
@@ -29,6 +38,7 @@ export type { TerminalController } from '@/components/terminal/types';
 
 export function TerminalView({
   sessionId,
+  hostId,
   paneId,
   className,
   autoAttach = false,
@@ -42,8 +52,9 @@ export function TerminalView({
   const sendInputRef = useRef<(data: string) => void>(() => undefined);
   const controllerInstanceRef = useRef<TerminalController | null>(null);
   const controllerReadOnlyRef = useRef(false);
-  const [hasCommittedSelection, setHasCommittedSelection] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [stickyCtrlMode, setStickyCtrlMode] = useState<StickyCtrlMode>('inactive');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<XSearchResult>({
     resultIndex: -1,
@@ -53,12 +64,17 @@ export function TerminalView({
   const selectionAnchorRef = useRef<{ x: number; y: number } | null>(null);
   const selectionPopupRef = useRef<SelectionPopupHandle>(null);
   const hasCommittedSelectionRef = useRef(false);
+  const stickyCtrlModeRef = useRef<StickyCtrlMode>('inactive');
   const isMobile = useIsMobile();
+  const terminalFontSize = useSettingsStore((state) => state.terminalFontSize);
+  const setTerminalFontSize = useSettingsStore((state) => state.setTerminalFontSize);
+  const tmuxPrefix = useSettingsStore((state) => (
+    hostId ? state.tmuxPrefixByHost[hostId] : undefined
+  ));
   const handleTerminalSelectionChange = useCallback((selection: string) => {
     selectionTextRef.current = selection;
     if (selection || !hasCommittedSelectionRef.current) return;
     hasCommittedSelectionRef.current = false;
-    setHasCommittedSelection(false);
     selectionPopupRef.current?.hide();
   }, []);
 
@@ -131,7 +147,6 @@ export function TerminalView({
       const hasSelection = selection.length > 0;
       if (hasCommittedSelectionRef.current !== hasSelection) {
         hasCommittedSelectionRef.current = hasSelection;
-        setHasCommittedSelection(hasSelection);
       }
       if (hasSelection) {
         selectionPopupRef.current?.showSelection(selection, selectionAnchorRef.current ?? undefined);
@@ -163,22 +178,40 @@ export function TerminalView({
     onOutputWritten: scrollAnchor.handleOutputWritten,
   });
   controllerReadOnlyRef.current = readOnly;
-  useEffect(() => {
-    sendInputRef.current = sendInput;
+  const dispatchStickyCtrl = useCallback((event: StickyCtrlEvent) => {
+    const nextMode = reduceStickyCtrl(stickyCtrlModeRef.current, event);
+    stickyCtrlModeRef.current = nextMode;
+    setStickyCtrlMode(nextMode);
+  }, []);
+  const handlePhysicalInput = useCallback((data: string) => {
+    const result = applyStickyCtrl(stickyCtrlModeRef.current, data);
+    if (result.mode !== stickyCtrlModeRef.current) {
+      stickyCtrlModeRef.current = result.mode;
+      setStickyCtrlMode(result.mode);
+    }
+    sendInput(result.data);
   }, [sendInput]);
+  useEffect(() => {
+    sendInputRef.current = handlePhysicalInput;
+  }, [handlePhysicalInput]);
+  useEffect(() => {
+    if (status === 'connected') return;
+    stickyCtrlModeRef.current = 'inactive';
+    setStickyCtrlMode('inactive');
+  }, [status]);
   const touchScrollRef = useTerminalTouchScroll({
     enabled: isMobile,
     termRef,
     terminalRef,
+    fontSize: terminalFontSize,
+    onFontSizeChange: setTerminalFontSize,
+    cursorEnabled: status === 'connected' && !readOnly,
+    onCursorInput: sendInput,
   });
 
   // Virtual keyboard handlers
   const handleVirtualInput = useCallback((data: string) => {
     sendInput(data);
-  }, [sendInput]);
-
-  const handleVirtualInterrupt = useCallback(() => {
-    sendInput('\x03');
   }, [sendInput]);
 
   const terminalClipboard = useTerminalClipboard({
@@ -195,6 +228,7 @@ export function TerminalView({
   useEffect(() => {
     if (!controllerRef && !onControllerChange) return;
     const controller: TerminalController = {
+      status,
       readOnly: controllerReadOnlyRef.current,
       attach: () => void connect(),
       detach: disconnect,
@@ -232,14 +266,16 @@ export function TerminalView({
     terminalRef,
     suspend,
     takeControl,
+    status,
   ]);
 
   useEffect(() => {
     const controller = controllerInstanceRef.current;
-    if (!controller || controller.readOnly === readOnly) return;
+    if (!controller || (controller.readOnly === readOnly && controller.status === status)) return;
     controller.readOnly = readOnly;
+    controller.status = status;
     onControllerChange?.(controller);
-  }, [onControllerChange, readOnly]);
+  }, [onControllerChange, readOnly, status]);
 
   useEffect(() => {
     const touchState = touchScrollRef.current;
@@ -282,14 +318,15 @@ export function TerminalView({
         isMobile={isMobile}
         status={status}
         readOnly={readOnly}
-        paneId={paneId}
-        hasSelection={hasCommittedSelection}
         selectionTextRef={selectionTextRef}
         selectionPopupRef={selectionPopupRef}
         onSelectionStart={handleSelectionStart}
         onSelectionCommit={handleSelectionCommit}
         onVirtualInput={handleVirtualInput}
-        onVirtualInterrupt={handleVirtualInterrupt}
+        stickyCtrlMode={stickyCtrlMode}
+        onStickyCtrlEvent={dispatchStickyCtrl}
+        onOpenHistory={() => setHistoryOpen(true)}
+        tmuxPrefix={tmuxPrefix}
         onCopySelection={terminalClipboard.copySelection}
         onCopyLastLines={terminalClipboard.copyLastLines}
         onCopyAll={terminalClipboard.copyAll}
@@ -299,6 +336,11 @@ export function TerminalView({
         jumpToLiveButtonRef={scrollAnchor.jumpToLiveButtonRef}
         onJumpToLive={() => scrollAnchor.jumpToLive(terminalRef.current)}
         search={searchControls}
+      />
+      <ScrollbackPager
+        sessionId={sessionId}
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
       />
     </div>
   );

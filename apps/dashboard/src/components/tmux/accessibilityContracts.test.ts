@@ -28,17 +28,17 @@ describe('Command Center accessibility contracts', () => {
     }
   });
 
-  it('keeps desktop window and key controls named and keyboard operable', () => {
+  it('keeps desktop window and terminal rail controls named and keyboard operable', () => {
     const windowStrip = source('src/components/tmux/TmuxWindowStrip.tsx');
     expect(windowStrip).toContain('role="tablist"');
     expect(windowStrip).toContain('role="tab"');
     expect(windowStrip).toContain("['ArrowLeft', 'ArrowRight', 'Home', 'End']");
     expect(windowStrip).toContain('aria-label="New tmux window"');
 
-    const keyBar = source('src/components/tmux/TmuxKeyBar.tsx');
-    expect(keyBar).toContain('role="toolbar"');
-    expect(keyBar).toContain('aria-label="tmux keyboard shortcuts"');
-    expect(keyBar).toContain('aria-label={key.ariaLabel}');
+    const keyRail = source('src/components/mobile/TerminalKeyRail.tsx');
+    expect(keyRail).toContain('role="toolbar"');
+    expect(keyRail).toContain('aria-label="Terminal key rail"');
+    expect(keyRail).toContain('aria-pressed={isCtrl ? ctrlActive : undefined}');
   });
 
   it('routes mobile sheets through the focus-trapping dialog primitive', () => {
@@ -57,7 +57,8 @@ describe('Command Center accessibility contracts', () => {
   it('retains reduced-motion and keyboard-safe bottom-control contracts', () => {
     const styles = source('src/app/globals.css');
     expect(styles).toContain('@media (prefers-reduced-motion: reduce)');
-    expect(styles).toContain("html[data-virtual-keyboard-open='true'] [data-terminal-key-controls]");
+    expect(styles).not.toContain("html[data-virtual-keyboard-open='true'] [data-terminal-key-controls]");
+    expect(styles).toContain('env(keyboard-inset-height, 0px)');
 
     expect(source('src/components/terminal/TerminalSearch.tsx')).toContain(
       'bottom-[var(--keyboard-inset-height,0px)]'
@@ -65,5 +66,16 @@ describe('Command Center accessibility contracts', () => {
     expect(source('src/components/tmux/PromptComposer.tsx')).toContain(
       'data-terminal-bottom-controls'
     );
+  });
+
+  it('keeps Android clipboard reads and a manual paste fallback available', () => {
+    const virtualKeyboard = source('src/components/mobile/VirtualKeyboard.tsx');
+    expect(virtualKeyboard).toContain('navigator.clipboard.readText()');
+    expect(virtualKeyboard).toContain('window.prompt(');
+    expect(virtualKeyboard).not.toContain('Tap and hold to paste');
+
+    const terminalClipboard = source('src/hooks/useTerminalClipboard.ts');
+    expect(terminalClipboard).toContain('await readFromClipboard()');
+    expect(terminalClipboard).toContain('window.prompt(');
   });
 });

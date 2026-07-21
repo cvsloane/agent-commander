@@ -10,10 +10,7 @@ interface UseClipboardReturn {
   isSupported: boolean;
 }
 
-/**
- * Hook for clipboard operations with fallbacks for mobile Safari and older browsers.
- * Uses the modern Clipboard API when available, falls back to execCommand for copy.
- */
+/** Uses the modern Clipboard API when available and an execCommand fallback for copy. */
 export function useClipboard(): UseClipboardReturn {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,8 +88,7 @@ export function useClipboard(): UseClipboardReturn {
       const text = await navigator.clipboard.readText();
       return text;
     } catch (err) {
-      // iOS Safari and some browsers block clipboard read
-      setError('Clipboard access denied. Please paste manually.');
+      setError('Clipboard access denied. Paste manually when prompted.');
       return null;
     }
   }, [isSupported]);

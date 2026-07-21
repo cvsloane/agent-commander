@@ -23,6 +23,7 @@ import { PromptComposer, type PromptComposerHandle } from './PromptComposer';
 interface TmuxTerminalWorkspaceProps {
   primarySession: Session;
   autoAttachPrimary?: boolean;
+  hideCollapsedPrompt?: boolean;
   primaryControllerRef?: MutableRefObject<TerminalController | null>;
   onAttentionRespond?: (item: OrchestratorItem) => void;
   onSendToOtherSession?: (targetSessionId: string) => void;
@@ -64,6 +65,7 @@ function TerminalLabel({
 export function TmuxTerminalWorkspace({
   primarySession,
   autoAttachPrimary = false,
+  hideCollapsedPrompt = false,
   primaryControllerRef,
   onAttentionRespond,
   onSendToOtherSession,
@@ -165,6 +167,7 @@ export function TmuxTerminalWorkspace({
           <div className="relative min-h-0 flex-1">
             <PersistentTerminalSlot
               sessionId={primarySession.id}
+              hostId={primarySession.host_id}
               paneId={primarySession.tmux_pane_id || undefined}
               autoAttach={autoAttachPrimary || showSecondary}
               controllerRef={primaryControllerRef}
@@ -194,6 +197,7 @@ export function TmuxTerminalWorkspace({
                 <TmuxPaneControls session={secondarySession} />
                 <TerminalView
                   sessionId={secondarySession.id}
+                  hostId={secondarySession.host_id}
                   paneId={secondarySession.tmux_pane_id || undefined}
                   autoAttach
                   className="flex-1"
@@ -218,6 +222,7 @@ export function TmuxTerminalWorkspace({
         ref={promptComposerRef}
         session={primarySession}
         readOnly={readOnly}
+        hideCollapsed={hideCollapsedPrompt}
         onSendToOtherSession={onSendToOtherSession}
       />
     </div>

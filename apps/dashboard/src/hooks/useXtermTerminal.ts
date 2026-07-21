@@ -1,8 +1,9 @@
 'use client';
 
-import { useCallback, useRef, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
 import type { XFitAddon, XSearchAddon, XSearchResult, XTerminal } from '@/components/terminal/types';
 import { canFitTerminalElement } from '@/components/terminal/viewport';
+import { useSettingsStore } from '@/stores/settings';
 
 export function useXtermTerminal({
   termRef,
@@ -27,6 +28,10 @@ export function useXtermTerminal({
   const fitAddonRef = useRef<XFitAddon | null>(null);
   const searchAddonRef = useRef<XSearchAddon | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const fontFitRafRef = useRef<number | null>(null);
+  const fontSize = useSettingsStore((state) => state.terminalFontSize);
+  const fontSizeRef = useRef(fontSize);
+  fontSizeRef.current = fontSize;
 
   const fitAndResize = useCallback(() => {
     if (!fitAddonRef.current || !termRef.current || !canFitTerminalElement(termRef.current)) return;
@@ -58,14 +63,12 @@ export function useXtermTerminal({
     const { FitAddon } = await import('@xterm/addon-fit');
     const { SearchAddon } = await import('@xterm/addon-search');
     const { WebLinksAddon } = await import('@xterm/addon-web-links');
-    const fontSize = window.matchMedia('(max-width: 767px)').matches ? 11 : 14;
-
     const terminal = new Terminal({
       allowProposedApi: true,
       cursorBlink: true,
       fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-      fontSize,
-      lineHeight: 1.25,
+      fontSize: fontSizeRef.current,
+      lineHeight: 1.15,
       scrollback: 10000,
       convertEol: true,
       theme: {
@@ -163,6 +166,22 @@ export function useXtermTerminal({
     termRef,
   ]);
 
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal || terminal.options.fontSize === fontSize) return;
+    terminal.options.fontSize = fontSize;
+    fontFitRafRef.current = window.requestAnimationFrame(() => {
+      fontFitRafRef.current = null;
+      fitAndResize();
+    });
+    return () => {
+      if (fontFitRafRef.current !== null) {
+        window.cancelAnimationFrame(fontFitRafRef.current);
+        fontFitRafRef.current = null;
+      }
+    };
+  }, [fitAndResize, fontSize]);
+
   const findNext = useCallback((query: string, incremental = false) => {
     if (!query || !searchAddonRef.current) return false;
     return searchAddonRef.current.findNext(query, {
@@ -193,6 +212,10 @@ export function useXtermTerminal({
   }, []);
 
   const disposeTerminal = useCallback(() => {
+    if (fontFitRafRef.current !== null) {
+      window.cancelAnimationFrame(fontFitRafRef.current);
+      fontFitRafRef.current = null;
+    }
     resizeObserverRef.current?.disconnect();
     resizeObserverRef.current = null;
     terminalRef.current?.dispose();

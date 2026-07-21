@@ -2,9 +2,10 @@
 
 import type { RefObject } from 'react';
 import { ArrowDown } from 'lucide-react';
-import { SelectionPopup, TerminalContextMenu, VirtualKeyboard } from '@/components/mobile';
+import { SelectionPopup, TerminalContextMenu } from '@/components/mobile';
 import type { SelectionPopupHandle } from '@/components/mobile';
-import { TmuxKeyBar } from '@/components/tmux/TmuxKeyBar';
+import { TerminalKeyRail } from '@/components/mobile/TerminalKeyRail';
+import type { StickyCtrlEvent, StickyCtrlMode } from '@/components/mobile/stickyCtrl';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { ConnectionStatus, XTerminal } from './types';
@@ -16,14 +17,15 @@ interface TerminalSurfaceProps {
   isMobile: boolean;
   status: ConnectionStatus;
   readOnly: boolean;
-  paneId?: string;
-  hasSelection: boolean;
   selectionTextRef: RefObject<string>;
   selectionPopupRef: RefObject<SelectionPopupHandle | null>;
   onSelectionStart: (anchor: { x: number; y: number }) => void;
   onSelectionCommit: () => void;
   onVirtualInput: (data: string) => void;
-  onVirtualInterrupt: () => void;
+  stickyCtrlMode: StickyCtrlMode;
+  onStickyCtrlEvent: (event: StickyCtrlEvent) => void;
+  onOpenHistory: () => void;
+  tmuxPrefix?: string;
   onCopySelection: () => void;
   onCopyLastLines: (lines: number) => void;
   onCopyAll: () => void;
@@ -41,14 +43,15 @@ export function TerminalSurface({
   isMobile,
   status,
   readOnly,
-  paneId,
-  hasSelection,
   selectionTextRef,
   selectionPopupRef,
   onSelectionStart,
   onSelectionCommit,
   onVirtualInput,
-  onVirtualInterrupt,
+  stickyCtrlMode,
+  onStickyCtrlEvent,
+  onOpenHistory,
+  tmuxPrefix,
   onCopySelection,
   onCopyLastLines,
   onCopyAll,
@@ -127,23 +130,13 @@ export function TerminalSurface({
       )}
 
       {status === 'connected' && !readOnly && (
-        <div
-          className="sticky bottom-0 z-20 shrink-0 bg-background pb-[env(safe-area-inset-bottom)]"
-          data-terminal-key-controls
-        >
-          {paneId && (
-            <TmuxKeyBar onInput={onVirtualInput} collapsible={!isMobile} />
-          )}
-          <VirtualKeyboard
-            onInput={onVirtualInput}
-            onInterrupt={onVirtualInterrupt}
-            onCopy={onCopySelection}
-            onPaste={onPaste}
-            canCopy={hasSelection}
-            canPaste={!readOnly}
-            autoShowOnMobile={isMobile}
-          />
-        </div>
+        <TerminalKeyRail
+          onInput={onVirtualInput}
+          onHistory={onOpenHistory}
+          ctrlMode={stickyCtrlMode}
+          onCtrlEvent={onStickyCtrlEvent}
+          prefix={tmuxPrefix}
+        />
       )}
     </>
   );

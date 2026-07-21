@@ -150,6 +150,7 @@ export function PersistentTerminalHost() {
         <TerminalView
           key={snapshot.descriptorKey}
           sessionId={snapshot.descriptor.sessionId}
+          hostId={snapshot.descriptor.hostId}
           paneId={snapshot.descriptor.paneId}
           autoAttach={snapshot.descriptor.autoAttach}
           onControllerChange={handleControllerChange}

@@ -4,6 +4,7 @@ import { createTerminalHostStore, getTerminalDescriptorKey } from './terminalHos
 
 function controller(readOnly: boolean): TerminalController {
   return {
+    status: 'connected',
     readOnly,
     attach: () => undefined,
     detach: () => undefined,

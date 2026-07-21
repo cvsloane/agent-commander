@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 
 const accessCode = process.env.PLAYWRIGHT_ACCESS_CODE || 'playwright-access';
+let latestTerminalRows = 0;
 
 const emptySessionResponse = { sessions: [], total: 0, limit: 200, offset: 0 };
 const tmuxHost = {
@@ -515,13 +516,18 @@ async function mockControlPlane(
   page: Page,
   options: { terminalReadOnly?: boolean } = {}
 ): Promise<void> {
+  latestTerminalRows = 0;
   await page.routeWebSocket(/\/v1\/ui\/stream\?ticket=/, () => {
     // Keep the mocked event stream open; REST fixtures drive these smoke tests.
   });
   await page.routeWebSocket(/\/v1\/ui\/terminal\/[^?]+\?/, (socket) => {
+    latestTerminalRows = Number(new URL(socket.url()).searchParams.get('rows')) || 0;
     socket.onMessage((message) => {
       if (typeof message !== 'string') return;
-      const parsed = JSON.parse(message) as { type?: string };
+      const parsed = JSON.parse(message) as { type?: string; rows?: number };
+      if (parsed.type === 'resize' && parsed.rows) {
+        latestTerminalRows = parsed.rows;
+      }
       if (parsed.type === 'hello') {
         socket.send(JSON.stringify({
           type: 'attached',
@@ -1089,9 +1095,10 @@ test('gates terminal input while read-only until the viewer takes control', asyn
   await page.setViewportSize({ width: 390, height: 844 });
   const mobileSegments = page.getByRole('button', { name: 'Roster', exact: true }).locator('..');
   await mobileSegments.getByRole('button', { name: 'Terminal', exact: true }).click();
-  await expect(page.getByText('Read-only — take control to type')).toHaveCount(2);
+  await expect(page.getByTestId('tmux-attached-status')).toContainText('Read-only');
+  await page.getByRole('button', { name: 'Open pane actions' }).click();
   for (const name of ['Take Control', 'Focus']) {
-    const box = await page.getByRole('button', { name, exact: true }).boundingBox();
+    const box = await page.getByRole('dialog').getByRole('button', { name, exact: true }).boundingBox();
     expect(box).not.toBeNull();
     expect(box!.x + box!.width).toBeLessThanOrEqual(390);
   }
@@ -1099,6 +1106,7 @@ test('gates terminal input while read-only until the viewer takes control', asyn
     await page.getByTestId('tmux-terminal-workspace').scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath('terminal-readonly-mobile.png') });
   }
+  await page.getByRole('button', { name: 'Close actions' }).click();
   await page.setViewportSize({ width: 1280, height: 720 });
 
   await page.getByRole('button', { name: 'Take Control', exact: true }).click();
@@ -1127,12 +1135,9 @@ test('keeps the tmux roster usable on mobile viewport', async ({ page }, testInf
   await page.getByText('Mobile UX review', { exact: true }).click();
   await expect(page).toHaveURL(/session_id=33333333-3333-4333-8333-333333333333/);
   await expect.poll(() => new URL(page.url()).pathname).toBe('/');
-  const mobileSegments = page.getByRole('button', { name: 'Roster', exact: true }).locator('..');
-  const terminalSegment = mobileSegments.getByRole('button', { name: 'Terminal', exact: true });
-  await expect(terminalSegment).toBeEnabled();
-  await terminalSegment.click();
-  await expect(page.getByText('agents:0.1').first()).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Actions', exact: true })).toBeEnabled();
+  await expect(page.getByTestId('tmux-attached-status')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Back to tmux roster' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open pane actions' })).toBeVisible();
 
   const overlay = page.getByTestId('terminal-attention-overlay');
   await expect(overlay).toBeVisible();
@@ -1145,7 +1150,7 @@ test('keeps the tmux roster usable on mobile viewport', async ({ page }, testInf
   }
   await composer.getByRole('button', { name: 'Collapse prompt composer' }).click();
 
-  await page.getByRole('button', { name: 'Actions', exact: true }).click();
+  await page.getByRole('button', { name: 'Open pane actions' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('Pane actions');
   await expect(dialog).toContainText('Mobile UX review');
@@ -1160,6 +1165,83 @@ test('keeps the tmux roster usable on mobile viewport', async ({ page }, testInf
   await expect(dialog.getByRole('button', { name: 'Close actions' })).toBeVisible();
 });
 
+test('fits the attached terminal and rail at 412x915 Android metrics', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 412, height: 915 });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'userAgent', {
+      configurable: true,
+      value: 'Mozilla/5.0 (Linux; Android 16; SM-S938U) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36 Brave/140',
+    });
+    Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 5 });
+  });
+  await signIn(page);
+
+  await page.goto('/tmux');
+  await page.getByText('agents', { exact: true }).click();
+  await page.getByText('Mobile UX review', { exact: true }).click();
+  await expect(page.getByTestId('tmux-attached-status')).toBeVisible();
+  await page.getByRole('button', { name: 'Open pane actions' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Attach', exact: true }).click();
+  await page.getByRole('button', { name: 'Close actions' }).click();
+  await expect(page.getByTestId('terminal-key-rail')).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Primary mobile navigation' })).toBeHidden();
+  await expect(page.getByTestId('tmux-window-strip')).toBeVisible();
+  await expect(page.getByTestId('tmux-attached-status')).toContainText('Connected');
+
+  const fontSize = await page.evaluate(() => {
+    const stored = JSON.parse(localStorage.getItem('settings-storage') || '{}') as {
+      state?: { terminalFontSize?: number };
+    };
+    return stored.state?.terminalFontSize ?? 14;
+  });
+  expect(fontSize).toBe(14);
+  await expect.poll(() => latestTerminalRows).toBeGreaterThanOrEqual(40);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
+
+  const keyboardInset = 360;
+  await page.evaluate((inset) => {
+    document.documentElement.setAttribute('data-virtual-keyboard-open', 'true');
+    document.documentElement.style.setProperty('--keyboard-inset-height', `${inset}px`);
+    document.querySelector<HTMLElement>('.terminal-viewport')
+      ?.style.setProperty('--keyboard-inset-height', `${inset}px`);
+  }, keyboardInset);
+  const keyboardOpenRail = page.getByTestId('terminal-key-rail');
+  await expect(keyboardOpenRail).toBeVisible();
+  const railBox = await keyboardOpenRail.boundingBox();
+  expect(railBox).not.toBeNull();
+  expect(railBox!.y + railBox!.height).toBeLessThanOrEqual(915 - keyboardInset + 1);
+
+  const fontAfterPinch = await page.evaluate(() => {
+    const target = document.querySelector<HTMLElement>('[aria-label="Interactive terminal"]');
+    if (!target) throw new Error('terminal touch target missing');
+    const touchEvent = (type: string, touches: Array<{ clientX: number; clientY: number }>) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'touches', { value: touches });
+      target.dispatchEvent(event);
+    };
+    touchEvent('touchstart', [
+      { clientX: 120, clientY: 300 },
+      { clientX: 220, clientY: 300 },
+    ]);
+    touchEvent('touchmove', [
+      { clientX: 100, clientY: 300 },
+      { clientX: 240, clientY: 300 },
+    ]);
+    touchEvent('touchend', []);
+    const stored = JSON.parse(localStorage.getItem('settings-storage') || '{}') as {
+      state?: { terminalFontSize?: number };
+    };
+    return stored.state?.terminalFontSize;
+  });
+  expect(fontAfterPinch).toBeGreaterThan(14);
+  await expect(page.getByTestId('tmux-attached-status')).toContainText('Connected');
+  await expect(page.getByTestId('terminal-key-rail')).toBeVisible();
+
+  if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+    await page.screenshot({ path: testInfo.outputPath('terminal-full-bleed-android.png') });
+  }
+});
+
 test('renders the tmux window strip and opens range-paged history on mobile', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await signIn(page);
@@ -1172,7 +1254,7 @@ test('renders the tmux window strip and opens range-paged history on mobile', as
   await expect(windowStrip).toBeVisible();
   await expect(windowStrip.getByRole('tab', { name: 'Window 0: agent-command' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Actions', exact: true }).click();
+  await page.getByRole('button', { name: 'Open pane actions' }).click();
   const actions = page.getByRole('dialog').filter({ hasText: 'Pane actions' });
   const historyRequest = page.waitForRequest((request) => (
     request.method() === 'POST'

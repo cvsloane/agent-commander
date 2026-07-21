@@ -1,6 +1,14 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { SpawnProvider } from '@/lib/api';
+import {
+  MINIMAL_TERMINAL_RAIL_CONFIG,
+  cloneTerminalRailConfig,
+  terminalRailPresetConfig,
+  type TerminalRailConfig,
+  type TerminalRailPreset,
+} from '@/components/mobile/terminalRailConfig';
+import { DEFAULT_TMUX_PREFIX } from '@/lib/tmuxKeys';
 
 // Types for repo picker settings
 export interface DevFolder {
@@ -199,6 +207,14 @@ export const DEFAULT_VIRTUAL_KEY_ORDER = [
   'enter',
 ] as const;
 export type VirtualKeyboardKey = (typeof DEFAULT_VIRTUAL_KEY_ORDER)[number];
+export const TERMINAL_FONT_SIZE_MIN = 11;
+export const TERMINAL_FONT_SIZE_MAX = 18;
+export const DEFAULT_TERMINAL_FONT_SIZE = 14;
+
+export function clampTerminalFontSize(fontSize: number): number {
+  if (!Number.isFinite(fontSize)) return DEFAULT_TERMINAL_FONT_SIZE;
+  return Math.min(TERMINAL_FONT_SIZE_MAX, Math.max(TERMINAL_FONT_SIZE_MIN, Math.round(fontSize)));
+}
 
 const clampThresholds = (values: number[]): number[] => {
   const unique = new Set<number>();
@@ -386,6 +402,14 @@ interface SettingsStore {
   setClawdbotActionableOnly: (actionableOnly: boolean) => void;
 
   // Virtual keyboard
+  terminalFontSize: number;
+  setTerminalFontSize: (fontSize: number) => void;
+  terminalRailPreset: TerminalRailPreset;
+  setTerminalRailPreset: (preset: TerminalRailPreset) => void;
+  terminalRailConfig: TerminalRailConfig;
+  setTerminalRailConfig: (config: TerminalRailConfig) => void;
+  tmuxPrefixByHost: Record<string, string>;
+  setTmuxPrefixForHost: (hostId: string, prefix: string) => void;
   virtualKeyboardKeys: VirtualKeyboardKey[];
   setVirtualKeyboardKeys: (keys: VirtualKeyboardKey[]) => void;
   tmuxKeyBarExpanded: boolean;
@@ -643,6 +667,26 @@ export const useSettingsStore = create<SettingsStore>()(
         })),
 
       // Virtual keyboard defaults
+      terminalFontSize: DEFAULT_TERMINAL_FONT_SIZE,
+      setTerminalFontSize: (fontSize) => set({ terminalFontSize: clampTerminalFontSize(fontSize) }),
+      terminalRailPreset: 'minimal',
+      setTerminalRailPreset: (preset) => set({
+        terminalRailPreset: preset,
+        ...(preset === 'custom' ? {} : { terminalRailConfig: terminalRailPresetConfig(preset) }),
+      }),
+      terminalRailConfig: cloneTerminalRailConfig(MINIMAL_TERMINAL_RAIL_CONFIG),
+      setTerminalRailConfig: (config) => set({
+        terminalRailPreset: 'custom',
+        terminalRailConfig: cloneTerminalRailConfig(config),
+      }),
+      tmuxPrefixByHost: {},
+      setTmuxPrefixForHost: (hostId, prefix) => set((state) => {
+        const next = { ...state.tmuxPrefixByHost };
+        const normalized = prefix.trim();
+        if (!normalized || normalized === DEFAULT_TMUX_PREFIX) delete next[hostId];
+        else next[hostId] = normalized;
+        return { tmuxPrefixByHost: next };
+      }),
       virtualKeyboardKeys: [...DEFAULT_VIRTUAL_KEY_ORDER],
       setVirtualKeyboardKeys: (keys) => set({ virtualKeyboardKeys: keys }),
       tmuxKeyBarExpanded: false,
