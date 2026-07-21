@@ -43,6 +43,7 @@ export const BrowserTerminalNavigateMessageSchema = z.discriminatedUnion('op', [
     on: z.boolean(),
   }),
 ]);
+export type BrowserTerminalNavigateMessage = z.infer<typeof BrowserTerminalNavigateMessageSchema>;
 
 export const BrowserTerminalClientMessageSchema = z.union([
   BrowserTerminalHelloMessageSchema,

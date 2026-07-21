@@ -38,6 +38,7 @@ interface TmuxActionSheetProps {
   onOpenMcp: () => void;
   onTerminate: () => void;
   onLaunchWindowHere?: () => void;
+  onSelectSession: (sessionId: string) => void;
 }
 
 export function TmuxActionSheet({
@@ -52,6 +53,7 @@ export function TmuxActionSheet({
   onOpenMcp,
   onTerminate,
   onLaunchWindowHere,
+  onSelectSession,
 }: TmuxActionSheetProps) {
   const title = session ? getSessionDisplayName(session) : 'No pane selected';
 
@@ -112,7 +114,13 @@ export function TmuxActionSheet({
             </Button>
           </div>
 
-          {session && <TmuxPaneControls session={session} variant="sheet" />}
+          {session && (
+            <TmuxPaneControls
+              session={session}
+              variant="sheet"
+              onSelectSession={onSelectSession}
+            />
+          )}
 
           <div className="grid grid-cols-2 gap-2">
             <Button

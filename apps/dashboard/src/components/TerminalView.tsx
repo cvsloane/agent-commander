@@ -191,6 +191,7 @@ export function TerminalView({
     disconnect,
     suspend,
     takeControl,
+    navigate,
     sendInput,
   } = useTerminalConnection({
     sessionId,
@@ -268,6 +269,7 @@ export function TerminalView({
       detach: disconnect,
       suspend,
       takeControl,
+      navigate,
       focus: () => terminalRef.current?.focus(),
       copySelection,
       copyLastLines: (lines = 50) => copyLastLines(lines),
@@ -296,6 +298,7 @@ export function TerminalView({
     copySelection,
     disconnect,
     onControllerChange,
+    navigate,
     paste,
     terminalRef,
     suspend,

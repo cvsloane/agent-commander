@@ -461,6 +461,7 @@ export function TmuxMobileShell({
         onOpenMcp={onOpenMcp}
         onTerminate={onTerminate}
         onLaunchWindowHere={windowHere ? () => { setMode(selectedSessionId ? 'terminal' : 'roster'); setLaunchOpen(true); } : undefined}
+        onSelectSession={handleSelectSession}
       />
       <TmuxPaneSwitcher
         open={paneSwitcherOpen}

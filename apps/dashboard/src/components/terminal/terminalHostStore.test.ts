@@ -18,6 +18,7 @@ function controller(readOnly: boolean): TerminalController {
     detach: () => undefined,
     suspend: () => false,
     takeControl: () => undefined,
+    navigate: () => false,
     focus: () => undefined,
     copySelection: () => undefined,
     copyLastLines: () => undefined,
@@ -90,6 +91,121 @@ describe('persistent terminal host', () => {
     });
 
     expect(host.getSnapshot().terminalInstance).toBeNull();
+  });
+
+  it('retargets within one tmux session without replacing the live attachment or xterm instance', () => {
+    const host = createTerminalHostStore();
+    const first = {
+      sessionId: 'session-a',
+      hostId: 'host-1',
+      paneId: '%1',
+      tmuxSessionKey: 'host-1\u0000agents',
+      autoAttach: true,
+    };
+    const second = {
+      sessionId: 'session-b',
+      hostId: 'host-1',
+      paneId: '%2',
+      tmuxSessionKey: 'host-1\u0000agents',
+      autoAttach: true,
+    };
+    const terminal = {} as XTerminal;
+    const leaveFirst = host.registerSurface({
+      id: 'first',
+      descriptor: first,
+      target: {} as HTMLDivElement,
+      visible: true,
+    });
+    host.setTerminalInstance(getTerminalDescriptorKey(first), terminal);
+    host.setController({ ...controller(false), navigate: () => true });
+    expect(host.navigateWithinAttachment(second, [
+      { type: 'navigate', op: 'select_window', window_index: 2 },
+      { type: 'navigate', op: 'select_pane', pane_id: '%2' },
+    ])).toBe(true);
+
+    leaveFirst();
+    host.registerSurface({
+      id: 'second',
+      descriptor: second,
+      target: {} as HTMLDivElement,
+      visible: true,
+    });
+
+    expect(host.getSnapshot()).toMatchObject({
+      descriptor: second,
+      attachmentDescriptor: first,
+      descriptorKey: 'session-a\u0000%1',
+      terminalInstance: terminal,
+    });
+  });
+
+  it('emits navigation only when the target shares the live attachment key', () => {
+    const host = createTerminalHostStore();
+    const descriptor = {
+      sessionId: 'session-a',
+      hostId: 'host-1',
+      paneId: '%1',
+      tmuxSessionKey: 'host-1\u0000agents',
+      autoAttach: true,
+    };
+    host.registerSurface({
+      id: 'first',
+      descriptor,
+      target: {} as HTMLDivElement,
+      visible: true,
+    });
+    const navigate = vi.fn(() => true);
+    host.setController({ ...controller(false), navigate } as TerminalController);
+
+    const sameTmuxSession = {
+      ...descriptor,
+      sessionId: 'session-b',
+      paneId: '%2',
+    };
+    expect(host.navigateWithinAttachment(sameTmuxSession, [
+      { type: 'navigate', op: 'select_window', window_index: 2 },
+      { type: 'navigate', op: 'select_pane', pane_id: '%2' },
+    ])).toBe(true);
+    expect(navigate).toHaveBeenCalledTimes(2);
+
+    expect(host.navigateWithinAttachment({
+      ...sameTmuxSession,
+      tmuxSessionKey: 'host-1\u0000other',
+    }, [{ type: 'navigate', op: 'select_window', window_index: 0 }])).toBe(false);
+    expect(navigate).toHaveBeenCalledTimes(2);
+  });
+
+  it('falls back to a pane-specific reattach when same-session navigation was not emitted', () => {
+    const host = createTerminalHostStore();
+    const first = {
+      sessionId: 'session-a',
+      hostId: 'host-1',
+      paneId: '%1',
+      tmuxSessionKey: 'host-1\u0000agents',
+      autoAttach: true,
+    };
+    const second = { ...first, sessionId: 'session-b', paneId: '%2' };
+    const leaveFirst = host.registerSurface({
+      id: 'first',
+      descriptor: first,
+      target: {} as HTMLDivElement,
+      visible: true,
+    });
+    host.setTerminalInstance(getTerminalDescriptorKey(first), {} as XTerminal);
+
+    leaveFirst();
+    host.registerSurface({
+      id: 'second',
+      descriptor: second,
+      target: {} as HTMLDivElement,
+      visible: true,
+    });
+
+    expect(host.getSnapshot()).toMatchObject({
+      descriptorKey: 'session-b\u0000%2',
+      attachmentDescriptor: second,
+      terminalInstance: null,
+    });
   });
 
   it('snapshots the prior pane buffer when a different session takes the host', () => {
