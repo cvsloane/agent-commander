@@ -26,6 +26,7 @@ Core guides:
 - [Alerts and Notifications](alerts.md)
 - [Settings](settings.md)
 - [PWA and Web Push](pwa-push.md)
+- [Mobile Device Checklist](device-checklist.md)
 - [Search and Projects](search-and-projects.md)
 
 Agents and integrations:

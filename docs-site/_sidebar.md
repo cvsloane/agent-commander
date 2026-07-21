@@ -18,6 +18,7 @@
   - [Visualizer](/docs/visualizer.md)
   - [Alerts](/docs/alerts.md)
   - [Settings](/docs/settings.md)
+  - [Mobile Device Checklist](/docs/device-checklist.md)
 
 - Agents and integrations
   - [agentd](/docs/agentd.md)
