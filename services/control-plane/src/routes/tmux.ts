@@ -41,7 +41,7 @@ function tmuxHref(hostId: string, sessionId: string): string {
     mode: 'terminal',
     attach: '1',
   });
-  return `/tmux?${params.toString()}`;
+  return `/?${params.toString()}`;
 }
 
 export function registerTmuxRoutes(app: FastifyInstance): void {

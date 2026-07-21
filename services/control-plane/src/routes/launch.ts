@@ -84,7 +84,7 @@ function launchHref(hostId: string, sessionId: string): string {
     mode: 'terminal',
     attach: '1',
   });
-  return `/tmux?${params.toString()}`;
+  return `/?${params.toString()}`;
 }
 
 export function registerLaunchRoutes(app: FastifyInstance): void {
