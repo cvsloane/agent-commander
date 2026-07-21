@@ -134,7 +134,11 @@ export const pendingApproval = {
   ts_decided: null,
 };
 
-function topologyMessage(includeSecondWindow: boolean, zoomedWindowIndex: number | null = null) {
+function topologyMessage(
+  secondWindowName: string | null,
+  secondWindowHasTrackedPane: boolean,
+  zoomedWindowIndex: number | null = null
+) {
   const windows = [
     {
       window_index: 0,
@@ -168,16 +172,16 @@ function topologyMessage(includeSecondWindow: boolean, zoomedWindowIndex: number
       ],
     },
   ];
-  if (includeSecondWindow) {
+  if (secondWindowName) {
     windows.push({
       window_index: 1,
-      window_name: 'verification',
+      window_name: secondWindowName,
       active: false,
       zoomed: zoomedWindowIndex === 1,
       layout: 'even-horizontal',
       bell: false,
       activity: false,
-      panes: [
+      panes: secondWindowHasTrackedPane ? [
         {
           pane_id: windowSession.tmux_pane_id,
           pane_index: 0,
@@ -188,7 +192,7 @@ function topologyMessage(includeSecondWindow: boolean, zoomedWindowIndex: number
           current_command: 'bash',
           current_path: windowSession.cwd,
         },
-      ],
+      ] : [],
     });
   }
 
@@ -394,10 +398,13 @@ export async function mockControlPlane(
   const availableSessions = options.multiWindow ? [...sessions, windowSession] : sessions;
   let selectedWindowIndex = 0;
   let zoomedWindowIndex: number | null = null;
+  let secondWindowName = options.multiWindow ? 'verification' : null;
+  let secondWindowHasTrackedPane = options.multiWindow ?? false;
   const topologySockets = new Set<WebSocketRoute>();
   const sendTopology = () => {
     const message = JSON.stringify(topologyMessage(
-      options.multiWindow ?? false,
+      secondWindowName,
+      secondWindowHasTrackedPane,
       zoomedWindowIndex
     ));
     for (const socket of topologySockets) socket.send(message);
@@ -480,7 +487,24 @@ export async function mockControlPlane(
       return;
     }
     if (request.method() === 'POST' && /^\/v1\/sessions\/[^/]+\/commands$/.test(url.pathname)) {
-      recorder.commandRequests.push(request.postDataJSON());
+      const command = request.postDataJSON() as {
+        type?: string;
+        payload?: { name?: string; window_index?: number };
+      };
+      recorder.commandRequests.push(command);
+      if (command.type === 'new_window') {
+        secondWindowName = 'new';
+        secondWindowHasTrackedPane = false;
+        sendTopology();
+      } else if (command.type === 'rename_window' && command.payload?.window_index === 1) {
+        secondWindowName = command.payload.name ?? secondWindowName;
+        sendTopology();
+      } else if (command.type === 'kill_window' && command.payload?.window_index === 1) {
+        secondWindowName = null;
+        secondWindowHasTrackedPane = false;
+        zoomedWindowIndex = null;
+        sendTopology();
+      }
       await fulfillJson(route, { cmd_id: '01JJOURNEYCOMMAND0000000000' });
       return;
     }
