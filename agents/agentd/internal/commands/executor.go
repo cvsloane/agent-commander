@@ -23,6 +23,18 @@ type Result = protocol.CommandResultPayload
 type Handler func(Dispatch) (map[string]any, error)
 type ResultHandler func(Result)
 
+type commandResultError struct {
+	code    string
+	message string
+}
+
+func (e *commandResultError) Error() string             { return e.message }
+func (e *commandResultError) CommandResultCode() string { return e.code }
+
+func NewResultError(code, message string) error {
+	return &commandResultError{code: code, message: message}
+}
+
 // Executor runs commands on a fixed worker pool while allowing at most one
 // in-flight command for each session key.
 type Executor struct {
@@ -155,7 +167,12 @@ func (e *Executor) execute(dispatch Dispatch) (result Result) {
 
 	payload, err := e.handler(dispatch)
 	if err != nil {
-		result.Error = &ResultError{Code: "COMMAND_FAILED", Message: err.Error()}
+		code := "COMMAND_FAILED"
+		var coded interface{ CommandResultCode() string }
+		if errors.As(err, &coded) && coded.CommandResultCode() != "" {
+			code = coded.CommandResultCode()
+		}
+		result.Error = &ResultError{Code: code, Message: err.Error()}
 		return result
 	}
 	result.OK = true
