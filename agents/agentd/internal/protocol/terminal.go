@@ -27,6 +27,7 @@ type TerminalNavigatePayload struct {
 	WindowIndex *int   `json:"window_index,omitempty"`
 	PaneID      string `json:"pane_id,omitempty"`
 	On          *bool  `json:"on,omitempty"`
+	Lines       *int   `json:"lines,omitempty"`
 }
 
 type TerminalChannelPayload struct {
