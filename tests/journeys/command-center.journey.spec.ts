@@ -299,6 +299,19 @@ test.describe('Command Center program journeys', () => {
       )
       .toBe(true);
 
+    const horizontalOverflow = await page.getByLabel('Interactive terminal').evaluate((element) => {
+      const xterm = element.querySelector<HTMLElement>('.xterm');
+      const screen = element.querySelector<HTMLElement>('.xterm-screen');
+      if (!xterm || !screen) return Number.POSITIVE_INFINITY;
+      const xtermRect = xterm.getBoundingClientRect();
+      const screenRect = screen.getBoundingClientRect();
+      return Math.max(
+        xtermRect.left - screenRect.left,
+        screenRect.right - xtermRect.right
+      );
+    });
+    expect(horizontalOverflow).toBeLessThanOrEqual(0.5);
+
     const resizeCount = () =>
       recorder.terminalMessages.filter((message) => message.type === 'resize').length;
     const initialResizeCount = resizeCount();

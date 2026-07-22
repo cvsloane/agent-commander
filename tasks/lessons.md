@@ -89,3 +89,7 @@
 - Date: 2026-07-22
   Correction: Scrollback text copied correctly but WebGL-rendered boundary artifacts made the visible terminal hard to read, while ordinary waiting-for-input state repeatedly interrupted work with a "Needs attention" overlay.
   Rule: Verify terminal text at both the buffer and renderer layers; prefer the reliable DOM renderer until the upstream WebGL fixes are adopted and proven. Keep passive waiting-for-input state in the roster/status surfaces, and reserve terminal overlays for explicit approvals or actionable failures.
+
+- Date: 2026-07-22
+  Correction: Moving from WebGL to DOM reduced scrollback corruption, but one visual character still appeared at the left edge where 160-column text wrapped because the xterm screen overflowed its measured box by 7 px.
+  Rule: Keep padding and status decoration off xterm's measured parent: the fit addon measures the parent width but subtracts padding from the generated `.xterm` child. Assert that `.xterm-screen` never extends past `.xterm` in the shared-grid journey so clipped wrap boundaries cannot return.
