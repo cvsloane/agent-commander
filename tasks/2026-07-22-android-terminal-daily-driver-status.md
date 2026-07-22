@@ -3,7 +3,7 @@
 - Plan status/version: approved `1719c8c` scope, approval recorded 2026-07-22T12:04:25-04:00
 - Current phase: W1-R2 fresh review
 - Overall state: running
-- Last updated: 2026-07-22T12:50:58-04:00
+- Last updated: 2026-07-22T12:52:17-04:00
 - Current accepted baseline: production `7b30df046208f1a2ba14b8e34b0095afe9888750`
 - Current candidate: R2 implementation `795281803f583c895d6f5a8a5acfbec521662250`
 - Budget used/remaining: setup complete; 7-day project ceiling remains
@@ -13,7 +13,7 @@
 
 | Lane | Current role | State | Deliverable/ref | Last proof | Blocked on | Next action |
 |---|---|---|---|---|---|---|
-| W1 — Shared terminal repair | Codex Sol/xhigh R2 Reviewer | launching | R2 `7952818`, handoff `94e157f` | Store regression 11/11, resumed-viewer journey 1/1, dashboard typecheck pass | None | Fresh narrow review of the prior HIGH blocker |
+| W1 — Shared terminal repair | Codex Sol/xhigh R2 Reviewer | running | Homelinux worktree `ac-android-w1-r2-review`, tmux `agent-command:android-w1-r2-review` | Pickup verified: Codex 0.145.0, `gpt-5.6-sol`, xhigh, session `019f8abd-d6bb-73b0-b2a3-88f269bf9609` | None | Fresh narrow review of the prior HIGH blocker |
 | W2 — Android vertical slice | Unassigned until W1 contract freeze | held | None | Research and approved acceptance checklist | W1 reviewer pass | Remain held |
 | W3 — Integration and rollout | AI Lead | pending | None | Production baseline identified | W1 and W2 acceptance | Maintain recovery receipts |
 
