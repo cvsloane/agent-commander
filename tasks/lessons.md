@@ -65,3 +65,7 @@
 - Date: 2026-07-22
   Correction: Termius over direct SSH worked well, but the live Agent Command terminal was also unusable on a laptop; an SSH-only mobile MVP would bypass the broken shared path and lose the existing multi-host/pane architecture.
   Rule: Treat the control-plane/agentd terminal path as a required shared product capability before placing another client on it. Preserve multi-host and pane orchestration, prefer a non-Tailnet client path, and use direct SSH as a diagnostic comparator or explicitly approved fallback rather than silently replacing the intended architecture.
+
+- Date: 2026-07-22
+  Correction: The owner granted this internal Agent Command project full execution authority, including pushes, merges, production rollouts, migrations, and credential changes, provided every live credential is stored in Bitwarden.
+  Rule: Do not insert extra approval pauses for in-scope Agent Command implementation or rollout during this approved program. Record receipts for consequential actions, keep raw secrets out of the repo and responses, and store or reference live credentials through Bitwarden Secrets Manager.
