@@ -9,7 +9,6 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.FormBody
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -66,7 +65,7 @@ class AgentCommandApi(credentials: SavedCredentials) {
             .header("Authorization", "Bearer $token")
             .header("Accept", "application/json")
         if (method == "POST") {
-            builder.post(ByteArray(0).toRequestBody(JSON_MEDIA_TYPE))
+            builder.post(ByteArray(0).toRequestBody(null))
         }
         http.newCall(builder.build()).execute().use { response ->
             if (!response.isSuccessful) throw response.toApiException()
@@ -140,8 +139,6 @@ class AgentCommandApi(credentials: SavedCredentials) {
     }
 
     internal companion object {
-        private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
-
         fun requireEndpoint(raw: String): HttpUrl {
             val normalized = raw.trim().trimEnd('/') + "/"
             val url = normalized.toHttpUrlOrNull()
