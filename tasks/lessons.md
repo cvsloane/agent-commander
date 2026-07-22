@@ -77,3 +77,7 @@
 - Date: 2026-07-22
   Correction: The Android MVP only needs to connect to and control existing multi-host tmux sessions; launching new Claude/Codex sessions already exists in the web app and should not be rebuilt natively.
   Rule: Keep native MVP ownership to authentication, roster/navigation, terminal rendering/input, pane/window control, zoom, scrollback, copy/paste, and ordinary resume. Preserve the web launch flow and reject native launch, notifications, or dashboard parity as scope expansion until the daily-use terminal path works.
+
+- Date: 2026-07-22
+  Correction: A non-login SSH probe on homelinux resolved the stale `/usr/local/bin/codex` and falsely suggested `gpt-5.6-sol` was unavailable; the normal login environment used the current `~/.local/bin/codex` successfully.
+  Rule: Before declaring a remote model or runtime unavailable, verify the login-shell PATH and all installed binaries. Dispatch homelinux Codex lanes through `bash -lic` or the verified absolute binary so stripped SSH environments cannot select stale tooling.

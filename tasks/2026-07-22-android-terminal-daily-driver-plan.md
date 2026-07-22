@@ -3,9 +3,9 @@
 ## Approval
 
 - Human Owner: Chris Sloane
-- Status: draft
-- Approved at: pending explicit approval
-- Approved scope/version: v1 — shared terminal repair plus Android connect-and-control MVP
+- Status: approved
+- Approved at: 2026-07-22T12:04:25-04:00
+- Approved scope/version: `1719c8c` — v1 shared terminal repair plus Android connect-and-control MVP; Primary Codex agent is the AI Lead/orchestrator
 
 No autonomous execution begins while status is `draft`.
 
@@ -33,7 +33,7 @@ Agent Command has a meaningful terminal on the existing live web app and a signe
 | Role | Assignment | Primary model/system | Approved fallback | Machine/worktree | Ownership |
 |---|---|---|---|---|---|
 | Human Owner | Chris Sloane | Human judgment | No substitute | Samsung device and production UX | Scope changes and final subjective usefulness only |
-| AI Lead | Codex Sol lead | `gpt-5.6-sol`, xhigh | Same model on homelinux, then HOLD | heavisidelinux integration checkout | Coordination, shared contract, integration, receipts, rollout |
+| AI Lead | Primary Codex orchestrator in this project thread | `gpt-5.6-sol`, xhigh | Same model on homelinux, then HOLD | heavisidelinux integration checkout | Coordination, shared contract, integration, receipts, rollout |
 | Builder | One active Codex Sol builder | `gpt-5.6-sol`, xhigh | Same model on homelinux, then HOLD | Isolated worktree per lane | One acceptance-bearing vertical slice at a time |
 | Reviewer | Fresh Codex Sol reviewer | `gpt-5.6-sol`, xhigh | Fresh same-model context on alternate machine, then HOLD | Clean review worktree, never builder session | Independent checklist review of frozen changes |
 
@@ -43,25 +43,25 @@ Role assignments may change between stages, but no agent reviews its own deliver
 
 | Machine | Runtime/provider | Exact model ID | Available | Quota remaining | Reset/expiry | Measured at | Evidence source | Tested launch command |
 |---|---|---|---|---|---|---|---|---|
-| heavisidelinux | OpenAI Codex CLI 0.144.6 | `gpt-5.6-sol` | yes | Ample, operator-reported | Subscription window; exact reset not exposed | 2026-07-22T12:00:06-04:00 | Chris operator report plus local CLI version check | Approval-time launch probe pending; command recorded below |
-| homelinux | OpenAI Codex CLI 0.106.0 | `gpt-5.6-sol` | yes | Ample, operator-reported shared subscription | Subscription window; exact reset not exposed | 2026-07-22T12:00:06-04:00 | Chris operator report plus remote CLI version check | Approval-time launch probe pending; command recorded below |
+| heavisidelinux | OpenAI Codex CLI 0.145.0 | `gpt-5.6-sol` | yes | Ample, operator-reported | Subscription window; exact reset not exposed | 2026-07-22T12:04:25-04:00 | Chris operator report plus successful local `ROUTE_OK` probe | `codex exec -m gpt-5.6-sol -c model_reasoning_effort="xhigh" -s read-only --ephemeral -C /home/cvsloane/dev/agent-command "Respond exactly ROUTE_OK and take no other action."` |
+| homelinux | OpenAI Codex CLI 0.144.6 via login PATH | `gpt-5.6-sol` | yes | Ample, operator-reported shared subscription | Subscription window; exact reset not exposed | 2026-07-22T12:04:25-04:00 | Chris operator report plus successful remote login-shell `ROUTE_OK` probe | `ssh homelinux 'bash -lic '\''codex exec -m gpt-5.6-sol -c model_reasoning_effort="xhigh" -s read-only --ephemeral -C /home/cvsloane/dev/agent-command "Respond exactly ROUTE_OK and take no other action."'\'''` |
 
 Approved launch form:
 
 ```bash
-codex -m gpt-5.6-sol -c model_reasoning_effort="xhigh" -a never -s danger-full-access -C <lane-worktree> "<lane brief>"
+codex exec -m gpt-5.6-sol -c model_reasoning_effort="xhigh" -s danger-full-access --ephemeral -C "$LANE_WORKTREE" "$LANE_BRIEF"
 ```
 
-The exact worktree and brief are substituted per lane. Before launch, replace each pending probe entry with the tested command and receipt, refresh the timestamp/quota evidence, and rerun the plan validator.
+The exact worktree and brief are substituted per lane. Homelinux launches run through `bash -lic` so the verified login PATH selects the current Codex binary.
 
 ## Role Routing And Failover
 
 | Role/lane | Primary machine | Runtime/provider | Exact model ID | Reasoning effort | Minimum reserve | Fallback 1 | Fallback 2 | Handoff trigger | Independence constraint |
 |---|---|---|---|---|---|---|---|---|---|
-| AI Lead | heavisidelinux | OpenAI Codex CLI 0.144.6 | `gpt-5.6-sol` | xhigh | HOLD at UI-reported 15% remaining | homelinux / `gpt-5.6-sol` / xhigh | HOLD and escalate | Rate-limit twice, model unavailable, or context handoff needed | Does not independently accept its own substantive code |
-| Builder default | heavisidelinux | OpenAI Codex CLI 0.144.6 | `gpt-5.6-sol` | xhigh | HOLD at UI-reported 15% remaining | homelinux / `gpt-5.6-sol` / xhigh | HOLD and escalate | Rate-limit twice, no progress for 60 minutes, or repeated-failure ceiling | Fresh lane context and isolated worktree |
-| Reviewer - standard | heavisidelinux | OpenAI Codex CLI 0.144.6 | `gpt-5.6-sol` | xhigh | HOLD at UI-reported 15% remaining | homelinux / `gpt-5.6-sol` / xhigh | HOLD and escalate | Model unavailable or candidate authored in the same context | Independent fresh context; not the builder or author |
-| Reviewer - critical | homelinux | OpenAI Codex CLI 0.106.0 | `gpt-5.6-sol` | xhigh | HOLD at UI-reported 15% remaining | heavisidelinux / `gpt-5.6-sol` / xhigh fresh context | HOLD and escalate | Auth/credential candidate cannot receive a fresh-context review | Independent fresh context and clean worktree; receives checklist and frozen evidence, not builder conversation |
+| AI Lead | heavisidelinux | OpenAI Codex CLI 0.145.0 | `gpt-5.6-sol` | xhigh | HOLD at UI-reported 15% remaining | homelinux / `gpt-5.6-sol` / xhigh | HOLD and escalate | Rate-limit twice, model unavailable, or context handoff needed | Does not independently accept its own substantive code |
+| Builder default | heavisidelinux | OpenAI Codex CLI 0.145.0 | `gpt-5.6-sol` | xhigh | HOLD at UI-reported 15% remaining | homelinux / `gpt-5.6-sol` / xhigh | HOLD and escalate | Rate-limit twice, no progress for 60 minutes, or repeated-failure ceiling | Fresh lane context and isolated worktree |
+| Reviewer - standard | heavisidelinux | OpenAI Codex CLI 0.145.0 | `gpt-5.6-sol` | xhigh | HOLD at UI-reported 15% remaining | homelinux / `gpt-5.6-sol` / xhigh | HOLD and escalate | Model unavailable or candidate authored in the same context | Independent fresh context; not the builder or author |
+| Reviewer - critical | homelinux | OpenAI Codex CLI 0.144.6 via login PATH | `gpt-5.6-sol` | xhigh | HOLD at UI-reported 15% remaining | heavisidelinux / `gpt-5.6-sol` / xhigh fresh context | HOLD and escalate | Auth/credential candidate cannot receive a fresh-context review | Independent fresh context and clean worktree; receives checklist and frozen evidence, not builder conversation |
 
 Fable is unavailable because its quota is exhausted. Same-model review is accepted for this internal project, with context/worktree independence and mechanical proof compensating for the lack of provider diversity.
 
@@ -175,13 +175,12 @@ The status file is current operational truth. The log and metrics ledger are app
 
 ## Launch Checklist
 
-- [ ] Human Owner approved this Project Plan.
-- [ ] Acceptance Checklist exists and is approved.
-- [ ] Role/model assignments and approved fallbacks are recorded.
-- [ ] Workstream ownership and collision boundaries are explicit.
-- [ ] Autonomy lanes cover every consequential action class.
-- [ ] Ground truth and Reviewer independence are defined.
-- [ ] Budgets and progress-sensitive stop conditions are set.
-- [ ] Status, log, handoff, and metrics paths exist.
-- [ ] Recovery path is credible.
-
+- [x] Human Owner approved this Project Plan.
+- [x] Acceptance Checklist exists and is approved.
+- [x] Role/model assignments and approved fallbacks are recorded.
+- [x] Workstream ownership and collision boundaries are explicit.
+- [x] Autonomy lanes cover every consequential action class.
+- [x] Ground truth and Reviewer independence are defined.
+- [x] Budgets and progress-sensitive stop conditions are set.
+- [x] Status, log, handoff, and metrics paths exist.
+- [x] Recovery path is credible.

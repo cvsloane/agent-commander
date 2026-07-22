@@ -1,6 +1,6 @@
 # Android Terminal Daily Driver — Acceptance Checklist
 
-- Status: draft
+- Status: approved 2026-07-22T12:04:25-04:00
 - Human Owner: Chris Sloane
 - Project Plan: `tasks/2026-07-22-android-terminal-daily-driver-plan.md`
 
