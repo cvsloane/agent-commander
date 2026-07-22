@@ -5,7 +5,7 @@
 - Overall state: running
 - Last updated: 2026-07-22T18:34:05-04:00
 - Current accepted baseline: production functionality through `997e522d71eef5dadd85a20139377f8848fb9a45`, with the remaining renderer artifact rejected
-- Current candidate: integrated Android release candidate with fresh PASS and signed APK SHA-256 `c97d140f6ef2bcbbcafc8d6d4ea31ac794194faeaf0f89d11494b4379845d42c`; W1 remains live at `12889bf`
+- Current candidate: integrated Android release candidate through `2e7c357` with final fresh PASS and signed APK SHA-256 `c97d140f6ef2bcbbcafc8d6d4ea31ac794194faeaf0f89d11494b4379845d42c`; W1 remains live at `12889bf`
 - Budget used/remaining: setup complete; 7-day project ceiling remains
 - Next Human Owner checkpoint: production laptop terminal-use verdict
 
@@ -15,7 +15,7 @@
 |---|---|---|---|---|---|---|
 | W1 — Shared terminal repair | AI Lead/integrator plus Human Owner | deployed | PR #107 merge `12889bf`; Coolify `z4ig8vlvpgvcncvzhiahnl2d`; identical agentd on both hosts | Full CI, fresh review, exact-source containers, one process per host, and public health `ok` with two agents | Live laptop interaction | Chris verifies connect/focus/switch responsiveness on the real laptop path |
 | W2 — Android vertical slice | Android Builder plus fresh Reviewer | integrated | Corrected native foundation through `f464360` merged into the integration branch | Gradle test/lint/release build, INTERNET-only permission, no PTY/JNI, and fresh re-review PASS | Samsung/live-endpoint gates after release rollout | Preserve reviewed scope through CI |
-| W3 — Integration and rollout | AI Lead | ready for PR | Authenticated APK route/settings card/Docker copy plus release-signed 2.1 MB APK | RSA-4096 Bitwarden-backed signer; APK v2/v3 verified, aligned, package/min/target checked, no native libraries | CI, merge, deployment, physical install | Push/merge/deploy, verify authenticated download, then run real-path acceptance |
+| W3 — Integration and rollout | AI Lead plus fresh Reviewer | ready for PR | `2e7c357`: authenticated APK route/settings card/Docker copy plus release-signed 2.1 MB APK | Final review PASS; rebuilt standalone image blocks anonymous access, authenticated download is 200 with exact hash, and Settings exposes the artifact | CI, merge, deployment, physical install | Push/merge/deploy, verify authenticated production download, then run real-path acceptance |
 
 ## Open Gates
 
