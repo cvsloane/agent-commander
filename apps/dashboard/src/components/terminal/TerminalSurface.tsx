@@ -136,11 +136,11 @@ export function TerminalSurface({
           }}
           onMouseUp={onSelectionCommit}
           className={cn(
-            'relative h-full w-full cursor-text overflow-hidden bg-[#0a0a0a] p-1 focus:outline-none',
+            'relative h-full w-full cursor-text overflow-hidden bg-[#0a0a0a] focus:outline-none [&>.xterm]:p-1',
             isMobile && 'touch-none',
             interactionBlocked && 'pointer-events-none',
             status === 'connected' &&
-              'border-l-2 border-emerald-500 shadow-[inset_2px_0_0_rgba(16,185,129,0.35)]'
+              'shadow-[inset_2px_0_0_rgba(16,185,129,0.7)]'
           )}
           aria-label="Interactive terminal"
           aria-busy={interactionBlocked}
