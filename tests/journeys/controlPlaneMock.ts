@@ -229,6 +229,8 @@ export interface JourneyRecorder {
     data?: string;
     op?: string;
     on?: boolean;
+    request_id?: string;
+    zoom?: boolean;
     pane_id?: string;
     window_index?: number;
     lines?: number;
@@ -243,6 +245,10 @@ interface MockOptions {
   multiWindow?: boolean;
   appScrollSessionIds?: string[];
   transcriptSessionIds?: string[];
+  focusPaneFailureIds?: string[];
+  focusPaneDelayMs?: number;
+  liveTranscriptOutput?: boolean;
+  resumedViewerPaneId?: string;
 }
 
 async function fulfillJson(route: Route, body: unknown): Promise<void> {
@@ -410,6 +416,16 @@ function recentTranscriptEntries(): Array<Record<string, unknown>> {
   ];
 }
 
+function liveTranscriptEntries(): Array<Record<string, unknown>> {
+  return [
+    ...recentTranscriptEntries().slice(1),
+    {
+      type: 'assistant',
+      message: { role: 'assistant', content: 'Live transcript update' },
+    },
+  ];
+}
+
 function olderTranscriptEntries(): Array<Record<string, unknown>> {
   return [
     { type: 'user', message: { role: 'user', content: 'Earlier request' } },
@@ -442,11 +458,14 @@ export async function mockControlPlane(
     terminalWebSocketUrls: [],
   };
   const availableSessions = options.multiWindow ? [...sessions, windowSession] : sessions;
-  let selectedWindowIndex = 0;
-  let zoomedWindowIndex: number | null = null;
+  let selectedWindowIndex = options.resumedViewerPaneId === windowSession.tmux_pane_id ? 1 : 0;
+  let zoomedWindowIndex: number | null = options.resumedViewerPaneId ? selectedWindowIndex : null;
   let secondWindowName = options.multiWindow ? 'verification' : null;
   let secondWindowHasTrackedPane = options.multiWindow ?? false;
   const topologySockets = new Set<WebSocketRoute>();
+  const terminalSockets = new Set<WebSocketRoute>();
+  let liveTranscriptReady = false;
+  let liveTranscriptScheduled = false;
   const sendTopology = () => {
     const message = JSON.stringify(topologyMessage(
       secondWindowName,
@@ -466,6 +485,7 @@ export async function mockControlPlane(
     });
   });
   await page.routeWebSocket(/\/v1\/ui\/terminal\//, (socket) => {
+    terminalSockets.add(socket);
     recorder.terminalWebSocketUrls.push(socket.url());
     const sessionId = socket.url().match(/\/v1\/ui\/terminal\/([^?]+)/)?.[1];
     if (sessionId) recorder.terminalSessionIds.push(decodeURIComponent(sessionId));
@@ -478,7 +498,7 @@ export async function mockControlPlane(
           JSON.stringify({
             type: 'attached',
             readonly: options.terminalReadOnly ?? false,
-            resumed: false,
+            resumed: Boolean(options.resumedViewerPaneId),
             resume_token: 'dashboard-journey-terminal-resume',
           })
         );
@@ -497,6 +517,48 @@ export async function mockControlPlane(
         selectedWindowIndex = parsed.window_index;
         zoomedWindowIndex = null;
         sendTopology();
+      }
+      if (parsed.type === 'navigate' && parsed.op === 'viewer_state' && parsed.request_id) {
+        socket.send(JSON.stringify({
+          type: 'navigation_result',
+          request_id: parsed.request_id,
+          ok: true,
+          pane_id: selectedWindowIndex === 1 ? windowSession.tmux_pane_id : interactiveSession.tmux_pane_id,
+          window_index: selectedWindowIndex,
+          zoomed: zoomedWindowIndex === selectedWindowIndex,
+        }));
+      }
+      if (
+        parsed.type === 'navigate'
+        && parsed.op === 'focus_pane'
+        && parsed.pane_id
+        && parsed.request_id
+        && parsed.zoom !== undefined
+      ) {
+        const sendFocusResult = () => {
+          if (options.focusPaneFailureIds?.includes(parsed.pane_id!)) {
+            socket.send(JSON.stringify({
+              type: 'navigation_result',
+              request_id: parsed.request_id,
+              ok: false,
+              message: `Pane ${parsed.pane_id} is unavailable.`,
+            }));
+            return;
+          }
+          selectedWindowIndex = parsed.pane_id === windowSession.tmux_pane_id ? 1 : 0;
+          zoomedWindowIndex = parsed.zoom ? selectedWindowIndex : null;
+          socket.send(JSON.stringify({
+            type: 'navigation_result',
+            request_id: parsed.request_id,
+            ok: true,
+            pane_id: parsed.pane_id,
+            window_index: selectedWindowIndex,
+            zoomed: parsed.zoom,
+          }));
+          sendTopology();
+        };
+        if (options.focusPaneDelayMs) setTimeout(sendFocusResult, options.focusPaneDelayMs);
+        else sendFocusResult();
       }
       if (parsed.type === 'navigate' && parsed.op === 'select_pane' && parsed.pane_id) {
         selectedWindowIndex = parsed.pane_id === windowSession.tmux_pane_id ? 1 : 0;
@@ -599,16 +661,34 @@ export async function mockControlPlane(
         return;
       }
       const olderPage = body.before_entry !== undefined;
+      const entries = olderPage
+        ? olderTranscriptEntries()
+        : liveTranscriptReady
+          ? liveTranscriptEntries()
+          : recentTranscriptEntries();
       await fulfillJson(route, {
         cmd_id: '77777777-7777-4777-8777-777777777777',
         ok: true,
         result: {
-          entries: olderPage ? olderTranscriptEntries() : recentTranscriptEntries(),
-          first_entry: olderPage ? 0 : 3,
-          total_entries: 203,
+          entries,
+          first_entry: olderPage ? 0 : liveTranscriptReady ? 4 : 3,
+          total_entries: liveTranscriptReady ? 204 : 203,
           source: 'hook',
         },
       });
+      if (options.liveTranscriptOutput && !olderPage && !liveTranscriptScheduled) {
+        liveTranscriptScheduled = true;
+        setTimeout(() => {
+          liveTranscriptReady = true;
+          for (const socket of terminalSockets) {
+            socket.send(JSON.stringify({
+              type: 'output',
+              data: '\r\nlive transcript changed\r\n',
+              encoding: 'utf8',
+            }));
+          }
+        }, 100);
+      }
       return;
     }
     if (request.method() === 'POST' && /^\/v1\/approvals\/[^/]+\/decide$/.test(url.pathname)) {

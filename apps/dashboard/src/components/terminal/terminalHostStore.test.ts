@@ -19,6 +19,12 @@ function controller(readOnly: boolean): TerminalController {
     suspend: () => false,
     takeControl: () => undefined,
     navigate: () => false,
+    focusPane: async () => ({
+      type: 'navigation_result',
+      request_id: '44444444-4444-4444-8444-444444444444',
+      ok: false,
+      message: 'not configured',
+    }),
     resetTouchModes: () => undefined,
     focus: () => undefined,
     copySelection: () => undefined,
@@ -76,7 +82,7 @@ describe('persistent terminal host', () => {
   it('drops the prior instance when a different session takes the single host', () => {
     const host = createTerminalHostStore();
     const first = { sessionId: 'session-a', paneId: '%1', autoAttach: false };
-    host.registerSurface({
+    const leaveFirst = host.registerSurface({
       id: 'first',
       descriptor: first,
       target: {} as HTMLDivElement,
@@ -137,6 +143,65 @@ describe('persistent terminal host', () => {
       attachmentDescriptor: first,
       descriptorKey: 'session-a\u0000%1',
       terminalInstance: terminal,
+    });
+  });
+
+  it('does not retarget pane identity until focus is acknowledged by tmux', async () => {
+    const host = createTerminalHostStore();
+    const first = {
+      sessionId: 'session-a',
+      hostId: 'host-1',
+      paneId: '%1',
+      tmuxSessionKey: 'host-1\u0000agents',
+      autoAttach: true,
+    };
+    const second = { ...first, sessionId: 'session-b', paneId: '%2' };
+    let acknowledge!: (value: Awaited<ReturnType<TerminalController['focusPane']>>) => void;
+    const leaveFirst = host.registerSurface({
+      id: 'first',
+      descriptor: first,
+      target: {} as HTMLDivElement,
+      visible: true,
+    });
+    host.setController({
+      ...controller(false),
+      focusPane: () => new Promise((resolve) => {
+        acknowledge = resolve;
+      }),
+    });
+
+    const focusing = host.focusWithinAttachment(second, true);
+    expect(host.getSnapshot()).toMatchObject({
+      descriptor: first,
+      navigation: { status: 'pending', targetSessionId: 'session-b' },
+    });
+
+    acknowledge({
+      type: 'navigation_result',
+      request_id: '44444444-4444-4444-8444-444444444444',
+      ok: true,
+      pane_id: '%2',
+      window_index: 0,
+      zoomed: true,
+    });
+    await expect(focusing).resolves.toEqual({ status: 'success' });
+    expect(host.getSnapshot().navigation).toEqual({
+      status: 'pending',
+      targetSessionId: 'session-b',
+    });
+    leaveFirst();
+    host.registerSurface({
+      id: 'second',
+      descriptor: second,
+      target: {} as HTMLDivElement,
+      visible: true,
+    });
+    expect(host.getSnapshot().navigation).toBeNull();
+    expect(host.getSnapshot()).toMatchObject({
+      descriptor: second,
+      attachmentDescriptor: first,
+      descriptorKey: 'session-a\u0000%1',
+      status: 'connected',
     });
   });
 

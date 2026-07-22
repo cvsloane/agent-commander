@@ -138,6 +138,36 @@ export const TerminalStatusMessageSchema = AgentMessageEnvelopeSchema.extend({
 });
 export type TerminalStatusMessage = z.infer<typeof TerminalStatusMessageSchema>;
 
+const TerminalNavigationResultPayloadSchema = z.intersection(
+  z.object({
+    channel_id: z.string().uuid(),
+    request_id: z.string().uuid(),
+  }),
+  z.discriminatedUnion('ok', [
+    z.object({
+      ok: z.literal(true),
+      pane_id: z.string().min(1),
+      window_index: z.number().int().nonnegative(),
+      zoomed: z.boolean(),
+    }),
+    z.object({
+      ok: z.literal(false),
+      message: z.string().min(1),
+      pane_id: z.string().min(1).optional(),
+      window_index: z.number().int().nonnegative().optional(),
+      zoomed: z.boolean().optional(),
+    }),
+  ])
+);
+
+export const TerminalNavigationResultMessageSchema = AgentMessageEnvelopeSchema.extend({
+  type: z.literal('terminal.navigation_result'),
+  payload: TerminalNavigationResultPayloadSchema,
+});
+export type TerminalNavigationResultMessage = z.infer<
+  typeof TerminalNavigationResultMessageSchema
+>;
+
 // Durable terminal lifecycle audit (agent -> control plane)
 export const TerminalAuditMessageSchema = AgentMessageEnvelopeSchema.extend({
   type: z.literal('terminal.audit'),
@@ -252,6 +282,7 @@ export const AgentMessageSchema = z.discriminatedUnion('type', [
   ConsoleChunkMessageSchema,
   TerminalOutputMessageSchema,
   TerminalStatusMessageSchema,
+  TerminalNavigationResultMessageSchema,
   TerminalAuditMessageSchema,
   ToolEventStartedMessageSchema,
   ToolEventCompletedMessageSchema,
@@ -337,6 +368,18 @@ export const TerminalResizeMessageSchema = ServerMessageEnvelopeSchema.extend({
 export type TerminalResizeMessage = z.infer<typeof TerminalResizeMessageSchema>;
 
 export const TerminalNavigatePayloadSchema = z.discriminatedUnion('op', [
+  z.object({
+    channel_id: z.string().uuid(),
+    op: z.literal('viewer_state'),
+    request_id: z.string().uuid(),
+  }),
+  z.object({
+    channel_id: z.string().uuid(),
+    op: z.literal('focus_pane'),
+    request_id: z.string().uuid(),
+    pane_id: z.string().min(1),
+    zoom: z.boolean(),
+  }),
   z.object({
     channel_id: z.string().uuid(),
     op: z.literal('select_window'),

@@ -24,6 +24,7 @@ describe('protocol fixtures', () => {
     'agent-hello.json',
     'sessions-upsert-tmux.json',
     'terminal-output.json',
+    'terminal-navigation-result.json',
     'commands-result.json',
     'commands-result-capture-transcript.json',
   ])('validates agent message fixture %s', (name) => {
@@ -49,6 +50,8 @@ describe('protocol fixtures', () => {
     'terminal-input.json',
     'terminal-navigate.json',
     'terminal-navigate-scroll.json',
+    'terminal-focus-pane.json',
+    'terminal-viewer-state.json',
     'commands-dispatch-send-input.json',
     'commands-dispatch-capture-transcript.json',
   ])('validates server-to-agent message fixture %s', (name) => {

@@ -4,7 +4,9 @@ import { z } from 'zod';
 import {
   BrowserTerminalClientMessageSchema,
   TerminalDimensionSchema,
+  type BrowserTerminalNavigationResultMessage,
   type BrowserTerminalServerMessage,
+  type TerminalNavigationResultMessage,
 } from '@agent-command/schema';
 import { randomUUID } from 'crypto';
 import * as db from '../db/index.js';
@@ -13,6 +15,10 @@ import { canAttachTerminal, canControlTerminal, hostSupportsTerminal } from '../
 import type { AuthUser } from '../auth/types.js';
 import { installWebSocketHeartbeat } from '../services/webSocketHeartbeat.js';
 import { authenticateBrowserWebSocket } from '../security/webSocketAuth.js';
+import {
+  recordTerminalNavigation,
+  type TerminalNavigationOperation,
+} from '../metrics.js';
 
 interface ActiveTerminalChannel {
   channelId: string;
@@ -32,6 +38,11 @@ interface ActiveTerminalChannel {
 
 // Track active terminal channels
 const activeChannels = new Map<string, ActiveTerminalChannel>();
+const pendingNavigationRequests = new Map<string, {
+  channelId: string;
+  operation: TerminalNavigationOperation;
+  startedAt: number;
+}>();
 
 function auditPayload(
   channel: ActiveTerminalChannel,
@@ -92,6 +103,47 @@ export function handleTerminalOutput(
     return true;
   } catch {
     return false;
+  }
+}
+
+export function handleTerminalNavigationResult(
+  payload: TerminalNavigationResultMessage['payload']
+): void {
+  const pending = pendingNavigationRequests.get(payload.request_id);
+  if (pending?.channelId === payload.channel_id) {
+    pendingNavigationRequests.delete(payload.request_id);
+    recordTerminalNavigation(
+      pending.operation,
+      payload.ok ? 'success' : 'failure',
+      (Date.now() - pending.startedAt) / 1000
+    );
+  }
+  const channel = activeChannels.get(payload.channel_id);
+  if (!channel) return;
+
+  try {
+    const browserMessage: BrowserTerminalNavigationResultMessage = payload.ok
+      ? {
+          type: 'navigation_result',
+          request_id: payload.request_id,
+          ok: true,
+          pane_id: payload.pane_id,
+          window_index: payload.window_index,
+          zoomed: payload.zoomed,
+        }
+      : {
+          type: 'navigation_result',
+          request_id: payload.request_id,
+          ok: false,
+          message: payload.message,
+          ...(payload.pane_id ? { pane_id: payload.pane_id } : {}),
+          ...(payload.window_index !== undefined ? { window_index: payload.window_index } : {}),
+          ...(payload.zoomed !== undefined ? { zoomed: payload.zoomed } : {}),
+        };
+    channel.uiSocket.send(JSON.stringify(browserMessage));
+    resetIdleTimeout(payload.channel_id);
+  } catch {
+    cleanupChannel(payload.channel_id, 'navigation_result_delivery_error');
   }
 }
 
@@ -156,6 +208,15 @@ function resetIdleTimeout(channelId: string): void {
 }
 
 function cleanupChannel(channelId: string, detachReason?: string): void {
+  for (const [requestId, pending] of pendingNavigationRequests) {
+    if (pending.channelId !== channelId) continue;
+    pendingNavigationRequests.delete(requestId);
+    recordTerminalNavigation(
+      pending.operation,
+      'abandoned',
+      (Date.now() - pending.startedAt) / 1000
+    );
+  }
   const channel = activeChannels.get(channelId);
   if (channel) {
     if (detachReason && channel.attached && !channel.detachAudited) {
@@ -389,6 +450,16 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
                 return;
               }
               const { type: _type, ...navigation } = message;
+              if (
+                (navigation.op === 'focus_pane' || navigation.op === 'viewer_state')
+                && navigation.request_id
+              ) {
+                pendingNavigationRequests.set(navigation.request_id, {
+                  channelId: activeChannelId,
+                  operation: navigation.op,
+                  startedAt: Date.now(),
+                });
+              }
               pubsub.sendToAgent(channel.hostId, {
                 v: 1,
                 type: 'terminal.navigate',

@@ -24,10 +24,22 @@ type TerminalResizePayload struct {
 type TerminalNavigatePayload struct {
 	ChannelID   string `json:"channel_id"`
 	Op          string `json:"op"`
+	RequestID   string `json:"request_id,omitempty"`
 	WindowIndex *int   `json:"window_index,omitempty"`
 	PaneID      string `json:"pane_id,omitempty"`
 	On          *bool  `json:"on,omitempty"`
+	Zoom        *bool  `json:"zoom,omitempty"`
 	Lines       *int   `json:"lines,omitempty"`
+}
+
+type TerminalNavigationResultPayload struct {
+	ChannelID   string `json:"channel_id"`
+	RequestID   string `json:"request_id"`
+	OK          bool   `json:"ok"`
+	PaneID      string `json:"pane_id,omitempty"`
+	WindowIndex int    `json:"window_index"`
+	Zoomed      bool   `json:"zoomed"`
+	Message     string `json:"message,omitempty"`
 }
 
 type TerminalChannelPayload struct {

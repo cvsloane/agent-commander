@@ -46,7 +46,13 @@ test.describe('Command Center program journeys', () => {
   test.beforeEach(async ({ page }, testInfo) => {
     recorder = await mockControlPlane(page, {
       terminalReadOnly: testInfo.title.includes('take-control handoff'),
-      multiWindow: testInfo.title.includes('window tab'),
+      multiWindow: testInfo.title.includes('window tab')
+        || testInfo.title.includes('pane switcher')
+        || testInfo.title.includes('resumed viewer'),
+      focusPaneDelayMs: testInfo.title.includes('delayed acknowledgement') ? 800 : undefined,
+      resumedViewerPaneId: testInfo.title.includes('resumed viewer')
+        ? windowSession.tmux_pane_id || undefined
+        : undefined,
     });
   });
 
@@ -85,10 +91,11 @@ test.describe('Command Center program journeys', () => {
 
     await expect
       .poll(() => recorder.terminalMessages)
-      .toContainEqual({ type: 'navigate', op: 'select_window', window_index: 1 });
-    await expect
-      .poll(() => recorder.terminalMessages)
-      .toContainEqual({ type: 'navigate', op: 'select_pane', pane_id: windowSession.tmux_pane_id });
+      .toContainEqual(expect.objectContaining({
+        type: 'navigate',
+        op: 'focus_pane',
+        pane_id: windowSession.tmux_pane_id,
+      }));
     await expect(page).toHaveURL(
       new RegExp(`session_id=${windowSession.id}.*mode=terminal.*attach=1`)
     );
@@ -122,15 +129,118 @@ test.describe('Command Center program journeys', () => {
     await secondWindow.press('Enter');
     await expect
       .poll(() => recorder.terminalMessages)
-      .toContainEqual({ type: 'navigate', op: 'select_window', window_index: 1 });
+      .toContainEqual(expect.objectContaining({
+        type: 'navigate',
+        op: 'focus_pane',
+        pane_id: windowSession.tmux_pane_id,
+      }));
     await expect(page).toHaveURL(new RegExp(`session_id=${windowSession.id}`));
 
     await firstWindow.focus();
     await firstWindow.press(' ');
     await expect
       .poll(() => recorder.terminalMessages)
-      .toContainEqual({ type: 'navigate', op: 'select_window', window_index: 0 });
+      .toContainEqual(expect.objectContaining({
+        type: 'navigate',
+        op: 'focus_pane',
+        pane_id: interactiveSession.tmux_pane_id,
+      }));
     await expect(page).toHaveURL(new RegExp(`session_id=${interactiveSession.id}`));
+  });
+
+  test('window tab delayed acknowledgement fences terminal and prompt input', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-1280x720', 'desktop delayed pane acknowledgement');
+    await signIn(page);
+    await selectSession(page, interactiveSession.title);
+    await page.getByRole('button', { name: 'Send a prompt' }).click();
+    await page.getByLabel(new RegExp(`Prompt ${interactiveSession.title}`)).fill('do not misroute');
+    const inputCount = recorder.terminalMessages.filter((message) => message.type === 'input').length;
+
+    await page.getByTestId('tmux-window-strip').first()
+      .getByRole('tab', { name: 'Window 1: verification' })
+      .click();
+    await expect(page.getByText('Switching pane — input paused').first()).toBeVisible();
+    await expect(page.getByLabel(new RegExp(`Prompt ${interactiveSession.title}`))).toBeDisabled();
+    await visibleTerminalInput(page).focus();
+    await page.keyboard.type('x');
+    expect(recorder.terminalMessages.filter((message) => message.type === 'input')).toHaveLength(inputCount);
+
+    await expect(page).toHaveURL(new RegExp(`session_id=${windowSession.id}`));
+    await expect(page.getByText('Switching pane — input paused')).toHaveCount(0);
+  });
+
+  test('resumed viewer reconciles the selected pane before input', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-1280x720', 'desktop resumed viewer');
+    await signIn(page);
+    await selectSession(page, interactiveSession.title);
+
+    await expect.poll(() => recorder.terminalMessages).toContainEqual(expect.objectContaining({
+      type: 'navigate',
+      op: 'viewer_state',
+    }));
+    await expect.poll(() => recorder.terminalMessages).toContainEqual(expect.objectContaining({
+      type: 'navigate',
+      op: 'focus_pane',
+      pane_id: interactiveSession.tmux_pane_id,
+      zoom: true,
+    }));
+    await expect(page.getByRole('region', { name: 'Primary terminal' })
+      .getByText('Connected', { exact: true })).toBeVisible();
+  });
+
+  test('desktop window tab focus control uses the acknowledged viewer intent', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-1280x720', 'desktop pane focus control');
+    await signIn(page);
+    await selectSession(page, interactiveSession.title);
+    await expect(page.getByRole('region', { name: 'Primary terminal' })
+      .getByText('Connected', { exact: true })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Focus pane' }).click();
+
+    await expect.poll(() => recorder.terminalMessages).toContainEqual(expect.objectContaining({
+      type: 'navigate',
+      op: 'focus_pane',
+      pane_id: interactiveSession.tmux_pane_id,
+      zoom: true,
+    }));
+    expect(recorder.commandRequests).not.toContainEqual(expect.objectContaining({
+      type: 'zoom_pane',
+    }));
+  });
+
+  test('terminal text size is separate from pane focus', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-1280x720', 'desktop terminal text controls');
+    await signIn(page);
+    await selectSession(page, interactiveSession.title);
+
+    await expect(page.getByRole('group', { name: 'Terminal text size 14 pixels' })).toBeVisible();
+    await page.getByRole('button', { name: 'Increase terminal text size' }).click();
+    await expect(page.getByRole('group', { name: 'Terminal text size 15 pixels' })).toBeVisible();
+    expect(recorder.terminalMessages.filter(
+      (message) => message.type === 'navigate' && message.op === 'focus_pane'
+    )).toHaveLength(0);
+  });
+
+  test('mobile pane switcher searches groups and supports number shortcuts', async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'mobile-412x915', 'mobile pane switcher');
+    await signIn(page);
+    await selectSession(page, interactiveSession.title);
+
+    await page.getByRole('button', { name: 'Open pane switcher' }).click();
+    const switcher = page.getByTestId('tmux-pane-switcher');
+    await switcher.getByRole('searchbox', { name: 'Search panes' }).fill('Claude');
+    await expect(switcher.getByRole('region', { name: 'agents · 1 verification' })).toBeVisible();
+    await expect(switcher.getByText(/\d+h old/)).toBeVisible();
+
+    await switcher.getByText('Switch pane', { exact: true }).click();
+    await page.keyboard.press('1');
+    await expect(page).toHaveURL(new RegExp(`session_id=${windowSession.id}`));
   });
 
   test('mobile desktop-attached grid stays letterboxed through a keyboard transition', async ({

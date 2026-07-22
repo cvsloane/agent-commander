@@ -1,4 +1,7 @@
-import type { BrowserTerminalNavigateMessage } from '@agent-command/schema';
+import type {
+  BrowserTerminalNavigateMessage,
+  BrowserTerminalNavigationResultMessage,
+} from '@agent-command/schema';
 
 export type XTerminal = import('@xterm/xterm').Terminal;
 export type XFitAddon = import('@xterm/addon-fit').FitAddon;
@@ -20,6 +23,7 @@ export interface TerminalController {
   suspend: () => boolean;
   takeControl: () => void;
   navigate: (message: BrowserTerminalNavigateMessage) => boolean;
+  focusPane: (paneId: string, zoom: boolean) => Promise<BrowserTerminalNavigationResultMessage>;
   resetTouchModes: () => void;
   focus: () => void;
   copySelection: () => void;

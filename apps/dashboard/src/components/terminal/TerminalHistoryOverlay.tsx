@@ -24,6 +24,8 @@ interface TerminalHistoryOverlayProps {
   sessionId: string;
   open: boolean;
   fontSize: number;
+  preferChat?: boolean;
+  refreshToken?: number;
   onScrollModeResolved: (mode: TerminalScrollMode) => void;
   onClose: () => void;
 }
@@ -34,7 +36,7 @@ interface HistoryPage {
   lines: string[];
 }
 
-interface ChatPage {
+export interface ChatPage {
   type: 'chat';
   entries: TranscriptEntry[];
   firstEntry: number;
@@ -46,6 +48,20 @@ const TRANSCRIPT_PAGE_ENTRIES = 200;
 
 type OverlayPage = HistoryPage | ChatPage;
 
+export function mergeLatestChatPage(pages: OverlayPage[], latest: ChatPage): OverlayPage[] {
+  const preserved = pages.flatMap((page): OverlayPage[] => {
+    if (page.type !== 'chat') return [page];
+    const keepCount = Math.max(0, Math.min(page.entries.length, latest.firstEntry - page.firstEntry));
+    if (keepCount === 0) return [];
+    return [{
+      ...page,
+      entries: page.entries.slice(0, keepCount),
+      totalEntries: latest.totalEntries,
+    }];
+  });
+  return [...preserved, latest];
+}
+
 interface OverlayLine {
   key: string;
   text: string;
@@ -56,6 +72,8 @@ export function TerminalHistoryOverlay({
   sessionId,
   open,
   fontSize,
+  preferChat = false,
+  refreshToken = 0,
   onScrollModeResolved,
   onClose,
 }: TerminalHistoryOverlayProps) {
@@ -65,6 +83,7 @@ export function TerminalHistoryOverlay({
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasOlder, setHasOlder] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [unreadEntries, setUnreadEntries] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [viewportWidth, setViewportWidth] = useState(0);
@@ -72,6 +91,8 @@ export function TerminalHistoryOverlay({
   const generationRef = useRef(0);
   const loadingOlderRef = useRef(false);
   const overscrollStartRef = useRef<{ y: number; atBottom: boolean } | null>(null);
+  const lastRefreshTokenRef = useRef(refreshToken);
+  const followLatestRef = useRef(true);
   const lineHeight = Math.max(16, Math.round(fontSize * 1.2));
 
   const fetchHistoryPage = useCallback(
@@ -124,26 +145,58 @@ export function TerminalHistoryOverlay({
     setPages([]);
     setMode(null);
     setHasOlder(true);
+    setUnreadEntries(0);
+    followLatestRef.current = true;
     setScrollTop(0);
+    const showChat = (chatPage: ChatPage) => {
+      followLatestRef.current = true;
+      setMode('chat');
+      setPages([chatPage]);
+      setHasOlder(chatPage.firstEntry > 0);
+      onScrollModeResolved('chat');
+      requestAnimationFrame(() => {
+        const element = scrollRef.current;
+        if (!element || generationRef.current !== generation) return;
+        element.scrollTop = element.scrollHeight;
+        setScrollTop(element.scrollTop);
+        setViewportHeight(element.clientHeight);
+        setViewportWidth(element.clientWidth);
+      });
+    };
     try {
-      const { page, scrollMode } = await fetchHistoryPage(initialScrollbackRange());
-      if (generationRef.current !== generation) return;
-      if (scrollMode === 'app-scroll') {
+      let chatAttempted = false;
+      if (preferChat) {
+        chatAttempted = true;
         try {
           const chatPage = await fetchChatPage();
           if (generationRef.current !== generation) return;
+          showChat(chatPage);
+          return;
+        } catch (chatError) {
+          if (generationRef.current !== generation) return;
           setMode('chat');
-          setPages([chatPage]);
-          setHasOlder(chatPage.firstEntry > 0);
+          setHasOlder(false);
           onScrollModeResolved('chat');
-          requestAnimationFrame(() => {
-            const element = scrollRef.current;
-            if (!element || generationRef.current !== generation) return;
-            element.scrollTop = element.scrollHeight;
-            setScrollTop(element.scrollTop);
-            setViewportHeight(element.clientHeight);
-            setViewportWidth(element.clientWidth);
-          });
+          setError(
+            chatError instanceof Error
+              ? `Claude chat is unavailable: ${chatError.message}`
+              : 'Claude chat is unavailable.'
+          );
+          return;
+        }
+      }
+      const { page, scrollMode } = await fetchHistoryPage(initialScrollbackRange());
+      if (generationRef.current !== generation) return;
+      if (scrollMode === 'app-scroll') {
+        if (chatAttempted) {
+          onScrollModeResolved('app-scroll');
+          onClose();
+          return;
+        }
+        try {
+          const chatPage = await fetchChatPage();
+          if (generationRef.current !== generation) return;
+          showChat(chatPage);
         } catch {
           if (generationRef.current !== generation) return;
           onScrollModeResolved('app-scroll');
@@ -171,7 +224,45 @@ export function TerminalHistoryOverlay({
     } finally {
       if (generationRef.current === generation) setLoadingInitial(false);
     }
-  }, [fetchChatPage, fetchHistoryPage, onClose, onScrollModeResolved]);
+  }, [fetchChatPage, fetchHistoryPage, onClose, onScrollModeResolved, preferChat]);
+
+  const refreshLatestChat = useCallback(async () => {
+    const generation = generationRef.current;
+    const element = scrollRef.current;
+    const wasFollowing = !element
+      || element.scrollHeight - element.clientHeight - element.scrollTop <= lineHeight * 2;
+    followLatestRef.current = wasFollowing;
+    const previousTotal = pages.reduce((total, page) => (
+      page.type === 'chat' ? Math.max(total, page.totalEntries) : total
+    ), 0);
+    try {
+      const latest = await fetchChatPage();
+      if (generationRef.current !== generation) return;
+      const added = Math.max(0, latest.totalEntries - previousTotal);
+      setPages((current) => mergeLatestChatPage(current, latest));
+      setHasOlder((current) => current || latest.firstEntry > 0);
+      setError(null);
+      requestAnimationFrame(() => {
+        if (!element || generationRef.current !== generation) return;
+        if (wasFollowing) {
+          element.scrollTop = element.scrollHeight;
+          setScrollTop(element.scrollTop);
+          setUnreadEntries(0);
+        } else if (added > 0) {
+          setUnreadEntries((current) => current + added);
+        }
+        setViewportHeight(element.clientHeight);
+        setViewportWidth(element.clientWidth);
+      });
+    } catch (refreshError) {
+      if (generationRef.current !== generation) return;
+      setError(
+        refreshError instanceof Error
+          ? `Claude chat could not refresh: ${refreshError.message}`
+          : 'Claude chat could not refresh.'
+      );
+    }
+  }, [fetchChatPage, lineHeight, pages]);
 
   useEffect(() => {
     if (!open) {
@@ -183,6 +274,16 @@ export function TerminalHistoryOverlay({
     }
     void loadInitial();
   }, [loadInitial, open]);
+
+  useEffect(() => {
+    if (!open) lastRefreshTokenRef.current = refreshToken;
+  }, [open, refreshToken]);
+
+  useEffect(() => {
+    if (!open || mode !== 'chat' || refreshToken === lastRefreshTokenRef.current) return;
+    lastRefreshTokenRef.current = refreshToken;
+    void refreshLatestChat();
+  }, [mode, open, refreshLatestChat, refreshToken]);
 
   useEffect(() => {
     if (!open) return;
@@ -203,6 +304,7 @@ export function TerminalHistoryOverlay({
     const generation = generationRef.current;
     const element = scrollRef.current;
     const previousHeight = element?.scrollHeight ?? 0;
+    followLatestRef.current = false;
     loadingOlderRef.current = true;
     setLoadingOlder(true);
     setError(null);
@@ -284,6 +386,19 @@ export function TerminalHistoryOverlay({
   });
   const visibleLines = allLines.slice(virtualWindow.startIndex, virtualWindow.endIndex);
 
+  useEffect(() => {
+    if (!open || mode !== 'chat' || !followLatestRef.current) return;
+    const frame = requestAnimationFrame(() => {
+      const element = scrollRef.current;
+      if (!element || !followLatestRef.current) return;
+      element.scrollTop = element.scrollHeight;
+      setScrollTop(element.scrollTop);
+      setViewportHeight(element.clientHeight);
+      setViewportWidth(element.clientWidth);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [allLines.length, mode, open]);
+
   if (!open) return null;
 
   return (
@@ -303,17 +418,37 @@ export function TerminalHistoryOverlay({
               ? mode === 'chat' ? 'Chat' : 'History'
               : mode === 'chat' ? 'Start of chat' : 'Start of history'}
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          className="pointer-events-auto h-8 gap-1.5 rounded-full border border-white/15 bg-zinc-100 px-3 text-zinc-950 shadow-lg hover:bg-white focus-visible:ring-2 focus-visible:ring-sky-400"
-          onClick={onClose}
-          aria-label="Live terminal"
-        >
-          <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
-          Live
-        </Button>
+        <div className="pointer-events-auto flex items-center gap-2">
+          {unreadEntries > 0 && (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="h-8 rounded-full border border-sky-300/30 bg-sky-950 px-3 text-sky-100 hover:bg-sky-900"
+              onClick={() => {
+                const element = scrollRef.current;
+                if (!element) return;
+                followLatestRef.current = true;
+                element.scrollTop = element.scrollHeight;
+                setScrollTop(element.scrollTop);
+                setUnreadEntries(0);
+              }}
+            >
+              {unreadEntries} new
+            </Button>
+          )}
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="h-8 gap-1.5 rounded-full border border-white/15 bg-zinc-100 px-3 text-zinc-950 shadow-lg hover:bg-white focus-visible:ring-2 focus-visible:ring-sky-400"
+            onClick={onClose}
+            aria-label={preferChat ? 'Terminal' : 'Live terminal'}
+          >
+            <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
+            {preferChat ? 'Terminal' : 'Live'}
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -343,6 +478,9 @@ export function TerminalHistoryOverlay({
         aria-label="Inline terminal history"
         onScroll={(event) => {
           const element = event.currentTarget;
+          followLatestRef.current = element.scrollHeight
+            - element.clientHeight
+            - element.scrollTop <= lineHeight * 2;
           setScrollTop(element.scrollTop);
           setViewportHeight(element.clientHeight);
           setViewportWidth(element.clientWidth);
@@ -379,7 +517,7 @@ export function TerminalHistoryOverlay({
             role="status"
           >
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            Loading terminal history…
+            {preferChat ? 'Loading Claude chat…' : 'Loading terminal history…'}
           </div>
         ) : allLines.length === 0 ? (
           <div className="flex h-full min-h-48 items-center justify-center px-4 text-center text-sm text-white/60">

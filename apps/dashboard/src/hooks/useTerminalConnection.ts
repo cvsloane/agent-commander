@@ -41,6 +41,7 @@ import {
 } from '@/stores/settings';
 import { useNotificationStore } from '@/stores/notifications';
 import { terminalHostStore } from '@/components/terminal/terminalHostStore';
+import { createTerminalNavigationRequests } from '@/components/terminal/terminalNavigationRequests';
 
 export function useTerminalConnection({
   sessionId,
@@ -54,6 +55,7 @@ export function useTerminalConnection({
   getDimensions,
   onOutputStart,
   onOutputWritten,
+  interactionBlocked,
 }: {
   sessionId: string;
   paneId?: string;
@@ -66,6 +68,7 @@ export function useTerminalConnection({
   getDimensions: () => { cols: number; rows: number } | undefined;
   onOutputStart: (terminal: XTerminal, data: string | Uint8Array) => void;
   onOutputWritten: (terminal: XTerminal, data: string | Uint8Array) => void;
+  interactionBlocked: boolean;
 }) {
   const letterbox = useTerminalGrid();
   const warmKey = useTerminalWarmKey();
@@ -92,13 +95,21 @@ export function useTerminalConnection({
   const requestedResumeRef = useRef(false);
   const warmBufferOnConnectRef = useRef(false);
   const restartedAfterResumeFailureRef = useRef(false);
+  const reconcilingViewerRef = useRef(false);
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lagMessage, setLagMessage] = useState<string | null>(null);
   const [readOnly, setReadOnly] = useState(false);
+  const [reconcilingViewer, setReconcilingViewer] = useState(false);
   const statusRef = useRef<ConnectionStatus>('disconnected');
   const errorMessageRef = useRef<string | null>(null);
   const lagMessageRef = useRef<string | null>(null);
+  const navigationRequestsRef = useRef<ReturnType<typeof createTerminalNavigationRequests> | null>(null);
+  if (!navigationRequestsRef.current) {
+    navigationRequestsRef.current = createTerminalNavigationRequests((message) => (
+      sendTerminalNavigation(wsRef.current, message)
+    ));
+  }
 
   const updateStatus = useCallback((nextStatus: ConnectionStatus) => {
     if (statusRef.current === nextStatus) return;
@@ -248,6 +259,9 @@ export function useTerminalConnection({
           }
 
           switch (msg.type) {
+            case 'navigation_result':
+              navigationRequestsRef.current?.resolve(msg);
+              break;
             case 'attached':
               autoAttachedSessionRef.current = sessionId;
               if (descriptorKey) terminalHostStore.setResumeAvailable(descriptorKey, false);
@@ -279,6 +293,33 @@ export function useTerminalConnection({
               }
               requestedResumeRef.current = false;
               restartedAfterResumeFailureRef.current = false;
+              if (msg.resumed && paneId) {
+                reconcilingViewerRef.current = true;
+                setReconcilingViewer(true);
+                void navigationRequestsRef.current!.viewerState().then(async (viewerState) => {
+                  if (!viewerState.ok) {
+                    throw new Error(viewerState.message);
+                  }
+                  if (viewerState.pane_id === paneId) return;
+                  const restored = await navigationRequestsRef.current!.focusPane(
+                    paneId,
+                    viewerState.zoomed ?? false
+                  );
+                  if (!restored.ok) throw new Error(restored.message);
+                }).catch((caught) => {
+                  addNotification({
+                    type: 'warning',
+                    title: 'Pane state needs attention',
+                    message: caught instanceof Error
+                      ? caught.message
+                      : 'The selected pane could not be restored after reconnecting.',
+                    sessionId,
+                  });
+                }).finally(() => {
+                  reconcilingViewerRef.current = false;
+                  setReconcilingViewer(false);
+                });
+              }
               updateReadOnly(msg.readonly ?? false);
               updateLagMessage(null);
               fitAndResize();
@@ -361,6 +402,7 @@ export function useTerminalConnection({
 
       ws.onclose = (event) => {
         if (wsRef.current !== ws) return;
+        navigationRequestsRef.current?.cancelAll();
         wsRef.current = null;
         const deliberate = intentionalCloseRef.current || terminalEndedRef.current;
         const idleTimedOut = idleTimedOutRef.current;
@@ -437,6 +479,7 @@ export function useTerminalConnection({
     connectingRef.current = false;
     connectionGenerationRef.current += 1;
     clearReconnectTimer();
+    navigationRequestsRef.current?.cancelAll();
 
     const ws = wsRef.current;
     wsRef.current = null;
@@ -467,6 +510,7 @@ export function useTerminalConnection({
     connectingRef.current = false;
     connectionGenerationRef.current += 1;
     clearReconnectTimer();
+    navigationRequestsRef.current?.cancelAll();
 
     wsRef.current = null;
     if (ws) {
@@ -491,12 +535,20 @@ export function useTerminalConnection({
     sendTerminalNavigation(wsRef.current, message)
   ), [wsRef]);
 
+  const focusPane = useCallback((targetPaneId: string, zoom: boolean) => (
+    navigationRequestsRef.current!.focusPane(targetPaneId, zoom)
+  ), []);
+
   const sendInput = useCallback((data: string) => {
     if (readOnlyRef.current) return;
+    const terminalSnapshot = terminalHostStore.getSnapshot();
+    const persistentViewerSwitching = terminalSnapshot.navigation?.status === 'pending'
+      && terminalSnapshot.attachmentDescriptor?.sessionId === sessionId;
+    if (interactionBlocked || reconcilingViewerRef.current || persistentViewerSwitching) return;
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'input', data }));
     }
-  }, [wsRef]);
+  }, [interactionBlocked, sessionId, wsRef]);
 
   const updateViewportHeight = useCallback(() => {
     const container = containerRef.current;
@@ -589,11 +641,13 @@ export function useTerminalConnection({
     errorMessage,
     lagMessage,
     readOnly,
+    reconcilingViewer,
     connect,
     disconnect,
     suspend,
     takeControl,
     navigate,
+    focusPane,
     sendInput,
   };
 }

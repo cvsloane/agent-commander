@@ -111,3 +111,31 @@ export function recordEventPayloadValidation(
     event_type: status === 'unknown' ? '__unknown__' : eventType,
   });
 }
+
+export type TerminalNavigationOperation = 'focus_pane' | 'viewer_state';
+export type TerminalNavigationResult = 'success' | 'failure' | 'abandoned';
+
+export const terminalNavigationTotal = new client.Counter({
+  name: 'agent_command_terminal_navigation_total',
+  help: 'Count of acknowledged terminal viewer operations by bounded result.',
+  labelNames: ['operation', 'result'] as const,
+  registers: [registry],
+});
+
+export const terminalNavigationDurationSeconds = new client.Histogram({
+  name: 'agent_command_terminal_navigation_duration_seconds',
+  help: 'End-to-end acknowledgement latency for terminal viewer operations.',
+  labelNames: ['operation', 'result'] as const,
+  buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10],
+  registers: [registry],
+});
+
+export function recordTerminalNavigation(
+  operation: TerminalNavigationOperation,
+  result: TerminalNavigationResult,
+  durationSeconds: number
+): void {
+  const labels = { operation, result };
+  terminalNavigationTotal.inc(labels);
+  terminalNavigationDurationSeconds.observe(labels, Math.max(0, durationSeconds));
+}

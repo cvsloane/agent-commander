@@ -73,6 +73,7 @@ func TestProtocolFixtureMatrixRoundTripsProductionTypes(t *testing.T) {
 		protocol.TypeTerminalAttach, protocol.TypeTerminalInput, protocol.TypeTerminalResize,
 		protocol.TypeTerminalNavigate,
 		protocol.TypeTerminalDetach, protocol.TypeTerminalControl, protocol.TypeTerminalOutput,
+		protocol.TypeTerminalNavigationResult,
 		protocol.TypeTerminalAttached, protocol.TypeTerminalDetached, protocol.TypeTerminalError,
 		protocol.TypeTerminalReadOnly, protocol.TypeTerminalLag, protocol.TypeTerminalAudit,
 		protocol.TypeTmuxTopology,
@@ -158,6 +159,8 @@ func fixtureMessageTarget(t *testing.T, messageType string, agentMessage bool) a
 		return &protocol.ServerMessage[protocol.TerminalChannelPayload]{}
 	case protocol.TypeTerminalOutput:
 		return &protocol.AgentMessage[protocol.TerminalOutputPayload]{}
+	case protocol.TypeTerminalNavigationResult:
+		return &protocol.AgentMessage[protocol.TerminalNavigationResultPayload]{}
 	case protocol.TypeTerminalAudit:
 		return &protocol.AgentMessage[protocol.TerminalAuditPayload]{}
 	case protocol.TypeTmuxTopology:

@@ -36,6 +36,8 @@ interface TerminalViewProps {
   tmuxSessionKey?: string;
   className?: string;
   autoAttach?: boolean;
+  preferLocalChat?: boolean;
+  interactionBlocked?: boolean;
   controllerRef?: MutableRefObject<TerminalController | null>;
   onControllerChange?: (controller: TerminalController | null) => void;
   onTerminalInstanceChange?: (terminal: XTerminal | null) => void;
@@ -53,6 +55,8 @@ export function TerminalView({
   tmuxSessionKey,
   className,
   autoAttach = false,
+  preferLocalChat = false,
+  interactionBlocked = false,
   controllerRef,
   onControllerChange,
   onTerminalInstanceChange = noopTerminalInstanceChange,
@@ -67,6 +71,10 @@ export function TerminalView({
   const [searchOpen, setSearchOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyOverlaySessionId, setHistoryOverlaySessionId] = useState<string | null>(null);
+  const [chatRefreshToken, setChatRefreshToken] = useState(0);
+  const chatRefreshTimerRef = useRef<number | null>(null);
+  const preferLocalChatRef = useRef(preferLocalChat);
+  preferLocalChatRef.current = preferLocalChat;
   const [, setScrollModeCacheVersion] = useState(0);
   const [stickyCtrlMode, setStickyCtrlMode] = useState<StickyCtrlMode>('inactive');
   const [keyboardActive, setKeyboardActive] = useState(false);
@@ -87,6 +95,11 @@ export function TerminalView({
   const touchInputModeEnabled = useIsMobile(COMMAND_CENTER_SHELL_BREAKPOINT);
   const terminalFontSize = useSettingsStore((state) => state.terminalFontSize);
   const setTerminalFontSize = useSettingsStore((state) => state.setTerminalFontSize);
+  const storedPresentation = useSettingsStore(
+    (state) => state.terminalPresentationBySession[historySessionId]
+  );
+  const setTerminalPresentation = useSettingsStore((state) => state.setTerminalPresentation);
+  const terminalPresentation = storedPresentation ?? (preferLocalChat ? 'chat' : 'terminal');
   const tmuxPrefix = useSettingsStore((state) =>
     hostId ? state.tmuxPrefixByHost[hostId] : undefined
   );
@@ -133,6 +146,13 @@ export function TerminalView({
     (terminal: XTerminal, data: string | Uint8Array) => {
       handleScrollOutputWritten(terminal);
       handleCommandMarksOutput(terminal, data);
+      if (preferLocalChatRef.current) {
+        if (chatRefreshTimerRef.current !== null) window.clearTimeout(chatRefreshTimerRef.current);
+        chatRefreshTimerRef.current = window.setTimeout(() => {
+          chatRefreshTimerRef.current = null;
+          setChatRefreshToken((token) => token + 1);
+        }, 750);
+      }
     },
     [handleCommandMarksOutput, handleScrollOutputWritten]
   );
@@ -214,11 +234,13 @@ export function TerminalView({
     errorMessage,
     lagMessage,
     readOnly,
+    reconcilingViewer,
     connect,
     disconnect,
     suspend,
     takeControl,
     navigate,
+    focusPane,
     sendInput,
   } = useTerminalConnection({
     sessionId,
@@ -232,7 +254,9 @@ export function TerminalView({
     getDimensions,
     onOutputStart: handleOutputStart,
     onOutputWritten: handleTerminalOutputWritten,
+    interactionBlocked,
   });
+  const effectiveInteractionBlocked = interactionBlocked || reconcilingViewer;
   const terminalWritable = status === 'connected' && !readOnly;
   controllerReadOnlyRef.current = readOnly;
   const cacheScrollMode = useCallback((targetSessionId: string, mode: TerminalScrollMode) => {
@@ -335,12 +359,20 @@ export function TerminalView({
     resetTouchModes();
     setHistoryOverlaySessionId(null);
   }, [resetTouchModes, status]);
-  const closeHistoryOverlay = useCallback(() => setHistoryOverlaySessionId(null), []);
+  const closeHistoryOverlay = useCallback(() => {
+    setHistoryOverlaySessionId(null);
+    if (preferLocalChat) setTerminalPresentation(historySessionId, 'terminal');
+  }, [historySessionId, preferLocalChat, setTerminalPresentation]);
   const openHistoryOverlay = useCallback(() => {
     if (!tmuxSessionKey || !historySessionId) return;
+    if (preferLocalChat) setTerminalPresentation(historySessionId, 'chat');
     setHistoryOverlaySessionId(historySessionId);
-  }, [historySessionId, tmuxSessionKey]);
+  }, [historySessionId, preferLocalChat, setTerminalPresentation, tmuxSessionKey]);
   const historyOverlayOpen = historyOverlaySessionId === historySessionId;
+  useEffect(() => {
+    if (!preferLocalChat || terminalPresentation !== 'chat' || status !== 'connected') return;
+    setHistoryOverlaySessionId(historySessionId);
+  }, [historySessionId, preferLocalChat, status, terminalPresentation]);
   useEffect(() => {
     if (historyOverlaySessionId && historyOverlaySessionId !== historySessionId) {
       setHistoryOverlaySessionId(null);
@@ -402,6 +434,7 @@ export function TerminalView({
       suspend,
       takeControl,
       navigate,
+      focusPane,
       resetTouchModes,
       focus: () => terminalRef.current?.focus(),
       copySelection,
@@ -432,6 +465,7 @@ export function TerminalView({
     disconnect,
     onControllerChange,
     navigate,
+    focusPane,
     paste,
     resetTouchModes,
     terminalRef,
@@ -451,6 +485,10 @@ export function TerminalView({
   useEffect(() => {
     const touchState = touchScrollRef.current;
     return () => {
+      if (chatRefreshTimerRef.current !== null) {
+        window.clearTimeout(chatRefreshTimerRef.current);
+        chatRefreshTimerRef.current = null;
+      }
       if (touchState.momentumRaf !== null) {
         cancelAnimationFrame(touchState.momentumRaf);
         touchState.momentumRaf = null;
@@ -472,7 +510,11 @@ export function TerminalView({
   return (
     <div
       ref={containerRef}
-      className={cn('terminal-viewport flex flex-col h-full min-h-0', className)}
+      className={cn(
+        'flex h-full min-h-0 flex-col',
+        touchInputModeEnabled && 'terminal-viewport',
+        className
+      )}
     >
       <TerminalToolbar
         status={status}
@@ -508,6 +550,10 @@ export function TerminalView({
         historyOverlayOpen={historyOverlayOpen}
         historySessionId={historySessionId}
         historyFontSize={terminalFontSize}
+        preferLocalChat={preferLocalChat}
+        chatRefreshToken={chatRefreshToken}
+        interactionBlocked={effectiveInteractionBlocked}
+        onOpenChat={openHistoryOverlay}
         onHistoryScrollModeResolved={handleHistoryScrollModeResolved}
         onCloseHistoryOverlay={closeHistoryOverlay}
         tmuxPrefix={tmuxPrefix}

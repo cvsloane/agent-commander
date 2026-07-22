@@ -11,6 +11,7 @@ export interface TerminalHostDescriptor {
   tmuxSessionKey?: string;
   autoAttach: boolean;
   letterbox?: TerminalGridDimensions;
+  preferLocalChat?: boolean;
 }
 
 export interface TerminalHostSnapshot {
@@ -23,7 +24,18 @@ export interface TerminalHostSnapshot {
   status: ConnectionStatus;
   readOnly: boolean;
   resumeAvailable: boolean;
+  navigation: {
+    status: 'pending' | 'error';
+    targetSessionId: string;
+    message?: string;
+  } | null;
 }
+
+export type FocusWithinAttachmentResult =
+  | { status: 'unavailable' }
+  | { status: 'success' }
+  | { status: 'error'; message: string }
+  | { status: 'superseded' };
 
 interface SurfaceRegistration {
   id: string;
@@ -44,6 +56,7 @@ const EMPTY_SNAPSHOT: TerminalHostSnapshot = {
   status: 'disconnected',
   readOnly: false,
   resumeAvailable: false,
+  navigation: null,
 };
 
 export function getTerminalDescriptorKey(descriptor: TerminalHostDescriptor): string {
@@ -65,6 +78,7 @@ export function createTerminalHostStore() {
   let controller: TerminalController | null = null;
   let activeControllerRef: MutableRefObject<TerminalController | null> | undefined;
   const pendingRetargetDescriptorKeys = new Set<string>();
+  let navigationGeneration = 0;
 
   const emit = () => {
     for (const listener of listeners) listener();
@@ -110,6 +124,7 @@ export function createTerminalHostStore() {
     const preserveNavigatedAttachment = sameTmuxSession && (
       pendingRetargetDescriptorKeys.has(targetDescriptorKey) || alreadySelected
     );
+    const completesPendingRetarget = pendingRetargetDescriptorKeys.has(targetDescriptorKey);
     const descriptorKey = preserveNavigatedAttachment && snapshot.descriptorKey
       ? snapshot.descriptorKey
       : targetDescriptorKey;
@@ -138,6 +153,10 @@ export function createTerminalHostStore() {
       status: descriptorChanged ? 'disconnected' : snapshot.status,
       readOnly: descriptorChanged ? false : snapshot.readOnly,
       resumeAvailable: descriptorChanged ? false : snapshot.resumeAvailable,
+      navigation: completesPendingRetarget
+        && snapshot.navigation?.targetSessionId === activeSurface.descriptor.sessionId
+        ? null
+        : snapshot.navigation,
     };
     emit();
   };
@@ -202,6 +221,54 @@ export function createTerminalHostStore() {
       }
       return navigated;
     },
+    async focusWithinAttachment(
+      descriptor: TerminalHostDescriptor,
+      zoom: boolean
+    ): Promise<FocusWithinAttachmentResult> {
+      if (
+        !descriptor.paneId
+        || !descriptor.tmuxSessionKey
+        || descriptor.tmuxSessionKey !== snapshot.attachmentDescriptor?.tmuxSessionKey
+        || controller?.status !== 'connected'
+      ) {
+        return { status: 'unavailable' };
+      }
+
+      const generation = ++navigationGeneration;
+      snapshot = {
+        ...snapshot,
+        navigation: { status: 'pending', targetSessionId: descriptor.sessionId },
+      };
+      emit();
+      const result = await controller.focusPane(descriptor.paneId, zoom);
+      if (generation !== navigationGeneration) return { status: 'superseded' };
+
+      if (!result.ok || result.pane_id !== descriptor.paneId || result.zoomed !== zoom) {
+        const message = result.ok
+          ? 'Tmux reported a different pane or zoom state.'
+          : result.message;
+        snapshot = {
+          ...snapshot,
+          navigation: {
+            status: 'error',
+            targetSessionId: descriptor.sessionId,
+            message,
+          },
+        };
+        emit();
+        return { status: 'error', message };
+      }
+
+      const targetDescriptorKey = getTerminalDescriptorKey(descriptor);
+      const alreadySelected = snapshot.descriptor
+        && getTerminalDescriptorKey(snapshot.descriptor) === targetDescriptorKey;
+      if (!alreadySelected) {
+        pendingRetargetDescriptorKeys.add(targetDescriptorKey);
+      }
+      snapshot = { ...snapshot, navigation: alreadySelected ? null : snapshot.navigation };
+      emit();
+      return { status: 'success' };
+    },
     setTerminalInstance(descriptorKey: string, instance: XTerminal | null) {
       if (snapshot.descriptorKey !== descriptorKey) return;
       snapshot = { ...snapshot, terminalInstance: instance };
@@ -218,6 +285,7 @@ export function createTerminalHostStore() {
       controller = null;
       order = 0;
       pendingRetargetDescriptorKeys.clear();
+      navigationGeneration += 1;
       snapshot = EMPTY_SNAPSHOT;
       emit();
     },

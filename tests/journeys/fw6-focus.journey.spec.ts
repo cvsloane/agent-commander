@@ -278,6 +278,7 @@ test.describe('FW6 mobile Focus journey', () => {
     )).toHaveLength(0);
     await page.getByRole('button', { name: 'Live terminal' }).click();
 
+    const claudeTranscriptStart = recorder.transcriptRequests.length;
     await page
       .getByTestId('tmux-window-strip')
       .first()
@@ -287,21 +288,11 @@ test.describe('FW6 mobile Focus journey', () => {
     await expect.poll(() => recorder.terminalWebSocketUrls.length).toBe(terminalWebSocketCount);
     await waitForScrollModeProbe(page, recorder, windowSession.id);
 
-    const claudeMessageStart = recorder.terminalMessages.length;
-    const claudeTranscriptStart = recorder.transcriptRequests.length;
-    await dragTerminal(page, 140);
-    await expect.poll(() => recorder.transcriptRequests.length).toBe(claudeTranscriptStart + 1);
-    await expect(page.getByTestId('terminal-history-overlay')).toHaveCount(0);
-    expect(recorder.terminalMessages.slice(claudeMessageStart).filter(
-      (message) => message.type === 'navigate' && message.op === 'scroll'
-    )).toHaveLength(0);
-
-    const fallbackMessageStart = recorder.terminalMessages.length;
-    await dragTerminal(page, 140);
-    await expect.poll(() => recorder.terminalMessages.slice(fallbackMessageStart).filter(
-      (message) => message.type === 'navigate' && message.op === 'scroll'
-    ).length).toBeGreaterThan(0);
-    await expect(page.getByTestId('terminal-history-overlay')).toHaveCount(0);
+    const claudeOverlay = page.getByTestId('terminal-history-overlay');
+    await expect(claudeOverlay).toBeVisible();
+    await expect(claudeOverlay.getByRole('alert')).toContainText('Claude chat is unavailable');
+    await expect.poll(() => recorder.transcriptRequests.length).toBeGreaterThan(claudeTranscriptStart);
+    await claudeOverlay.getByRole('button', { name: 'Terminal' }).click();
 
     const priorInteractiveProbeCount = recorder.scrollbackSessionIds.filter(
       (sessionId) => sessionId === interactiveSession.id
@@ -326,11 +317,13 @@ test.describe('FW6 mobile Focus journey', () => {
     )).toHaveLength(0);
   });
 
-  test('routes a transcript-error claude pane to cached app scroll', async ({
+  test('keeps a transcript-error Claude pane explicit and input-free', async ({
     page,
   }) => {
     await signIn(page);
     await selectSession(page);
+    const transcriptStart = recorder.transcriptRequests.length;
+    const messageStart = recorder.terminalMessages.length;
     await page
       .getByTestId('tmux-window-strip')
       .first()
@@ -338,31 +331,16 @@ test.describe('FW6 mobile Focus journey', () => {
       .click();
     await expect(page).toHaveURL(new RegExp(`session_id=${windowSession.id}`));
     await waitForScrollModeProbe(page, recorder, windowSession.id);
-    const scrollbackCount = recorder.scrollbackRequests.length;
-    const messageStart = recorder.terminalMessages.length;
-    const transcriptStart = recorder.transcriptRequests.length;
-
-    await dragTerminal(page, 140);
-
-    await expect.poll(() => recorder.transcriptRequests.length).toBe(transcriptStart + 1);
-    await expect(page.getByTestId('terminal-history-overlay')).toHaveCount(0);
-    expect(recorder.terminalMessages.slice(messageStart).filter(
-      (message) => message.type === 'navigate' && message.op === 'scroll'
-    )).toHaveLength(0);
-
-    const fallbackMessageStart = recorder.terminalMessages.length;
-    await dragTerminal(page, 140);
-    await expect.poll(() => recorder.terminalMessages.slice(fallbackMessageStart).filter(
-      (message) => message.type === 'navigate' && message.op === 'scroll'
-    ).length).toBeGreaterThan(0);
-    await expect(page.getByTestId('terminal-history-overlay')).toHaveCount(0);
-    expect(recorder.scrollbackRequests).toHaveLength(scrollbackCount + 1);
+    const overlay = page.getByTestId('terminal-history-overlay');
+    await expect(overlay).toBeVisible();
+    await expect(overlay.getByRole('alert')).toContainText('Claude chat is unavailable');
+    await expect.poll(() => recorder.transcriptRequests.length).toBeGreaterThan(transcriptStart);
     expect(recorder.terminalMessages.slice(messageStart).filter(
       (message) => message.type === 'input'
     )).toHaveLength(0);
   });
 
-  test('auto-closes an unclassified thin overlay and caches app scroll', async ({ page }) => {
+  test('keeps explicit Claude chat open while scrollback classification is slow', async ({ page }) => {
     await page.route(/\/v1\/sessions\/[^/]+\/scrollback$/, async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 800));
       await route.fallback();
@@ -376,21 +354,12 @@ test.describe('FW6 mobile Focus journey', () => {
       .click();
     await expect(page).toHaveURL(new RegExp(`session_id=${windowSession.id}`));
 
-    const messageStart = recorder.terminalMessages.length;
-    await dragTerminal(page, 140);
     const overlay = page.getByTestId('terminal-history-overlay');
     await expect(overlay).toBeVisible();
-    await expect(overlay).toHaveCount(0, { timeout: 8000 });
-    expect(recorder.terminalMessages.slice(messageStart).filter(
-      (message) => message.type === 'navigate' && message.op === 'scroll'
-    )).toHaveLength(0);
-
-    const appScrollStart = recorder.terminalMessages.length;
-    await dragTerminal(page, 140);
-    await expect.poll(() => recorder.terminalMessages.slice(appScrollStart).filter(
-      (message) => message.type === 'navigate' && message.op === 'scroll'
-    ).length).toBeGreaterThan(0);
+    await expect(overlay.getByRole('alert')).toContainText('Claude chat is unavailable');
+    await overlay.getByRole('button', { name: 'Terminal' }).click();
     await expect(overlay).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Claude chat' })).toBeVisible();
   });
 
   test('keeps the History dialog reachable from pane actions', async ({ page }) => {
@@ -408,32 +377,83 @@ test.describe('FW6 mobile Focus journey', () => {
     await signIn(page);
     await selectSession(page);
 
-    const focus = page.getByRole('button', { name: 'Turn Focus off' });
+    const focus = page.getByRole('button', { name: 'Exit pane focus' });
     await expect
       .poll(() => recorder.terminalMessages)
-      .toContainEqual({ type: 'navigate', op: 'zoom', on: true });
+      .toContainEqual(expect.objectContaining({
+        type: 'navigate',
+        op: 'focus_pane',
+        pane_id: interactiveSession.tmux_pane_id,
+        zoom: true,
+      }));
     await expect(focus).toHaveAttribute('aria-pressed', 'true');
 
     await focus.click();
     await expect
       .poll(() => recorder.terminalMessages)
-      .toContainEqual({ type: 'navigate', op: 'zoom', on: false });
-    const enableFocus = page.getByRole('button', { name: 'Turn Focus on' });
+      .toContainEqual(expect.objectContaining({
+        type: 'navigate',
+        op: 'focus_pane',
+        pane_id: interactiveSession.tmux_pane_id,
+        zoom: false,
+      }));
+    const enableFocus = page.getByRole('button', { name: 'Focus pane' });
     await expect(enableFocus).toHaveAttribute('aria-pressed', 'false');
 
     const priorZoomOnCount = recorder.terminalMessages.filter(
-      (message) => message.type === 'navigate' && message.op === 'zoom' && message.on === true
+      (message) => message.type === 'navigate' && message.op === 'focus_pane' && message.zoom === true
     ).length;
     await enableFocus.click();
     await expect
       .poll(() => recorder.terminalMessages.filter(
-        (message) => message.type === 'navigate' && message.op === 'zoom' && message.on === true
+        (message) => message.type === 'navigate' && message.op === 'focus_pane' && message.zoom === true
       ).length)
       .toBeGreaterThan(priorZoomOnCount);
-    await expect(page.getByRole('button', { name: 'Turn Focus off' })).toHaveAttribute(
+    await expect(page.getByRole('button', { name: 'Exit pane focus' })).toHaveAttribute(
       'aria-pressed',
       'true'
     );
+  });
+});
+
+test.describe('FW6 acknowledged pane switching', () => {
+  test.use({ hasTouch: true });
+
+  test.beforeEach(async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'mobile-412x915', 'mobile pane switching journey');
+    await mockControlPlane(page, {
+      multiWindow: true,
+      focusPaneFailureIds: [windowSession.tmux_pane_id!],
+    });
+  });
+
+  test('keeps the current pane and switcher open when tmux rejects the target', async ({ page }) => {
+    await signIn(page);
+    await selectSession(page);
+    const originalUrl = page.url();
+
+    await page.getByRole('button', { name: 'Open pane switcher' }).click();
+    const switcher = page.getByTestId('tmux-pane-switcher');
+    await switcher.getByRole('button').filter({ hasText: windowSession.title }).click();
+
+    await expect(switcher).toBeVisible();
+    await expect(switcher.getByRole('alert')).toContainText('current pane is still active');
+    await expect(page).toHaveURL(originalUrl);
+  });
+
+  test('rolls the window strip back when tmux rejects the target', async ({ page }) => {
+    await signIn(page);
+    await selectSession(page);
+    const originalUrl = page.url();
+    const windowStrip = page.getByTestId('tmux-window-strip').first();
+    const currentWindow = windowStrip.getByRole('tab', { name: 'Window 0: command-center' });
+    const rejectedWindow = windowStrip.getByRole('tab', { name: 'Window 1: verification' });
+
+    await rejectedWindow.click();
+
+    await expect(currentWindow).toHaveAttribute('aria-selected', 'true');
+    await expect(rejectedWindow).toHaveAttribute('aria-selected', 'false');
+    await expect(page).toHaveURL(originalUrl);
   });
 });
 
@@ -463,13 +483,19 @@ test.describe('FW6 Claude chat overlay journey', () => {
     await waitForScrollModeProbe(page, recorder, windowSession.id);
   }
 
+  test('opens the local Claude chat automatically after a confirmed pane switch', async ({ page }) => {
+    await signIn(page);
+    await selectClaudePane(page);
+
+    await expect(page.getByTestId('terminal-history-overlay')).toBeVisible();
+    await expect(page.getByText('Chat', { exact: true })).toBeVisible();
+    await expect(page.getByText('❯ Ship the chat overlay', { exact: true })).toBeVisible();
+  });
+
   test('opens formatted local chat without navigate or input frames', async ({ page }) => {
     await signIn(page);
     await selectClaudePane(page);
     const messageStart = recorder.terminalMessages.length;
-    const transcriptStart = recorder.transcriptRequests.length;
-
-    await dragTerminal(page, 140);
 
     const overlay = page.getByTestId('terminal-history-overlay');
     await expect(overlay).toBeVisible();
@@ -477,7 +503,7 @@ test.describe('FW6 Claude chat overlay journey', () => {
     await expect(page.getByText('❯ Ship the chat overlay', { exact: true })).toBeVisible();
     await expect(page.getByText('I will render it locally.', { exact: true })).toBeVisible();
     await expect(page.getByText('⏺ Read tasks/chat.md', { exact: true })).toBeVisible();
-    expect(recorder.transcriptRequests.slice(transcriptStart)).toEqual([{ page_size: 200 }]);
+    expect(recorder.transcriptRequests).toContainEqual({ page_size: 200 });
     const gestureMessages = recorder.terminalMessages.slice(messageStart);
     expect(gestureMessages.filter(
       (message) => message.type === 'navigate' && message.op === 'scroll'
@@ -488,7 +514,6 @@ test.describe('FW6 Claude chat overlay journey', () => {
   test('prepends older transcript entries without moving the visible chat', async ({ page }) => {
     await signIn(page);
     await selectClaudePane(page);
-    await dragTerminal(page, 140);
     const history = page.getByLabel('Inline terminal history');
     await expect(history).toBeVisible();
     const initialHeight = await history.evaluate((element) => element.scrollHeight);
@@ -513,5 +538,57 @@ test.describe('FW6 Claude chat overlay journey', () => {
       (message) => message.type === 'navigate' && message.op === 'scroll'
     )).toHaveLength(0);
     expect(pagingMessages.filter((message) => message.type === 'input')).toHaveLength(0);
+  });
+});
+
+test.describe('FW6 Claude desktop chat journey', () => {
+  test.beforeEach(async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-1280x720', 'desktop Claude chat journey');
+    await mockControlPlane(page, {
+      multiWindow: true,
+      transcriptSessionIds: [windowSession.id],
+      liveTranscriptOutput: true,
+    });
+  });
+
+  async function selectDesktopClaudePane(page: Page): Promise<void> {
+    await page.goto('/');
+    await page.getByText('agents', { exact: true }).click();
+    await page.getByRole('treeitem').filter({ hasText: interactiveSession.title }).last().click();
+    await expect(page.getByRole('heading', { name: interactiveSession.title })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Primary terminal' })
+      .getByText('Connected', { exact: true })).toBeVisible();
+    await page
+      .getByTestId('tmux-window-strip')
+      .first()
+      .getByRole('tab', { name: 'Window 1: verification' })
+      .click();
+    await expect(page).toHaveURL(new RegExp(`session_id=${windowSession.id}`));
+  }
+
+  test('persists explicit Chat and Terminal modes', async ({ page }) => {
+    await signIn(page);
+    await selectDesktopClaudePane(page);
+
+    await expect(page.getByTestId('terminal-history-overlay')).toBeVisible();
+    await page.getByTestId('terminal-history-overlay')
+      .getByRole('button', { name: 'Terminal', exact: true })
+      .click();
+    await expect(page.getByTestId('terminal-history-overlay')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Claude chat' })).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Claude chat' })).toBeVisible();
+    await expect(page.getByTestId('terminal-history-overlay')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Claude chat' }).click();
+    await expect(page.getByTestId('terminal-history-overlay')).toBeVisible();
+  });
+
+  test('refreshes visible Claude chat from live terminal output', async ({ page }) => {
+    await signIn(page);
+    await selectDesktopClaudePane(page);
+
+    await expect(page.getByText('❯ Ship the chat overlay', { exact: true })).toBeVisible();
+    await expect(page.getByText('Live transcript update', { exact: true })).toBeVisible();
   });
 });

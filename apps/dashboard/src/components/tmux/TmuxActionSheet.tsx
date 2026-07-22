@@ -39,7 +39,8 @@ interface TmuxActionSheetProps {
   onOpenMcp: () => void;
   onTerminate: () => void;
   onLaunchWindowHere?: () => void;
-  onSelectSession: (sessionId: string) => void;
+  onSelectSession: (sessionId: string) => void | boolean | Promise<boolean>;
+  onSetPaneFocus?: (focused: boolean) => boolean | Promise<boolean>;
 }
 
 export function TmuxActionSheet({
@@ -56,6 +57,7 @@ export function TmuxActionSheet({
   onTerminate,
   onLaunchWindowHere,
   onSelectSession,
+  onSetPaneFocus,
 }: TmuxActionSheetProps) {
   const title = session ? getSessionDisplayName(session) : 'No pane selected';
 
@@ -121,6 +123,7 @@ export function TmuxActionSheet({
               session={session}
               variant="sheet"
               onSelectSession={onSelectSession}
+              onSetPaneFocus={onSetPaneFocus}
             />
           )}
 

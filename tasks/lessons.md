@@ -53,3 +53,7 @@
   Rule: Exempt Ctrl-based global shortcuts inside editable targets, reset mutation state when secret-bearing UI closes, and derive dependent connection schemes from the configured transport with HTTP and HTTPS coverage.
   Correction: Wave 4 review also found that a late fleet reconcile could overwrite fresher WebSocket state, canonical session entries were not bounded by current aggregate/roster membership, and new prompt/Respond paths bypassed terminal read-only permissions.
   Rule: Merge asynchronous snapshots monotonically by authoritative freshness, prune canonical maps during reconciliation, and propagate terminal control state to every PTY-input-equivalent affordance while keeping non-PTY governance actions independently available.
+
+- Date: 2026-07-22
+  Correction: The Claude pane UI updated its selected pane and accepted input before tmux had confirmed the pane and zoom state, which made pane switching unreliable across delays, failures, and reconnects.
+  Rule: Treat pane selection and focus as a verified transaction: keep input fenced and UI state provisional until tmux acknowledges the target state, reconcile actual viewer state after timeouts or reconnects, roll back partial failures, and test delayed, rejected, and resumed paths.

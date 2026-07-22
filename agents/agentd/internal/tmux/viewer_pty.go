@@ -389,6 +389,40 @@ func (b *viewerPTYBridge) SetZoom(on bool) error {
 	return nil
 }
 
+func (b *viewerPTYBridge) State() (TerminalViewerState, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	select {
+	case <-b.closed:
+		return TerminalViewerState{}, fmt.Errorf("viewer PTY is closed")
+	default:
+	}
+
+	output, err := b.runner.Output(
+		"display-message",
+		"-p",
+		"-t",
+		b.viewSession,
+		"#{pane_id}\t#{window_index}\t#{window_zoomed_flag}",
+	)
+	if err != nil {
+		return TerminalViewerState{}, fmt.Errorf("read viewer state: %w", err)
+	}
+	parts := strings.Split(strings.TrimSpace(string(output)), "\t")
+	if len(parts) != 3 || parts[0] == "" {
+		return TerminalViewerState{}, fmt.Errorf("unexpected viewer state %q", strings.TrimSpace(string(output)))
+	}
+	windowIndex, err := strconv.Atoi(parts[1])
+	if err != nil || windowIndex < 0 {
+		return TerminalViewerState{}, fmt.Errorf("unexpected viewer window index %q", parts[1])
+	}
+	return TerminalViewerState{
+		PaneID:      parts[0],
+		WindowIndex: windowIndex,
+		Zoomed:      parts[2] == "1",
+	}, nil
+}
+
 func (b *viewerPTYBridge) DetachChannel(channelID string) {
 	if b.fanout != nil {
 		b.fanout.Detach(channelID)

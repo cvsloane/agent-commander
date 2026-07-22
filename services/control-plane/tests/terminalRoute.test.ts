@@ -135,6 +135,15 @@ async function buildServer(options: {
     message?: string,
     details?: { readonly?: boolean; resumed?: boolean; resume_token?: string; dropped?: number }
   ) => void;
+  handleTerminalNavigationResult: (payload: {
+    channel_id: string;
+    request_id: string;
+    ok: boolean;
+    pane_id?: string;
+    window_index?: number;
+    zoomed?: boolean;
+    message?: string;
+  }) => void;
 }> {
   vi.resetModules();
   vi.stubEnv('JWT_SECRET', jwtSecret);
@@ -157,7 +166,12 @@ async function buildServer(options: {
     hostSupportsTerminal: (candidate: Host | null | undefined) => Boolean(candidate?.capabilities?.terminal),
   }));
 
-  const { registerTerminalRoutes, handleTerminalOutput, handleTerminalStatus } = await import('../src/routes/terminal.js');
+  const {
+    registerTerminalRoutes,
+    handleTerminalNavigationResult,
+    handleTerminalOutput,
+    handleTerminalStatus,
+  } = await import('../src/routes/terminal.js');
   const { pubsub } = await import('../src/services/pubsub.js');
   const app = Fastify({ logger: false });
   await app.register(websocket);
@@ -178,6 +192,7 @@ async function buildServer(options: {
     createAuditLog,
     handleTerminalOutput,
     handleTerminalStatus: handleTerminalStatus as never,
+    handleTerminalNavigationResult,
   };
 }
 
@@ -525,6 +540,99 @@ describe('terminal websocket route', () => {
         { channel_id: attach?.payload.channel_id, op: 'zoom', on: true },
         { channel_id: attach?.payload.channel_id, op: 'scroll', lines: -37 },
       ]);
+    });
+
+    socket.close();
+    await app.close();
+  });
+
+  it('returns verified pane focus and viewer-state results to the requesting browser channel', async () => {
+    const { app, baseWsUrl, agentSend, handleTerminalNavigationResult } = await buildServer();
+    const token = await sign('operator');
+    const socket = browserWebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
+    const requestId = '44444444-4444-4444-8444-444444444444';
+
+    await waitForOpen(socket);
+    await eventually(() => {
+      expect(agentSend).toHaveBeenCalledWith(expect.stringContaining('terminal.attach'));
+    });
+    const attach = agentSend.mock.calls
+      .map(([raw]) => JSON.parse(String(raw)) as { type: string; payload: { channel_id: string } })
+      .find((message) => message.type === 'terminal.attach');
+
+    socket.send(JSON.stringify({
+      type: 'navigate',
+      op: 'focus_pane',
+      request_id: requestId,
+      pane_id: '%7',
+      zoom: true,
+    }));
+    await eventually(() => {
+      const navigation = agentSend.mock.calls
+        .map(([raw]) => JSON.parse(String(raw)) as { type: string; payload: Record<string, unknown> })
+        .find((message) => message.type === 'terminal.navigate' && message.payload.request_id === requestId);
+      expect(navigation?.payload).toEqual({
+        channel_id: attach?.payload.channel_id,
+        op: 'focus_pane',
+        request_id: requestId,
+        pane_id: '%7',
+        zoom: true,
+      });
+    });
+
+    const response = waitForMessage(socket);
+    handleTerminalNavigationResult({
+      channel_id: String(attach?.payload.channel_id),
+      request_id: requestId,
+      ok: true,
+      pane_id: '%7',
+      window_index: 2,
+      zoomed: true,
+    });
+    const message = await response;
+    expect(JSON.parse(message.data.toString())).toEqual({
+      type: 'navigation_result',
+      request_id: requestId,
+      ok: true,
+      pane_id: '%7',
+      window_index: 2,
+      zoomed: true,
+    });
+
+    const stateRequestId = '55555555-5555-4555-8555-555555555555';
+    socket.send(JSON.stringify({
+      type: 'navigate',
+      op: 'viewer_state',
+      request_id: stateRequestId,
+    }));
+    await eventually(() => {
+      const navigation = agentSend.mock.calls
+        .map(([raw]) => JSON.parse(String(raw)) as { type: string; payload: Record<string, unknown> })
+        .find((candidate) => candidate.type === 'terminal.navigate'
+          && candidate.payload.request_id === stateRequestId);
+      expect(navigation?.payload).toEqual({
+        channel_id: attach?.payload.channel_id,
+        op: 'viewer_state',
+        request_id: stateRequestId,
+      });
+    });
+    const stateResponse = waitForMessage(socket);
+    handleTerminalNavigationResult({
+      channel_id: String(attach?.payload.channel_id),
+      request_id: stateRequestId,
+      ok: true,
+      pane_id: '%7',
+      window_index: 2,
+      zoomed: true,
+    });
+    const stateMessage = await stateResponse;
+    expect(JSON.parse(stateMessage.data.toString())).toEqual({
+      type: 'navigation_result',
+      request_id: stateRequestId,
+      ok: true,
+      pane_id: '%7',
+      window_index: 2,
+      zoomed: true,
     });
 
     socket.close();

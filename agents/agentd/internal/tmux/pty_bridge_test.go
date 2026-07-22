@@ -226,6 +226,76 @@ func TestTerminalNavigateSelectPaneUsesViewerSessionOnPrivateTmuxSocket(t *testi
 	}
 }
 
+func TestTerminalFocusPaneSelectsAndZoomsVerifiedTargetOnPrivateTmuxSocket(t *testing.T) {
+	client, _ := newPrivateTmuxClient(t)
+	panes, err := client.ListPanes()
+	if err != nil || len(panes) != 1 {
+		t.Fatalf("initial private panes=%+v err=%v", panes, err)
+	}
+	target, err := client.SplitPaneWithOptions(panes[0].PaneID, "horizontal", nil, "")
+	if err != nil {
+		t.Fatalf("split private pane: %v", err)
+	}
+
+	manager := newTerminalManagerWithRunner(client, newExecTmuxRunner(client), t.TempDir())
+	defer manager.Close()
+	if _, err := manager.AttachWithOptions("focus-pane", panes[0].PaneID, AttachOptions{SessionID: "session-1"}); err != nil {
+		t.Fatalf("attach viewer: %v", err)
+	}
+
+	state, err := manager.FocusPane("focus-pane", target.PaneID, true)
+	if err != nil {
+		t.Fatalf("focus viewer pane: %v", err)
+	}
+	if state.PaneID != target.PaneID || state.WindowIndex != 0 || !state.Zoomed {
+		t.Fatalf("verified viewer state=%+v, want pane=%s window=0 zoomed", state, target.PaneID)
+	}
+}
+
+type failFirstZoomRunner struct {
+	TmuxRunner
+	failed bool
+}
+
+func (r *failFirstZoomRunner) Run(args ...string) error {
+	if !r.failed && len(args) >= 2 && args[0] == "resize-pane" && args[1] == "-Z" {
+		r.failed = true
+		return errors.New("injected zoom failure")
+	}
+	return r.TmuxRunner.Run(args...)
+}
+
+func TestTerminalFocusPaneRollsBackWhenZoomFails(t *testing.T) {
+	client, _ := newPrivateTmuxClient(t)
+	panes, err := client.ListPanes()
+	if err != nil || len(panes) != 1 {
+		t.Fatalf("initial private panes=%+v err=%v", panes, err)
+	}
+	originPaneID := panes[0].PaneID
+	target, err := client.SplitPaneWithOptions(originPaneID, "horizontal", nil, "")
+	if err != nil {
+		t.Fatalf("split private pane: %v", err)
+	}
+
+	runner := &failFirstZoomRunner{TmuxRunner: newExecTmuxRunner(client)}
+	manager := newTerminalManagerWithRunner(client, runner, t.TempDir())
+	defer manager.Close()
+	if _, err := manager.AttachWithOptions("focus-rollback", originPaneID, AttachOptions{SessionID: "session-1"}); err != nil {
+		t.Fatalf("attach viewer: %v", err)
+	}
+
+	if _, err := manager.FocusPane("focus-rollback", target.PaneID, true); err == nil {
+		t.Fatal("focus unexpectedly succeeded")
+	}
+	state, err := manager.viewerByChannel["focus-rollback"].bridge.State()
+	if err != nil {
+		t.Fatalf("read rolled-back viewer state: %v", err)
+	}
+	if state.PaneID != originPaneID || state.Zoomed {
+		t.Fatalf("viewer state after failed focus=%+v, want pane=%s unzoomed", state, originPaneID)
+	}
+}
+
 func TestTerminalNavigateZoomSetsRequestedStateOnPrivateTmuxSocket(t *testing.T) {
 	client, _ := newPrivateTmuxClient(t)
 	panes, err := client.ListPanes()
