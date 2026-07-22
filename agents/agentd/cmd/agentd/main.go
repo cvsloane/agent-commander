@@ -1775,7 +1775,14 @@ func (a *Agent) send(msgType string, payload any) error {
 	var err error
 	if a.sendMessage != nil {
 		err = a.sendMessage(msgType, payload)
-	} else if msgType == protocol.TypeTmuxTopology || msgType == protocol.TypeTerminalNavigationResult {
+	} else if msgType == protocol.TypeTmuxTopology ||
+		msgType == protocol.TypeTerminalNavigationResult ||
+		msgType == protocol.TypeTerminalAttached ||
+		msgType == protocol.TypeTerminalDetached ||
+		msgType == protocol.TypeTerminalError ||
+		msgType == protocol.TypeTerminalReadOnly ||
+		msgType == protocol.TypeTerminalControl ||
+		msgType == protocol.TypeTerminalLag {
 		err = a.wsClient.SendUnsequenced(msgType, payload)
 	} else {
 		err = a.wsClient.Send(msgType, payload)
@@ -5480,12 +5487,6 @@ func (a *Agent) handleTerminalAttach(payload json.RawMessage) {
 		ResumeToken: result.ResumeToken,
 		Resumed:     &resumed,
 	})
-	if result.ReadOnly {
-		a.handleTerminalStatus(req.ChannelID, "readonly", "Read-only: another viewer has control")
-	} else {
-		a.handleTerminalStatus(req.ChannelID, "control", "Control granted")
-	}
-
 	log.Printf("Terminal attached: channel=%s pane=%s mode=%s", req.ChannelID, req.PaneID, map[bool]string{true: "PTY", false: "FIFO"}[isPTYMode])
 }
 

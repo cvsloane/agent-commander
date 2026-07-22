@@ -62,6 +62,7 @@ func NewClient(url, token, hostID string, backoff []int) *Client {
 	}
 	dialer := *websocket.DefaultDialer
 	dialer.HandshakeTimeout = dialTimeout
+	dialer.EnableCompression = true
 	c := &Client{
 		url:     url,
 		token:   token,

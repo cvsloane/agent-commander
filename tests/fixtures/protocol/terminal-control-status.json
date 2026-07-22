@@ -1,1 +1,1 @@
-{"v":1,"type":"terminal.control","ts":"2026-07-19T20:00:28Z","seq":22,"payload":{"channel_id":"33333333-3333-4333-8333-333333333333","message":"Control granted"}}
+{"v":1,"type":"terminal.control","ts":"2026-07-19T20:00:28Z","payload":{"channel_id":"33333333-3333-4333-8333-333333333333","message":"Control granted"}}

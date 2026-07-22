@@ -1,1 +1,1 @@
-{"v":1,"type":"terminal.detached","ts":"2026-07-19T20:00:25Z","seq":19,"payload":{"channel_id":"33333333-3333-4333-8333-333333333333","message":"viewer detached"}}
+{"v":1,"type":"terminal.detached","ts":"2026-07-19T20:00:25Z","payload":{"channel_id":"33333333-3333-4333-8333-333333333333","message":"viewer detached"}}

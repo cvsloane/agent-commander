@@ -248,6 +248,50 @@ describe('persistent terminal host', () => {
     });
   });
 
+  it('lets tmux verify focus when same-host session metadata drifts', async () => {
+    const host = createTerminalHostStore();
+    const attached = {
+      sessionId: 'session-a',
+      hostId: 'host-1',
+      paneId: '%1',
+      tmuxSessionKey: 'host-1\u0000SloaneVault',
+      autoAttach: true,
+    };
+    const refreshed = {
+      ...attached,
+      tmuxSessionKey: 'host-1\u0000SloaneVault-renamed',
+    };
+    const focusPane = vi.fn(async () => ({
+      type: 'navigation_result' as const,
+      request_id: '44444444-4444-4444-8444-444444444444',
+      ok: true as const,
+      pane_id: '%1',
+      window_index: 1,
+      zoomed: true,
+    }));
+    host.registerSurface({
+      id: 'primary',
+      descriptor: attached,
+      target: {} as HTMLDivElement,
+      visible: true,
+    });
+    host.setController({ ...controller(false), focusPane });
+
+    await expect(host.focusWithinAttachment(refreshed, true)).resolves.toEqual({
+      status: 'success',
+    });
+    expect(focusPane).toHaveBeenCalledWith('%1', true);
+    expect(host.getSnapshot().navigation).toBeNull();
+
+    await expect(host.focusWithinAttachment({
+      ...refreshed,
+      hostId: 'host-2',
+    }, true)).resolves.toEqual({
+      status: 'unavailable',
+    });
+    expect(focusPane).toHaveBeenCalledTimes(1);
+  });
+
   it('emits navigation only when the target shares the live attachment key', () => {
     const host = createTerminalHostStore();
     const descriptor = {

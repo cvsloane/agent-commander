@@ -227,8 +227,8 @@ export function createTerminalHostStore() {
     ): Promise<FocusWithinAttachmentResult> {
       if (
         !descriptor.paneId
-        || !descriptor.tmuxSessionKey
-        || descriptor.tmuxSessionKey !== snapshot.attachmentDescriptor?.tmuxSessionKey
+        || !descriptor.hostId
+        || descriptor.hostId !== snapshot.attachmentDescriptor?.hostId
         || controller?.status !== 'connected'
       ) {
         return { status: 'unavailable' };

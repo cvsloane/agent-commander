@@ -269,12 +269,21 @@ func TestTerminalAttachSupersedesStaleChannelAfterControlPlaneReconnect(t *testi
 		}
 
 		for {
+			var raw map[string]json.RawMessage
+			if err := conn.ReadJSON(&raw); err != nil {
+				return
+			}
 			var envelope protocol.AgentEnvelope
-			if err := conn.ReadJSON(&envelope); err != nil {
+			encoded, err := json.Marshal(raw)
+			if err != nil || json.Unmarshal(encoded, &envelope) != nil {
 				return
 			}
 			if envelope.Type != protocol.TypeTerminalAttached {
 				continue
+			}
+			if _, exists := raw["seq"]; exists {
+				t.Errorf("terminal.attached contains durable sequence: %s", raw["seq"])
+				return
 			}
 			var status protocol.TerminalStatusPayload
 			if err := json.Unmarshal(envelope.Payload, &status); err != nil || status.ChannelID != attach.ChannelID {

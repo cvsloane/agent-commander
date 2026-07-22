@@ -35,6 +35,13 @@ func waitEnvelope(t *testing.T, messages <-chan receivedEnvelope) receivedEnvelo
 	}
 }
 
+func TestNewClientEnablesWebSocketCompression(t *testing.T) {
+	client := NewClient("ws://127.0.0.1:1", "token", "host", []int{1})
+	if !client.dialer.EnableCompression {
+		t.Fatal("agent websocket compression is disabled")
+	}
+}
+
 func TestDisconnectedDurableAndVolatileLanes(t *testing.T) {
 	dir := t.TempDir()
 	q, err := queue.NewQueue(dir, 100)

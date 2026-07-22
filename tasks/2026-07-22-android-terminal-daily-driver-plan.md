@@ -3,7 +3,7 @@
 ## Approval
 
 - Human Owner: Chris Sloane
-- Status: approved scope; execution in progress
+- Status: approved
 - Approved at: 2026-07-22T12:04:25-04:00
 - Approved scope/version: `1719c8c` — v1 shared terminal repair plus Android connect-and-control MVP; Primary Codex agent is the AI Lead/orchestrator
 
@@ -35,10 +35,10 @@ Agent Command has a meaningful terminal on the existing live web app and a signe
 |---|---|---|---|---|---|
 | Human Owner | Chris Sloane | Human judgment | No substitute | Samsung device and production UX | Scope changes and final subjective usefulness only |
 | AI Lead | Primary Codex orchestrator in this project thread | `gpt-5.6-sol`, xhigh | Same model on homelinux, then HOLD | heavisidelinux integration checkout | Coordination, shared contract, integration, receipts, rollout |
-| Builder | One active Codex Sol builder | `gpt-5.6-sol`, xhigh | Same model on homelinux, then HOLD | Isolated worktree per lane | One acceptance-bearing vertical slice at a time |
+| Builder | One Android Codex Sol builder | `gpt-5.6-sol`, xhigh | Same model on homelinux, then HOLD | Isolated Android worktree | One acceptance-bearing native slice under `apps/android/**` |
 | Reviewer | Fresh Codex Sol reviewer | `gpt-5.6-sol`, xhigh | Fresh same-model context on alternate machine, then HOLD | Clean review worktree, never builder session | Independent checklist review of frozen changes |
 
-Role assignments may change between stages, but no agent reviews its own deliverable. Only one Builder is active at a time; Reviewer work begins after a candidate is frozen.
+Role assignments may change between stages, but no agent reviews its own deliverable. The Android Builder may run beside the AI Lead and a read-only Reviewer because their owned files and responsibilities do not overlap.
 
 ## Machine Model Availability
 
@@ -70,11 +70,11 @@ Fable is unavailable because its quota is exhausted. Same-model review is accept
 
 | Workstream | Builder | Deliverable | Owned paths/systems | Ground truth | Dependencies |
 |---|---|---|---|---|---|
-| W1 — Shared terminal repair | One Codex Sol builder | Production web terminal with usable viewport, rendering, input, scroll, and acknowledged pane/window switching | Existing dashboard terminal/tmux components, shared terminal schema, control-plane terminal route, agentd terminal/viewer code, directly related existing tests | Reproduced live attach; production logs; existing unit/Go/Playwright path; Chris's laptop path | Approved plan and production baseline `7b30df0` |
-| W2 — Android vertical slice | One Codex Sol builder after W1 | GPL Android module with authentication, roster, one native terminal renderer, existing-session connect/control workflow, and authenticated web/PWA APK delivery | `apps/android/**`; minimal shared protocol fixtures; W1-approved server/auth seams; one dashboard settings/download route; dashboard runtime APK copy seam | APK build/signature; existing dashboard route/page checks; real public control-plane connection; Samsung install/use | W1 production rollout and live laptop acceptance |
+| W1 — Shared terminal repair | AI Lead/integrator plus fresh Reviewer | Production web terminal with usable viewport, rendering, input, scroll, and acknowledged pane/window switching | Existing dashboard terminal/tmux components, shared terminal schema, control-plane terminal route, agentd terminal/viewer code, directly related existing tests | Reproduced live attach; production logs; existing unit/Go/Playwright path; Chris's laptop path | Approved plan and production baseline `7b30df0` |
+| W2 — Android vertical slice | One Codex Sol builder in parallel with W1 | GPL Android module with authentication, roster, one native terminal renderer, and existing-session connect/control workflow | Isolated worktree; `apps/android/**` only during the parallel foundation slice; shared contract and dashboard integration changes remain AI Lead-owned | APK build/signature; Android compile/lint/unit checks; later real public control-plane connection and Samsung install/use | Frozen existing public auth/terminal contract; shared-contract integration waits for W1 acceptance |
 | W3 — Integration and daily-use rollout | AI Lead plus fresh reviewer | Merged/deployed web repair, agentd rollout if required, Bitwarden-backed credentials, signed APK, receipts, and final acceptance result | Integration worktree, Coolify production app, installed agentd binary, Bitwarden Agent Command project, Android signing artifacts outside Git | Production version identity, service health/logs, clean Git state, APK signature/install, real web and phone workflows | W1 and W2 accepted |
 
-The topology is paired and sequential. Maximum useful parallelism is the AI Lead plus one Builder; review replaces the Builder rather than adding another simultaneous implementation lane.
+The topology is a small fleet: the AI Lead owns shared web/protocol integration and production rollout while an isolated Android Builder advances `apps/android/**` against the frozen existing contract. A fresh read-only Reviewer may inspect W1 concurrently. Shared schema, dashboard APK delivery, and final integration remain serialized behind the AI Lead so parallelism does not create file or contract collisions. Maximum useful parallelism is the AI Lead, one Android Builder, and one fresh Reviewer/scout.
 
 ## Anti-Overengineering Controls
 

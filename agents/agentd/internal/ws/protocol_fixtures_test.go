@@ -47,7 +47,8 @@ func TestProtocolFixtureMatrixRoundTripsProductionTypes(t *testing.T) {
 			}
 			seenTypes[envelope.Type] = true
 
-			target := fixtureMessageTarget(t, envelope.Type, envelope.Seq != nil)
+			agentMessage := envelope.Seq != nil || filepath.Base(path) == "terminal-control-status.json"
+			target := fixtureMessageTarget(t, envelope.Type, agentMessage)
 			assertJSONRoundTrip(t, data, target)
 
 			if envelope.Type == protocol.TypeCommandsDispatch {
@@ -167,10 +168,10 @@ func fixtureMessageTarget(t *testing.T, messageType string, agentMessage bool) a
 		return &protocol.AgentMessage[protocol.TmuxTopologyPayload]{}
 	case protocol.TypeTerminalAttached, protocol.TypeTerminalDetached, protocol.TypeTerminalError,
 		protocol.TypeTerminalReadOnly, protocol.TypeTerminalLag:
-		return &protocol.AgentMessage[protocol.TerminalStatusPayload]{}
+		return &protocol.ServerMessage[protocol.TerminalStatusPayload]{}
 	case protocol.TypeTerminalControl:
 		if agentMessage {
-			return &protocol.AgentMessage[protocol.TerminalStatusPayload]{}
+			return &protocol.ServerMessage[protocol.TerminalStatusPayload]{}
 		}
 		return &protocol.ServerMessage[protocol.TerminalChannelPayload]{}
 	default:

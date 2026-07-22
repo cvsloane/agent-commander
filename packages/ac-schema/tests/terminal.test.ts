@@ -144,7 +144,6 @@ describe('terminal protocol', () => {
 
     const status = TerminalStatusMessageSchema.parse({
       v: 1,
-      seq: 1,
       type: 'terminal.attached',
       ts: '2026-07-19T16:00:00.000Z',
       payload: {
@@ -155,6 +154,7 @@ describe('terminal protocol', () => {
       },
     });
     expect(status.payload).toMatchObject({ resume_token: 'resume-token', resumed: true });
+    expect(status).not.toHaveProperty('seq');
   });
 
   it('accepts durable terminal audit messages from agentd', () => {

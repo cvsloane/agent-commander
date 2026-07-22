@@ -137,9 +137,8 @@ export function TmuxTerminalWorkspace({
   const readOnly = terminalHostSnapshot.descriptor?.sessionId === primarySession.id
     && terminalHostSnapshot.readOnly;
   const interactionBlocked = terminalHostSnapshot.navigation?.status === 'pending';
-  const primaryTmuxSessionKey = getTmuxViewerSessionKey(primarySession);
   const paneFocusAvailable = terminalHostSnapshot.status === 'connected'
-    && terminalHostSnapshot.attachmentDescriptor?.tmuxSessionKey === primaryTmuxSessionKey
+    && terminalHostSnapshot.attachmentDescriptor?.hostId === primarySession.host_id
     && !interactionBlocked;
   const setPrimaryPaneFocus = useCallback(async (focused: boolean) => {
     const result = await terminalHostStore.focusWithinAttachment({
