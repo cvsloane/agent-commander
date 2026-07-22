@@ -366,9 +366,6 @@ func (c *Client) Send(msgType string, payload any) error {
 // participate in the durable agent sequence. It is used for full-state events
 // whose frozen contract omits seq and whose next snapshot supersedes the last.
 func (c *Client) SendUnsequenced(msgType string, payload any) error {
-	c.sendMu.Lock()
-	defer c.sendMu.Unlock()
-
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal payload: %w", err)
@@ -384,6 +381,8 @@ func (c *Client) SendUnsequenced(msgType string, payload any) error {
 		return fmt.Errorf("failed to marshal %s envelope: %w", msgType, err)
 	}
 
+	// c.mu serializes the actual WebSocket write. Deliberately avoid sendMu:
+	// unsequenced live responses must not wait behind durable queue fsync.
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.conn == nil || !c.ready {

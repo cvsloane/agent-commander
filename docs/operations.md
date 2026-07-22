@@ -26,7 +26,12 @@ This guide covers operational best practices for running Agent Commander.
 
 - Run database migrations before restarting services.
 - Upgrade the dashboard and control plane together when possible.
-- Upgrade agentd with the same release to keep schema in sync.
+- For releases that change the live agent protocol, upgrade the control plane before
+  agentd; roll back agentd before rolling back the control plane. In particular,
+  control planes that support unsequenced `terminal.navigation_result` messages must
+  be live before an agentd version that emits them.
+- Upgrade agentd with the same release after the control plane is healthy to keep the
+  fleet schema in sync.
 
 ## Secrets
 

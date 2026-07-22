@@ -78,7 +78,6 @@ describe('terminal protocol', () => {
 
     const result = TerminalNavigationResultMessageSchema.parse({
       v: 1,
-      seq: 3,
       type: 'terminal.navigation_result',
       ts: '2026-07-21T16:00:00.000Z',
       payload: {
@@ -91,6 +90,7 @@ describe('terminal protocol', () => {
       },
     });
     expect(result.payload).toMatchObject({ request_id: requestId, ok: true, pane_id: '%7' });
+    expect(result).not.toHaveProperty('seq');
   });
 
   it('accepts a viewer-state reconciliation request after an uncertain focus result', () => {

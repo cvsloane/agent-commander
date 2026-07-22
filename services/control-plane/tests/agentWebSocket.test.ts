@@ -49,6 +49,7 @@ async function buildServer(
   subscribeToCommandResults: (send: ReturnType<typeof vi.fn>) => () => void;
   publishTmuxTopology: (authenticatedHostId: string, message: Record<string, unknown>) => void;
   handleTerminalStatus: ReturnType<typeof vi.fn>;
+  handleTerminalNavigationResult: ReturnType<typeof vi.fn>;
   createAuditLog: ReturnType<typeof vi.fn>;
 }> {
   vi.resetModules();
@@ -104,7 +105,9 @@ async function buildServer(
     sessionGraph: { upsert: upsertEdge },
   }));
   const handleTerminalStatus = vi.fn();
+  const handleTerminalNavigationResult = vi.fn();
   vi.doMock('../src/routes/terminal.js', () => ({
+    handleTerminalNavigationResult,
     handleTerminalOutput: vi.fn(),
     handleTerminalStatus,
   }));
@@ -144,6 +147,7 @@ async function buildServer(
     subscribeToCommandResults,
     publishTmuxTopology,
     handleTerminalStatus,
+    handleTerminalNavigationResult,
     createAuditLog,
   };
 }
@@ -284,6 +288,41 @@ describe('agent websocket ingest', () => {
     expect(socket.readyState).toBe(WebSocket.OPEN);
 
     unsubscribe();
+    socket.close();
+    await app.close();
+  });
+
+  it('delivers unsequenced terminal navigation results outside the durable cursor', async () => {
+    const { app, url, handleTerminalNavigationResult } = await buildServer(
+      vi.fn(async () => undefined)
+    );
+    const socket = new WebSocket(`${url}/v1/agent/connect`, {
+      headers: { Authorization: 'Bearer test-agent-token' },
+    });
+    await new Promise<void>((resolve) => socket.once('open', resolve));
+    socket.send(JSON.stringify(hello()));
+    await waitForMessage(socket);
+
+    const payload = {
+      channel_id: '33333333-3333-4333-8333-333333333333',
+      request_id: '44444444-4444-4444-8444-444444444444',
+      ok: true,
+      pane_id: '%7',
+      window_index: 2,
+      zoomed: true,
+    };
+    socket.send(JSON.stringify({
+      v: 1,
+      type: 'terminal.navigation_result',
+      ts: '2026-07-22T21:35:00Z',
+      payload,
+    }));
+
+    await vi.waitFor(() => {
+      expect(handleTerminalNavigationResult).toHaveBeenCalledWith(payload, hostId);
+    });
+    expect(socket.readyState).toBe(WebSocket.OPEN);
+
     socket.close();
     await app.close();
   });

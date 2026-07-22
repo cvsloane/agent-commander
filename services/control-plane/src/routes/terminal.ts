@@ -107,19 +107,23 @@ export function handleTerminalOutput(
 }
 
 export function handleTerminalNavigationResult(
-  payload: TerminalNavigationResultMessage['payload']
+  payload: TerminalNavigationResultMessage['payload'],
+  sourceHostId: string
 ): void {
-  const pending = pendingNavigationRequests.get(payload.request_id);
-  if (pending?.channelId === payload.channel_id) {
-    pendingNavigationRequests.delete(payload.request_id);
-    recordTerminalNavigation(
-      pending.operation,
-      payload.ok ? 'success' : 'failure',
-      (Date.now() - pending.startedAt) / 1000
-    );
-  }
   const channel = activeChannels.get(payload.channel_id);
-  if (!channel) return;
+  const pending = pendingNavigationRequests.get(payload.request_id);
+  if (
+    !channel
+    || channel.hostId !== sourceHostId
+    || pending?.channelId !== payload.channel_id
+  ) return;
+
+  pendingNavigationRequests.delete(payload.request_id);
+  recordTerminalNavigation(
+    pending.operation,
+    payload.ok ? 'success' : 'failure',
+    (Date.now() - pending.startedAt) / 1000
+  );
 
   try {
     const browserMessage: BrowserTerminalNavigationResultMessage = payload.ok
@@ -473,7 +477,7 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
                   request_id: correlatedNavigation.request_id,
                   ok: false,
                   message: 'Host agent is not available.',
-                });
+                }, channel.hostId);
               }
               resetIdleTimeout(activeChannelId);
               break;
