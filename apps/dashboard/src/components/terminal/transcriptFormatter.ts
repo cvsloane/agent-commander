@@ -146,10 +146,14 @@ function wrapDisplayLine(line: TranscriptDisplayLine, maxColumns: number): Trans
   for (let start = 0; start < characters.length;) {
     let end = Math.min(characters.length, start + width);
     if (end < characters.length) {
-      for (let candidate = end - 1; candidate > start; candidate -= 1) {
-        if (/\s/u.test(characters[candidate] || '')) {
-          end = candidate + 1;
-          break;
+      if (/\s/u.test(characters[end] || '')) {
+        while (end < characters.length && /\s/u.test(characters[end] || '')) end += 1;
+      } else {
+        for (let candidate = end - 1; candidate > start; candidate -= 1) {
+          if (/\s/u.test(characters[candidate] || '')) {
+            end = candidate + 1;
+            break;
+          }
         }
       }
     }

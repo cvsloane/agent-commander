@@ -28,7 +28,7 @@
 | W1-R4 focused verification | pass | DOM renderer locked into the existing scrollback journey; passive waiting-input overlays absent; approvals and errors retained; fresh re-review pass | AI Lead | Live laptop check |
 | W1-R5 focused verification | pass | Existing letterbox journey failed at 7 px horizontal overflow, passes after moving padding into `.xterm`; scrollback, desktop cold-open, typecheck, and fresh review pass | AI Lead | PR and CI |
 | W1-R6 focused verification | pass | Stable xterm 6.0 DOM renderer carries upstream PR #5998's missing-row clear-and-continue fix; existing journey changes and restores wrapped rows exactly across three cycles at mobile and desktop viewports; build, Docker build, CI, and fresh review pass | AI Lead | Live laptop check |
-| W1 live laptop | waiting | W1-R6 is live with the dynamic stale-DOM-row defect fixed at its renderer source | Human Owner | Hard refresh, then repeat wrapped scrollback check |
+| W1 live laptop | waiting | W1-R6 deployed successfully, but the owner rejected the painted surface; W1-R7's word-boundary candidate is under review | Human Owner | Recheck after W1-R7 deploys |
 | W2 launch | held | Accepted shared terminal contract on the real production path | AI Lead | W1 production laptop PASS |
 
 ## Current Risks and Escalations

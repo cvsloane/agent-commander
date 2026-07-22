@@ -69,4 +69,17 @@ describe('Claude transcript formatter', () => {
     ]);
     expect(lines.map((line) => line.text).join('')).toBe(text);
   });
+
+  it('keeps the next word whole when the previous word exactly fills the width', () => {
+    const lines = formatTranscriptEntries(
+      [{ type: 'assistant', message: { role: 'assistant', content: 'word word' } }],
+      4
+    );
+
+    expect(lines).toEqual([
+      { text: 'word ', dim: false },
+      { text: 'word', dim: false },
+    ]);
+    expect(lines.map((line) => line.text).join('')).toBe('word word');
+  });
 });
