@@ -222,6 +222,8 @@ export interface JourneyRecorder {
   launchRequests: unknown[];
   scrollbackRequests: unknown[];
   scrollbackSessionIds: string[];
+  transcriptRequests: Array<{ page_size?: number; before_entry?: number }>;
+  transcriptSessionIds: string[];
   terminalMessages: Array<{
     type?: string;
     data?: string;
@@ -240,6 +242,7 @@ interface MockOptions {
   terminalOutput?: string;
   multiWindow?: boolean;
   appScrollSessionIds?: string[];
+  transcriptSessionIds?: string[];
 }
 
 async function fulfillJson(route: Route, body: unknown): Promise<void> {
@@ -380,6 +383,41 @@ function historyContent(prefix: string, count: number): string {
   return Array.from({ length: count }, (_, index) => `${prefix} ${index + 1}`).join('\n') + '\n';
 }
 
+function recentTranscriptEntries(): Array<Record<string, unknown>> {
+  return [
+    ...Array.from({ length: 197 }, (_, index) => ({
+      type: 'assistant',
+      message: { role: 'assistant', content: `Recent transcript line ${index + 1}` },
+    })),
+    { type: 'user', message: { role: 'user', content: 'Ship the chat overlay' } },
+    {
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'I will render it locally.' },
+          { type: 'thinking', thinking: 'not shown' },
+        ],
+      },
+    },
+    {
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'tool_use', name: 'Read', input: { path: 'tasks/chat.md' } }],
+      },
+    },
+  ];
+}
+
+function olderTranscriptEntries(): Array<Record<string, unknown>> {
+  return [
+    { type: 'user', message: { role: 'user', content: 'Earlier request' } },
+    { type: 'assistant', message: { role: 'assistant', content: 'Earlier answer' } },
+    { type: 'progress', message: { content: 'hidden progress' } },
+  ];
+}
+
 export async function mockControlPlane(
   page: Page,
   options: MockOptions = {}
@@ -397,6 +435,8 @@ export async function mockControlPlane(
     launchRequests: [],
     scrollbackRequests: [],
     scrollbackSessionIds: [],
+    transcriptRequests: [],
+    transcriptSessionIds: [],
     terminalMessages: [],
     terminalSessionIds: [],
     terminalWebSocketUrls: [],
@@ -541,6 +581,32 @@ export async function mockControlPlane(
           ),
           line_count: lineCount,
           capture_mode: 'range',
+        },
+      });
+      return;
+    }
+    if (request.method() === 'POST' && /^\/v1\/sessions\/[^/]+\/transcript$/.test(url.pathname)) {
+      const body = request.postDataJSON() as { page_size?: number; before_entry?: number };
+      const transcriptSessionId = url.pathname.split('/')[3] || '';
+      recorder.transcriptRequests.push(body);
+      recorder.transcriptSessionIds.push(transcriptSessionId);
+      if (!options.transcriptSessionIds?.includes(transcriptSessionId)) {
+        await fulfillJson(route, {
+          cmd_id: '77777777-7777-4777-8777-777777777777',
+          ok: false,
+          error: { code: 'no_transcript', message: 'Claude transcript is unavailable' },
+        });
+        return;
+      }
+      const olderPage = body.before_entry !== undefined;
+      await fulfillJson(route, {
+        cmd_id: '77777777-7777-4777-8777-777777777777',
+        ok: true,
+        result: {
+          entries: olderPage ? olderTranscriptEntries() : recentTranscriptEntries(),
+          first_entry: olderPage ? 0 : 3,
+          total_entries: 203,
+          source: 'hook',
         },
       });
       return;

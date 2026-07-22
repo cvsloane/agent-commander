@@ -288,8 +288,17 @@ test.describe('FW6 mobile Focus journey', () => {
     await waitForScrollModeProbe(page, recorder, windowSession.id);
 
     const claudeMessageStart = recorder.terminalMessages.length;
+    const claudeTranscriptStart = recorder.transcriptRequests.length;
     await dragTerminal(page, 140);
-    await expect.poll(() => recorder.terminalMessages.slice(claudeMessageStart).filter(
+    await expect.poll(() => recorder.transcriptRequests.length).toBe(claudeTranscriptStart + 1);
+    await expect(page.getByTestId('terminal-history-overlay')).toHaveCount(0);
+    expect(recorder.terminalMessages.slice(claudeMessageStart).filter(
+      (message) => message.type === 'navigate' && message.op === 'scroll'
+    )).toHaveLength(0);
+
+    const fallbackMessageStart = recorder.terminalMessages.length;
+    await dragTerminal(page, 140);
+    await expect.poll(() => recorder.terminalMessages.slice(fallbackMessageStart).filter(
       (message) => message.type === 'navigate' && message.op === 'scroll'
     ).length).toBeGreaterThan(0);
     await expect(page.getByTestId('terminal-history-overlay')).toHaveCount(0);
@@ -317,7 +326,7 @@ test.describe('FW6 mobile Focus journey', () => {
     )).toHaveLength(0);
   });
 
-  test('routes a resolved claude-like pane to app scroll without leaving an overlay', async ({
+  test('routes a transcript-error claude pane to cached app scroll', async ({
     page,
   }) => {
     await signIn(page);
@@ -331,14 +340,23 @@ test.describe('FW6 mobile Focus journey', () => {
     await waitForScrollModeProbe(page, recorder, windowSession.id);
     const scrollbackCount = recorder.scrollbackRequests.length;
     const messageStart = recorder.terminalMessages.length;
+    const transcriptStart = recorder.transcriptRequests.length;
 
     await dragTerminal(page, 140);
 
-    await expect.poll(() => recorder.terminalMessages.slice(messageStart).filter(
+    await expect.poll(() => recorder.transcriptRequests.length).toBe(transcriptStart + 1);
+    await expect(page.getByTestId('terminal-history-overlay')).toHaveCount(0);
+    expect(recorder.terminalMessages.slice(messageStart).filter(
+      (message) => message.type === 'navigate' && message.op === 'scroll'
+    )).toHaveLength(0);
+
+    const fallbackMessageStart = recorder.terminalMessages.length;
+    await dragTerminal(page, 140);
+    await expect.poll(() => recorder.terminalMessages.slice(fallbackMessageStart).filter(
       (message) => message.type === 'navigate' && message.op === 'scroll'
     ).length).toBeGreaterThan(0);
     await expect(page.getByTestId('terminal-history-overlay')).toHaveCount(0);
-    expect(recorder.scrollbackRequests).toHaveLength(scrollbackCount);
+    expect(recorder.scrollbackRequests).toHaveLength(scrollbackCount + 1);
     expect(recorder.terminalMessages.slice(messageStart).filter(
       (message) => message.type === 'input'
     )).toHaveLength(0);
@@ -416,5 +434,84 @@ test.describe('FW6 mobile Focus journey', () => {
       'aria-pressed',
       'true'
     );
+  });
+});
+
+test.describe('FW6 Claude chat overlay journey', () => {
+  test.use({ hasTouch: true });
+
+  let recorder: JourneyRecorder;
+
+  test.beforeEach(async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'mobile-412x915', 'mobile Claude chat journey');
+    recorder = await mockControlPlane(page, {
+      multiWindow: true,
+      terminalOutput: '\x1b[?1049h\x1b[?1002h\x1b[?1006h',
+      appScrollSessionIds: [windowSession.id],
+      transcriptSessionIds: [windowSession.id],
+    });
+  });
+
+  async function selectClaudePane(page: Page): Promise<void> {
+    await selectSession(page);
+    await page
+      .getByTestId('tmux-window-strip')
+      .first()
+      .getByRole('tab', { name: 'Window 1: verification' })
+      .click();
+    await expect(page).toHaveURL(new RegExp(`session_id=${windowSession.id}`));
+    await waitForScrollModeProbe(page, recorder, windowSession.id);
+  }
+
+  test('opens formatted local chat without navigate or input frames', async ({ page }) => {
+    await signIn(page);
+    await selectClaudePane(page);
+    const messageStart = recorder.terminalMessages.length;
+    const transcriptStart = recorder.transcriptRequests.length;
+
+    await dragTerminal(page, 140);
+
+    const overlay = page.getByTestId('terminal-history-overlay');
+    await expect(overlay).toBeVisible();
+    await expect(page.getByText('Chat', { exact: true })).toBeVisible();
+    await expect(page.getByText('❯ Ship the chat overlay', { exact: true })).toBeVisible();
+    await expect(page.getByText('I will render it locally.', { exact: true })).toBeVisible();
+    await expect(page.getByText('⏺ Read tasks/chat.md', { exact: true })).toBeVisible();
+    expect(recorder.transcriptRequests.slice(transcriptStart)).toEqual([{ page_size: 200 }]);
+    const gestureMessages = recorder.terminalMessages.slice(messageStart);
+    expect(gestureMessages.filter(
+      (message) => message.type === 'navigate' && message.op === 'scroll'
+    )).toHaveLength(0);
+    expect(gestureMessages.filter((message) => message.type === 'input')).toHaveLength(0);
+  });
+
+  test('prepends older transcript entries without moving the visible chat', async ({ page }) => {
+    await signIn(page);
+    await selectClaudePane(page);
+    await dragTerminal(page, 140);
+    const history = page.getByLabel('Inline terminal history');
+    await expect(history).toBeVisible();
+    const initialHeight = await history.evaluate((element) => element.scrollHeight);
+    const messageStart = recorder.terminalMessages.length;
+
+    await history.evaluate((element) => {
+      element.scrollTop = 0;
+      element.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+
+    await expect.poll(() => recorder.transcriptRequests.slice(-2)).toEqual([
+      { page_size: 200 },
+      { page_size: 200, before_entry: 3 },
+    ]);
+    await expect.poll(async () => history.evaluate((element, previousHeight) => (
+      Math.abs(element.scrollTop - (element.scrollHeight - previousHeight)) <= 1
+    ), initialHeight)).toBe(true);
+    await expect(page.getByText('Start of chat', { exact: true })).toBeVisible();
+    await expect(page.getByText('❯ Earlier request', { exact: true })).toBeVisible();
+    const pagingMessages = recorder.terminalMessages.slice(messageStart);
+    expect(pagingMessages.filter(
+      (message) => message.type === 'navigate' && message.op === 'scroll'
+    )).toHaveLength(0);
+    expect(pagingMessages.filter((message) => message.type === 'input')).toHaveLength(0);
   });
 });
