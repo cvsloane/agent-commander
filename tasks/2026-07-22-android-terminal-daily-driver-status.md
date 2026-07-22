@@ -5,7 +5,7 @@
 - Overall state: running
 - Last updated: 2026-07-22T18:16:26-04:00
 - Current accepted baseline: production functionality through `997e522d71eef5dadd85a20139377f8848fb9a45`, with the remaining renderer artifact rejected
-- Current candidate: production through `bf8887b`; an uncommitted W1 follow-up removes terminal lifecycle traffic from the durable sender lane, enables agent WebSocket compression, and makes same-host connected attachment the UI focus gate
+- Current candidate: reviewed W1 focus/transport repair `b3cdef9`; production remains at `bf8887b` pending CI and control-plane-first rollout
 - Budget used/remaining: setup complete; 7-day project ceiling remains
 - Next Human Owner checkpoint: production laptop terminal-use verdict
 
@@ -13,7 +13,7 @@
 
 | Lane | Current role | State | Deliverable/ref | Last proof | Blocked on | Next action |
 |---|---|---|---|---|---|---|
-| W1 — Shared terminal repair | AI Lead/integrator plus fresh Reviewer | running | Direct fix for slow focus acknowledgement and false post-attach focus unavailability | Red/green focused Go, schema, control-plane, and dashboard proofs pass; final rerun/review pending | Nothing | Finish narrow verification, review, integrate, deploy, and prove on production |
+| W1 — Shared terminal repair | AI Lead/integrator plus fresh Reviewer | ready for PR | `b3cdef9` removes lifecycle traffic from the durable lane, enables compression, and uses the safe same-host focus gate | Go/schema/control-plane/dashboard checks, five desktop focus journeys, one mobile focus journey, builds, and fresh review pass | Nothing | Push, run CI, merge, deploy control plane first, then both agents, and prove production |
 | W2 — Android vertical slice | Isolated Android Builder | dispatching | First buildable native Android foundation under `apps/android/**` | Approved acceptance/non-goals and existing public contract are frozen for the lane | Nothing | Build the smallest acceptance-bearing native slice in parallel; report exact integration seams |
 | W3 — Integration and rollout | AI Lead | running | Current W1 production plus W2 integration preparation | Production through `bf8887b`; prior deployment/rollback receipts retained | W1 candidate review and W2 handoff | Own shared contracts, APK-from-PWA seam, merge, rollout, and real-path acceptance |
 
