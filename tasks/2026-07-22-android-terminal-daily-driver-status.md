@@ -1,11 +1,11 @@
 # Android Terminal Daily Driver — Status
 
 - Plan status/version: approved `1719c8c` scope, approval recorded 2026-07-22T12:04:25-04:00
-- Current phase: parallel W1 focus/transport repair and W2 Android foundation
+- Current phase: W1 live acceptance and W2 Android review/integration
 - Overall state: running
-- Last updated: 2026-07-22T18:16:26-04:00
+- Last updated: 2026-07-22T18:34:05-04:00
 - Current accepted baseline: production functionality through `997e522d71eef5dadd85a20139377f8848fb9a45`, with the remaining renderer artifact rejected
-- Current candidate: reviewed W1 focus/transport repair `b3cdef9`; production remains at `bf8887b` pending CI and control-plane-first rollout
+- Current candidate: W1 is live at merge `12889bf` with identical agentd SHA-256 `96b732ee42eb98b53315a7da2e7b76e628e796aaffc0e4aad0e741deb2770b86` on both hosts; corrected Android foundation `f464360` has a fresh PASS and is ready for release integration
 - Budget used/remaining: setup complete; 7-day project ceiling remains
 - Next Human Owner checkpoint: production laptop terminal-use verdict
 
@@ -13,9 +13,9 @@
 
 | Lane | Current role | State | Deliverable/ref | Last proof | Blocked on | Next action |
 |---|---|---|---|---|---|---|
-| W1 — Shared terminal repair | AI Lead/integrator plus fresh Reviewer | ready for PR | `b3cdef9` removes lifecycle traffic from the durable lane, enables compression, and uses the safe same-host focus gate | Go/schema/control-plane/dashboard checks, five desktop focus journeys, one mobile focus journey, builds, and fresh review pass | Nothing | Push, run CI, merge, deploy control plane first, then both agents, and prove production |
-| W2 — Android vertical slice | Isolated Android Builder | dispatching | First buildable native Android foundation under `apps/android/**` | Approved acceptance/non-goals and existing public contract are frozen for the lane | Nothing | Build the smallest acceptance-bearing native slice in parallel; report exact integration seams |
-| W3 — Integration and rollout | AI Lead | running | Current W1 production plus W2 integration preparation | Production through `bf8887b`; prior deployment/rollback receipts retained | W1 candidate review and W2 handoff | Own shared contracts, APK-from-PWA seam, merge, rollout, and real-path acceptance |
+| W1 — Shared terminal repair | AI Lead/integrator plus Human Owner | deployed | PR #107 merge `12889bf`; Coolify `z4ig8vlvpgvcncvzhiahnl2d`; identical agentd on both hosts | Full CI, fresh review, exact-source containers, one process per host, and public health `ok` with two agents | Live laptop interaction | Chris verifies connect/focus/switch responsiveness on the real laptop path |
+| W2 — Android vertical slice | Android Builder plus fresh Reviewer | ready for integration | Corrected native foundation `f464360` under `apps/android/**` | Gradle test/lint/debug build, v2 debug signature, INTERNET-only permission, no PTY/JNI, and fresh re-review PASS | Samsung/live-endpoint gates after release rollout | Integrate and release-sign |
+| W3 — Integration and rollout | AI Lead | running | Authenticated APK route/settings card/Docker copy plus release-signing seam | Dashboard lint/build and real Docker build pass; dedicated keystore is outside Git and backed up in Bitwarden | W2 merge and signed artifact | Sign, verify, push/merge/deploy, then run real-path acceptance |
 
 ## Open Gates
 
@@ -39,6 +39,7 @@
 
 ## Immediate Next Sequence
 
-1. AI Lead finishes, reviews, deploys, and proves the direct W1 focus/transport repair on the production path.
-2. Android Builder advances the first buildable native slice concurrently in an isolated worktree without modifying shared contracts.
-3. AI Lead integrates the Android handoff and authenticated web/PWA APK delivery after each lane has an accepted candidate.
+1. Chris verifies W1 connect/focus/switch responsiveness on the live laptop path.
+2. AI Lead integrates corrected Android foundation `f464360`, release signing, and authenticated web/PWA APK delivery.
+3. AI Lead verifies and deploys the release-signed artifact and authenticated download path.
+4. Chris performs the irreducible laptop and Samsung interaction gates.

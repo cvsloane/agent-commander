@@ -42,6 +42,7 @@ RUN adduser --system --uid 1001 nextjs
 COPY --from=builder /app/apps/dashboard/public ./apps/dashboard/public
 COPY --from=builder --chown=nextjs:nodejs /app/apps/dashboard/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/apps/dashboard/.next/static ./apps/dashboard/.next/static
+COPY --chown=nextjs:nodejs android-distribution ./android-distribution
 
 USER nextjs
 
