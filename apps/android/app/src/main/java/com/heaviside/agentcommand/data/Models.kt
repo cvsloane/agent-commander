@@ -6,7 +6,10 @@ package com.heaviside.agentcommand.data
 data class SavedCredentials(
     val endpoint: String,
     val accessCode: String,
-)
+) {
+    override fun toString(): String =
+        "SavedCredentials(endpoint=$endpoint, accessCode=<redacted>)"
+}
 
 data class Host(
     val id: String,

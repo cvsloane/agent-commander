@@ -14,6 +14,17 @@ import org.junit.Test
 
 class AgentCommandContractTest {
     @Test
+    fun `saved credentials never render the access code`() {
+        val credentials = SavedCredentials(
+            endpoint = "https://agent-command.example.com",
+            accessCode = "do-not-log-this",
+        )
+
+        assertFalse(credentials.toString().contains("do-not-log-this"))
+        assertTrue(credentials.toString().contains("<redacted>"))
+    }
+
+    @Test
     fun `public endpoint requires https`() {
         assertThrows(IllegalArgumentException::class.java) {
             AgentCommandApi.requireEndpoint("http://agent-command.example.com")

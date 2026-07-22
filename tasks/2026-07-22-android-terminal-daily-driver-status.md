@@ -30,7 +30,7 @@
 | W1-R6 focused verification | pass | Stable xterm 6.0 DOM renderer carries upstream PR #5998's missing-row clear-and-continue fix; existing journey changes and restores wrapped rows exactly across three cycles at mobile and desktop viewports; build, Docker build, CI, and fresh review pass | AI Lead | Live laptop check |
 | W1-R7 focused verification | pass | Real production overlay reproduced hard word fragments; red/green formatter proof, exact-width boundary case, affected journey, build/typecheck, fresh review, CI, and repeat production painted-surface probe pass with zero split boundaries or clipping | AI Lead | Live laptop check |
 | W1 live laptop | waiting | W1-R7 is live on the actual Claude transcript overlay; automated painted-surface proof passes, human verdict pending | Human Owner | Hard refresh, then repeat Claude chat scrollback check |
-| W2 launch | running | Android-owned files are isolated from the active W1/shared-contract diff | Android Builder | First buildable APK/foundation handoff |
+| W2 build/review | pass | Corrected Android foundation through `f464360` is integrated; Gradle test/lint/release and final fresh review pass | AI Lead | Preserve through CI; complete Samsung/live-endpoint gates after rollout |
 
 ## Current Risks and Escalations
 

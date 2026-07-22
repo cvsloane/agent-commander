@@ -56,7 +56,7 @@ export default function SettingsPage() {
                 GPLv3 source and build instructions are available in the{' '}
                 <a
                   className="underline underline-offset-2 hover:text-foreground"
-                  href="https://github.com/cvsloane/agent-commander/tree/main/apps/android"
+                  href="https://github.com/cvsloane/agent-commander/tree/5071e128ce9822fbeae24bc54fd6187ebffccb5b/apps/android"
                   rel="noreferrer"
                   target="_blank"
                 >
