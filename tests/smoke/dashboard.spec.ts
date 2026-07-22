@@ -522,11 +522,24 @@ async function mockControlPlane(
     // Keep the mocked event stream open; REST fixtures drive these smoke tests.
   });
   await page.routeWebSocket(/\/v1\/ui\/terminal\/[^?]+\?/, (socket) => {
-    latestTerminalRows = Number(new URL(socket.url()).searchParams.get('rows')) || 0;
+    const terminalUrl = new URL(socket.url());
+    const attachedSessionId = terminalUrl.pathname.split('/').at(-1);
+    let currentPaneId = tmuxSessions.find((session) => session.id === attachedSessionId)
+      ?.tmux_pane_id ?? tmuxSessions[0].tmux_pane_id;
+    let currentZoom = false;
+    latestTerminalRows = Number(terminalUrl.searchParams.get('rows')) || 0;
     recordedTerminalInputs = [];
     socket.onMessage((message) => {
       if (typeof message !== 'string') return;
-      const parsed = JSON.parse(message) as { type?: string; rows?: number; data?: string };
+      const parsed = JSON.parse(message) as {
+        type?: string;
+        rows?: number;
+        data?: string;
+        op?: string;
+        request_id?: string;
+        pane_id?: string;
+        zoom?: boolean;
+      };
       if (parsed.type === 'input' && typeof parsed.data === 'string') {
         recordedTerminalInputs.push(parsed.data);
       }
@@ -543,6 +556,34 @@ async function mockControlPlane(
       }
       if (parsed.type === 'control') {
         socket.send(JSON.stringify({ type: 'control' }));
+      }
+      if (parsed.type === 'navigate' && parsed.request_id && parsed.op === 'viewer_state') {
+        socket.send(JSON.stringify({
+          type: 'navigation_result',
+          request_id: parsed.request_id,
+          ok: true,
+          pane_id: currentPaneId,
+          window_index: 0,
+          zoomed: currentZoom,
+        }));
+      }
+      if (
+        parsed.type === 'navigate'
+        && parsed.request_id
+        && parsed.op === 'focus_pane'
+        && parsed.pane_id
+        && parsed.zoom !== undefined
+      ) {
+        currentPaneId = parsed.pane_id;
+        currentZoom = parsed.zoom;
+        socket.send(JSON.stringify({
+          type: 'navigation_result',
+          request_id: parsed.request_id,
+          ok: true,
+          pane_id: currentPaneId,
+          window_index: 0,
+          zoomed: currentZoom,
+        }));
       }
     });
   });
@@ -1468,4 +1509,3 @@ test('keeps URL tabs, sheets, and budget context usable at tablet width', async 
   }
   await sheet.getByRole('button', { name: 'Close New automation agent' }).click();
 });
-
