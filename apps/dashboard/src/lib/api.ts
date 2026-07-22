@@ -6,6 +6,7 @@ import {
   LaunchResponseSchema,
   DashboardSpawnResponseSchema,
   OrchestratorFleetResponseSchema,
+  TranscriptResponseSchema,
   type SessionsResponse,
   type SessionGraphResponse,
   type SessionGraphRollup,
@@ -65,6 +66,8 @@ import type {
   AutomationAgentMessageRequest,
   ScrollbackRequest,
   ScrollbackResponse,
+  TranscriptRequest,
+  TranscriptResponse,
 } from '@agent-command/schema';
 export type {
   CaptureMode,
@@ -399,6 +402,16 @@ export async function getSessionScrollback(
     method: 'POST',
     body: JSON.stringify(request),
   });
+}
+
+export async function getSessionTranscript(
+  sessionId: string,
+  request: TranscriptRequest
+): Promise<TranscriptResponse> {
+  return fetchAPI(`/v1/sessions/${sessionId}/transcript`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  }, TranscriptResponseSchema);
 }
 
 export async function deleteSession(id: string): Promise<{ success: boolean }> {

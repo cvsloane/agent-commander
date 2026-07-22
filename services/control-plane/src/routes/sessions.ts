@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import { CommandRequestSchema, CommandPayloadSchema, UpdateSessionRequestSchema, BulkOperationRequestSchema, CopyToSessionPayloadSchema, DashboardSpawnRequestSchema, SCROLLBACK_MAX_LINES, ScrollbackRequestSchema, ScrollbackResponseSchema } from '@agent-command/schema';
+import { CommandRequestSchema, CommandPayloadSchema, UpdateSessionRequestSchema, BulkOperationRequestSchema, CopyToSessionPayloadSchema, DashboardSpawnRequestSchema, SCROLLBACK_MAX_LINES, ScrollbackRequestSchema, ScrollbackResponseSchema, TranscriptRequestSchema, TranscriptResponseSchema } from '@agent-command/schema';
 import * as db from '../db/index.js';
 import { sessionGraph } from '../db/sessionGraph.js';
 import { agentTasks } from '../db/agentTasks.js';
@@ -457,6 +457,74 @@ export function registerSessionRoutes(app: FastifyInstance): void {
         if (!response.ok) {
           return reply.status(502).send({ error: response.error ?? 'Scrollback capture failed', cmd_id: cmdId });
         }
+        return response;
+      } catch (error) {
+        return reply.status(503).send({ error: (error as Error).message });
+      }
+    }
+  );
+
+  // POST /v1/sessions/:id/transcript - Capture bounded Claude chat history
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/v1/sessions/:id/transcript',
+    async (request, reply) => {
+      if (!request.user || !hasRole(request.user, 'operator')) {
+        return reply.status(403).send({ error: 'Forbidden' });
+      }
+      const { id: sessionId } = request.params;
+      if (!z.string().uuid().safeParse(sessionId).success) {
+        return reply.status(400).send({ error: 'Invalid session ID' });
+      }
+
+      const body = TranscriptRequestSchema.safeParse(request.body);
+      if (!body.success) {
+        return reply.status(400).send({ error: 'Invalid transcript request', details: body.error });
+      }
+
+      const session = await db.getSessionById(sessionId);
+      if (!session) {
+        return reply.status(404).send({ error: 'Session not found' });
+      }
+      const host = await db.getHostById(session.host_id);
+      if (!hostSupportsTmuxCommands(host)) {
+        return reply.status(403).send({
+          error: 'Host does not support tmux terminal commands',
+        });
+      }
+
+      const cmdId = randomUUID();
+      try {
+        const result = await commandRouter.dispatchAndWait(
+          session.host_id,
+          sessionId,
+          cmdId,
+          {
+            type: 'capture_transcript',
+            payload: {
+              page_size: body.data.page_size,
+              ...(body.data.before_entry !== undefined
+                ? { before_entry: body.data.before_entry }
+                : {}),
+            },
+          }
+        );
+        const response = TranscriptResponseSchema.parse(result.ok
+          ? { cmd_id: cmdId, ok: true, result: result.result }
+          : {
+              cmd_id: cmdId,
+              ok: false,
+              error: result.error ?? {
+                code: 'transcript_failed',
+                message: 'Transcript capture failed',
+              },
+            });
+        await db.createAuditLog(
+          'session.transcript',
+          'session',
+          sessionId,
+          { cmd_id: cmdId, request: body.data },
+          request.user.id
+        );
         return response;
       } catch (error) {
         return reply.status(503).send({ error: (error as Error).message });

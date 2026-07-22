@@ -55,13 +55,15 @@ type Agent struct {
 	topologyMu       sync.Mutex
 
 	// Session state
-	sessions          map[string]*SessionState
-	sessionsMu        sync.RWMutex
-	snapshotHash      map[string]string
-	toolEventsMu      sync.Mutex
-	pendingToolEvents map[string][]toolEventPending
-	bufferedHooksMu   sync.Mutex
-	bufferedHooks     []bufferedHook
+	sessions           map[string]*SessionState
+	sessionsMu         sync.RWMutex
+	transcriptPaths    map[string]string
+	claudeProjectsRoot string
+	snapshotHash       map[string]string
+	toolEventsMu       sync.Mutex
+	pendingToolEvents  map[string][]toolEventPending
+	bufferedHooksMu    sync.Mutex
+	bufferedHooks      []bufferedHook
 
 	// Approval lifecycle - TTL cache to prevent race conditions
 	recentDecisions   map[string]time.Time
@@ -388,6 +390,7 @@ func runDaemon() {
 	agent := &Agent{
 		cfg:               cfg,
 		sessions:          make(map[string]*SessionState),
+		transcriptPaths:   make(map[string]string),
 		snapshotHash:      make(map[string]string),
 		providerUsageHash: make(map[string]string),
 		pendingToolEvents: make(map[string][]toolEventPending),
@@ -2053,6 +2056,12 @@ func (a *Agent) executeCommand(cmd commands.Dispatch) (map[string]any, error) {
 			break
 		}
 		resultPayload, err = a.executeCapturePaneCommand(session, cmd.Command.Payload)
+	case "capture_transcript":
+		if !exists {
+			err = fmt.Errorf("session not found")
+			break
+		}
+		resultPayload, err = a.executeCaptureTranscriptCommand(session, cmd.Command.Payload)
 	case "copy_to_session":
 		if !exists {
 			err = fmt.Errorf("session not found")
@@ -2923,6 +2932,7 @@ func (a *Agent) executeSpawnSessionWorktree(sessionID string, p protocol.SpawnSe
 		if registered {
 			a.sessionsMu.Lock()
 			delete(a.sessions, sessionID)
+			delete(a.transcriptPaths, sessionID)
 			a.refreshHierarchyMetadataLocked()
 			a.sessionsMu.Unlock()
 		}
@@ -3062,6 +3072,7 @@ func (a *Agent) executeSpawnSessionInteractive(sessionID string, p protocol.Spaw
 		if registered {
 			a.sessionsMu.Lock()
 			delete(a.sessions, sessionID)
+			delete(a.transcriptPaths, sessionID)
 			a.refreshHierarchyMetadataLocked()
 			a.sessionsMu.Unlock()
 		}
@@ -3275,6 +3286,7 @@ func (a *Agent) executeFork(parentSession *SessionState, payload json.RawMessage
 		if registered {
 			a.sessionsMu.Lock()
 			delete(a.sessions, newSessionID)
+			delete(a.transcriptPaths, newSessionID)
 			a.refreshHierarchyMetadataLocked()
 			a.sessionsMu.Unlock()
 		}
@@ -3696,6 +3708,7 @@ func (a *Agent) handleClaudeHook(payload providers.ClaudeHookPayload) (*provider
 		a.bufferHook("claude_code", payload)
 		return nil, nil
 	}
+	a.retainTranscriptPath(sessionID, extractHookString(hookData, "transcript_path", "transcriptPath"))
 	a.markSessionReady(sessionID)
 
 	// Update session status based on hook
@@ -3868,6 +3881,27 @@ func (a *Agent) resolveHookSessionID(payload providers.ClaudeHookPayload) string
 		}
 	}
 	return ""
+}
+
+func (a *Agent) retainTranscriptPath(sessionID, transcriptPath string) {
+	if sessionID == "" || transcriptPath == "" {
+		return
+	}
+	a.sessionsMu.Lock()
+	defer a.sessionsMu.Unlock()
+	if a.sessions[sessionID] == nil {
+		return
+	}
+	if a.transcriptPaths == nil {
+		a.transcriptPaths = make(map[string]string)
+	}
+	a.transcriptPaths[sessionID] = transcriptPath
+}
+
+func (a *Agent) transcriptPathForSession(sessionID string) string {
+	a.sessionsMu.RLock()
+	defer a.sessionsMu.RUnlock()
+	return a.transcriptPaths[sessionID]
 }
 
 func (a *Agent) markSessionReady(sessionID string) {
@@ -5164,6 +5198,7 @@ func (a *Agent) syncPanes(panes []tmux.Pane, procSnap *proc.Snapshot) {
 	}
 	for _, id := range staleIDs {
 		delete(a.sessions, id)
+		delete(a.transcriptPaths, id)
 		delete(a.snapshotHash, id)
 		delete(a.providerUsageHash, id)
 	}

@@ -25,6 +25,7 @@ describe('protocol fixtures', () => {
     'sessions-upsert-tmux.json',
     'terminal-output.json',
     'commands-result.json',
+    'commands-result-capture-transcript.json',
   ])('validates agent message fixture %s', (name) => {
     expect(AgentMessageSchema.safeParse(readFixture(name)).success).toBe(true);
   });
@@ -37,7 +38,9 @@ describe('protocol fixtures', () => {
   });
 
   it('validates the UI command-result topic fixture', () => {
-    expect(ServerToUIMessageSchema.safeParse(readFixture('ui-commands-result.json')).success).toBe(true);
+    expect(ServerToUIMessageSchema.safeParse(readFixture('ui-commands-result.json')).success).toBe(
+      true
+    );
   });
 
   it.each([
@@ -47,6 +50,7 @@ describe('protocol fixtures', () => {
     'terminal-navigate.json',
     'terminal-navigate-scroll.json',
     'commands-dispatch-send-input.json',
+    'commands-dispatch-capture-transcript.json',
   ])('validates server-to-agent message fixture %s', (name) => {
     expect(ServerToAgentMessageSchema.safeParse(readFixture(name)).success).toBe(true);
   });

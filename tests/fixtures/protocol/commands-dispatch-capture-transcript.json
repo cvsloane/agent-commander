@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "type": "commands.dispatch",
+  "ts": "2026-07-21T20:01:12Z",
+  "payload": {
+    "cmd_id": "cmd-transcript",
+    "session_id": "22222222-2222-4222-8222-222222222222",
+    "command": { "type": "capture_transcript", "payload": { "page_size": 200, "before_entry": 42 } }
+  }
+}
