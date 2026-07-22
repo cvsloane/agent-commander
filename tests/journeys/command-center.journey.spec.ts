@@ -303,7 +303,12 @@ test.describe('Command Center program journeys', () => {
       const xterm = element.querySelector<HTMLElement>('.xterm');
       const screen = element.querySelector<HTMLElement>('.xterm-screen');
       if (!xterm || !screen) return Number.POSITIVE_INFINITY;
-      return screen.getBoundingClientRect().right - xterm.getBoundingClientRect().right;
+      const xtermRect = xterm.getBoundingClientRect();
+      const screenRect = screen.getBoundingClientRect();
+      return Math.max(
+        xtermRect.left - screenRect.left,
+        screenRect.right - xtermRect.right
+      );
     });
     expect(horizontalOverflow).toBeLessThanOrEqual(0.5);
 
