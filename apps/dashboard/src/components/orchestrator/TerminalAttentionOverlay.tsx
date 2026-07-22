@@ -37,7 +37,16 @@ export function TerminalAttentionOverlay({
   const rawItems = useOrchestratorStore((state) => state.items);
   const dismissItem = useOrchestratorStore((state) => state.dismissItem);
   const item = useMemo(
-    () => mergeAttentionItems(rawItems).find((candidate) => candidate.sessionId === sessionId),
+    () => mergeAttentionItems(rawItems).find((candidate) => (
+      candidate.sessionId === sessionId
+      && (
+        candidate.source === 'approval'
+        || (
+          candidate.sessionStatus !== 'WAITING_FOR_INPUT'
+          && candidate.attentionReason !== 'waiting_input'
+        )
+      )
+    )),
     [rawItems, sessionId]
   );
 

@@ -1096,21 +1096,19 @@ test('renders tmux roster with windows and panes, supports selection and filteri
   await expect(page.getByText('ops', { exact: true })).toBeVisible();
 });
 
-test('opens the terminal composer from attention and submits one newline-safe prompt', async ({ page }, testInfo) => {
+test('keeps waiting-input attention out of the terminal and submits one newline-safe prompt', async ({ page }, testInfo) => {
   await signIn(page);
   await page.goto('/tmux');
   await page.getByText('agents', { exact: true }).click();
   await tmuxRosterPane(page, 'Mobile UX review').click();
 
   const overlay = page.getByTestId('terminal-attention-overlay');
-  await expect(overlay).toBeVisible();
-  await expect(overlay).toContainText('Needs attention');
-  await overlay.getByRole('button', { name: 'Respond' }).click();
+  await expect(overlay).toHaveCount(0);
+  await page.getByRole('button', { name: 'Send a prompt', exact: true }).click();
 
   const composer = page.getByTestId('prompt-composer');
   const input = composer.getByLabel('Prompt Mobile UX review');
   await expect(composer).toBeVisible();
-  await expect(input).toBeFocused();
   await input.fill('Inspect the mobile terminal state.');
 
   const commandRequest = page.waitForRequest((request) => (
@@ -1146,9 +1144,9 @@ test('gates terminal input while read-only until the viewer takes control', asyn
   await expect(page.getByRole('button', { name: 'Detach', exact: true })).toBeVisible();
   await expect(page.getByText('Read-only', { exact: true })).toBeVisible();
   const overlay = page.getByTestId('terminal-attention-overlay');
-  await expect(overlay.getByRole('button', { name: 'Respond' })).toBeDisabled();
+  await expect(overlay).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Send a prompt', exact: true })).toBeDisabled();
-  await expect(page.getByText('Read-only — take control to type')).toHaveCount(2);
+  await expect(page.getByText('Read-only — take control to type')).toHaveCount(1);
 
   if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
     await page.screenshot({ path: testInfo.outputPath('terminal-readonly-desktop.png') });
@@ -1169,7 +1167,6 @@ test('gates terminal input while read-only until the viewer takes control', asyn
   await page.setViewportSize({ width: 1280, height: 720 });
 
   await page.getByRole('button', { name: 'Take Control', exact: true }).click();
-  await expect(overlay.getByRole('button', { name: 'Respond' })).toBeEnabled();
   await expect(page.getByRole('button', { name: 'Send a prompt', exact: true })).toBeEnabled();
 });
 
@@ -1199,11 +1196,10 @@ test('keeps the tmux roster usable on mobile viewport', async ({ page }, testInf
   await expect(page.getByRole('button', { name: 'Open pane actions' })).toBeVisible();
 
   const overlay = page.getByTestId('terminal-attention-overlay');
-  await expect(overlay).toBeVisible();
-  await overlay.getByRole('button', { name: 'Respond' }).click();
+  await expect(overlay).toHaveCount(0);
+  await page.getByRole('button', { name: 'Send a prompt', exact: true }).click();
   const composer = page.getByTestId('prompt-composer');
   await expect(composer).toBeVisible();
-  await expect(composer.getByLabel('Prompt Mobile UX review')).toBeFocused();
   if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
     await page.screenshot({ path: testInfo.outputPath('terminal-attention-composer-mobile.png') });
   }
