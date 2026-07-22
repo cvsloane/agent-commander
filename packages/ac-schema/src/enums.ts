@@ -59,6 +59,7 @@ export const CommandTypeSchema = z.enum([
   'console.unsubscribe',
   'copy_to_session',
   'capture_pane',
+  'capture_transcript',
   'list_directory',
   'new_window',
   'kill_window',

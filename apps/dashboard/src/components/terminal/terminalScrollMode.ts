@@ -1,6 +1,6 @@
 export const TERMINAL_HISTORY_NON_EMPTY_LINE_THRESHOLD = 40;
 
-export type TerminalScrollMode = 'history' | 'app-scroll';
+export type TerminalScrollMode = 'history' | 'chat' | 'app-scroll';
 
 export function countNonEmptyScrollbackLines(content: unknown): number {
   if (typeof content !== 'string' || !content) return 0;

@@ -63,13 +63,15 @@ export const SelectPanePayloadSchema = z.object({
 });
 export type SelectPanePayload = z.infer<typeof SelectPanePayloadSchema>;
 
-export const ResizePanePayloadSchema = z.object({
-  pane_id: z.string().min(1),
-  width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional(),
-}).refine((payload) => payload.width !== undefined || payload.height !== undefined, {
-  message: 'At least one of width or height is required',
-});
+export const ResizePanePayloadSchema = z
+  .object({
+    pane_id: z.string().min(1),
+    width: z.number().int().positive().optional(),
+    height: z.number().int().positive().optional(),
+  })
+  .refine((payload) => payload.width !== undefined || payload.height !== undefined, {
+    message: 'At least one of width or height is required',
+  });
 export type ResizePanePayload = z.infer<typeof ResizePanePayloadSchema>;
 
 export const ZoomPanePayloadSchema = z.object({
@@ -147,10 +149,12 @@ export const DashboardSpawnRequestSchema = z.object({
   group_id: z.string().uuid().optional(),
   parent_session_id: z.string().uuid().optional(),
   role: SessionRoleSchema.optional(),
-  tmux: z.object({
-    target_session: z.string().optional(),
-    window_name: z.string().optional(),
-  }).optional(),
+  tmux: z
+    .object({
+      target_session: z.string().optional(),
+      window_name: z.string().optional(),
+    })
+    .optional(),
 });
 export type DashboardSpawnRequest = z.infer<typeof DashboardSpawnRequestSchema>;
 
@@ -206,66 +210,118 @@ export const CapturePanePayloadSchema = z.object({
 });
 export type CapturePanePayload = z.infer<typeof CapturePanePayloadSchema>;
 
+export const TRANSCRIPT_DEFAULT_PAGE_SIZE = 200;
+export const TRANSCRIPT_MAX_PAGE_SIZE = 500;
+
+export const CaptureTranscriptPayloadSchema = z.object({
+  page_size: z
+    .number()
+    .int()
+    .positive()
+    .max(TRANSCRIPT_MAX_PAGE_SIZE)
+    .default(TRANSCRIPT_DEFAULT_PAGE_SIZE),
+  before_entry: z.number().int().nonnegative().optional(),
+});
+export type CaptureTranscriptPayload = z.infer<typeof CaptureTranscriptPayloadSchema>;
+
 export const SCROLLBACK_MAX_LINES = 5000;
 
-export const ScrollbackRequestSchema = z.object({
-  mode: CaptureModeSchema,
-  last_n_lines: z.number().int().positive().max(SCROLLBACK_MAX_LINES).optional(),
-  start_line: z.number().int().optional(),
-  end_line: z.number().int().optional(),
-  strip_ansi: z.boolean().default(true),
-}).superRefine((request, context) => {
-  if (request.mode === 'last_n' && request.last_n_lines === undefined) {
-    context.addIssue({
-      code: 'custom',
-      path: ['last_n_lines'],
-      message: 'last_n_lines is required for last_n mode',
-    });
-  }
-  if (request.mode !== 'range') return;
-  if (request.start_line === undefined) {
-    context.addIssue({
-      code: 'custom',
-      path: ['start_line'],
-      message: 'start_line is required for range mode',
-    });
-  }
-  if (request.end_line === undefined) {
-    context.addIssue({
-      code: 'custom',
-      path: ['end_line'],
-      message: 'end_line is required for range mode',
-    });
-  }
-  if (request.start_line === undefined || request.end_line === undefined) return;
-  if (request.end_line < request.start_line) {
-    context.addIssue({
-      code: 'custom',
-      path: ['end_line'],
-      message: 'end_line must be greater than or equal to start_line',
-    });
-    return;
-  }
-  if (request.end_line - request.start_line + 1 > SCROLLBACK_MAX_LINES) {
-    context.addIssue({
-      code: 'custom',
-      path: ['end_line'],
-      message: `range cannot exceed ${SCROLLBACK_MAX_LINES} lines`,
-    });
-  }
-});
+export const ScrollbackRequestSchema = z
+  .object({
+    mode: CaptureModeSchema,
+    last_n_lines: z.number().int().positive().max(SCROLLBACK_MAX_LINES).optional(),
+    start_line: z.number().int().optional(),
+    end_line: z.number().int().optional(),
+    strip_ansi: z.boolean().default(true),
+  })
+  .superRefine((request, context) => {
+    if (request.mode === 'last_n' && request.last_n_lines === undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['last_n_lines'],
+        message: 'last_n_lines is required for last_n mode',
+      });
+    }
+    if (request.mode !== 'range') return;
+    if (request.start_line === undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['start_line'],
+        message: 'start_line is required for range mode',
+      });
+    }
+    if (request.end_line === undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['end_line'],
+        message: 'end_line is required for range mode',
+      });
+    }
+    if (request.start_line === undefined || request.end_line === undefined) return;
+    if (request.end_line < request.start_line) {
+      context.addIssue({
+        code: 'custom',
+        path: ['end_line'],
+        message: 'end_line must be greater than or equal to start_line',
+      });
+      return;
+    }
+    if (request.end_line - request.start_line + 1 > SCROLLBACK_MAX_LINES) {
+      context.addIssue({
+        code: 'custom',
+        path: ['end_line'],
+        message: `range cannot exceed ${SCROLLBACK_MAX_LINES} lines`,
+      });
+    }
+  });
 export type ScrollbackRequest = z.infer<typeof ScrollbackRequestSchema>;
 
 export const ScrollbackResponseSchema = z.object({
   cmd_id: z.string().uuid(),
   ok: z.boolean(),
   result: z.record(z.string(), z.unknown()).optional(),
-  error: z.object({
-    code: z.string(),
-    message: z.string(),
-  }).optional(),
+  error: z
+    .object({
+      code: z.string(),
+      message: z.string(),
+    })
+    .optional(),
 });
 export type ScrollbackResponse = z.infer<typeof ScrollbackResponseSchema>;
+
+export const TranscriptRequestSchema = CaptureTranscriptPayloadSchema;
+export type TranscriptRequest = z.infer<typeof TranscriptRequestSchema>;
+
+export const TranscriptEntrySchema = z.record(z.string(), z.unknown());
+export type TranscriptEntry = z.infer<typeof TranscriptEntrySchema>;
+
+export const TranscriptResultSchema = z.object({
+  entries: z.array(TranscriptEntrySchema),
+  first_entry: z.number().int().nonnegative(),
+  total_entries: z.number().int().nonnegative(),
+  // Informational passthrough — a future agentd source value must not 5xx the route.
+  source: z.string(),
+});
+export type TranscriptResult = z.infer<typeof TranscriptResultSchema>;
+
+const TranscriptErrorSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+});
+
+export const TranscriptResponseSchema = z.discriminatedUnion('ok', [
+  z.object({
+    cmd_id: z.string().uuid(),
+    ok: z.literal(true),
+    result: TranscriptResultSchema,
+  }),
+  z.object({
+    cmd_id: z.string().uuid(),
+    ok: z.literal(false),
+    error: TranscriptErrorSchema,
+  }),
+]);
+export type TranscriptResponse = z.infer<typeof TranscriptResponseSchema>;
 
 // Copy to session command payload
 export const CopyToSessionPayloadSchema = z.object({
@@ -313,6 +369,7 @@ export const CommandPayloadSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('console.unsubscribe'), payload: ConsoleUnsubscribePayloadSchema }),
   z.object({ type: z.literal('copy_to_session'), payload: CopyToSessionPayloadSchema }),
   z.object({ type: z.literal('capture_pane'), payload: CapturePanePayloadSchema }),
+  z.object({ type: z.literal('capture_transcript'), payload: CaptureTranscriptPayloadSchema }),
   z.object({ type: z.literal('list_directory'), payload: ListDirectoryPayloadSchema }),
   z.object({ type: z.literal('new_window'), payload: NewWindowPayloadSchema }),
   z.object({ type: z.literal('kill_window'), payload: KillWindowPayloadSchema }),

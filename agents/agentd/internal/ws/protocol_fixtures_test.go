@@ -86,7 +86,7 @@ func TestProtocolFixtureMatrixRoundTripsProductionTypes(t *testing.T) {
 	wantCommands := []string{
 		"send_input", "send_keys", "interrupt", "kill_session", "adopt_pane", "rename_session",
 		"spawn_session", "spawn_job", "fork", "console.subscribe", "console.unsubscribe",
-		"capture_pane", "copy_to_session", "list_directory",
+		"capture_pane", "capture_transcript", "copy_to_session", "list_directory",
 		"new_window", "kill_window", "rename_window", "split_pane",
 		"select_window", "select_pane", "resize_pane", "zoom_pane",
 	}
@@ -217,6 +217,8 @@ func commandPayloadTarget(t *testing.T, commandType string) any {
 		return &protocol.ConsoleUnsubscribePayload{}
 	case "capture_pane":
 		return &protocol.CapturePanePayload{}
+	case "capture_transcript":
+		return &protocol.CaptureTranscriptPayload{}
 	case "copy_to_session":
 		return &protocol.CopyToSessionPayload{}
 	case "list_directory":
