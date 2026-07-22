@@ -5,3 +5,4 @@
 - 2026-07-22T12:04:25-04:00 — Initial Homelinux non-login probe selected stale `/usr/local/bin/codex` 0.106.0 and failed. Login-shell inspection found current `~/.local/bin/codex` 0.144.6; corrected route returned `ROUTE_OK`.
 - 2026-07-22T12:04:25-04:00 — Canonical Project Plan validator passed with control-file checks. W1 constrained to one sequential Builder and the existing web terminal path.
 - 2026-07-22T12:07:12-04:00 — W1 Builder picked up the brief in isolated worktree `ac-android-w1-terminal` and tmux window `agent-command:android-w1-terminal`; runtime confirmed Codex 0.145.0, `gpt-5.6-sol`, xhigh.
+- 2026-07-22T12:13:55-04:00 — W1 reproduced the production defect on `7b30df0`: withholding the live topology stream during the existing desktop cold-open journey caused the terminal WebSocket to negotiate exactly `rows=1`; the ordinary mocked topology path negotiated 50 rows.

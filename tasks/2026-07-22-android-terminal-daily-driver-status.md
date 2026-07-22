@@ -3,7 +3,7 @@
 - Plan status/version: approved `1719c8c` scope, approval recorded 2026-07-22T12:04:25-04:00
 - Current phase: W1 shared terminal repair
 - Overall state: running
-- Last updated: 2026-07-22T12:07:12-04:00
+- Last updated: 2026-07-22T12:13:55-04:00
 - Current accepted baseline: production `7b30df046208f1a2ba14b8e34b0095afe9888750`
 - Current candidate: local program branch at `1719c8cf2b01dcf32ca4704193e6648a936f18b5`
 - Budget used/remaining: setup complete; 7-day project ceiling remains
@@ -13,7 +13,7 @@
 
 | Lane | Current role | State | Deliverable/ref | Last proof | Blocked on | Next action |
 |---|---|---|---|---|---|---|
-| W1 — Shared terminal repair | Codex Sol/xhigh Builder | running | Worktree `ac-android-w1-terminal`, tmux `agent-command:android-w1-terminal` | Builder pickup verified: Codex 0.145.0, `gpt-5.6-sol`, xhigh, session `019f8a94-ab2d-7b80-9641-17997a2296b5` | None | Reproduce and make the smallest direct fix |
+| W1 — Shared terminal repair | Codex Sol/xhigh Builder | running | Worktree `ac-android-w1-terminal`, tmux `agent-command:android-w1-terminal` | Reproduced production `rows=1` by delaying the live topology stream during the existing cold-open journey | None | Verify the smallest direct fix against the same reproduction |
 | W2 — Android vertical slice | Unassigned until W1 contract freeze | held | None | Research and approved acceptance checklist | W1 reviewer pass | Remain held |
 | W3 — Integration and rollout | AI Lead | pending | None | Production baseline identified | W1 and W2 acceptance | Maintain recovery receipts |
 
@@ -22,7 +22,7 @@
 | Gate | State | Ground truth | Owner | Next trigger |
 |---|---|---|---|---|
 | Plan validation | pass | Canonical validator | AI Lead | Refresh at wave boundary |
-| W1 reproduction | pending | Live laptop-compatible terminal path and logs | W1 Builder | Builder launch |
+| W1 reproduction | pass | Production commit `7b30df0`: delayed topology cold-open negotiated exactly one row | W1 Builder | Freeze regression proof |
 | W1 review | held | Frozen diff plus checklist | Fresh Reviewer | W1 READY handoff |
 | W2 launch | held | Accepted shared terminal contract | AI Lead | W1 PASS |
 
