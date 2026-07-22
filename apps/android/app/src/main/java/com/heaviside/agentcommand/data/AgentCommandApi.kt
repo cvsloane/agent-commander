@@ -345,9 +345,9 @@ class TerminalSocket(
             .put("rows", rows.coerceAtLeast(4)),
     )
 
-    fun focusPane(paneId: String, zoom: Boolean): String {
+    fun focusPane(paneId: String, zoom: Boolean): String? {
         val requestId = UUID.randomUUID().toString()
-        send(
+        val sent = send(
             JSONObject()
                 .put("type", "navigate")
                 .put("op", "focus_pane")
@@ -355,7 +355,7 @@ class TerminalSocket(
                 .put("pane_id", paneId)
                 .put("zoom", zoom),
         )
-        return requestId
+        return requestId.takeIf { sent }
     }
 
     fun takeControl(): Boolean = send(JSONObject().put("type", "control"))

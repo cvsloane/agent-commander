@@ -160,10 +160,16 @@ class RemoteTerminalView @JvmOverloads constructor(
     val rows: Int get() = emulator.mRows
 
     fun append(data: ByteArray) {
+        val transcriptRowsBefore = emulator.screen.activeTranscriptRows
         val wasAtTail = topRow == 0
         emulator.append(data, data.size)
-        if (wasAtTail) topRow = 0
-        topRow = topRow.coerceAtLeast(-emulator.screen.activeTranscriptRows)
+        if (wasAtTail) {
+            topRow = 0
+        } else {
+            val transcriptRowsAdded = emulator.screen.activeTranscriptRows - transcriptRowsBefore
+            topRow -= transcriptRowsAdded
+        }
+        topRow = topRow.coerceIn(-emulator.screen.activeTranscriptRows, 0)
         postInvalidateOnAnimation()
     }
 

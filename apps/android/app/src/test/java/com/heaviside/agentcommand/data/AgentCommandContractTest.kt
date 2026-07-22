@@ -7,6 +7,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -72,5 +73,23 @@ class AgentCommandContractTest {
         assertEquals(2, panes.single().windowIndex)
         assertEquals(3, panes.single().paneIndex)
         assertTrue(panes.single().rosterLabel().contains("vault:2.3"))
+    }
+
+    @Test
+    fun `pane focus is not acknowledged before its websocket can send`() {
+        val socket = TerminalSocket(
+            okhttp3.OkHttpClient(),
+            "wss://agent-command.example.com/v1/ui/terminal/session-123?ticket=ticket",
+            "https://agent-command.example.com",
+            object : TerminalSocket.Listener {
+                override fun onAttached(readOnly: Boolean, resumed: Boolean, resumeToken: String?) = Unit
+                override fun onOutput(data: ByteArray) = Unit
+                override fun onStatus(type: String, message: String?) = Unit
+                override fun onNavigationResult(result: NavigationResult) = Unit
+                override fun onFailure(message: String) = Unit
+            },
+        )
+
+        assertNull(socket.focusPane("%7", zoom = false))
     }
 }

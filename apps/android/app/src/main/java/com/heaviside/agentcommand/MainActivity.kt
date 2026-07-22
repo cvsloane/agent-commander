@@ -351,7 +351,7 @@ class MainActivity : Activity() {
                     columns,
                     rows,
                     tokenForPane,
-                    terminalListener(generation, pane.sessionId),
+                    terminalListener(generation, pane.sessionId, tokenForPane != null),
                 )
             }.onSuccess { created -> runOnUiThread {
                 if (!isCurrentConnection(generation, pane.sessionId)) {
@@ -368,9 +368,16 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun terminalListener(generation: Long, sessionId: String) = object : TerminalSocket.Listener {
+    private fun terminalListener(
+        generation: Long,
+        sessionId: String,
+        attemptedResume: Boolean,
+    ) = object : TerminalSocket.Listener {
+        private var resumeAttemptPending = attemptedResume
+
         override fun onAttached(readOnly: Boolean, resumed: Boolean, resumeToken: String?) = runOnUiThread {
             if (!isCurrentConnection(generation, sessionId)) return@runOnUiThread
+            resumeAttemptPending = false
             this@MainActivity.readOnly = readOnly
             if (!resumeToken.isNullOrBlank()) {
                 this@MainActivity.resumeToken = resumeToken
@@ -380,7 +387,7 @@ class MainActivity : Activity() {
             if (readOnly) {
                 authoritativeInput = false
                 terminalStatus?.text = "Read-only · take control to type"
-            } else {
+            } else if (!authoritativeInput) {
                 requestPaneFocus(tmuxZoomed)
             }
         }
@@ -394,16 +401,33 @@ class MainActivity : Activity() {
             if (!isCurrentConnection(generation, sessionId)) return@runOnUiThread
             when (type) {
                 "control" -> {
+                    val needsFocusConfirmation = readOnly || !authoritativeInput
                     readOnly = false
                     controlButton?.isEnabled = false
-                    requestPaneFocus(tmuxZoomed)
+                    if (needsFocusConfirmation) requestPaneFocus(tmuxZoomed)
                 }
                 "readonly" -> {
                     readOnly = true
                     authoritativeInput = false
                     controlButton?.isEnabled = true
                 }
-                "detached", "error", "idle_timeout" -> authoritativeInput = false
+                "error" -> {
+                    if (resumeAttemptPending && message.orEmpty().contains("resume token", ignoreCase = true)) {
+                        resumeAttemptPending = false
+                        resumeToken = null
+                        resumeSessionId = null
+                        disconnectTerminal()
+                        terminalStatus?.text = "Saved terminal resume expired · reconnecting fresh"
+                        if (started && screen == Screen.TERMINAL) connectTerminal()
+                    } else {
+                        handleTerminalFailure(message ?: "Terminal error")
+                    }
+                    return@runOnUiThread
+                }
+                "detached", "idle_timeout" -> {
+                    handleTerminalFailure(message ?: type.replace('_', ' '))
+                    return@runOnUiThread
+                }
             }
             terminalStatus?.text = message ?: type.replace('_', ' ')
         }
@@ -437,9 +461,15 @@ class MainActivity : Activity() {
     private fun requestPaneFocus(zoom: Boolean) {
         val pane = activePane ?: return
         val socket = terminalSocket ?: return
+        if (pendingNavigationId != null) return
         authoritativeInput = false
         terminalStatus?.text = if (zoom) "Confirming pane zoom…" else "Confirming pane focus…"
-        pendingNavigationId = socket.focusPane(pane.paneId, zoom)
+        val requestId = socket.focusPane(pane.paneId, zoom)
+        if (requestId == null) {
+            handleTerminalFailure("Pane focus request could not be sent")
+            return
+        }
+        pendingNavigationId = requestId
     }
 
     private fun handleTerminalFailure(message: String) {
