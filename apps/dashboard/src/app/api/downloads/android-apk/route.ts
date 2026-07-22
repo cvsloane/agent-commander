@@ -7,7 +7,7 @@ import { authOptions } from '@/lib/auth';
 export const dynamic = 'force-dynamic';
 
 const APK_FILENAME = 'agent-command-android.apk';
-const APK_PATH = path.join(process.cwd(), 'android-distribution', APK_FILENAME);
+const APK_PATH = path.resolve(process.cwd(), '..', '..', 'android-distribution', APK_FILENAME);
 
 export async function GET() {
   const session = await getServerSession(authOptions);
