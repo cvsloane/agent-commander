@@ -43,6 +43,9 @@
     "overrides": {
       "postcss": "8.5.20",
       "vite": "8.1.5"
+    },
+    "patchedDependencies": {
+      "@xterm/xterm@6.0.0": "patches/@xterm__xterm@6.0.0.patch"
     }
   }
 }

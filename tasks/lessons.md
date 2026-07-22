@@ -93,3 +93,7 @@
 - Date: 2026-07-22
   Correction: Moving from WebGL to DOM reduced scrollback corruption, but one visual character still appeared at the left edge where 160-column text wrapped because the xterm screen overflowed its measured box by 7 px.
   Rule: Keep padding and status decoration off xterm's measured parent: the fit addon measures the parent width but subtracts padding from the generated `.xterm` child. Assert that `.xterm-screen` never extends past `.xterm` in the shared-grid journey so clipped wrap boundaries cannot return.
+
+- Date: 2026-07-22
+  Correction: The remaining artifact was actually two characters and changed as scrollback moved; the separate 7 px containment defect was real, but a fixed boundary defect could not explain changing, unselectable glyphs.
+  Rule: Do not equate a nearby deterministic layout defect with a dynamic renderer defect. Reproduce the same viewport across repeated scrolls and compare rendered rows before changing geometry again; changing glyphs with correct copied text points to stale renderer state.
