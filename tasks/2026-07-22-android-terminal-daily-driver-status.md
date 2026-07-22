@@ -5,7 +5,7 @@
 - Overall state: running
 - Last updated: 2026-07-22T13:15:50-04:00
 - Current accepted baseline: production `7b30df046208f1a2ba14b8e34b0095afe9888750`
-- Current candidate: integrated branch `9e8eaf3b0fbe2140169f28a6b1d43939cc420544` plus pending correlated-dispatch correction
+- Current candidate: PR #99 merge candidate on `refactor/frontend-command-center`; exact production ref is recorded at merge
 - Budget used/remaining: setup complete; 7-day project ceiling remains
 - Next Human Owner checkpoint: physical Samsung action only if required for APK install/pairing
 
