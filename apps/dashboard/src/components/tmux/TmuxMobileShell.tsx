@@ -191,7 +191,7 @@ export function TmuxMobileShell({
     ? `${selectedSession.host_id}:${selectedTmuxSessionName}:${selectedWindowIndex}:${selectedSession.tmux_pane_id ?? ''}`
     : null;
   const focusConnected = terminalSnapshot.status === 'connected'
-    && terminalSnapshot.attachmentDescriptor?.tmuxSessionKey === selectedTmuxSessionKey
+    && terminalSnapshot.attachmentDescriptor?.hostId === selectedSession?.host_id
     && terminalSnapshot.navigation?.status !== 'pending';
 
   const sendFocus = useCallback(async (on: boolean) => {

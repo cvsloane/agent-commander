@@ -192,7 +192,7 @@ describe('agent websocket ingest', () => {
     await app.close();
   });
 
-  it('acknowledges terminal lag and surfaces it to the browser channel', async () => {
+  it('acknowledges sequenced terminal lag and accepts live attach without a cursor', async () => {
     const { app, url, handleTerminalStatus } = await buildServer(vi.fn(async () => undefined));
     const socket = new WebSocket(`${url}/v1/agent/connect`, {
       headers: { Authorization: 'Bearer test-agent-token' },
@@ -228,7 +228,6 @@ describe('agent websocket ingest', () => {
       v: 1,
       type: 'terminal.attached',
       ts: new Date().toISOString(),
-      seq: 3,
       payload: {
         channel_id: '33333333-3333-4333-8333-333333333333',
         readonly: true,
@@ -236,15 +235,15 @@ describe('agent websocket ingest', () => {
         resume_token: 'viewer-resume-token',
       },
     }));
-    await expect(waitForMessage(socket)).resolves.toMatchObject({
-      payload: { ack_seq: 3, status: 'ok' },
+    await vi.waitFor(() => {
+      expect(handleTerminalStatus).toHaveBeenCalledWith(
+        '33333333-3333-4333-8333-333333333333',
+        'attached',
+        undefined,
+        { readonly: true, resumed: true, resume_token: 'viewer-resume-token' }
+      );
     });
-    expect(handleTerminalStatus).toHaveBeenCalledWith(
-      '33333333-3333-4333-8333-333333333333',
-      'attached',
-      undefined,
-      { readonly: true, resumed: true, resume_token: 'viewer-resume-token' }
-    );
+    expect(socket.readyState).toBe(WebSocket.OPEN);
 
     socket.close();
     await app.close();

@@ -1,1 +1,1 @@
-{"v":1,"type":"terminal.lag","ts":"2026-07-19T20:00:29Z","seq":23,"payload":{"channel_id":"33333333-3333-4333-8333-333333333333","message":"Dropped 3 terminal output chunks"}}
+{"v":1,"type":"terminal.lag","ts":"2026-07-19T20:00:29Z","payload":{"channel_id":"33333333-3333-4333-8333-333333333333","message":"Dropped 3 terminal output chunks"}}

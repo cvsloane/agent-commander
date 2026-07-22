@@ -15,6 +15,7 @@ import {
   type CommandResultMessage,
   type Session,
   type SessionUpsert,
+  type TerminalStatusMessage,
 } from '@agent-command/schema';
 import { ulid } from 'ulid';
 import { pubsub } from '../services/pubsub.js';
@@ -260,7 +261,25 @@ async function processAgentMessage(
     return;
   }
 
+  switch (message.type) {
+    case 'terminal.attached':
+    case 'terminal.detached':
+    case 'terminal.error':
+    case 'terminal.readonly':
+    case 'terminal.control':
+    case 'terminal.lag': {
+      if (message.seq === undefined) {
+        deliverTerminalStatus(message);
+        return;
+      }
+      break;
+    }
+  }
+
   const seq = message.seq;
+  if (seq === undefined) {
+    throw new Error(`Sequenced agent message ${message.type} is missing seq`);
+  }
 
   if (message.type !== 'agent.hello' && seq <= state.lastProcessedSeq) {
     if (state.hostId) {
@@ -337,19 +356,7 @@ async function processAgentMessage(
     case 'terminal.readonly':
     case 'terminal.control':
     case 'terminal.lag': {
-      const payload = message.payload;
-      const status = message.type === 'terminal.attached' ? 'attached'
-        : message.type === 'terminal.detached' ? 'detached'
-        : message.type === 'terminal.readonly' ? 'readonly'
-        : message.type === 'terminal.control' ? 'control'
-        : message.type === 'terminal.lag' ? 'lag'
-        : 'error';
-      handleTerminalStatus(payload.channel_id, status, payload.message, {
-        ...(payload.readonly !== undefined ? { readonly: payload.readonly } : {}),
-        ...(payload.resumed !== undefined ? { resumed: payload.resumed } : {}),
-        ...(payload.resume_token ? { resume_token: payload.resume_token } : {}),
-        ...(payload.dropped !== undefined ? { dropped: payload.dropped } : {}),
-      });
+      deliverTerminalStatus(message);
       sendAck(socket, seq, 'ok');
       break;
     }
@@ -459,6 +466,22 @@ async function processAgentMessage(
     }
     hostProgress.record(state.hostId, ackedSeq);
   }
+}
+
+function deliverTerminalStatus(message: TerminalStatusMessage): void {
+  const payload = message.payload;
+  const status = message.type === 'terminal.attached' ? 'attached'
+    : message.type === 'terminal.detached' ? 'detached'
+    : message.type === 'terminal.readonly' ? 'readonly'
+    : message.type === 'terminal.control' ? 'control'
+    : message.type === 'terminal.lag' ? 'lag'
+    : 'error';
+  handleTerminalStatus(payload.channel_id, status, payload.message, {
+    ...(payload.readonly !== undefined ? { readonly: payload.readonly } : {}),
+    ...(payload.resumed !== undefined ? { resumed: payload.resumed } : {}),
+    ...(payload.resume_token ? { resume_token: payload.resume_token } : {}),
+    ...(payload.dropped !== undefined ? { dropped: payload.dropped } : {}),
+  });
 }
 
 async function handleAgentHello(

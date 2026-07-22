@@ -109,3 +109,7 @@
 - Date: 2026-07-22
   Correction: Marking pane-focus acknowledgements non-durable removed their own disk write but still left them behind the durable sender mutex, so background queue fsync could delay or abandon an otherwise successful tmux focus transaction.
   Rule: Browser-channel request/response acknowledgements need an unsequenced live write path that can bypass durable persistence while the WebSocket write itself remains serialized. Prove this with the durable lane held, then measure the exact production acknowledgement rather than inferring success from tmux state alone.
+
+- Date: 2026-07-22
+  Correction: The AI Lead collapsed back into single-threaded implementation even though the approved program had an independent Android file lane and the user explicitly wanted orchestration.
+  Rule: Keep the AI Lead on shared integration, production, and acceptance. Dispatch independent acceptance-bearing lanes—especially isolated native modules—in parallel, and serialize only genuine shared-file or shared-contract dependencies.

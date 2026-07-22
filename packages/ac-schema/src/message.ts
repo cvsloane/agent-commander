@@ -117,8 +117,14 @@ export const TerminalOutputMessageSchema = AgentMessageEnvelopeSchema.extend({
 });
 export type TerminalOutputMessage = z.infer<typeof TerminalOutputMessageSchema>;
 
-// Terminal status (agent -> control plane)
-export const TerminalStatusMessageSchema = AgentMessageEnvelopeSchema.extend({
+// Terminal lifecycle status is live channel state, not a durable host event.
+// It bypasses the durable cursor so attach/control/error signals cannot wait
+// behind persisted inventory or terminal repaint traffic.
+export const TerminalStatusMessageSchema = ServerMessageEnvelopeSchema.extend({
+  // Accepted only for a rolling upgrade from agents that still sequenced live
+  // status. Current agents omit it and the control plane does not acknowledge
+  // the unsequenced form.
+  seq: z.number().int().positive().optional(),
   type: z.enum([
     'terminal.attached',
     'terminal.detached',
