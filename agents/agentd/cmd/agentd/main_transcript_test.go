@@ -320,3 +320,68 @@ func TestCaptureTranscriptReturnsNoTranscriptErrorCode(t *testing.T) {
 		t.Fatal("timed out waiting for transcript result")
 	}
 }
+
+func TestCaptureTranscriptToleratesTornTailAndStubsCorruptLines(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.jsonl")
+	content := `{"type":"user","message":{"role":"user","content":"hello"}}` + "\n" +
+		`{corrupt interior line` + "\n" +
+		`{"type":"assistant","message":{"role":"assistant","content":"world"}}` + "\n" +
+		`{"type":"assistant","message":{"role":"assist` // torn mid-append tail, no newline
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	total, err := countTranscriptEntries(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 3 {
+		t.Fatalf("count = %d, want 3 (torn tail excluded)", total)
+	}
+
+	entries, first, gotTotal, err := readTranscriptPage(path, protocol.CaptureTranscriptPayload{PageSize: 10})
+	if err != nil {
+		t.Fatalf("page failed on torn/corrupt lines: %v", err)
+	}
+	if first != 0 || gotTotal != 3 || len(entries) != 3 {
+		t.Fatalf("page shape = first %d total %d len %d, want 0/3/3", first, gotTotal, len(entries))
+	}
+	if entries[1]["type"] != "x-unparseable" {
+		t.Fatalf("corrupt interior line = %v, want x-unparseable stub", entries[1])
+	}
+	if entries[2]["type"] != "assistant" {
+		t.Fatalf("final complete entry = %v, want assistant", entries[2])
+	}
+}
+
+func TestCaptureTranscriptDropsToolUseResultAndBudgetsAllStrings(t *testing.T) {
+	huge := strings.Repeat("x", 1024*1024)
+	entry := map[string]any{
+		"type":          "assistant",
+		"toolUseResult": map[string]any{"stdout": huge},
+		"payload":       map[string]any{"stdout": huge},
+	}
+	cleaned := sanitizeTranscriptEntry(entry)
+	if _, ok := cleaned["toolUseResult"]; ok {
+		t.Fatal("toolUseResult should be dropped entirely")
+	}
+	payload, ok := cleaned["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("payload missing: %v", cleaned)
+	}
+	stdout, ok := payload["stdout"].(string)
+	if !ok {
+		t.Fatalf("payload.stdout missing: %v", payload)
+	}
+	if len(stdout) > maxTranscriptEntryBytes {
+		t.Fatalf("non-content string survived uncapped: %d bytes", len(stdout))
+	}
+	encoded, err := json.Marshal(cleaned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) > 3*maxTranscriptEntryBytes {
+		t.Fatalf("sanitized entry too large: %d bytes", len(encoded))
+	}
+}

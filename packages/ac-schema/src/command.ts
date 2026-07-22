@@ -299,7 +299,8 @@ export const TranscriptResultSchema = z.object({
   entries: z.array(TranscriptEntrySchema),
   first_entry: z.number().int().nonnegative(),
   total_entries: z.number().int().nonnegative(),
-  source: z.enum(['hook', 'derived']),
+  // Informational passthrough — a future agentd source value must not 5xx the route.
+  source: z.string(),
 });
 export type TranscriptResult = z.infer<typeof TranscriptResultSchema>;
 

@@ -19,7 +19,8 @@ const (
 	defaultTranscriptPageSize = 200
 	maxTranscriptPageSize     = 500
 	maxTranscriptContentBytes = 16 * 1024
-	maxTranscriptScannerToken = 64 * 1024 * 1024
+	maxTranscriptEntryBytes   = 32 * 1024
+	maxTranscriptScannerToken = 8 * 1024 * 1024
 )
 
 var errInvalidTranscriptRequest = errors.New("invalid transcript request")
@@ -178,9 +179,12 @@ func readTranscriptPage(path string, request protocol.CaptureTranscriptPayload) 
 		if entryIndex >= firstEntry && entryIndex < endEntry {
 			var entry map[string]any
 			if err := json.Unmarshal([]byte(line), &entry); err != nil {
-				return nil, 0, totalEntries, fmt.Errorf("parse transcript entry %d: %w", entryIndex, err)
+				// Claude appends to these files live; a torn or corrupt line
+				// must not fail the page. The stub renders as nothing.
+				entries = append(entries, map[string]any{"type": "x-unparseable"})
+			} else {
+				entries = append(entries, sanitizeTranscriptEntry(entry))
 			}
-			entries = append(entries, sanitizeTranscriptEntry(entry))
 		}
 		entryIndex++
 		if entryIndex >= endEntry {
@@ -201,12 +205,22 @@ func countTranscriptEntries(path string) (int, error) {
 	defer file.Close()
 	scanner := newTranscriptScanner(file)
 	count := 0
+	lastLine := ""
 	for scanner.Scan() {
-		if strings.TrimSpace(scanner.Text()) != "" {
+		if line := strings.TrimSpace(scanner.Text()); line != "" {
 			count++
+			lastLine = line
 		}
 	}
-	return count, scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return 0, err
+	}
+	// Exclude a mid-append torn tail so the newest page ends on a complete
+	// entry and count/page indices stay aligned across the retry.
+	if count > 0 && !json.Valid([]byte(lastLine)) {
+		count--
+	}
+	return count, nil
 }
 
 func newTranscriptScanner(file *os.File) *bufio.Scanner {
@@ -216,7 +230,17 @@ func newTranscriptScanner(file *os.File) *bufio.Scanner {
 }
 
 func sanitizeTranscriptEntry(entry map[string]any) map[string]any {
-	return sanitizeTranscriptMap(entry, false, nil)
+	trimmed := make(map[string]any, len(entry))
+	for key, value := range entry {
+		// Bulky non-rendered payloads (Bash stdout, Edit diffs, …) ride under
+		// toolUseResult; the formatter never displays them.
+		if strings.EqualFold(key, "toolUseResult") || strings.EqualFold(key, "tool_use_result") {
+			continue
+		}
+		trimmed[key] = value
+	}
+	budget := maxTranscriptEntryBytes
+	return sanitizeTranscriptMap(trimmed, true, &budget)
 }
 
 func sanitizeTranscriptMap(value map[string]any, inContent bool, contentBudget *int) map[string]any {
