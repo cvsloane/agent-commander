@@ -1,7 +1,7 @@
 # Android Terminal Daily Driver — Status
 
 - Plan status/version: approved `1719c8c` scope, approval recorded 2026-07-22T12:04:25-04:00
-- Current phase: launch preparation
+- Current phase: W1 shared terminal repair launch
 - Overall state: running
 - Last updated: 2026-07-22T12:04:25-04:00
 - Current accepted baseline: production `7b30df046208f1a2ba14b8e34b0095afe9888750`
@@ -13,7 +13,7 @@
 
 | Lane | Current role | State | Deliverable/ref | Last proof | Blocked on | Next action |
 |---|---|---|---|---|---|---|
-| W1 — Shared terminal repair | Builder pending launch | ready | None | Production attaches observed at `110x1` and `110x9`; Sol routes verified | Validated control files | Create isolated brief/worktree and reproduce |
+| W1 — Shared terminal repair | Codex Sol/xhigh Builder | launching | W1 brief | Production attaches observed at `110x1` and `110x9`; Sol routes and plan validated | Launch commit/worktree | Reproduce and make the smallest direct fix |
 | W2 — Android vertical slice | Unassigned until W1 contract freeze | held | None | Research and approved acceptance checklist | W1 reviewer pass | Remain held |
 | W3 — Integration and rollout | AI Lead | pending | None | Production baseline identified | W1 and W2 acceptance | Maintain recovery receipts |
 
@@ -21,7 +21,7 @@
 
 | Gate | State | Ground truth | Owner | Next trigger |
 |---|---|---|---|---|
-| Plan validation | pending | Canonical validator | AI Lead | Control-file commit |
+| Plan validation | pass | Canonical validator | AI Lead | Refresh at wave boundary |
 | W1 reproduction | pending | Live laptop-compatible terminal path and logs | W1 Builder | Builder launch |
 | W1 review | held | Frozen diff plus checklist | Fresh Reviewer | W1 READY handoff |
 | W2 launch | held | Accepted shared terminal contract | AI Lead | W1 PASS |
@@ -33,6 +33,6 @@
 
 ## Immediate Next Sequence
 
-1. Validate the approved plan and control files.
-2. Commit the approved control state.
-3. Create and launch the isolated W1 builder lane.
+1. Commit the W1 brief and launch state.
+2. Create the isolated W1 worktree and launch the Builder.
+3. Verify pickup from actual Builder output.
