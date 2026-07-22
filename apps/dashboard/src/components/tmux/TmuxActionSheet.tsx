@@ -24,7 +24,7 @@ import type { TerminalController } from '@/components/TerminalView';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { getSessionDisplayName } from '@/lib/utils';
-import { TmuxPaneControls } from './TmuxPaneControls';
+import { TmuxPaneControls, type PaneFocusResult } from './TmuxPaneControls';
 
 interface TmuxActionSheetProps {
   open: boolean;
@@ -40,7 +40,8 @@ interface TmuxActionSheetProps {
   onTerminate: () => void;
   onLaunchWindowHere?: () => void;
   onSelectSession: (sessionId: string) => void | boolean | Promise<boolean>;
-  onSetPaneFocus?: (focused: boolean) => boolean | Promise<boolean>;
+  onSetPaneFocus?: (focused: boolean) => PaneFocusResult | Promise<PaneFocusResult>;
+  paneFocusAvailable?: boolean;
 }
 
 export function TmuxActionSheet({
@@ -58,6 +59,7 @@ export function TmuxActionSheet({
   onLaunchWindowHere,
   onSelectSession,
   onSetPaneFocus,
+  paneFocusAvailable,
 }: TmuxActionSheetProps) {
   const title = session ? getSessionDisplayName(session) : 'No pane selected';
 
@@ -124,6 +126,7 @@ export function TmuxActionSheet({
               variant="sheet"
               onSelectSession={onSelectSession}
               onSetPaneFocus={onSetPaneFocus}
+              paneFocusAvailable={paneFocusAvailable}
             />
           )}
 
