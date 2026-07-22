@@ -181,8 +181,8 @@ export function useXtermTerminal({
     }
     // Keep the built-in DOM renderer. WebGL glyph-atlas corruption can leave
     // stale visual fragments after scroll/resize even though the buffer and
-    // copied text are correct. Reliability matters more than GPU throughput
-    // for this single-user terminal surface.
+    // copied text are correct. Stable xterm 6.0 is backported with upstream's
+    // DOM missing-row fix (xterm.js PR #5998) through the workspace pnpm patch.
     terminal.attachCustomKeyEventHandler((event) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
         event.preventDefault();

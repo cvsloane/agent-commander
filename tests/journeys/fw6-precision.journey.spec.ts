@@ -7,13 +7,12 @@ import {
   signIn,
 } from './controlPlaneMock';
 
-let terminalSocket: WebSocketRoute | null;
+let terminalSockets: Set<WebSocketRoute>;
 
 async function selectSession(page: Page, title: string): Promise<void> {
   await page.goto('/');
   await page.getByText('agents', { exact: true }).click();
   await page.getByRole('treeitem').filter({ hasText: title }).last().click();
-  await expect(page.getByTestId('tmux-attached-status')).toBeVisible();
   await expect(page.getByLabel('Interactive terminal')).toBeVisible();
 }
 
@@ -25,18 +24,25 @@ async function openHistory(page: Page) {
 }
 
 async function sendTerminalOutput(data: string): Promise<void> {
-  await expect.poll(() => terminalSocket !== null).toBe(true);
-  terminalSocket!.send(JSON.stringify({ type: 'output', data, encoding: 'utf8' }));
+  await expect.poll(() => terminalSockets.size).toBeGreaterThan(0);
+  for (const socket of terminalSockets) {
+    socket.send(JSON.stringify({ type: 'output', data, encoding: 'utf8' }));
+  }
 }
 
 test.describe('FW6 mobile precision journeys', () => {
   test.beforeEach(async ({ context, page }, testInfo) => {
-    test.skip(testInfo.project.name !== 'mobile-412x915', '412x915 precision journey');
-    terminalSocket = null;
+    const isWrappedScrollbackJourney = testInfo.title === (
+      'freezes streamed output while reading and jumps to the tail'
+    );
+    test.skip(
+      testInfo.project.name !== 'mobile-412x915' && !isWrappedScrollbackJourney,
+      '412x915 precision journey'
+    );
+    terminalSockets = new Set();
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     await mockControlPlane(page);
     await page.routeWebSocket(/\/v1\/ui\/terminal\//, (socket) => {
-      terminalSocket = socket;
       socket.onMessage((message) => {
         if (typeof message !== 'string') return;
         const parsed = JSON.parse(message) as {
@@ -53,6 +59,7 @@ test.describe('FW6 mobile precision journeys', () => {
             resumed: false,
             resume_token: 'fw6-precision-terminal-resume',
           }));
+          terminalSockets.add(socket);
         }
         if (parsed.type === 'navigate' && parsed.op === 'focus_pane' && parsed.request_id) {
           socket.send(JSON.stringify({
@@ -78,38 +85,68 @@ test.describe('FW6 mobile precision journeys', () => {
     });
   });
 
-  test('freezes streamed output while reading and jumps to the tail', async ({ page }) => {
+  test('freezes streamed output while reading and jumps to the tail', async ({ page }, testInfo) => {
     await signIn(page);
     await selectSession(page, interactiveSession.title);
-    await expect(page.getByTestId('tmux-attached-status')).toContainText('Connected');
+    if (testInfo.project.name === 'mobile-412x915') {
+      await expect(page.getByTestId('tmux-attached-status')).toContainText('Connected');
+    } else {
+      await expect(
+        page.getByRole('region', { name: 'Primary terminal' }).getByText('Connected', { exact: true })
+      ).toBeVisible();
+    }
 
     const initialOutput = Array.from(
       { length: 120 },
-      (_, index) => `initial line ${index + 1}\r\n`
+      (_, index) => {
+        const lineNumber = String(index + 1).padStart(3, '0');
+        return `initial line ${lineNumber} | ${'abcdefghijklmnopqrstuvwxyz'.repeat(7)} | ${lineNumber}\r\n`;
+      }
     ).join('');
     await sendTerminalOutput(initialOutput);
     const terminal = page.locator('[aria-label="Interactive terminal"]:visible').first();
     await expect(terminal.locator('.xterm-screen canvas')).toHaveCount(0);
-    const viewport = terminal.locator('.terminal.xterm.focus > .xterm-viewport');
-    await expect(viewport).toBeVisible();
-    await expect.poll(() => viewport.evaluate((element) => (
-      Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop)
-    ))).toBeLessThanOrEqual(1);
-    await terminal.locator('.terminal.xterm.focus .xterm-screen').hover();
+    const renderedRows = terminal.locator('.xterm-rows.xterm-focus');
+    const screen = renderedRows.locator('..');
+    await expect.poll(() => renderedRows.textContent()).toContain('initial line 120');
+    const renderedRowsAtLiveTail = await renderedRows.locator(':scope > div').allTextContents();
+    await screen.hover();
     await page.mouse.wheel(0, -4000);
     const jumpToLive = page.getByRole('button', { name: /jump to live terminal output/i });
     await expect(jumpToLive).toBeVisible();
-    const frozenTop = await viewport.evaluate((element) => element.scrollTop);
+    await expect.poll(() => renderedRows.textContent()).toContain('initial line');
+    const renderedRowsAtFrozenTop = await renderedRows.locator(':scope > div').allTextContents();
+    expect(renderedRowsAtFrozenTop).not.toEqual(renderedRowsAtLiveTail);
+
+    // The DOM renderer must paint the same wrapped rows after they leave and
+    // re-enter the viewport. xterm 6.0 could stop at a transient missing buffer
+    // row and leave stale glyphs behind on the rows below it.
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      await jumpToLive.click();
+      await expect(jumpToLive).toBeHidden();
+      await expect.poll(() => renderedRows.locator(':scope > div').allTextContents()).not.toEqual(
+        renderedRowsAtFrozenTop
+      );
+      await screen.hover();
+      await page.mouse.wheel(0, -4000);
+      await expect(jumpToLive).toBeVisible();
+      await expect.poll(() => renderedRows.locator(':scope > div').allTextContents()).toEqual(
+        renderedRowsAtFrozenTop
+      );
+    }
+    if (process.env.PLAYWRIGHT_CAPTURE_UI === '1') {
+      await terminal.screenshot({ path: testInfo.outputPath('wrapped-scrollback-after-repaint.png') });
+    }
 
     await sendTerminalOutput('tail line 1\r\ntail line 2\r\ntail line 3\r\n');
     await expect(page.getByRole('button', { name: /3 new lines; jump to live/i })).toBeVisible();
-    await expect.poll(() => viewport.evaluate((element) => element.scrollTop)).toBe(frozenTop);
+    await expect.poll(() => renderedRows.locator(':scope > div').allTextContents()).toEqual(
+      renderedRowsAtFrozenTop
+    );
 
     await page.getByRole('button', { name: /3 new lines; jump to live/i }).click();
     await expect(jumpToLive).toBeHidden();
-    await expect.poll(() => viewport.evaluate((element) => (
-      Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop)
-    ))).toBeLessThanOrEqual(1);
+    await expect.poll(() => renderedRows.textContent()).toContain('tail line 3');
   });
 
   test('copies an exact contiguous history line range', async ({ page }) => {
