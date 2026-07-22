@@ -96,4 +96,8 @@
 
 - Date: 2026-07-22
   Correction: The remaining artifact was actually two characters and changed as scrollback moved; the separate 7 px containment defect was real, but a fixed boundary defect could not explain changing, unselectable glyphs.
-  Rule: Do not equate a nearby deterministic layout defect with a dynamic renderer defect. Reproduce the same viewport across repeated scrolls and compare rendered rows before changing geometry again; changing glyphs with correct copied text points to stale renderer state.
+  Rule: Do not equate a nearby deterministic layout defect with the remaining dynamic display defect. First identify the actual painted surface; changing display fragments with correct copied text narrows the fault to presentation, but does not by itself prove xterm renderer corruption.
+
+- Date: 2026-07-22
+  Correction: Backporting an upstream xterm DOM stale-row fix passed repeated `textContent` restoration checks, but the owner still saw the same changing two-character visual artifact in production.
+  Rule: DOM text equality is not an acceptance signal for an unselectable visual defect. A regression loop for this class of bug must reproduce and inspect the actual painted surface on the real path (or remain explicitly unproven) before a fix is shipped.

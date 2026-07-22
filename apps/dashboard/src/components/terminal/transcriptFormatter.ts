@@ -143,8 +143,22 @@ function wrapDisplayLine(line: TranscriptDisplayLine, maxColumns: number): Trans
   const characters = Array.from(line.text);
   if (characters.length <= width) return [line];
   const wrapped: TranscriptDisplayLine[] = [];
-  for (let start = 0; start < characters.length; start += width) {
-    wrapped.push({ text: characters.slice(start, start + width).join(''), dim: line.dim });
+  for (let start = 0; start < characters.length;) {
+    let end = Math.min(characters.length, start + width);
+    if (end < characters.length) {
+      if (/\s/u.test(characters[end] || '')) {
+        while (end < characters.length && /\s/u.test(characters[end] || '')) end += 1;
+      } else {
+        for (let candidate = end - 1; candidate > start; candidate -= 1) {
+          if (/\s/u.test(characters[candidate] || '')) {
+            end = candidate + 1;
+            break;
+          }
+        }
+      }
+    }
+    wrapped.push({ text: characters.slice(start, end).join(''), dim: line.dim });
+    start = end;
   }
   return wrapped;
 }
