@@ -26,6 +26,7 @@ This checklist defines basic daily usefulness for a single-user internal app. It
 - [ ] **AND-8 — Zoom:** Pinch or explicit controls change readable terminal text size, and tmux pane focus/zoom is available as a separate action.
 - [ ] **AND-9 — Multi-host/pane control:** The user can move among existing hosts/sessions/windows/panes without attaching manually through separate SSH sessions.
 - [ ] **AND-10 — Ordinary resume:** After normal background/foreground use or a transient network interruption, the app reconnects to a useful authoritative terminal state without requiring a restart.
+- [ ] **AND-11 — Web distribution:** While authenticated in the production web/PWA, the user can download the current signed APK with Android APK MIME/download headers and begin installation on the Samsung device; the page clearly reports when no APK is published.
 
 ## Security and Regression Criteria
 

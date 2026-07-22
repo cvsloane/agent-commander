@@ -639,6 +639,41 @@ describe('terminal websocket route', () => {
     await app.close();
   });
 
+  it('fails a correlated pane focus immediately when host dispatch fails', async () => {
+    const { app, baseWsUrl, agentSend } = await buildServer();
+    const token = await sign('operator');
+    const socket = browserWebSocket(`${baseWsUrl}/v1/ui/terminal/${sessionId}?token=${token}`);
+    const requestId = '66666666-6666-4666-8666-666666666666';
+
+    await waitForOpen(socket);
+    await eventually(() => {
+      expect(agentSend).toHaveBeenCalledWith(expect.stringContaining('terminal.attach'));
+    });
+    agentSend.mockImplementationOnce(() => {
+      throw new Error('agent disconnected');
+    });
+
+    const response = waitForMessage(socket);
+    socket.send(JSON.stringify({
+      type: 'navigate',
+      op: 'focus_pane',
+      request_id: requestId,
+      pane_id: '%7',
+      zoom: true,
+    }));
+
+    const message = await response;
+    expect(JSON.parse(message.data.toString())).toEqual({
+      type: 'navigation_result',
+      request_id: requestId,
+      ok: false,
+      message: 'Host agent is not available.',
+    });
+
+    socket.close();
+    await app.close();
+  });
+
   it('allows multiple browser viewers for the same session without evicting the first viewer', async () => {
     const { app, baseWsUrl, agentSend } = await buildServer();
     const token = await sign('operator');

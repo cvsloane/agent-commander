@@ -17,7 +17,7 @@ This file provides context for AI assistants (Claude Code, Cursor, etc.) about r
 **Working Directory**: `/home/cvsloane/dev/agent-command`
 
 **Recent Terminal Output**:
-```
+```text
   scroll, entirely on-device — no tearing, no lag — and load-older pages back through the complete session history from disk, not just what happened since you
   attached.
   - Codex and shell panes are unchanged (the overlay you already accepted).

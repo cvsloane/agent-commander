@@ -3,7 +3,7 @@
 ## Approval
 
 - Human Owner: Chris Sloane
-- Status: approved
+- Status: approved scope; execution in progress
 - Approved at: 2026-07-22T12:04:25-04:00
 - Approved scope/version: `1719c8c` — v1 shared terminal repair plus Android connect-and-control MVP; Primary Codex agent is the AI Lead/orchestrator
 
@@ -11,12 +11,13 @@ No autonomous execution begins while status is `draft`.
 
 ## Outcome
 
-Agent Command has a meaningful terminal on the existing live web app and a signed Android APK that Chris can use on his Samsung phone to connect to and control existing tmux sessions across Agent Command hosts without requiring Tailnet on the phone. The Android terminal provides basic Termius-level rendering, input, scrollback, copy/paste, text zoom, tmux pane focus, and ordinary background/resume behavior while preserving the existing multi-host/window/pane model.
+Agent Command has a meaningful terminal on the existing live web app and a signed Android APK that Chris can install from the authenticated web/PWA settings page and use on his Samsung phone to connect to and control existing tmux sessions across Agent Command hosts without requiring Tailnet on the phone. The Android terminal provides basic Termius-level rendering, input, scrollback, copy/paste, text zoom, tmux pane focus, and ordinary background/resume behavior while preserving the existing multi-host/window/pane model.
 
 ## Completion Definition
 
 - The production web app can attach to an existing tmux pane at a usable grid size, render and accept input, scroll, and switch panes/windows without routing input to the wrong pane.
-- A signed APK installs on Chris's Samsung device, authenticates without embedding credentials, loads the existing Agent Command host/session topology, and controls an existing SloaneVault tmux/Claude pane over the public Agent Command HTTPS/WSS path.
+- The authenticated production web/PWA settings page offers the current signed APK with correct Android download headers and an explicit unavailable state when no artifact is published.
+- A signed APK installs on Chris's Samsung device from that page, authenticates without embedding credentials, loads the existing Agent Command host/session topology, and controls an existing SloaneVault tmux/Claude pane over the public Agent Command HTTPS/WSS path.
 - The Android app satisfies every mandatory item in `tasks/2026-07-22-android-terminal-daily-driver-acceptance-checklist.md` on the real deployed path.
 - Chris confirms the APK is basically useful for daily terminal work; later polish remains iterative backlog work.
 
@@ -69,8 +70,8 @@ Fable is unavailable because its quota is exhausted. Same-model review is accept
 
 | Workstream | Builder | Deliverable | Owned paths/systems | Ground truth | Dependencies |
 |---|---|---|---|---|---|
-| W1 — Shared terminal repair | One Codex Sol builder | Production web terminal with usable viewport, rendering, input, scroll, and acknowledged pane/window switching | Existing dashboard terminal/tmux components, shared terminal schema, control-plane terminal route, agentd terminal/viewer code, directly related existing tests | Reproduced live attach; production logs; existing unit/Go/Playwright path; Chris's laptop path | Approved plan and clean baseline `d3416a9` |
-| W2 — Android vertical slice | One Codex Sol builder after W1 | GPL Android module with authentication, roster, one native terminal renderer, and existing-session connect/control workflow | `apps/android/**`; minimal shared protocol fixtures; only W1-approved server/auth seams | APK build; emulator/compiler checks; real public control-plane connection; Samsung device | Frozen W1 terminal contract and reviewer pass |
+| W1 — Shared terminal repair | One Codex Sol builder | Production web terminal with usable viewport, rendering, input, scroll, and acknowledged pane/window switching | Existing dashboard terminal/tmux components, shared terminal schema, control-plane terminal route, agentd terminal/viewer code, directly related existing tests | Reproduced live attach; production logs; existing unit/Go/Playwright path; Chris's laptop path | Approved plan and production baseline `7b30df0` |
+| W2 — Android vertical slice | One Codex Sol builder after W1 | GPL Android module with authentication, roster, one native terminal renderer, existing-session connect/control workflow, and authenticated web/PWA APK delivery | `apps/android/**`; minimal shared protocol fixtures; W1-approved server/auth seams; one dashboard settings/download route; dashboard runtime APK copy seam | APK build/signature; existing dashboard route/page checks; real public control-plane connection; Samsung install/use | W1 production rollout and live laptop acceptance |
 | W3 — Integration and daily-use rollout | AI Lead plus fresh reviewer | Merged/deployed web repair, agentd rollout if required, Bitwarden-backed credentials, signed APK, receipts, and final acceptance result | Integration worktree, Coolify production app, installed agentd binary, Bitwarden Agent Command project, Android signing artifacts outside Git | Production version identity, service health/logs, clean Git state, APK signature/install, real web and phone workflows | W1 and W2 accepted |
 
 The topology is paired and sequential. Maximum useful parallelism is the AI Lead plus one Builder; review replaces the Builder rather than adding another simultaneous implementation lane.
@@ -168,7 +169,7 @@ The status file is current operational truth. The log and metrics ledger are app
 ## Recovery
 
 - Last-known-good production baseline: `origin/main` at `7b30df046208f1a2ba14b8e34b0095afe9888750`; deployed dashboard/control-plane containers identify that commit.
-- Current reviewed local candidate baseline: `d3416a9d1934ddf49b5e97fd0e61c707a1c466d5` on `refactor/frontend-command-center`.
+- Current reviewed W1 candidate baseline: `9e8eaf3b0fbe2140169f28a6b1d43939cc420544` on `refactor/frontend-command-center`; `d3416a9` was a superseded draft.
 - Before rollout, record the current Coolify container/image identity and copy the installed agentd binary to an explicit timestamped backup outside the repository if agentd changes.
 - Rollback: redeploy the recorded production image/commit, restore the recorded agentd binary and service state, revoke any newly issued device credential, and verify web launch plus terminal health.
 - Evidence needed before recovery: exact failing acceptance item, deployed version identity, relevant logs, current database migration version, and credential key names without values.

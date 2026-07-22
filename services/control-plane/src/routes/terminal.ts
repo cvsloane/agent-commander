@@ -450,22 +450,31 @@ export function registerTerminalRoutes(app: FastifyInstance): void {
                 return;
               }
               const { type: _type, ...navigation } = message;
-              if (
-                (navigation.op === 'focus_pane' || navigation.op === 'viewer_state')
-                && navigation.request_id
-              ) {
-                pendingNavigationRequests.set(navigation.request_id, {
+              const correlatedNavigation =
+                navigation.op === 'focus_pane' || navigation.op === 'viewer_state'
+                  ? navigation
+                  : null;
+              if (correlatedNavigation) {
+                pendingNavigationRequests.set(correlatedNavigation.request_id, {
                   channelId: activeChannelId,
-                  operation: navigation.op,
+                  operation: correlatedNavigation.op,
                   startedAt: Date.now(),
                 });
               }
-              pubsub.sendToAgent(channel.hostId, {
+              const sent = pubsub.sendToAgent(channel.hostId, {
                 v: 1,
                 type: 'terminal.navigate',
                 ts: new Date().toISOString(),
                 payload: { channel_id: activeChannelId, ...navigation },
               });
+              if (!sent && correlatedNavigation) {
+                handleTerminalNavigationResult({
+                  channel_id: activeChannelId,
+                  request_id: correlatedNavigation.request_id,
+                  ok: false,
+                  message: 'Host agent is not available.',
+                });
+              }
               resetIdleTimeout(activeChannelId);
               break;
             }
