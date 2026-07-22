@@ -1,11 +1,11 @@
 # Android Terminal Daily Driver — Status
 
 - Plan status/version: approved `1719c8c` scope, approval recorded 2026-07-22T12:04:25-04:00
-- Current phase: W1 authoritative pane correction
+- Current phase: W1-R2 fresh review
 - Overall state: running
-- Last updated: 2026-07-22T12:35:52-04:00
+- Last updated: 2026-07-22T12:50:58-04:00
 - Current accepted baseline: production `7b30df046208f1a2ba14b8e34b0095afe9888750`
-- Current candidate: local program branch at `1719c8cf2b01dcf32ca4704193e6648a936f18b5`
+- Current candidate: R2 implementation `795281803f583c895d6f5a8a5acfbec521662250`
 - Budget used/remaining: setup complete; 7-day project ceiling remains
 - Next Human Owner checkpoint: physical Samsung action only if required for APK install/pairing
 
@@ -13,7 +13,7 @@
 
 | Lane | Current role | State | Deliverable/ref | Last proof | Blocked on | Next action |
 |---|---|---|---|---|---|---|
-| W1 — Shared terminal repair | Codex Sol/xhigh R2 Builder | running | Worktree `ac-android-w1-terminal-r2`, tmux `agent-command:android-w1-r2` | Pickup verified: Codex 0.145.0, `gpt-5.6-sol`, xhigh, session `019f8aae-db80-7b00-a981-f3bf0731e2b2` | None | Close only the authoritative-pane input-fence finding |
+| W1 — Shared terminal repair | Codex Sol/xhigh R2 Reviewer | launching | R2 `7952818`, handoff `94e157f` | Store regression 11/11, resumed-viewer journey 1/1, dashboard typecheck pass | None | Fresh narrow review of the prior HIGH blocker |
 | W2 — Android vertical slice | Unassigned until W1 contract freeze | held | None | Research and approved acceptance checklist | W1 reviewer pass | Remain held |
 | W3 — Integration and rollout | AI Lead | pending | None | Production baseline identified | W1 and W2 acceptance | Maintain recovery receipts |
 
@@ -23,7 +23,7 @@
 |---|---|---|---|---|
 | Plan validation | pass | Canonical validator | AI Lead | Refresh at wave boundary |
 | W1 reproduction | pass | Production commit `7b30df0`: delayed topology cold-open negotiated exactly one row | W1 Builder | Freeze regression proof |
-| W1 review | block | Reviewer handoff `e0188e0`: one HIGH WEB-4 discrepancy | AI Lead / R2 Builder | Correct and launch fresh R2 review |
+| W1 review | in progress | R2 `7952818` closes the reviewed path with red/green store and real reconnect journey receipts | R2 Reviewer | Decide PASS/BLOCK on the exact correction |
 | W2 launch | held | Accepted shared terminal contract | AI Lead | W1 PASS |
 
 ## Current Risks and Escalations
@@ -33,6 +33,6 @@
 
 ## Immediate Next Sequence
 
-1. Launch the isolated R2 Builder from the reviewed candidate.
-2. Prove successful resume convergence and failed-focus input fencing.
-3. Freeze the correction and launch a fresh R2 review.
+1. Complete a fresh narrow R2 review of `e0188e0..7952818`.
+2. If PASS, integrate and run the AI Lead's bounded shared-terminal gates.
+3. Deploy W1 directly to production and exercise the real laptop path before freezing the Android contract.
