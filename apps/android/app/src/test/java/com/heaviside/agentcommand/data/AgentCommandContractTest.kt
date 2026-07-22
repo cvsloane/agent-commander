@@ -14,6 +14,25 @@ import org.junit.Test
 
 class AgentCommandContractTest {
     @Test
+    fun `websocket ticket request is an empty bodyless-json bearer POST`() {
+        val request = AgentCommandApi.buildControlRequest(
+            AgentCommandApi.requireEndpoint("https://agent-command.example.com"),
+            "v1/auth/ws-ticket",
+            "POST",
+            "control-plane-token",
+        )
+        val body = requireNotNull(request.body)
+
+        assertEquals("https://agent-command.example.com/v1/auth/ws-ticket", request.url.toString())
+        assertEquals("POST", request.method)
+        assertEquals("Bearer control-plane-token", request.header("Authorization"))
+        assertEquals("application/json", request.header("Accept"))
+        assertEquals(0L, body.contentLength())
+        assertNull(body.contentType())
+        assertNull(request.header("Content-Type"))
+    }
+
+    @Test
     fun `saved credentials never render the access code`() {
         val credentials = SavedCredentials(
             endpoint = "https://agent-command.example.com",

@@ -59,15 +59,7 @@ class AgentCommandApi(credentials: SavedCredentials) {
 
     private fun executeControlJson(path: String, method: String = "GET"): JSONObject {
         val token = getControlPlaneToken()
-        val url = baseUrl.resolve(path) ?: throw IOException("Invalid Agent Command API path")
-        val builder = Request.Builder()
-            .url(url)
-            .header("Authorization", "Bearer $token")
-            .header("Accept", "application/json")
-        if (method == "POST") {
-            builder.post(ByteArray(0).toRequestBody(null))
-        }
-        http.newCall(builder.build()).execute().use { response ->
+        http.newCall(buildControlRequest(baseUrl, path, method, token)).execute().use { response ->
             if (!response.isSuccessful) throw response.toApiException()
             val body = response.body?.string().orEmpty()
             return JSONObject(body)
@@ -139,6 +131,18 @@ class AgentCommandApi(credentials: SavedCredentials) {
     }
 
     internal companion object {
+        fun buildControlRequest(baseUrl: HttpUrl, path: String, method: String, token: String): Request {
+            val url = baseUrl.resolve(path) ?: throw IOException("Invalid Agent Command API path")
+            val builder = Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer $token")
+                .header("Accept", "application/json")
+            if (method == "POST") {
+                builder.post(ByteArray(0).toRequestBody(null))
+            }
+            return builder.build()
+        }
+
         fun requireEndpoint(raw: String): HttpUrl {
             val normalized = raw.trim().trimEnd('/') + "/"
             val url = normalized.toHttpUrlOrNull()
