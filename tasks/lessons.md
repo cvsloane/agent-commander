@@ -57,3 +57,7 @@
 - Date: 2026-07-22
   Correction: The Claude pane UI updated its selected pane and accepted input before tmux had confirmed the pane and zoom state, which made pane switching unreliable across delays, failures, and reconnects.
   Rule: Treat pane selection and focus as a verified transaction: keep input fenced and UI state provisional until tmux acknowledges the target state, reconcile actual viewer state after timeouts or reconnects, roll back partial failures, and test delayed, rejected, and resumed paths.
+
+- Date: 2026-07-22
+  Correction: The initial Android acceptance proposal imposed enterprise-style repetition and soak gates on a single-user personal app whose immediate goal is basic Termius-level functionality.
+  Rule: For single-user internal utilities, define completion around the smallest real daily-use workflow that works on the owner's device; treat stress testing, polish, and broader product hardening as iterative follow-up unless the risk or user explicitly requires them.
