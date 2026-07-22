@@ -10,7 +10,6 @@ import {
 import { useTerminalGrid, useTerminalWarmKey } from './terminalGridContext';
 import { paintTerminalWarmBuffer } from './terminalWarmCache';
 import { DEFAULT_TERMINAL_WARM_TIMEOUT_MINUTES, useSettingsStore } from '@/stores/settings';
-import { installResilientTerminalWebgl } from './terminalWebgl';
 
 export function useXtermTerminal({
   termRef,
@@ -46,7 +45,6 @@ export function useXtermTerminal({
   fontSizeRef.current = fontSize;
   const baseFontSizeRef = useRef<number | null>(null);
   const lastSentDimensionsRef = useRef<TerminalGridDimensions | undefined>(undefined);
-  const webglCleanupRef = useRef<(() => void) | null>(null);
 
   const lastLetterboxKeyRef = useRef<string | null>(null);
   const applyLetterbox = useCallback(() => {
@@ -181,15 +179,10 @@ export function useXtermTerminal({
         terminalWarmTimeoutMinutes * 60 * 1000
       );
     }
-    try {
-      const { WebglAddon } = await import('@xterm/addon-webgl');
-      webglCleanupRef.current = installResilientTerminalWebgl(
-        terminal,
-        () => new WebglAddon()
-      );
-    } catch {
-      // The built-in DOM renderer remains active when WebGL is unavailable.
-    }
+    // Keep the built-in DOM renderer. WebGL glyph-atlas corruption can leave
+    // stale visual fragments after scroll/resize even though the buffer and
+    // copied text are correct. Reliability matters more than GPU throughput
+    // for this single-user terminal surface.
     terminal.attachCustomKeyEventHandler((event) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
         event.preventDefault();
@@ -295,8 +288,6 @@ export function useXtermTerminal({
       element.style.removeProperty('height');
       element.parentElement?.style.removeProperty('overflow-y');
     }
-    webglCleanupRef.current?.();
-    webglCleanupRef.current = null;
     terminalRef.current?.dispose();
     terminalRef.current = null;
     fitAddonRef.current = null;

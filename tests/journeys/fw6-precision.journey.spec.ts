@@ -89,6 +89,7 @@ test.describe('FW6 mobile precision journeys', () => {
     ).join('');
     await sendTerminalOutput(initialOutput);
     const terminal = page.locator('[aria-label="Interactive terminal"]:visible').first();
+    await expect(terminal.locator('.xterm-screen canvas')).toHaveCount(0);
     const viewport = terminal.locator('.terminal.xterm.focus > .xterm-viewport');
     await expect(viewport).toBeVisible();
     await expect.poll(() => viewport.evaluate((element) => (

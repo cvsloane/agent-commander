@@ -28,6 +28,22 @@ interface TerminalAttentionOverlayProps {
   className?: string;
 }
 
+export function shouldShowTerminalAttention(
+  candidate: OrchestratorItem,
+  sessionId: string
+): boolean {
+  return candidate.sessionId === sessionId
+    && (
+      candidate.source === 'approval'
+      || candidate.sessionStatus === 'ERROR'
+      || candidate.action?.type === 'error'
+      || (
+        candidate.sessionStatus !== 'WAITING_FOR_INPUT'
+        && candidate.attentionReason !== 'waiting_input'
+      )
+    );
+}
+
 export function TerminalAttentionOverlay({
   sessionId,
   readOnly = false,
@@ -37,7 +53,9 @@ export function TerminalAttentionOverlay({
   const rawItems = useOrchestratorStore((state) => state.items);
   const dismissItem = useOrchestratorStore((state) => state.dismissItem);
   const item = useMemo(
-    () => mergeAttentionItems(rawItems).find((candidate) => candidate.sessionId === sessionId),
+    () => mergeAttentionItems(rawItems).find(
+      (candidate) => shouldShowTerminalAttention(candidate, sessionId)
+    ),
     [rawItems, sessionId]
   );
 
