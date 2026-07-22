@@ -1,11 +1,11 @@
 # Android Terminal Daily Driver — Status
 
 - Plan status/version: approved `1719c8c` scope, approval recorded 2026-07-22T12:04:25-04:00
-- Current phase: W1 live acceptance and W2 Android review/integration
+- Current phase: W1 live acceptance and W3 source-aligned APK follow-up rollout
 - Overall state: running
-- Last updated: 2026-07-22T18:34:05-04:00
+- Last updated: 2026-07-22T19:10:04-04:00
 - Current accepted baseline: production functionality through `997e522d71eef5dadd85a20139377f8848fb9a45`, with the remaining renderer artifact rejected
-- Current candidate: integrated Android release candidate through `2e7c357` with final fresh PASS and signed APK SHA-256 `c97d140f6ef2bcbbcafc8d6d4ea31ac794194faeaf0f89d11494b4379845d42c`; W1 remains live at `12889bf`
+- Current candidate: PR #108 merge `a1b4f413be88163a0a8300efe1e06fcec9a174f7` is deployed; a fresh APK rebuilt from that reviewed source has SHA-256 `8e845572d66422eef4f408ecdb8f03b9b7c53068bc13aac2f207268c7d2dee87` and awaits follow-up PR/deployment; W1 remains live at `12889bf`
 - Budget used/remaining: setup complete; 7-day project ceiling remains
 - Next Human Owner checkpoint: production laptop terminal-use verdict
 
@@ -14,8 +14,8 @@
 | Lane | Current role | State | Deliverable/ref | Last proof | Blocked on | Next action |
 |---|---|---|---|---|---|---|
 | W1 — Shared terminal repair | AI Lead/integrator plus Human Owner | deployed | PR #107 merge `12889bf`; Coolify `z4ig8vlvpgvcncvzhiahnl2d`; identical agentd on both hosts | Full CI, fresh review, exact-source containers, one process per host, and public health `ok` with two agents | Live laptop interaction | Chris verifies connect/focus/switch responsiveness on the real laptop path |
-| W2 — Android vertical slice | Android Builder plus fresh Reviewer | integrated | Corrected native foundation through `f464360` merged into the integration branch | Gradle test/lint/release build, INTERNET-only permission, no PTY/JNI, and fresh re-review PASS | Samsung/live-endpoint gates after release rollout | Preserve reviewed scope through CI |
-| W3 — Integration and rollout | AI Lead plus fresh Reviewer | ready for PR | `2e7c357`: authenticated APK route/settings card/Docker copy plus release-signed 2.1 MB APK | Final review PASS; rebuilt standalone image blocks anonymous access, authenticated download is 200 with exact hash, and Settings exposes the artifact | CI, merge, deployment, physical install | Push/merge/deploy, verify authenticated production download, then run real-path acceptance |
+| W2 — Android vertical slice | Android Builder plus fresh Reviewer | integrated | Corrected native foundation through `f464360` merged into the integration branch | Gradle test/lint/release build, INTERNET as the only Android platform permission, one AndroidX package-local signature permission, no PTY/JNI, and fresh re-review PASS | Samsung/live-endpoint gates after release rollout | Preserve reviewed scope through CI |
+| W3 — Integration and rollout | AI Lead plus fresh Reviewer | follow-up ready | PR #108 merged as `a1b4f41` and Coolify `kcq6gn6w98c3c20m1ujtqm4d` finished at that source; fresh 2,233,182-byte APK is rebuilt from the merge | New APK SHA-256 `8e845572...`; v2/v3 signatures retain the release certificate and credential string redaction is present | Follow-up PR/deployment, physical Samsung install, live endpoint use | Ship the exact-source APK and pinned GPL link, verify production download hash, then run device acceptance |
 
 ## Open Gates
 
@@ -31,6 +31,7 @@
 | W1-R7 focused verification | pass | Real production overlay reproduced hard word fragments; red/green formatter proof, exact-width boundary case, affected journey, build/typecheck, fresh review, CI, and repeat production painted-surface probe pass with zero split boundaries or clipping | AI Lead | Live laptop check |
 | W1 live laptop | waiting | W1-R7 is live on the actual Claude transcript overlay; automated painted-surface proof passes, human verdict pending | Human Owner | Hard refresh, then repeat Claude chat scrollback check |
 | W2 build/review | pass | Corrected Android foundation through `f464360` is integrated; Gradle test/lint/release and final fresh review pass | AI Lead | Preserve through CI; complete Samsung/live-endpoint gates after rollout |
+| W3 PR #108 rollout | pass | PR #108 merged as `a1b4f41`; Coolify `kcq6gn6w98c3c20m1ujtqm4d` finished at that exact source; the source-aligned replacement APK is prepared locally but not yet deployed | AI Lead | Follow-up PR/deploy and authenticated production hash check |
 
 ## Current Risks and Escalations
 
@@ -40,6 +41,6 @@
 ## Immediate Next Sequence
 
 1. Chris verifies W1 connect/focus/switch responsiveness on the live laptop path.
-2. AI Lead pushes the integrated Android/distribution candidate through CI, merge, and deployment.
+2. AI Lead pushes the source-aligned APK and immutable GPL link through a follow-up PR, CI, merge, and deployment.
 3. AI Lead verifies the live authenticated download artifact and source identity.
 4. Chris performs the irreducible laptop and Samsung interaction gates.
