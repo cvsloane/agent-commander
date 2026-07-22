@@ -69,3 +69,7 @@
 - Date: 2026-07-22
   Correction: The owner granted this internal Agent Command project full execution authority, including pushes, merges, production rollouts, migrations, and credential changes, provided every live credential is stored in Bitwarden.
   Rule: Do not insert extra approval pauses for in-scope Agent Command implementation or rollout during this approved program. Record receipts for consequential actions, keep raw secrets out of the repo and responses, and store or reference live credentials through Bitwarden Secrets Manager.
+
+- Date: 2026-07-22
+  Correction: Fable quota was exhausted; `gpt-5.6-sol` at `xhigh` was the strongest available model with ample quota, but the owner warned that it tends to overengineer and overtest.
+  Rule: Route this program entirely through `gpt-5.6-sol`/`xhigh` with fresh-context review independence, while actively constraining every brief to the smallest acceptance-bearing vertical slice. Require an explicit kill/non-goal list, forbid speculative parallel implementations and new harnesses, and cap testing at one regression seam, affected existing suites, and the real-path proof the change actually owes.
