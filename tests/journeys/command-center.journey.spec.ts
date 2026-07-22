@@ -49,7 +49,23 @@ test.describe('Command Center program journeys', () => {
       multiWindow: testInfo.title.includes('window tab')
         || testInfo.title.includes('pane switcher')
         || testInfo.title.includes('resumed viewer'),
-      focusPaneDelayMs: testInfo.title.includes('delayed acknowledgement') ? 800 : undefined,
+      focusPaneDelayMs: testInfo.title.includes('delayed acknowledgement')
+        || testInfo.title.includes('acknowledgement before topology')
+        ? 800
+        : undefined,
+      focusPendingTopologyDelayMs: testInfo.title.includes('acknowledgement before topology')
+        ? 250
+        : undefined,
+      focusTopologyDiverges: testInfo.title.includes('newer divergent topology') || undefined,
+      focusTopologyDelayMs: testInfo.title.includes('acknowledgement before topology')
+        ? 5_000
+        : testInfo.title.includes('newer divergent topology')
+          ? 250
+          : undefined,
+      focusPaneFailureIds: testInfo.title.includes('focus failure detail')
+        ? [interactiveSession.tmux_pane_id!]
+        : undefined,
+      terminalAttachDelayMs: testInfo.title.includes('connecting focus guard') ? 5_000 : undefined,
     });
   });
 
@@ -246,6 +262,63 @@ test.describe('Command Center program journeys', () => {
     expect(recorder.commandRequests).not.toContainEqual(expect.objectContaining({
       type: 'zoom_pane',
     }));
+  });
+
+  test('desktop connecting focus guard waits for an attached viewer', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-1280x720', 'desktop pane focus control');
+    await signIn(page);
+    await selectSession(page, interactiveSession.title);
+
+    const focus = page.getByRole('button', { name: 'Focus pane' });
+    await expect(focus).toBeVisible();
+    await expect(focus).toBeDisabled();
+    expect(recorder.terminalMessages).not.toContainEqual(expect.objectContaining({
+      type: 'navigate',
+      op: 'focus_pane',
+    }));
+
+    await expect(page.getByRole('region', { name: 'Primary terminal' })
+      .getByText('Connected', { exact: true })).toBeVisible();
+    await expect(focus).toBeEnabled();
+  });
+
+  test('desktop focus reflects acknowledgement before topology refresh', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-1280x720', 'desktop pane focus control');
+    await signIn(page);
+    await selectSession(page, interactiveSession.title);
+    await expect(page.getByRole('region', { name: 'Primary terminal' })
+      .getByText('Connected', { exact: true })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Focus pane' }).click();
+
+    await expect(page.getByRole('button', { name: 'Exit pane focus' }))
+      .toBeVisible({ timeout: 1_000 });
+  });
+
+  test('desktop focus failure detail reports the tmux rejection', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-1280x720', 'desktop pane focus control');
+    await signIn(page);
+    await selectSession(page, interactiveSession.title);
+    await expect(page.getByRole('region', { name: 'Primary terminal' })
+      .getByText('Connected', { exact: true })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Focus pane' }).click();
+
+    await expect(page.getByText(`Pane ${interactiveSession.tmux_pane_id} is unavailable.`))
+      .toBeVisible();
+  });
+
+  test('desktop focus yields to newer divergent topology', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-1280x720', 'desktop pane focus control');
+    await signIn(page);
+    await selectSession(page, interactiveSession.title);
+    await expect(page.getByRole('region', { name: 'Primary terminal' })
+      .getByText('Connected', { exact: true })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Focus pane' }).click();
+    await expect(page.getByRole('button', { name: 'Exit pane focus' })).toBeVisible();
+
+    await expect(page.getByRole('button', { name: 'Focus pane' })).toBeVisible();
   });
 
   test('terminal text size is separate from pane focus', async ({ page }, testInfo) => {

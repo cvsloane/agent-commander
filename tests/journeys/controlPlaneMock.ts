@@ -249,6 +249,10 @@ interface MockOptions {
   transcriptSessionIds?: string[];
   focusPaneFailureIds?: string[];
   focusPaneDelayMs?: number;
+  focusPendingTopologyDelayMs?: number;
+  focusTopologyDiverges?: boolean;
+  focusTopologyDelayMs?: number;
+  terminalAttachDelayMs?: number;
   liveTranscriptOutput?: boolean;
 }
 
@@ -506,7 +510,7 @@ export async function mockControlPlane(
       if (parsed.type === 'hello') {
         const resumed = resumeNextTerminal;
         resumeNextTerminal = false;
-        socket.send(
+        const sendAttached = () => socket.send(
           JSON.stringify({
             type: 'attached',
             readonly: options.terminalReadOnly ?? false,
@@ -514,6 +518,8 @@ export async function mockControlPlane(
             resume_token: 'dashboard-journey-terminal-resume',
           })
         );
+        if (options.terminalAttachDelayMs) setTimeout(sendAttached, options.terminalAttachDelayMs);
+        else sendAttached();
         if (options.terminalOutput) {
           socket.send(JSON.stringify({
             type: 'output',
@@ -576,8 +582,19 @@ export async function mockControlPlane(
             window_index: selectedWindowIndex,
             zoomed: parsed.zoom,
           }));
-          sendTopology();
+          const sendFocusTopology = () => {
+            if (options.focusTopologyDiverges) zoomedWindowIndex = null;
+            sendTopology();
+          };
+          if (options.focusTopologyDelayMs) {
+            setTimeout(sendFocusTopology, options.focusTopologyDelayMs);
+          } else {
+            sendFocusTopology();
+          }
         };
+        if (options.focusPendingTopologyDelayMs) {
+          setTimeout(sendTopology, options.focusPendingTopologyDelayMs);
+        }
         if (options.focusPaneDelayMs) setTimeout(sendFocusResult, options.focusPaneDelayMs);
         else sendFocusResult();
       }

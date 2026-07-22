@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowDown,
@@ -36,12 +36,15 @@ import { buildSplitPaneCommand, hostSupportsPercentSplits } from './paneActions'
 import { resolveDirectionalPaneTargets } from './spatialPaneNavigation';
 import type { TmuxPaneTopologyView } from '@/stores/tmuxTopology';
 
+export type PaneFocusResult = boolean | { ok: boolean; message?: string };
+
 interface TmuxPaneControlsProps {
   session: Session;
   variant?: 'desktop' | 'sheet';
   className?: string;
   onSelectSession?: (sessionId: string) => void | boolean | Promise<boolean>;
-  onSetPaneFocus?: (focused: boolean) => boolean | Promise<boolean>;
+  onSetPaneFocus?: (focused: boolean) => PaneFocusResult | Promise<PaneFocusResult>;
+  paneFocusAvailable?: boolean;
 }
 
 function tmuxIdentity(session: Session) {
@@ -63,14 +66,22 @@ export function TmuxPaneControls({
   className,
   onSelectSession,
   onSetPaneFocus,
+  paneFocusAvailable = true,
 }: TmuxPaneControlsProps) {
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [acknowledgedFocus, setAcknowledgedFocus] = useState<{
+    sessionId: string;
+    topologyReceivedAt?: string;
+    zoomed: boolean;
+  } | null>(null);
   const notifications = useNotifications();
   const terminalFontSize = useSettingsStore((state) => state.terminalFontSize);
   const setTerminalFontSize = useSettingsStore((state) => state.setTerminalFontSize);
   useTmuxCommandResults();
   const topology = useTmuxHostTopology(session.host_id);
+  const latestTopologyReceivedAtRef = useRef(topology?.receivedAt);
+  latestTopologyReceivedAtRef.current = topology?.receivedAt;
   const identity = useMemo(() => tmuxIdentity(session), [session]);
   const { data: hostsData } = useQuery({
     queryKey: ['hosts'],
@@ -91,9 +102,27 @@ export function TmuxPaneControls({
     session.tmux_pane_id || undefined,
     currentWindow?.layout ?? ''
   );
-  const zoomed = currentWindow?.zoomed ?? false;
+  const topologyZoomed = currentWindow?.zoomed ?? false;
+  const zoomed = acknowledgedFocus?.sessionId === session.id
+    ? acknowledgedFocus.zoomed
+    : topologyZoomed;
   const { terminateSession, isTerminating } = useTerminateSession();
   const labelClassName = variant === 'desktop' ? 'hidden 2xl:inline' : undefined;
+
+  useEffect(() => {
+    if (
+      acknowledgedFocus?.sessionId === session.id
+      && (
+        acknowledgedFocus.zoomed === topologyZoomed
+        || Boolean(
+          topology?.receivedAt
+          && topology.receivedAt !== acknowledgedFocus.topologyReceivedAt
+        )
+      )
+    ) {
+      setAcknowledgedFocus(null);
+    }
+  }, [acknowledgedFocus, session.id, topology?.receivedAt, topologyZoomed]);
 
   const dispatch = async (label: string, command: CommandRequest) => {
     if (pendingAction) return;
@@ -155,8 +184,20 @@ export function TmuxPaneControls({
     if (pendingAction) return;
     setPendingAction(label);
     try {
-      const focused = await onSetPaneFocus(nextFocused);
-      if (!focused) throw new Error('Tmux did not confirm the requested pane focus.');
+      const focusResult = await onSetPaneFocus(nextFocused);
+      const focused = typeof focusResult === 'boolean' ? focusResult : focusResult.ok;
+      if (!focused) {
+        throw new Error(
+          typeof focusResult === 'boolean'
+            ? 'Tmux did not confirm the requested pane focus.'
+            : focusResult.message || 'Tmux did not confirm the requested pane focus.'
+        );
+      }
+      setAcknowledgedFocus({
+        sessionId: session.id,
+        topologyReceivedAt: latestTopologyReceivedAtRef.current,
+        zoomed: nextFocused,
+      });
     } catch (error) {
       notifications.error(
         `Could not ${label}`,
@@ -248,7 +289,11 @@ export function TmuxPaneControls({
           variant="ghost"
           size="sm"
           className={cn('gap-1.5', variant === 'sheet' && 'justify-start border')}
-          disabled={!session.tmux_pane_id || Boolean(pendingAction)}
+          disabled={
+            !session.tmux_pane_id
+            || Boolean(pendingAction)
+            || (Boolean(onSetPaneFocus) && !paneFocusAvailable)
+          }
           aria-label={variant === 'desktop' ? (zoomed ? 'Exit pane focus' : 'Focus pane') : undefined}
           title={variant === 'desktop' ? (zoomed ? 'Exit pane focus' : 'Focus pane') : undefined}
           onClick={() => void setPaneFocus()}

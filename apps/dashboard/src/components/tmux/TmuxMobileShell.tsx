@@ -175,6 +175,9 @@ export function TmuxMobileShell({
   const selectedTmuxSessionName = selectedSession?.tmux_session_name
     || selectedSession?.metadata?.tmux?.session_name
     || selectedSession?.tmux_target?.split(':')[0];
+  const selectedTmuxSessionKey = selectedSession && selectedTmuxSessionName
+    ? `${selectedSession.host_id}\u0000${selectedTmuxSessionName}`
+    : undefined;
   const selectedTargetIndexes = selectedSession?.tmux_target?.match(/:(\d+)(?:\.(\d+))?$/);
   const selectedWindowIndex = selectedSession?.tmux_window_index
     ?? selectedSession?.metadata?.tmux?.window_index
@@ -188,6 +191,7 @@ export function TmuxMobileShell({
     ? `${selectedSession.host_id}:${selectedTmuxSessionName}:${selectedWindowIndex}:${selectedSession.tmux_pane_id ?? ''}`
     : null;
   const focusConnected = terminalSnapshot.status === 'connected'
+    && terminalSnapshot.attachmentDescriptor?.tmuxSessionKey === selectedTmuxSessionKey
     && terminalSnapshot.navigation?.status !== 'pending';
 
   const sendFocus = useCallback(async (on: boolean) => {
@@ -197,14 +201,17 @@ export function TmuxMobileShell({
       sessionId: selectedSession.id,
       hostId: selectedSession.host_id,
       paneId: selectedSession.tmux_pane_id || undefined,
-      tmuxSessionKey: selectedTmuxSessionName
-        ? `${selectedSession.host_id}\u0000${selectedTmuxSessionName}`
-        : undefined,
+      tmuxSessionKey: selectedTmuxSessionKey,
       autoAttach: true,
     }, on);
-    if (result.status !== 'success') focusRequestedRef.current = false;
-    return result.status === 'success';
-  }, [selectedSession, selectedTmuxSessionName]);
+    if (result.status === 'success') return true;
+    focusRequestedRef.current = false;
+    if (result.status === 'error') return { ok: false, message: result.message };
+    if (result.status === 'unavailable') {
+      return { ok: false, message: 'The terminal is still connecting.' };
+    }
+    return { ok: false, message: 'The selected pane changed before focus was confirmed.' };
+  }, [selectedSession, selectedTmuxSessionKey]);
   const sendFocusRef = useRef(sendFocus);
   sendFocusRef.current = sendFocus;
 
@@ -588,6 +595,7 @@ export function TmuxMobileShell({
         onLaunchWindowHere={windowHere ? () => { setMode(selectedSessionId ? 'terminal' : 'roster'); setLaunchOpen(true); } : undefined}
         onSelectSession={handleSelectSession}
         onSetPaneFocus={sendFocus}
+        paneFocusAvailable={focusConnected}
       />
       <TmuxPaneSwitcher
         open={paneSwitcherOpen}

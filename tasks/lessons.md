@@ -101,3 +101,7 @@
 - Date: 2026-07-22
   Correction: Backporting an upstream xterm DOM stale-row fix passed repeated `textContent` restoration checks, but the owner still saw the same changing two-character visual artifact in production.
   Rule: DOM text equality is not an acceptance signal for an unselectable visual defect. A regression loop for this class of bug must reproduce and inspect the actual painted surface on the real path (or remain explicitly unproven) before a fix is shipped.
+
+- Date: 2026-07-22
+  Correction: The live Focus control became clickable before the terminal viewer had attached, so a valid user click sent no tmux request and was mislabeled as an unconfirmed pane focus; successful focus also waited on topology polling, while channel-scoped acknowledgements unnecessarily entered the durable agent queue.
+  Rule: Gate viewer controls on authoritative attachment state, preserve the real protocol rejection, adopt verified acknowledgement state immediately while topology catches up, and keep browser-channel lifecycle/navigation messages off the durable replay lane.

@@ -137,6 +137,10 @@ export function TmuxTerminalWorkspace({
   const readOnly = terminalHostSnapshot.descriptor?.sessionId === primarySession.id
     && terminalHostSnapshot.readOnly;
   const interactionBlocked = terminalHostSnapshot.navigation?.status === 'pending';
+  const primaryTmuxSessionKey = getTmuxViewerSessionKey(primarySession);
+  const paneFocusAvailable = terminalHostSnapshot.status === 'connected'
+    && terminalHostSnapshot.attachmentDescriptor?.tmuxSessionKey === primaryTmuxSessionKey
+    && !interactionBlocked;
   const setPrimaryPaneFocus = useCallback(async (focused: boolean) => {
     const result = await terminalHostStore.focusWithinAttachment({
       sessionId: primarySession.id,
@@ -145,7 +149,12 @@ export function TmuxTerminalWorkspace({
       tmuxSessionKey: getTmuxViewerSessionKey(primarySession),
       autoAttach: true,
     }, focused);
-    return result.status === 'success';
+    if (result.status === 'success') return true;
+    if (result.status === 'error') return { ok: false, message: result.message };
+    if (result.status === 'unavailable') {
+      return { ok: false, message: 'The terminal is still connecting.' };
+    }
+    return { ok: false, message: 'The selected pane changed before focus was confirmed.' };
   }, [primarySession]);
 
   return (
@@ -201,6 +210,7 @@ export function TmuxTerminalWorkspace({
             session={primarySession}
             onSelectSession={onSelectSession}
             onSetPaneFocus={setPrimaryPaneFocus}
+            paneFocusAvailable={paneFocusAvailable}
           />
           <div className="relative min-h-0 flex-1">
             <PersistentTerminalSlot
