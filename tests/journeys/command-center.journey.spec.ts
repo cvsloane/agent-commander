@@ -82,7 +82,14 @@ test.describe('Command Center program journeys', () => {
     await expect.poll(() => {
       const url = recorder.terminalWebSocketUrls.at(-1);
       return url ? Number(new URL(url).searchParams.get('rows')) : 0;
-    }).toBeGreaterThanOrEqual(11);
+    }).toBeGreaterThanOrEqual(20);
+
+    if (!(await isMobile(page))) {
+      const workspace = await page.getByTestId('tmux-terminal-workspace').boundingBox();
+      expect(workspace).not.toBeNull();
+      expect(workspace!.width).toBeGreaterThanOrEqual(680);
+      expect(workspace!.height).toBeGreaterThanOrEqual(580);
+    }
   });
 
   test('window tab retargets the live viewer', async ({ page }) => {

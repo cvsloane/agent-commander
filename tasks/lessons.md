@@ -81,3 +81,7 @@
 - Date: 2026-07-22
   Correction: A non-login SSH probe on homelinux resolved the stale `/usr/local/bin/codex` and falsely suggested `gpt-5.6-sol` was unavailable; the normal login environment used the current `~/.local/bin/codex` successfully.
   Rule: Before declaring a remote model or runtime unavailable, verify the login-shell PATH and all installed binaries. Dispatch homelinux Codex lanes through `bash -lic` or the verified absolute binary so stripped SSH environments cannot select stale tooling.
+
+- Date: 2026-07-22
+  Correction: The repaired production terminal connected and accepted input, but the laptop Command Center still allocated too little space to the actual tmux workbench for meaningful use or scrollback review.
+  Rule: On desktop, treat the active tmux terminal as the primary work surface: cap and independently scroll navigation/roster regions, give the terminal the remaining viewport with a substantial minimum height, and verify its rendered pixel/grid dimensions at a common laptop viewport rather than accepting any merely nonzero terminal size.

@@ -185,6 +185,9 @@ export default function TmuxPageClient() {
           fullBleedMobileTerminal={Boolean(options?.mobileTerminalOnly && mobileTerminalAttached)}
           autoAttachTerminal={autoAttachRequested}
           terminalControllerRef={terminalControllerRef}
+          terminalCardClassName={
+            options?.mobileTerminalOnly ? undefined : 'h-[calc(100dvh-5rem)] min-h-[640px]'
+          }
         />
       </>
     );

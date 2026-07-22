@@ -64,7 +64,7 @@ export function TmuxDesktopShell({
         onSelectHost={onSelectHost}
       />
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)] lg:items-start">
+      <div className="grid gap-6 lg:grid-cols-[minmax(240px,280px)_minmax(0,1fr)] lg:items-start 2xl:grid-cols-[minmax(280px,320px)_minmax(0,1fr)]">
         <div className="lg:sticky lg:top-6 lg:max-h-[calc(100dvh-8rem)] lg:overflow-y-auto">
           <TmuxRoster
             selectedHost={selectedHost}

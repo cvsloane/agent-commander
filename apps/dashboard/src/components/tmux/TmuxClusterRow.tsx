@@ -69,9 +69,6 @@ export function TmuxClusterRow({
           <div className="flex items-center gap-2">
             <Monitor className="h-4 w-4 text-primary" />
             <span className="truncate font-medium">{cluster.tmuxSessionName}</span>
-            {hostLabel && (
-              <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{hostLabel}</Badge>
-            )}
             {cluster.hasUnmanaged && (
               <Badge variant="outline" className="text-[10px]">
                 Untracked
@@ -79,6 +76,11 @@ export function TmuxClusterRow({
             )}
           </div>
           <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+            {hostLabel && (
+              <Badge variant="secondary" className="h-5 max-w-24 shrink-0 truncate px-1.5 text-[10px]">
+                {hostLabel}
+              </Badge>
+            )}
             <span className="shrink-0 whitespace-nowrap">{cluster.windowCount} window{cluster.windowCount === 1 ? '' : 's'}</span>
             <span className="shrink-0">•</span>
             <span className="shrink-0 whitespace-nowrap">{cluster.paneCount} pane{cluster.paneCount === 1 ? '' : 's'}</span>
@@ -92,7 +94,7 @@ export function TmuxClusterRow({
             )}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1">
           {!expanded && triage.approvalCount > 0 && (
             <button
               type="button"
@@ -113,7 +115,7 @@ export function TmuxClusterRow({
               {triage.waitingCount} waiting
             </button>
           )}
-          <span className="text-[11px] text-muted-foreground" suppressHydrationWarning>
+          <span className="hidden text-[11px] text-muted-foreground 2xl:inline" suppressHydrationWarning>
             {hydrated ? formatRelativeTime(cluster.lastActivityAt) : '—'}
           </span>
           {expanded ? (
