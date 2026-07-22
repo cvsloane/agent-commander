@@ -56,7 +56,11 @@ test.describe('Command Center program journeys', () => {
     });
   });
 
-  test('cold open restores the last pane live with zero taps', async ({ page }) => {
+  test('cold open restores the last pane at a usable local-fit grid', async ({ page }) => {
+    // Exercise the real local-fit path: topology may not be ready before a cold attach.
+    await page.routeWebSocket(/\/v1\/ui\/stream\?ticket=/, (socket) => {
+      socket.onMessage(() => undefined);
+    });
     await page.goto('/signin');
     await page.evaluate(
       ({ hostId, sessionId }) => {
@@ -78,6 +82,10 @@ test.describe('Command Center program journeys', () => {
     );
     await expect(page.getByLabel('Interactive terminal')).toBeVisible();
     await expect.poll(() => recorder.terminalSessionIds).toContain(interactiveSession.id);
+    await expect.poll(() => {
+      const url = recorder.terminalWebSocketUrls.at(-1);
+      return url ? Number(new URL(url).searchParams.get('rows')) : 0;
+    }).toBeGreaterThanOrEqual(11);
   });
 
   test('window tab retargets the live viewer', async ({ page }) => {
