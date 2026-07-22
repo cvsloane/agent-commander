@@ -293,32 +293,69 @@ export function useTerminalConnection({
               }
               requestedResumeRef.current = false;
               restartedAfterResumeFailureRef.current = false;
-              if (msg.resumed && paneId) {
-                reconcilingViewerRef.current = true;
-                setReconcilingViewer(true);
-                void navigationRequestsRef.current!.viewerState().then(async (viewerState) => {
-                  if (!viewerState.ok) {
-                    throw new Error(viewerState.message);
-                  }
-                  if (viewerState.pane_id === paneId) return;
-                  const restored = await navigationRequestsRef.current!.focusPane(
-                    paneId,
-                    viewerState.zoomed ?? false
-                  );
-                  if (!restored.ok) throw new Error(restored.message);
-                }).catch((caught) => {
-                  addNotification({
-                    type: 'warning',
-                    title: 'Pane state needs attention',
-                    message: caught instanceof Error
+              const terminalSnapshot = terminalHostStore.getSnapshot();
+              const selectedDescriptor = terminalSnapshot.attachmentDescriptor?.sessionId === sessionId
+                ? terminalSnapshot.descriptor
+                : null;
+              const selectedPaneId = selectedDescriptor?.paneId ?? paneId;
+              const attachmentPaneChanged = Boolean(
+                selectedDescriptor?.paneId && selectedDescriptor.paneId !== paneId
+              );
+              if (selectedPaneId && (msg.resumed || attachmentPaneChanged)) {
+                const persistentReconciliation = selectedDescriptor
+                  ? terminalHostStore.beginViewerReconciliation(selectedDescriptor)
+                  : false;
+                if (!persistentReconciliation) {
+                  reconcilingViewerRef.current = true;
+                  setReconcilingViewer(true);
+                }
+                void (async () => {
+                  try {
+                    const viewerState = await navigationRequestsRef.current!.viewerState();
+                    const viewerConverged = viewerState.pane_id === selectedPaneId
+                      && typeof viewerState.zoomed === 'boolean';
+                    if (!viewerConverged) {
+                      if (!viewerState.ok) throw new Error(viewerState.message);
+                      if (typeof viewerState.zoomed !== 'boolean') {
+                        throw new Error('Tmux did not report the viewer zoom state.');
+                      }
+                      const restored = await navigationRequestsRef.current!.focusPane(
+                        selectedPaneId,
+                        viewerState.zoomed
+                      );
+                      if (
+                        restored.pane_id !== selectedPaneId
+                        || restored.zoomed !== viewerState.zoomed
+                      ) {
+                        throw new Error(restored.ok
+                          ? 'Tmux reported a different pane or zoom state.'
+                          : restored.message);
+                      }
+                    }
+
+                    if (persistentReconciliation && selectedDescriptor) {
+                      if (!terminalHostStore.finishViewerReconciliation(selectedDescriptor)) {
+                        throw new Error('The selected pane changed during viewer reconciliation.');
+                      }
+                    } else {
+                      reconcilingViewerRef.current = false;
+                      setReconcilingViewer(false);
+                    }
+                  } catch (caught) {
+                    const message = caught instanceof Error
                       ? caught.message
-                      : 'The selected pane could not be restored after reconnecting.',
-                    sessionId,
-                  });
-                }).finally(() => {
-                  reconcilingViewerRef.current = false;
-                  setReconcilingViewer(false);
-                });
+                      : 'The selected pane could not be restored after reconnecting.';
+                    if (persistentReconciliation && selectedDescriptor) {
+                      terminalHostStore.finishViewerReconciliation(selectedDescriptor, message);
+                    }
+                    addNotification({
+                      type: 'warning',
+                      title: 'Pane state needs attention',
+                      message,
+                      sessionId,
+                    });
+                  }
+                })();
               }
               updateReadOnly(msg.readonly ?? false);
               updateLagMessage(null);

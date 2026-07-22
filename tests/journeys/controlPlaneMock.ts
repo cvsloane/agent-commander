@@ -235,8 +235,10 @@ export interface JourneyRecorder {
     window_index?: number;
     lines?: number;
   }>;
+  terminalInputPaneIds: string[];
   terminalSessionIds: string[];
   terminalWebSocketUrls: string[];
+  disconnectTerminal: () => Promise<void>;
 }
 
 interface MockOptions {
@@ -248,7 +250,6 @@ interface MockOptions {
   focusPaneFailureIds?: string[];
   focusPaneDelayMs?: number;
   liveTranscriptOutput?: boolean;
-  resumedViewerPaneId?: string;
 }
 
 async function fulfillJson(route: Route, body: unknown): Promise<void> {
@@ -445,6 +446,8 @@ export async function mockControlPlane(
       document.head.appendChild(style);
     });
   });
+  const terminalSockets = new Set<WebSocketRoute>();
+  let resumeNextTerminal = false;
   const recorder: JourneyRecorder = {
     approvalDecisions: [],
     commandRequests: [],
@@ -454,16 +457,23 @@ export async function mockControlPlane(
     transcriptRequests: [],
     transcriptSessionIds: [],
     terminalMessages: [],
+    terminalInputPaneIds: [],
     terminalSessionIds: [],
     terminalWebSocketUrls: [],
+    disconnectTerminal: async () => {
+      const socket = Array.from(terminalSockets).at(-1);
+      if (!socket) return;
+      resumeNextTerminal = true;
+      terminalSockets.delete(socket);
+      await socket.close({ code: 1012, reason: 'journey reconnect' });
+    },
   };
   const availableSessions = options.multiWindow ? [...sessions, windowSession] : sessions;
-  let selectedWindowIndex = options.resumedViewerPaneId === windowSession.tmux_pane_id ? 1 : 0;
-  let zoomedWindowIndex: number | null = options.resumedViewerPaneId ? selectedWindowIndex : null;
+  let selectedWindowIndex = 0;
+  let zoomedWindowIndex: number | null = null;
   let secondWindowName = options.multiWindow ? 'verification' : null;
   let secondWindowHasTrackedPane = options.multiWindow ?? false;
   const topologySockets = new Set<WebSocketRoute>();
-  const terminalSockets = new Set<WebSocketRoute>();
   let liveTranscriptReady = false;
   let liveTranscriptScheduled = false;
   const sendTopology = () => {
@@ -494,11 +504,13 @@ export async function mockControlPlane(
       const parsed = JSON.parse(message) as JourneyRecorder['terminalMessages'][number];
       recorder.terminalMessages.push(parsed);
       if (parsed.type === 'hello') {
+        const resumed = resumeNextTerminal;
+        resumeNextTerminal = false;
         socket.send(
           JSON.stringify({
             type: 'attached',
             readonly: options.terminalReadOnly ?? false,
-            resumed: Boolean(options.resumedViewerPaneId),
+            resumed,
             resume_token: 'dashboard-journey-terminal-resume',
           })
         );
@@ -510,6 +522,13 @@ export async function mockControlPlane(
           }));
         }
       }
+      if (parsed.type === 'input') {
+        recorder.terminalInputPaneIds.push(
+          selectedWindowIndex === 1
+            ? windowSession.tmux_pane_id || ''
+            : interactiveSession.tmux_pane_id || ''
+        );
+      }
       if (parsed.type === 'control') {
         socket.send(JSON.stringify({ type: 'control' }));
       }
@@ -519,14 +538,16 @@ export async function mockControlPlane(
         sendTopology();
       }
       if (parsed.type === 'navigate' && parsed.op === 'viewer_state' && parsed.request_id) {
-        socket.send(JSON.stringify({
-          type: 'navigation_result',
-          request_id: parsed.request_id,
-          ok: true,
-          pane_id: selectedWindowIndex === 1 ? windowSession.tmux_pane_id : interactiveSession.tmux_pane_id,
-          window_index: selectedWindowIndex,
-          zoomed: zoomedWindowIndex === selectedWindowIndex,
-        }));
+        setTimeout(() => {
+          socket.send(JSON.stringify({
+            type: 'navigation_result',
+            request_id: parsed.request_id,
+            ok: true,
+            pane_id: selectedWindowIndex === 1 ? windowSession.tmux_pane_id : interactiveSession.tmux_pane_id,
+            window_index: selectedWindowIndex,
+            zoomed: zoomedWindowIndex === selectedWindowIndex,
+          }));
+        }, 500);
       }
       if (
         parsed.type === 'navigate'
