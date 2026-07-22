@@ -117,7 +117,7 @@ func TestSendUnsequencedOmitsSequenceField(t *testing.T) {
 }
 
 func TestSendUnsequencedBypassesDurablePersistenceLane(t *testing.T) {
-	messages := make(chan receivedEnvelope, 1)
+	messages := make(chan map[string]json.RawMessage, 1)
 	upgrader := websocket.Upgrader{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
@@ -125,7 +125,7 @@ func TestSendUnsequencedBypassesDurablePersistenceLane(t *testing.T) {
 			return
 		}
 		defer conn.Close()
-		var message receivedEnvelope
+		var message map[string]json.RawMessage
 		if err := conn.ReadJSON(&message); err == nil {
 			messages <- message
 		}
@@ -150,8 +150,11 @@ func TestSendUnsequencedBypassesDurablePersistenceLane(t *testing.T) {
 	select {
 	case message := <-messages:
 		client.sendMu.Unlock()
-		if message.Type != "terminal.navigation_result" || message.Seq != 0 {
-			t.Fatalf("priority message=(%s,%d)", message.Type, message.Seq)
+		if string(message["type"]) != `"terminal.navigation_result"` {
+			t.Fatalf("priority message type=%s", message["type"])
+		}
+		if _, exists := message["seq"]; exists {
+			t.Fatalf("priority message contains seq: %s", message["seq"])
 		}
 		if err := <-sendDone; err != nil {
 			t.Fatal(err)
