@@ -54,4 +54,19 @@ describe('Claude transcript formatter', () => {
     expect(lines.map((line) => line.text).join('')).toBe(`⏺ Bash ${command.slice(0, 80)}`);
     expect(lines.every((line) => line.dim)).toBe(true);
   });
+
+  it('wraps ordinary transcript text at word boundaries while preserving exact content', () => {
+    const text = 'The pane alerts were benign and completed cleanly.';
+    const lines = formatTranscriptEntries(
+      [{ type: 'assistant', message: { role: 'assistant', content: text } }],
+      18
+    );
+
+    expect(lines).toEqual([
+      { text: 'The pane alerts ', dim: false },
+      { text: 'were benign and ', dim: false },
+      { text: 'completed cleanly.', dim: false },
+    ]);
+    expect(lines.map((line) => line.text).join('')).toBe(text);
+  });
 });
