@@ -5,7 +5,7 @@
 - Overall state: running
 - Last updated: 2026-07-22T18:34:05-04:00
 - Current accepted baseline: production functionality through `997e522d71eef5dadd85a20139377f8848fb9a45`, with the remaining renderer artifact rejected
-- Current candidate: W1 is live at merge `12889bf` with identical agentd SHA-256 `96b732ee42eb98b53315a7da2e7b76e628e796aaffc0e4aad0e741deb2770b86` on both hosts; corrected Android foundation `f464360` has a fresh PASS and is ready for release integration
+- Current candidate: integrated Android release candidate with fresh PASS and signed APK SHA-256 `c97d140f6ef2bcbbcafc8d6d4ea31ac794194faeaf0f89d11494b4379845d42c`; W1 remains live at `12889bf`
 - Budget used/remaining: setup complete; 7-day project ceiling remains
 - Next Human Owner checkpoint: production laptop terminal-use verdict
 
@@ -14,8 +14,8 @@
 | Lane | Current role | State | Deliverable/ref | Last proof | Blocked on | Next action |
 |---|---|---|---|---|---|---|
 | W1 — Shared terminal repair | AI Lead/integrator plus Human Owner | deployed | PR #107 merge `12889bf`; Coolify `z4ig8vlvpgvcncvzhiahnl2d`; identical agentd on both hosts | Full CI, fresh review, exact-source containers, one process per host, and public health `ok` with two agents | Live laptop interaction | Chris verifies connect/focus/switch responsiveness on the real laptop path |
-| W2 — Android vertical slice | Android Builder plus fresh Reviewer | ready for integration | Corrected native foundation `f464360` under `apps/android/**` | Gradle test/lint/debug build, v2 debug signature, INTERNET-only permission, no PTY/JNI, and fresh re-review PASS | Samsung/live-endpoint gates after release rollout | Integrate and release-sign |
-| W3 — Integration and rollout | AI Lead | running | Authenticated APK route/settings card/Docker copy plus release-signing seam | Dashboard lint/build and real Docker build pass; dedicated keystore is outside Git and backed up in Bitwarden | W2 merge and signed artifact | Sign, verify, push/merge/deploy, then run real-path acceptance |
+| W2 — Android vertical slice | Android Builder plus fresh Reviewer | integrated | Corrected native foundation through `f464360` merged into the integration branch | Gradle test/lint/release build, INTERNET-only permission, no PTY/JNI, and fresh re-review PASS | Samsung/live-endpoint gates after release rollout | Preserve reviewed scope through CI |
+| W3 — Integration and rollout | AI Lead | ready for PR | Authenticated APK route/settings card/Docker copy plus release-signed 2.1 MB APK | RSA-4096 Bitwarden-backed signer; APK v2/v3 verified, aligned, package/min/target checked, no native libraries | CI, merge, deployment, physical install | Push/merge/deploy, verify authenticated download, then run real-path acceptance |
 
 ## Open Gates
 
@@ -40,6 +40,6 @@
 ## Immediate Next Sequence
 
 1. Chris verifies W1 connect/focus/switch responsiveness on the live laptop path.
-2. AI Lead integrates corrected Android foundation `f464360`, release signing, and authenticated web/PWA APK delivery.
-3. AI Lead verifies and deploys the release-signed artifact and authenticated download path.
+2. AI Lead pushes the integrated Android/distribution candidate through CI, merge, and deployment.
+3. AI Lead verifies the live authenticated download artifact and source identity.
 4. Chris performs the irreducible laptop and Samsung interaction gates.

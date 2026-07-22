@@ -13,6 +13,8 @@ export ANDROID_HOME=/path/to/android-sdk
 
 The installable development artifact is `app/build/outputs/apk/debug/app-debug.apk`. Android's debug signing configuration signs this artifact; production distribution must supply the repository's approved release-signing configuration outside Git.
 
+The production signing material is stored in the Bitwarden `Agent Command` project as `ANDROID_RELEASE_KEYSTORE_BASE64`, `ANDROID_RELEASE_KEYSTORE_PASSWORD`, and `ANDROID_RELEASE_KEY_ALIAS`. Decode the keystore outside the repository, build `assembleRelease`, and use Android SDK `zipalign` plus `apksigner` to publish `android-distribution/agent-command-android.apk`. Never add the keystore or password to Git.
+
 The app accepts a public `https://` Agent Command endpoint and an access code. It performs the existing NextAuth CSRF/credentials flow, requests a short-lived control-plane bearer token, and exchanges that token for one-time WebSocket tickets. The access code is encrypted with an Android Keystore AES-GCM key; control-plane tokens, cookies, and WebSocket tickets remain memory-only.
 
 ## Terminal source and licensing

@@ -4,3 +4,4 @@
 /**/build/
 *.jks
 *.keystore
+*.p12
