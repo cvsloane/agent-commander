@@ -243,17 +243,25 @@ export function createTerminalHostStore() {
       const result = await controller.focusPane(descriptor.paneId, zoom);
       if (generation !== navigationGeneration) return { status: 'superseded' };
 
-      if (!result.ok || result.pane_id !== descriptor.paneId || result.zoomed !== zoom) {
+      const targetConverged = result.pane_id === descriptor.paneId && result.zoomed === zoom;
+      if (!targetConverged) {
         const message = result.ok
           ? 'Tmux reported a different pane or zoom state.'
           : result.message;
+        const selectedConverged = result.pane_id === snapshot.descriptor?.paneId
+          && result.zoomed === zoom;
         snapshot = {
           ...snapshot,
-          navigation: {
-            status: 'error',
-            targetSessionId: descriptor.sessionId,
-            message,
-          },
+          // A failed request can still report authoritative viewer state. Adopt
+          // the still-selected pane only when pane and zoom both converge;
+          // otherwise retain the pending state as the shared input fence.
+          navigation: selectedConverged
+            ? null
+            : {
+                status: 'pending',
+                targetSessionId: descriptor.sessionId,
+                message,
+              },
         };
         emit();
         return { status: 'error', message };
@@ -268,6 +276,46 @@ export function createTerminalHostStore() {
       snapshot = { ...snapshot, navigation: alreadySelected ? null : snapshot.navigation };
       emit();
       return { status: 'success' };
+    },
+    beginViewerReconciliation(descriptor: TerminalHostDescriptor) {
+      if (
+        !descriptor.paneId
+        || !snapshot.descriptor
+        || getTerminalDescriptorKey(snapshot.descriptor) !== getTerminalDescriptorKey(descriptor)
+      ) {
+        return false;
+      }
+      navigationGeneration += 1;
+      snapshot = {
+        ...snapshot,
+        navigation: { status: 'pending', targetSessionId: descriptor.sessionId },
+      };
+      emit();
+      return true;
+    },
+    finishViewerReconciliation(
+      descriptor: TerminalHostDescriptor,
+      message?: string
+    ) {
+      if (
+        !snapshot.descriptor
+        || getTerminalDescriptorKey(snapshot.descriptor) !== getTerminalDescriptorKey(descriptor)
+        || snapshot.navigation?.targetSessionId !== descriptor.sessionId
+      ) {
+        return false;
+      }
+      snapshot = {
+        ...snapshot,
+        navigation: message
+          ? {
+              status: 'pending',
+              targetSessionId: descriptor.sessionId,
+              message,
+            }
+          : null,
+      };
+      emit();
+      return true;
     },
     setTerminalInstance(descriptorKey: string, instance: XTerminal | null) {
       if (snapshot.descriptorKey !== descriptorKey) return;

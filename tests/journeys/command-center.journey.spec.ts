@@ -50,9 +50,6 @@ test.describe('Command Center program journeys', () => {
         || testInfo.title.includes('pane switcher')
         || testInfo.title.includes('resumed viewer'),
       focusPaneDelayMs: testInfo.title.includes('delayed acknowledgement') ? 800 : undefined,
-      resumedViewerPaneId: testInfo.title.includes('resumed viewer')
-        ? windowSession.tmux_pane_id || undefined
-        : undefined,
     });
   });
 
@@ -184,18 +181,42 @@ test.describe('Command Center program journeys', () => {
     await signIn(page);
     await selectSession(page, interactiveSession.title);
 
-    await expect.poll(() => recorder.terminalMessages).toContainEqual(expect.objectContaining({
-      type: 'navigate',
-      op: 'viewer_state',
-    }));
+    const strip = page.getByTestId('tmux-window-strip').first();
+    await expect.poll(() => recorder.terminalWebSocketUrls.length).toBe(1);
+    await strip.getByRole('tab', { name: 'Window 1: verification' }).click();
     await expect.poll(() => recorder.terminalMessages).toContainEqual(expect.objectContaining({
       type: 'navigate',
       op: 'focus_pane',
-      pane_id: interactiveSession.tmux_pane_id,
-      zoom: true,
+      pane_id: windowSession.tmux_pane_id,
     }));
-    await expect(page.getByRole('region', { name: 'Primary terminal' })
-      .getByText('Connected', { exact: true })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`session_id=${windowSession.id}`));
+    expect(recorder.terminalSessionIds).toEqual([interactiveSession.id]);
+    await page.getByRole('button', { name: 'Send a prompt' }).click();
+    const prompt = page.getByLabel(new RegExp(`Prompt ${windowSession.title}`));
+
+    const resumeMessageIndex = recorder.terminalMessages.length;
+    await recorder.disconnectTerminal();
+    await expect.poll(() => recorder.terminalWebSocketUrls.length).toBe(2);
+    const terminal = page.locator('[aria-label="Interactive terminal"]:visible').first();
+    await expect(terminal).toHaveAttribute('aria-disabled', 'true');
+    await expect(prompt).toBeDisabled();
+    await expect.poll(() => recorder.terminalMessages.slice(resumeMessageIndex)).toContainEqual(
+      expect.objectContaining({ type: 'navigate', op: 'viewer_state' })
+    );
+    await expect(terminal).toHaveAttribute('aria-disabled', 'false');
+    await expect(prompt).toBeEnabled();
+
+    await visibleTerminalInput(page).focus();
+    await page.keyboard.type('x');
+    await expect.poll(() => recorder.terminalInputPaneIds.at(-1)).toBe(windowSession.tmux_pane_id);
+    expect(recorder.terminalMessages.slice(resumeMessageIndex)).not.toContainEqual(
+      expect.objectContaining({
+        type: 'navigate',
+        op: 'focus_pane',
+        pane_id: interactiveSession.tmux_pane_id,
+      })
+    );
+    expect(recorder.terminalSessionIds).toEqual([interactiveSession.id, interactiveSession.id]);
   });
 
   test('desktop window tab focus control uses the acknowledged viewer intent', async ({

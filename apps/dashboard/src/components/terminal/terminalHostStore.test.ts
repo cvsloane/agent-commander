@@ -205,6 +205,49 @@ describe('persistent terminal host', () => {
     });
   });
 
+  it('keeps input fenced when focus reports a pane different from the selected target', async () => {
+    const host = createTerminalHostStore();
+    const first = {
+      sessionId: 'session-a',
+      hostId: 'host-1',
+      paneId: '%1',
+      tmuxSessionKey: 'host-1\u0000agents',
+      autoAttach: true,
+    };
+    const second = { ...first, sessionId: 'session-b', paneId: '%2' };
+    host.registerSurface({
+      id: 'first',
+      descriptor: first,
+      target: {} as HTMLDivElement,
+      visible: true,
+    });
+    host.setController({
+      ...controller(false),
+      focusPane: async () => ({
+        type: 'navigation_result',
+        request_id: '44444444-4444-4444-8444-444444444444',
+        ok: false,
+        message: 'Pane switch was rejected.',
+        pane_id: '%3',
+        window_index: 2,
+        zoomed: false,
+      }),
+    });
+
+    await expect(host.focusWithinAttachment(second, false)).resolves.toEqual({
+      status: 'error',
+      message: 'Pane switch was rejected.',
+    });
+    expect(host.getSnapshot()).toMatchObject({
+      descriptor: first,
+      navigation: {
+        status: 'pending',
+        targetSessionId: 'session-b',
+        message: 'Pane switch was rejected.',
+      },
+    });
+  });
+
   it('emits navigation only when the target shares the live attachment key', () => {
     const host = createTerminalHostStore();
     const descriptor = {
