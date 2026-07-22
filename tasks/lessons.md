@@ -105,3 +105,7 @@
 - Date: 2026-07-22
   Correction: The live Focus control became clickable before the terminal viewer had attached, so a valid user click sent no tmux request and was mislabeled as an unconfirmed pane focus; successful focus also waited on topology polling, while channel-scoped acknowledgements unnecessarily entered the durable agent queue.
   Rule: Gate viewer controls on authoritative attachment state, preserve the real protocol rejection, adopt verified acknowledgement state immediately while topology catches up, and keep browser-channel lifecycle/navigation messages off the durable replay lane.
+
+- Date: 2026-07-22
+  Correction: Marking pane-focus acknowledgements non-durable removed their own disk write but still left them behind the durable sender mutex, so background queue fsync could delay or abandon an otherwise successful tmux focus transaction.
+  Rule: Browser-channel request/response acknowledgements need an unsequenced live write path that can bypass durable persistence while the WebSocket write itself remains serialized. Prove this with the durable lane held, then measure the exact production acknowledgement rather than inferring success from tmux state alone.

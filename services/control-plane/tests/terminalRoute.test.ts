@@ -143,7 +143,7 @@ async function buildServer(options: {
     window_index?: number;
     zoomed?: boolean;
     message?: string;
-  }) => void;
+  }, sourceHostId: string) => void;
 }> {
   vi.resetModules();
   vi.stubEnv('JWT_SECRET', jwtSecret);
@@ -584,11 +584,17 @@ describe('terminal websocket route', () => {
     handleTerminalNavigationResult({
       channel_id: String(attach?.payload.channel_id),
       request_id: requestId,
+      ok: false,
+      message: 'forged cross-host result',
+    }, '99999999-9999-4999-8999-999999999999');
+    handleTerminalNavigationResult({
+      channel_id: String(attach?.payload.channel_id),
+      request_id: requestId,
       ok: true,
       pane_id: '%7',
       window_index: 2,
       zoomed: true,
-    });
+    }, hostId);
     const message = await response;
     expect(JSON.parse(message.data.toString())).toEqual({
       type: 'navigation_result',
@@ -624,7 +630,7 @@ describe('terminal websocket route', () => {
       pane_id: '%7',
       window_index: 2,
       zoomed: true,
-    });
+    }, hostId);
     const stateMessage = await stateResponse;
     expect(JSON.parse(stateMessage.data.toString())).toEqual({
       type: 'navigation_result',

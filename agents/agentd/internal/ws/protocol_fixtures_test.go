@@ -160,7 +160,7 @@ func fixtureMessageTarget(t *testing.T, messageType string, agentMessage bool) a
 	case protocol.TypeTerminalOutput:
 		return &protocol.AgentMessage[protocol.TerminalOutputPayload]{}
 	case protocol.TypeTerminalNavigationResult:
-		return &protocol.AgentMessage[protocol.TerminalNavigationResultPayload]{}
+		return &protocol.ServerMessage[protocol.TerminalNavigationResultPayload]{}
 	case protocol.TypeTerminalAudit:
 		return &protocol.AgentMessage[protocol.TerminalAuditPayload]{}
 	case protocol.TypeTmuxTopology:

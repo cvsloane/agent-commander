@@ -160,7 +160,10 @@ const TerminalNavigationResultPayloadSchema = z.intersection(
   ])
 );
 
-export const TerminalNavigationResultMessageSchema = AgentMessageEnvelopeSchema.extend({
+// Viewer acknowledgements are live channel responses, not durable host events.
+// Keeping them outside the durable cursor prevents queue persistence from
+// delaying a browser-visible focus result.
+export const TerminalNavigationResultMessageSchema = ServerMessageEnvelopeSchema.extend({
   type: z.literal('terminal.navigation_result'),
   payload: TerminalNavigationResultPayloadSchema,
 });

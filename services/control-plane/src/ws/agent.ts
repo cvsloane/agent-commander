@@ -252,6 +252,14 @@ async function processAgentMessage(
     return;
   }
 
+  if (message.type === 'terminal.navigation_result') {
+    if (!state.hostId) {
+      throw new Error('Terminal navigation result received before agent authentication');
+    }
+    handleTerminalNavigationResult(message.payload, state.hostId);
+    return;
+  }
+
   const seq = message.seq;
 
   if (message.type !== 'agent.hello' && seq <= state.lastProcessedSeq) {
@@ -319,12 +327,6 @@ async function processAgentMessage(
     case 'terminal.output': {
       const payload = message.payload as { channel_id: string; data: string; encoding?: 'base64' | 'utf8' };
       handleTerminalOutput(payload.channel_id, payload.data, payload.encoding);
-      sendAck(socket, seq, 'ok');
-      break;
-    }
-
-    case 'terminal.navigation_result': {
-      handleTerminalNavigationResult(message.payload);
       sendAck(socket, seq, 'ok');
       break;
     }
