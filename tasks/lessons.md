@@ -73,3 +73,7 @@
 - Date: 2026-07-22
   Correction: Fable quota was exhausted; `gpt-5.6-sol` at `xhigh` was the strongest available model with ample quota, but the owner warned that it tends to overengineer and overtest.
   Rule: Route this program entirely through `gpt-5.6-sol`/`xhigh` with fresh-context review independence, while actively constraining every brief to the smallest acceptance-bearing vertical slice. Require an explicit kill/non-goal list, forbid speculative parallel implementations and new harnesses, and cap testing at one regression seam, affected existing suites, and the real-path proof the change actually owes.
+
+- Date: 2026-07-22
+  Correction: The Android MVP only needs to connect to and control existing multi-host tmux sessions; launching new Claude/Codex sessions already exists in the web app and should not be rebuilt natively.
+  Rule: Keep native MVP ownership to authentication, roster/navigation, terminal rendering/input, pane/window control, zoom, scrollback, copy/paste, and ordinary resume. Preserve the web launch flow and reject native launch, notifications, or dashboard parity as scope expansion until the daily-use terminal path works.
