@@ -119,6 +119,102 @@ func TestHandleTerminalNavigateRoutesToGroupedViewerOnPrivateSocket(t *testing.T
 	}
 }
 
+func TestHandleTerminalFocusPaneReportsVerifiedViewerState(t *testing.T) {
+	tmuxClient := newPrivateCommandTmux(t)
+	panes, err := tmuxClient.ListPanes()
+	if err != nil || len(panes) != 1 {
+		t.Fatalf("initial panes=%+v err=%v", panes, err)
+	}
+	target, err := tmuxClient.SplitPaneWithOptions(panes[0].PaneID, "horizontal", nil, "")
+	if err != nil {
+		t.Fatalf("split pane: %v", err)
+	}
+
+	manager := tmux.NewTerminalManager(tmuxClient, t.TempDir())
+	manager.SetPerViewerPTY(true)
+	defer manager.Close()
+	if _, err := manager.AttachWithOptions("focus-channel", panes[0].PaneID, tmux.AttachOptions{SessionID: "session-1"}); err != nil {
+		t.Fatalf("attach viewer: %v", err)
+	}
+
+	var gotType string
+	var gotPayload any
+	agent := &Agent{
+		terminalManager: manager,
+		sendMessage: func(msgType string, payload any) error {
+			gotType = msgType
+			gotPayload = payload
+			return nil
+		},
+	}
+	payload, err := json.Marshal(protocol.TerminalNavigatePayload{
+		ChannelID: "focus-channel",
+		Op:        "focus_pane",
+		RequestID: "44444444-4444-4444-8444-444444444444",
+		PaneID:    target.PaneID,
+		Zoom:      boolPointer(true),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent.handleMessage(protocol.TypeTerminalNavigate, payload)
+
+	result, ok := gotPayload.(protocol.TerminalNavigationResultPayload)
+	if gotType != protocol.TypeTerminalNavigationResult || !ok {
+		t.Fatalf("message=(%q, %#v), want terminal navigation result", gotType, gotPayload)
+	}
+	if !result.OK || result.PaneID != target.PaneID || result.WindowIndex != 0 || !result.Zoomed {
+		t.Fatalf("navigation result=%+v", result)
+	}
+}
+
+func TestHandleTerminalViewerStateReportsCurrentViewerState(t *testing.T) {
+	tmuxClient := newPrivateCommandTmux(t)
+	panes, err := tmuxClient.ListPanes()
+	if err != nil || len(panes) != 1 {
+		t.Fatalf("initial panes=%+v err=%v", panes, err)
+	}
+
+	manager := tmux.NewTerminalManager(tmuxClient, t.TempDir())
+	manager.SetPerViewerPTY(true)
+	defer manager.Close()
+	if _, err := manager.AttachWithOptions("state-channel", panes[0].PaneID, tmux.AttachOptions{SessionID: "session-1"}); err != nil {
+		t.Fatalf("attach viewer: %v", err)
+	}
+
+	var gotType string
+	var gotPayload any
+	agent := &Agent{
+		terminalManager: manager,
+		sendMessage: func(msgType string, payload any) error {
+			gotType = msgType
+			gotPayload = payload
+			return nil
+		},
+	}
+	payload, err := json.Marshal(protocol.TerminalNavigatePayload{
+		ChannelID: "state-channel",
+		Op:        "viewer_state",
+		RequestID: "66666666-6666-4666-8666-666666666666",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent.handleMessage(protocol.TypeTerminalNavigate, payload)
+
+	result, ok := gotPayload.(protocol.TerminalNavigationResultPayload)
+	if gotType != protocol.TypeTerminalNavigationResult || !ok {
+		t.Fatalf("message=(%q, %#v), want terminal navigation result", gotType, gotPayload)
+	}
+	if !result.OK || result.PaneID != panes[0].PaneID || result.WindowIndex != 0 || result.Zoomed {
+		t.Fatalf("viewer state result=%+v", result)
+	}
+}
+
+func boolPointer(value bool) *bool {
+	return &value
+}
+
 func TestTerminalAttachSupersedesStaleChannelAfterControlPlaneReconnect(t *testing.T) {
 	tmuxClient := newPrivateCommandTmux(t)
 	panes, err := tmuxClient.ListPanes()

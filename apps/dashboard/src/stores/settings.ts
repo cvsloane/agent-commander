@@ -22,6 +22,7 @@ export type SessionNamingPattern = 'repo_name' | 'branch_name' | 'repo_branch';
 export type SessionTemplate = 'single' | 'claude_codex' | 'full_dev';
 export type LinkType = 'complement' | 'review';
 export type MobileLaunchDefaultProvider = 'codex' | 'claude_code';
+export type TerminalPresentation = 'chat' | 'terminal';
 export type TmuxSavedRosterFilter =
   | 'all'
   | 'waiting'
@@ -411,6 +412,8 @@ interface SettingsStore {
   // Virtual keyboard
   terminalFontSize: number;
   setTerminalFontSize: (fontSize: number) => void;
+  terminalPresentationBySession: Record<string, TerminalPresentation>;
+  setTerminalPresentation: (sessionId: string, presentation: TerminalPresentation) => void;
   terminalRailPreset: TerminalRailPreset;
   setTerminalRailPreset: (preset: TerminalRailPreset) => void;
   terminalRailConfig: TerminalRailConfig;
@@ -680,6 +683,14 @@ export const useSettingsStore = create<SettingsStore>()(
       // Virtual keyboard defaults
       terminalFontSize: DEFAULT_TERMINAL_FONT_SIZE,
       setTerminalFontSize: (fontSize) => set({ terminalFontSize: clampTerminalFontSize(fontSize) }),
+      terminalPresentationBySession: {},
+      setTerminalPresentation: (sessionId, presentation) =>
+        set((state) => ({
+          terminalPresentationBySession: {
+            ...state.terminalPresentationBySession,
+            [sessionId]: presentation,
+          },
+        })),
       terminalRailPreset: 'minimal',
       setTerminalRailPreset: (preset) => set({
         terminalRailPreset: preset,

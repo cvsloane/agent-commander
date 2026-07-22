@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useSyncExternalStore, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore, type MutableRefObject } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Columns2, X } from 'lucide-react';
 import type { Session } from '@agent-command/schema';
@@ -29,7 +29,7 @@ interface TmuxTerminalWorkspaceProps {
   primaryControllerRef?: MutableRefObject<TerminalController | null>;
   onAttentionRespond?: (item: OrchestratorItem) => void;
   onSendToOtherSession?: (targetSessionId: string) => void;
-  onSelectSession?: (sessionId: string) => void;
+  onSelectSession?: (sessionId: string) => void | boolean | Promise<boolean>;
 }
 
 function TerminalLabel({
@@ -104,8 +104,8 @@ export function TmuxTerminalWorkspace({
       };
     }
     return frozenLetterboxRef.current.dims;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- topology churn is
-    // deliberately excluded: dims are frozen per attachment (see comment above).
+    // Topology churn is deliberately excluded: dims are frozen per attachment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [primarySession.id, primarySession.tmux_pane_id]);
   const options = useMemo(
     () =>
@@ -136,9 +136,26 @@ export function TmuxTerminalWorkspace({
   const showSecondary = Boolean(secondaryId);
   const readOnly = terminalHostSnapshot.descriptor?.sessionId === primarySession.id
     && terminalHostSnapshot.readOnly;
+  const interactionBlocked = terminalHostSnapshot.navigation?.status === 'pending';
+  const setPrimaryPaneFocus = useCallback(async (focused: boolean) => {
+    const result = await terminalHostStore.focusWithinAttachment({
+      sessionId: primarySession.id,
+      hostId: primarySession.host_id,
+      paneId: primarySession.tmux_pane_id || undefined,
+      tmuxSessionKey: getTmuxViewerSessionKey(primarySession),
+      autoAttach: true,
+    }, focused);
+    return result.status === 'success';
+  }, [primarySession]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="tmux-terminal-workspace" data-terminal-workspace>
+    <div
+      className={belowDesktop
+        ? 'flex h-full min-h-0 flex-col'
+        : 'flex h-full min-h-[420px] flex-col'}
+      data-testid="tmux-terminal-workspace"
+      data-terminal-workspace
+    >
       <div className="hidden min-h-10 items-center gap-2 border-b bg-background px-2 lg:flex">
         <Columns2 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
         <label htmlFor={`secondary-terminal-${primarySession.id}`} className="text-xs font-medium">
@@ -180,7 +197,11 @@ export function TmuxTerminalWorkspace({
         <section className="flex h-full min-h-0 min-w-0 flex-col" aria-label="Primary terminal">
           {showSecondary && <TerminalLabel label="Primary" session={primarySession} />}
           <TmuxWindowStrip session={primarySession} onSelectSession={onSelectSession} />
-          <TmuxPaneControls session={primarySession} onSelectSession={onSelectSession} />
+          <TmuxPaneControls
+            session={primarySession}
+            onSelectSession={onSelectSession}
+            onSetPaneFocus={setPrimaryPaneFocus}
+          />
           <div className="relative min-h-0 flex-1">
             <PersistentTerminalSlot
               sessionId={primarySession.id}
@@ -189,6 +210,7 @@ export function TmuxTerminalWorkspace({
               tmuxSessionKey={getTmuxViewerSessionKey(primarySession)}
               autoAttach={autoAttachPrimary || showSecondary}
               letterbox={primaryLetterbox}
+              preferLocalChat={primarySession.provider === 'claude_code'}
               controllerRef={primaryControllerRef}
               className="h-full"
             />
@@ -220,6 +242,7 @@ export function TmuxTerminalWorkspace({
                   paneId={secondarySession.tmux_pane_id || undefined}
                   tmuxSessionKey={getTmuxViewerSessionKey(secondarySession)}
                   autoAttach
+                  preferLocalChat={secondarySession.provider === 'claude_code'}
                   className="flex-1"
                 />
               </>
@@ -242,7 +265,8 @@ export function TmuxTerminalWorkspace({
         ref={promptComposerRef}
         session={primarySession}
         readOnly={readOnly}
-        hideCollapsed={hideCollapsedPrompt}
+        interactionBlocked={interactionBlocked}
+        hideCollapsed={hideCollapsedPrompt && primarySession.provider !== 'claude_code'}
         onSendToOtherSession={onSendToOtherSession}
       />
     </div>

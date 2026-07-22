@@ -29,6 +29,18 @@ export const BrowserTerminalDetachMessageSchema = z.object({
 export const BrowserTerminalNavigateMessageSchema = z.discriminatedUnion('op', [
   z.object({
     type: z.literal('navigate'),
+    op: z.literal('viewer_state'),
+    request_id: z.string().uuid(),
+  }),
+  z.object({
+    type: z.literal('navigate'),
+    op: z.literal('focus_pane'),
+    request_id: z.string().uuid(),
+    pane_id: z.string().min(1),
+    zoom: z.boolean(),
+  }),
+  z.object({
+    type: z.literal('navigate'),
     op: z.literal('select_window'),
     window_index: z.number().int().nonnegative(),
   }),
@@ -89,11 +101,35 @@ export const BrowserTerminalLagMessageSchema = z.object({
   dropped: z.number().int().positive().optional(),
 });
 
+export const BrowserTerminalNavigationResultMessageSchema = z.discriminatedUnion('ok', [
+  z.object({
+    type: z.literal('navigation_result'),
+    request_id: z.string().uuid(),
+    ok: z.literal(true),
+    pane_id: z.string().min(1),
+    window_index: z.number().int().nonnegative(),
+    zoomed: z.boolean(),
+  }),
+  z.object({
+    type: z.literal('navigation_result'),
+    request_id: z.string().uuid(),
+    ok: z.literal(false),
+    message: z.string().min(1),
+    pane_id: z.string().min(1).optional(),
+    window_index: z.number().int().nonnegative().optional(),
+    zoomed: z.boolean().optional(),
+  }),
+]);
+export type BrowserTerminalNavigationResultMessage = z.infer<
+  typeof BrowserTerminalNavigationResultMessageSchema
+>;
+
 export const BrowserTerminalServerMessageSchema = z.union([
   BrowserTerminalOutputMessageSchema,
   BrowserTerminalAttachedMessageSchema,
   BrowserTerminalSimpleStatusMessageSchema,
   BrowserTerminalIdleTimeoutMessageSchema,
   BrowserTerminalLagMessageSchema,
+  BrowserTerminalNavigationResultMessageSchema,
 ]);
 export type BrowserTerminalServerMessage = z.infer<typeof BrowserTerminalServerMessageSchema>;

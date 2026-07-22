@@ -53,3 +53,31 @@
   Rule: Exempt Ctrl-based global shortcuts inside editable targets, reset mutation state when secret-bearing UI closes, and derive dependent connection schemes from the configured transport with HTTP and HTTPS coverage.
   Correction: Wave 4 review also found that a late fleet reconcile could overwrite fresher WebSocket state, canonical session entries were not bounded by current aggregate/roster membership, and new prompt/Respond paths bypassed terminal read-only permissions.
   Rule: Merge asynchronous snapshots monotonically by authoritative freshness, prune canonical maps during reconciliation, and propagate terminal control state to every PTY-input-equivalent affordance while keeping non-PTY governance actions independently available.
+
+- Date: 2026-07-22
+  Correction: The Claude pane UI updated its selected pane and accepted input before tmux had confirmed the pane and zoom state, which made pane switching unreliable across delays, failures, and reconnects.
+  Rule: Treat pane selection and focus as a verified transaction: keep input fenced and UI state provisional until tmux acknowledges the target state, reconcile actual viewer state after timeouts or reconnects, roll back partial failures, and test delayed, rejected, and resumed paths.
+
+- Date: 2026-07-22
+  Correction: The initial Android acceptance proposal imposed enterprise-style repetition and soak gates on a single-user personal app whose immediate goal is basic Termius-level functionality.
+  Rule: For single-user internal utilities, define completion around the smallest real daily-use workflow that works on the owner's device; treat stress testing, polish, and broader product hardening as iterative follow-up unless the risk or user explicitly requires them.
+
+- Date: 2026-07-22
+  Correction: Termius over direct SSH worked well, but the live Agent Command terminal was also unusable on a laptop; an SSH-only mobile MVP would bypass the broken shared path and lose the existing multi-host/pane architecture.
+  Rule: Treat the control-plane/agentd terminal path as a required shared product capability before placing another client on it. Preserve multi-host and pane orchestration, prefer a non-Tailnet client path, and use direct SSH as a diagnostic comparator or explicitly approved fallback rather than silently replacing the intended architecture.
+
+- Date: 2026-07-22
+  Correction: The owner granted this internal Agent Command project full execution authority, including pushes, merges, production rollouts, migrations, and credential changes, provided every live credential is stored in Bitwarden.
+  Rule: Do not insert extra approval pauses for in-scope Agent Command implementation or rollout during this approved program. Record receipts for consequential actions, keep raw secrets out of the repo and responses, and store or reference live credentials through Bitwarden Secrets Manager.
+
+- Date: 2026-07-22
+  Correction: Fable quota was exhausted; `gpt-5.6-sol` at `xhigh` was the strongest available model with ample quota, but the owner warned that it tends to overengineer and overtest.
+  Rule: Route this program entirely through `gpt-5.6-sol`/`xhigh` with fresh-context review independence, while actively constraining every brief to the smallest acceptance-bearing vertical slice. Require an explicit kill/non-goal list, forbid speculative parallel implementations and new harnesses, and cap testing at one regression seam, affected existing suites, and the real-path proof the change actually owes.
+
+- Date: 2026-07-22
+  Correction: The Android MVP only needs to connect to and control existing multi-host tmux sessions; launching new Claude/Codex sessions already exists in the web app and should not be rebuilt natively.
+  Rule: Keep native MVP ownership to authentication, roster/navigation, terminal rendering/input, pane/window control, zoom, scrollback, copy/paste, and ordinary resume. Preserve the web launch flow and reject native launch, notifications, or dashboard parity as scope expansion until the daily-use terminal path works.
+
+- Date: 2026-07-22
+  Correction: A non-login SSH probe on homelinux resolved the stale `/usr/local/bin/codex` and falsely suggested `gpt-5.6-sol` was unavailable; the normal login environment used the current `~/.local/bin/codex` successfully.
+  Rule: Before declaring a remote model or runtime unavailable, verify the login-shell PATH and all installed binaries. Dispatch homelinux Codex lanes through `bash -lic` or the verified absolute binary so stripped SSH environments cannot select stale tooling.

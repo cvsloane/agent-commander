@@ -52,13 +52,14 @@ export interface PromptComposerHandle {
 interface PromptComposerProps {
   session: Session;
   readOnly?: boolean;
+  interactionBlocked?: boolean;
   hideCollapsed?: boolean;
   onSendToOtherSession?: (targetSessionId: string) => void;
 }
 
 export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerProps>(
   function PromptComposer(
-    { session, readOnly = false, hideCollapsed = false, onSendToOtherSession },
+    { session, readOnly = false, interactionBlocked = false, hideCollapsed = false, onSendToOtherSession },
     ref
   ) {
     const [expanded, setExpanded] = useState(false);
@@ -112,7 +113,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     const submit = async (event?: FormEvent) => {
       event?.preventDefault();
       const normalized = prompt.trim();
-      if (!normalized || sending || readOnly) return;
+      if (!normalized || sending || readOnly || interactionBlocked) return;
       setSending(true);
       setSendState(null);
       try {
@@ -170,7 +171,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
             size="sm"
             className="h-8 w-full justify-start gap-2 text-muted-foreground"
             onClick={() => setExpanded(true)}
-            disabled={readOnly}
+            disabled={readOnly || interactionBlocked}
             aria-expanded="false"
             aria-controls={`prompt-composer-${session.id}`}
             aria-describedby={readOnly ? readOnlyHintId : undefined}
@@ -181,6 +182,11 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
           {readOnly && (
             <p id={readOnlyHintId} className="px-2 pt-1 text-xs text-amber-700 dark:text-amber-400">
               Read-only — take control to type
+            </p>
+          )}
+          {interactionBlocked && (
+            <p className="px-2 pt-1 text-xs text-muted-foreground" role="status">
+              Switching pane — input paused
             </p>
           )}
         </div>
@@ -215,7 +221,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
           ref={textareaRef}
           id={`prompt-composer-input-${session.id}`}
           value={prompt}
-          disabled={readOnly}
+          disabled={readOnly || interactionBlocked}
           onChange={(event) => {
             setPrompt(event.target.value);
             setHistoryIndex(-1);
@@ -232,7 +238,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
             <div className="flex min-w-0 flex-1 gap-1.5">
               <select
                 value={targetSessionId}
-                disabled={readOnly}
+                disabled={readOnly || interactionBlocked}
                 onChange={(event) => setTargetSessionId(event.target.value)}
                 className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring"
                 aria-label="Other session target"
@@ -249,7 +255,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                 variant="outline"
                 size="sm"
                 className="h-8 gap-1.5"
-                disabled={readOnly || !targetSessionId}
+                disabled={readOnly || interactionBlocked || !targetSessionId}
                 onClick={() => targetSessionId && onSendToOtherSession(targetSessionId)}
               >
                 <Forward className="h-3.5 w-3.5" aria-hidden="true" />
@@ -261,7 +267,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
             type="submit"
             size="sm"
             className="h-8 gap-1.5 sm:ml-auto"
-            disabled={readOnly || !prompt.trim() || sending}
+            disabled={readOnly || interactionBlocked || !prompt.trim() || sending}
           >
             {sending
               ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
@@ -272,6 +278,11 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
         {readOnly && (
           <p className="text-xs text-amber-700 dark:text-amber-400" role="status">
             Read-only — take control to type
+          </p>
+        )}
+        {interactionBlocked && (
+          <p className="text-xs text-muted-foreground" role="status">
+            Switching pane — input paused
           </p>
         )}
         <p

@@ -148,7 +148,7 @@ export function SessionWorkbench({
             ? 'fixed inset-0 z-[60] h-dvh rounded-none border-0 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]'
             : fullBleedMobileTerminal
               ? 'h-full min-h-0 rounded-none border-x-0 border-b-0'
-              : isMobile ? 'h-[66dvh] min-h-[360px]' : 'h-[66dvh]',
+              : isMobile ? 'h-[66dvh] min-h-[360px]' : 'h-[66dvh] min-h-[520px]',
           terminalCardClassName
         )}
       >

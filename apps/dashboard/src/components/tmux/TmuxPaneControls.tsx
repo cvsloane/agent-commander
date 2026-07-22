@@ -9,6 +9,8 @@ import {
   ArrowUp,
   Columns2,
   History,
+  Minus,
+  Plus,
   Rows2,
   Trash2,
   ZoomIn,
@@ -23,6 +25,12 @@ import { useTerminateSession } from '@/hooks/useTerminateSession';
 import { getHosts, sendCommand } from '@/lib/api';
 import { cn, getSessionDisplayName } from '@/lib/utils';
 import { useNotifications } from '@/stores/notifications';
+import {
+  DEFAULT_TERMINAL_FONT_SIZE,
+  TERMINAL_FONT_SIZE_MAX,
+  TERMINAL_FONT_SIZE_MIN,
+  useSettingsStore,
+} from '@/stores/settings';
 import { registerPendingTmuxCommand } from '@/stores/tmuxCommands';
 import { buildSplitPaneCommand, hostSupportsPercentSplits } from './paneActions';
 import { resolveDirectionalPaneTargets } from './spatialPaneNavigation';
@@ -32,7 +40,8 @@ interface TmuxPaneControlsProps {
   session: Session;
   variant?: 'desktop' | 'sheet';
   className?: string;
-  onSelectSession?: (sessionId: string) => void;
+  onSelectSession?: (sessionId: string) => void | boolean | Promise<boolean>;
+  onSetPaneFocus?: (focused: boolean) => boolean | Promise<boolean>;
 }
 
 function tmuxIdentity(session: Session) {
@@ -53,10 +62,13 @@ export function TmuxPaneControls({
   variant = 'desktop',
   className,
   onSelectSession,
+  onSetPaneFocus,
 }: TmuxPaneControlsProps) {
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const notifications = useNotifications();
+  const terminalFontSize = useSettingsStore((state) => state.terminalFontSize);
+  const setTerminalFontSize = useSettingsStore((state) => state.setTerminalFontSize);
   useTmuxCommandResults();
   const topology = useTmuxHostTopology(session.host_id);
   const identity = useMemo(() => tmuxIdentity(session), [session]);
@@ -107,13 +119,53 @@ export function TmuxPaneControls({
     }
   };
 
-  const selectPane = (pane: TmuxPaneTopologyView | undefined, label: string) => {
+  const selectPane = async (pane: TmuxPaneTopologyView | undefined, label: string) => {
     if (!pane) return;
     if (pane.sessionId && onSelectSession) {
-      onSelectSession(pane.sessionId);
+      if (pendingAction) return;
+      setPendingAction(label);
+      try {
+        const selected = await onSelectSession(pane.sessionId);
+        if (selected === false) throw new Error('The current pane is still active.');
+      } catch (error) {
+        notifications.error(
+          `Could not ${label}`,
+          error instanceof Error ? error.message : 'The pane could not be selected.',
+          { sessionId: session.id }
+        );
+      } finally {
+        setPendingAction(null);
+      }
       return;
     }
     void dispatch(label, { type: 'select_pane', payload: { pane_id: pane.paneId } });
+  };
+
+  const setPaneFocus = async () => {
+    if (!session.tmux_pane_id) return;
+    const nextFocused = !zoomed;
+    const label = nextFocused ? 'focus pane' : 'exit pane focus';
+    if (!onSetPaneFocus) {
+      await dispatch(label, {
+        type: 'zoom_pane',
+        payload: { pane_id: session.tmux_pane_id },
+      });
+      return;
+    }
+    if (pendingAction) return;
+    setPendingAction(label);
+    try {
+      const focused = await onSetPaneFocus(nextFocused);
+      if (!focused) throw new Error('Tmux did not confirm the requested pane focus.');
+    } catch (error) {
+      notifications.error(
+        `Could not ${label}`,
+        error instanceof Error ? error.message : 'The pane focus could not be changed.',
+        { sessionId: session.id }
+      );
+    } finally {
+      setPendingAction(null);
+    }
   };
 
   const killPane = async () => {
@@ -197,23 +249,62 @@ export function TmuxPaneControls({
           size="sm"
           className={cn('gap-1.5', variant === 'sheet' && 'justify-start border')}
           disabled={!session.tmux_pane_id || Boolean(pendingAction)}
-          aria-label={variant === 'desktop' ? (zoomed ? 'Unzoom pane' : 'Zoom pane') : undefined}
-          title={variant === 'desktop' ? (zoomed ? 'Unzoom pane' : 'Zoom pane') : undefined}
-          onClick={() =>
-            session.tmux_pane_id &&
-            void dispatch(zoomed ? 'unzoom pane' : 'zoom pane', {
-              type: 'zoom_pane',
-              payload: { pane_id: session.tmux_pane_id },
-            })
-          }
+          aria-label={variant === 'desktop' ? (zoomed ? 'Exit pane focus' : 'Focus pane') : undefined}
+          title={variant === 'desktop' ? (zoomed ? 'Exit pane focus' : 'Focus pane') : undefined}
+          onClick={() => void setPaneFocus()}
         >
           {zoomed ? (
             <ZoomOut className="h-4 w-4" aria-hidden="true" />
           ) : (
             <ZoomIn className="h-4 w-4" aria-hidden="true" />
           )}
-          <span className={labelClassName}>{zoomed ? 'Unzoom' : 'Zoom'}</span>
+          <span className={labelClassName}>{zoomed ? 'Exit focus' : 'Focus pane'}</span>
         </Button>
+
+        <div
+          className={cn(
+            'flex items-center overflow-hidden rounded-md border bg-background',
+            variant === 'sheet' && 'col-span-2 justify-between'
+          )}
+          role="group"
+          aria-label={`Terminal text size ${terminalFontSize} pixels`}
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 rounded-none px-2"
+            disabled={terminalFontSize <= TERMINAL_FONT_SIZE_MIN}
+            onClick={() => setTerminalFontSize(terminalFontSize - 1)}
+            aria-label="Decrease terminal text size"
+            title="Decrease terminal text size"
+          >
+            <Minus className="h-3.5 w-3.5" aria-hidden="true" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 min-w-12 rounded-none border-x px-2 font-mono text-[11px]"
+            onClick={() => setTerminalFontSize(DEFAULT_TERMINAL_FONT_SIZE)}
+            aria-label="Reset terminal text size"
+            title="Reset terminal text size"
+          >
+            {terminalFontSize}px
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 rounded-none px-2"
+            disabled={terminalFontSize >= TERMINAL_FONT_SIZE_MAX}
+            onClick={() => setTerminalFontSize(terminalFontSize + 1)}
+            aria-label="Increase terminal text size"
+            title="Increase terminal text size"
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+          </Button>
+        </div>
 
         {variant === 'sheet' && (
           <div className="col-span-2 grid grid-cols-4 gap-2" aria-label="Select adjacent pane">
@@ -222,7 +313,7 @@ export function TmuxPaneControls({
               variant="outline"
               size="sm"
               disabled={!directionalPanes.left || Boolean(pendingAction)}
-              onClick={() => selectPane(directionalPanes.left, 'select pane left')}
+              onClick={() => void selectPane(directionalPanes.left, 'select pane left')}
               aria-label="Select pane left"
             >
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
@@ -232,7 +323,7 @@ export function TmuxPaneControls({
               variant="outline"
               size="sm"
               disabled={!directionalPanes.up || Boolean(pendingAction)}
-              onClick={() => selectPane(directionalPanes.up, 'select pane up')}
+              onClick={() => void selectPane(directionalPanes.up, 'select pane up')}
               aria-label="Select pane up"
             >
               <ArrowUp className="h-4 w-4" aria-hidden="true" />
@@ -242,7 +333,7 @@ export function TmuxPaneControls({
               variant="outline"
               size="sm"
               disabled={!directionalPanes.down || Boolean(pendingAction)}
-              onClick={() => selectPane(directionalPanes.down, 'select pane down')}
+              onClick={() => void selectPane(directionalPanes.down, 'select pane down')}
               aria-label="Select pane down"
             >
               <ArrowDown className="h-4 w-4" aria-hidden="true" />
@@ -252,7 +343,7 @@ export function TmuxPaneControls({
               variant="outline"
               size="sm"
               disabled={!directionalPanes.right || Boolean(pendingAction)}
-              onClick={() => selectPane(directionalPanes.right, 'select pane right')}
+              onClick={() => void selectPane(directionalPanes.right, 'select pane right')}
               aria-label="Select pane right"
             >
               <ArrowRight className="h-4 w-4" aria-hidden="true" />

@@ -15,7 +15,7 @@ import { runTmuxWindowAction, type TmuxWindowAction } from './windowActions';
 interface TmuxWindowStripProps {
   session: Session;
   className?: string;
-  onSelectSession?: (sessionId: string) => void;
+  onSelectSession?: (sessionId: string) => void | boolean | Promise<boolean>;
 }
 
 export function getWindowViewerSessionId(window: TmuxWindowTopologyView): string | null {
@@ -209,11 +209,25 @@ export function TmuxWindowStrip({ session, className, onSelectSession }: TmuxWin
     }
   };
 
-  const selectWindow = (window: TmuxWindowTopologyView) => {
+  const selectWindow = async (window: TmuxWindowTopologyView) => {
     const nextSessionId = getWindowViewerSessionId(window);
     if (nextSessionId && onSelectSession) {
-      setWindows(optimisticWindows(windows, { type: 'select', windowIndex: window.windowIndex }));
-      onSelectSession(nextSessionId);
+      const previous = windows;
+      setPending(true);
+      setWindows(optimisticWindows(previous, { type: 'select', windowIndex: window.windowIndex }));
+      try {
+        const switched = await onSelectSession(nextSessionId);
+        if (switched === false) setWindows(previous);
+      } catch (error) {
+        setWindows(previous);
+        notifications.error(
+          'Pane switch failed',
+          error instanceof Error ? error.message : 'The current pane is still active.',
+          { sessionId: session.id }
+        );
+      } finally {
+        setPending(false);
+      }
       return;
     }
     void dispatchAction({ type: 'select', windowIndex: window.windowIndex });
@@ -329,7 +343,7 @@ export function TmuxWindowStrip({ session, className, onSelectSession }: TmuxWin
                       longPressTriggeredRef.current = false;
                       return;
                     }
-                    selectWindow(window);
+                    void selectWindow(window);
                   }}
                   onContextMenu={(event) => {
                     event.preventDefault();

@@ -44,6 +44,7 @@ export function PersistentTerminalSlot({
   tmuxSessionKey,
   autoAttach,
   letterbox,
+  preferLocalChat,
   className,
   controllerRef,
 }: PersistentTerminalSlotProps) {
@@ -56,7 +57,15 @@ export function PersistentTerminalSlot({
 
     const unregister = terminalHostStore.registerSurface({
       id,
-      descriptor: { sessionId, hostId, paneId, tmuxSessionKey, autoAttach, letterbox },
+      descriptor: {
+        sessionId,
+        hostId,
+        paneId,
+        tmuxSessionKey,
+        autoAttach,
+        letterbox,
+        preferLocalChat,
+      },
       target,
       visible: isSurfaceVisible(target),
       controllerRef,
@@ -70,7 +79,7 @@ export function PersistentTerminalSlot({
       resizeObserver.disconnect();
       unregister();
     };
-  }, [autoAttach, controllerRef, hostId, id, letterbox, paneId, sessionId, tmuxSessionKey]);
+  }, [autoAttach, controllerRef, hostId, id, letterbox, paneId, preferLocalChat, sessionId, tmuxSessionKey]);
 
   return (
     <div
@@ -178,6 +187,8 @@ export function PersistentTerminalHost() {
             paneId={attachmentDescriptor.paneId}
             tmuxSessionKey={attachmentDescriptor.tmuxSessionKey}
             autoAttach={attachmentDescriptor.autoAttach}
+            preferLocalChat={snapshot.descriptor?.preferLocalChat ?? attachmentDescriptor.preferLocalChat}
+            interactionBlocked={snapshot.navigation?.status === 'pending'}
             onControllerChange={handleControllerChange}
             onTerminalInstanceChange={handleTerminalInstanceChange}
           />

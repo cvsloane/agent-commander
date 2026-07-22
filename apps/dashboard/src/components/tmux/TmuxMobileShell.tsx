@@ -87,7 +87,7 @@ interface TmuxMobileShellProps {
   selectedSessionHost?: Host;
   idlePending: boolean;
   terminating: boolean;
-  onSelectSession: (sessionId: string) => void;
+  onSelectSession: (sessionId: string) => Promise<boolean>;
   onRefresh: () => void;
   onIdleToggle: () => void;
   onSendTo: () => void;
@@ -187,13 +187,26 @@ export function TmuxMobileShell({
   const focusTargetKey = selectedSession && selectedTmuxSessionName && selectedWindowIndex !== undefined
     ? `${selectedSession.host_id}:${selectedTmuxSessionName}:${selectedWindowIndex}:${selectedSession.tmux_pane_id ?? ''}`
     : null;
-  const focusConnected = terminalSnapshot.status === 'connected';
+  const focusConnected = terminalSnapshot.status === 'connected'
+    && terminalSnapshot.navigation?.status !== 'pending';
 
-  const sendFocus = useCallback((on: boolean) => {
-    const sent = terminalControllerRef.current?.navigate({ type: 'navigate', op: 'zoom', on }) ?? false;
-    if (sent) focusRequestedRef.current = on;
-    return sent;
-  }, [terminalControllerRef]);
+  const sendFocus = useCallback(async (on: boolean) => {
+    if (!selectedSession) return false;
+    focusRequestedRef.current = on;
+    const result = await terminalHostStore.focusWithinAttachment({
+      sessionId: selectedSession.id,
+      hostId: selectedSession.host_id,
+      paneId: selectedSession.tmux_pane_id || undefined,
+      tmuxSessionKey: selectedTmuxSessionName
+        ? `${selectedSession.host_id}\u0000${selectedTmuxSessionName}`
+        : undefined,
+      autoAttach: true,
+    }, on);
+    if (result.status !== 'success') focusRequestedRef.current = false;
+    return result.status === 'success';
+  }, [selectedSession, selectedTmuxSessionName]);
+  const sendFocusRef = useRef(sendFocus);
+  sendFocusRef.current = sendFocus;
 
   useEffect(() => {
     const navigation = getMobileFocusNavigation({
@@ -207,7 +220,7 @@ export function TmuxMobileShell({
       zoomed: focusZoomed,
     });
     if (navigation?.op === 'zoom') {
-      sendFocus(navigation.on);
+      void sendFocus(navigation.on);
     }
     previousFocusTargetRef.current = terminalVisible ? focusTargetKey : null;
   }, [
@@ -228,28 +241,28 @@ export function TmuxMobileShell({
     return () => {
       focusCleanupTimerRef.current = window.setTimeout(() => {
         if (focusRequestedRef.current) {
-          sendFocus(false);
+          void sendFocusRef.current(false);
           focusRequestedRef.current = false;
         }
         focusCleanupTimerRef.current = null;
       }, 0);
     };
-  }, [sendFocus]);
+  }, []);
 
   const handleFocusToggle = useCallback(() => {
     const next = !(focusZoomed || focusRequestedRef.current);
     setAutoFocusPane(next);
-    sendFocus(next);
+    void sendFocus(next);
   }, [focusZoomed, sendFocus, setAutoFocusPane]);
 
   const handleLeaveTerminal = useCallback(() => {
-    sendFocus(false);
+    void sendFocus(false);
     terminalControllerRef.current?.resetTouchModes();
     setMode('roster');
   }, [sendFocus, terminalControllerRef]);
 
   const handleDetach = useCallback(() => {
-    sendFocus(false);
+    void sendFocus(false);
     terminalControllerRef.current?.resetTouchModes();
     terminalControllerRef.current?.detach();
   }, [sendFocus, terminalControllerRef]);
@@ -262,13 +275,14 @@ export function TmuxMobileShell({
     return () => root.removeAttribute('data-mobile-terminal-attached');
   }, [attachedMode, onAttachedModeChange]);
 
-  const handleSelectSession = useCallback((sessionId: string) => {
-    onSelectSession(sessionId);
-    setMode('terminal');
+  const handleSelectSession = useCallback(async (sessionId: string) => {
+    const selected = await onSelectSession(sessionId);
+    if (selected) setMode('terminal');
+    return selected;
   }, [onSelectSession]);
 
   const handleOpenActions = useCallback((sessionId: string) => {
-    onSelectSession(sessionId);
+    void onSelectSession(sessionId);
     setMode('actions');
   }, [onSelectSession]);
 
@@ -292,11 +306,16 @@ export function TmuxMobileShell({
           : activeTerminalSnapshot?.status === 'error'
             ? 'Error'
             : 'Detached';
-  const connectionTone = connectionLabel === 'Connected'
+  const visibleConnectionLabel = terminalSnapshot.navigation?.status === 'pending'
+    ? 'Switching'
+    : terminalSnapshot.navigation?.status === 'error'
+      ? 'Switch failed'
+      : connectionLabel;
+  const connectionTone = visibleConnectionLabel === 'Connected'
     ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-    : connectionLabel === 'Read-only'
+    : visibleConnectionLabel === 'Read-only'
       ? 'border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-300'
-      : connectionLabel === 'Error'
+      : visibleConnectionLabel === 'Error' || visibleConnectionLabel === 'Switch failed'
         ? 'border-destructive/50 bg-destructive/10 text-destructive'
         : 'border-border bg-muted text-muted-foreground';
   const windowHere = useMemo(
@@ -334,8 +353,9 @@ export function TmuxMobileShell({
         <span
           className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium', connectionTone)}
           role="status"
+          title={terminalSnapshot.navigation?.message}
         >
-          {connectionLabel}
+          {visibleConnectionLabel}
         </span>
         <button
           type="button"
@@ -345,9 +365,9 @@ export function TmuxMobileShell({
             'flex h-10 w-10 shrink-0 items-center justify-center rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-40',
             focusZoomed && 'bg-primary/15 text-primary'
           )}
-          aria-label={focusZoomed ? 'Turn Focus off' : 'Turn Focus on'}
+          aria-label={focusZoomed ? 'Exit pane focus' : 'Focus pane'}
           aria-pressed={focusZoomed}
-          title={focusZoomed ? 'Turn Focus off' : 'Turn Focus on'}
+          title={focusZoomed ? 'Exit pane focus' : 'Focus pane'}
         >
           <Maximize2 className="h-4 w-4" aria-hidden="true" />
         </button>
@@ -567,12 +587,16 @@ export function TmuxMobileShell({
         onTerminate={onTerminate}
         onLaunchWindowHere={windowHere ? () => { setMode(selectedSessionId ? 'terminal' : 'roster'); setLaunchOpen(true); } : undefined}
         onSelectSession={handleSelectSession}
+        onSetPaneFocus={sendFocus}
       />
       <TmuxPaneSwitcher
         open={paneSwitcherOpen}
         sessions={quickSwitchSessions}
         selectedSessionId={selectedSessionId}
         onSelectSession={handleSelectSession}
+        navigationError={terminalSnapshot.navigation?.status === 'error'
+          ? terminalSnapshot.navigation.message
+          : undefined}
         onClose={() => setPaneSwitcherOpen(false)}
       />
       <MobileLaunchSheet

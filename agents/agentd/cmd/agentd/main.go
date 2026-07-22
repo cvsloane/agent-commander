@@ -5526,6 +5526,51 @@ func (a *Agent) handleTerminalNavigate(payload json.RawMessage) {
 
 	navigation := tmux.TerminalNavigation{Op: tmux.TerminalNavigationOp(req.Op)}
 	switch navigation.Op {
+	case "viewer_state":
+		result := protocol.TerminalNavigationResultPayload{
+			ChannelID: req.ChannelID,
+			RequestID: req.RequestID,
+		}
+		if strings.TrimSpace(req.RequestID) == "" {
+			result.Message = "viewer_state requires request_id"
+			_ = a.send(protocol.TypeTerminalNavigationResult, result)
+			return
+		}
+		state, err := a.terminalManager.ViewerState(req.ChannelID)
+		result.PaneID = state.PaneID
+		result.WindowIndex = state.WindowIndex
+		result.Zoomed = state.Zoomed
+		if err != nil {
+			result.Message = err.Error()
+			log.Printf("Failed to read terminal viewer state for request %s: %v", req.RequestID, err)
+		} else {
+			result.OK = true
+		}
+		_ = a.send(protocol.TypeTerminalNavigationResult, result)
+		return
+	case "focus_pane":
+		result := protocol.TerminalNavigationResultPayload{
+			ChannelID: req.ChannelID,
+			RequestID: req.RequestID,
+			PaneID:    req.PaneID,
+		}
+		if strings.TrimSpace(req.RequestID) == "" || strings.TrimSpace(req.PaneID) == "" || req.Zoom == nil {
+			result.Message = "focus_pane requires request_id, pane_id, and zoom"
+			_ = a.send(protocol.TypeTerminalNavigationResult, result)
+			return
+		}
+		state, err := a.terminalManager.FocusPane(req.ChannelID, req.PaneID, *req.Zoom)
+		result.PaneID = state.PaneID
+		result.WindowIndex = state.WindowIndex
+		result.Zoomed = state.Zoomed
+		if err != nil {
+			result.Message = err.Error()
+			log.Printf("Failed to focus terminal pane for request %s: %v", req.RequestID, err)
+		} else {
+			result.OK = true
+		}
+		_ = a.send(protocol.TypeTerminalNavigationResult, result)
+		return
 	case tmux.NavigateSelectWindow:
 		if req.WindowIndex == nil {
 			log.Printf("Failed to parse terminal.navigate: select_window requires window_index")

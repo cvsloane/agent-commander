@@ -24,7 +24,11 @@ import {
   HOST_COMMAND_SESSION_ID,
   isOutboxCommandId,
 } from '../services/commandRouter.js';
-import { handleTerminalOutput, handleTerminalStatus } from '../routes/terminal.js';
+import {
+  handleTerminalNavigationResult,
+  handleTerminalOutput,
+  handleTerminalStatus,
+} from '../routes/terminal.js';
 import * as db from '../db/index.js';
 import { consoleSubscriptions } from '../services/consoleSubscriptions.js';
 import { installWebSocketHeartbeat } from '../services/webSocketHeartbeat.js';
@@ -315,6 +319,12 @@ async function processAgentMessage(
     case 'terminal.output': {
       const payload = message.payload as { channel_id: string; data: string; encoding?: 'base64' | 'utf8' };
       handleTerminalOutput(payload.channel_id, payload.data, payload.encoding);
+      sendAck(socket, seq, 'ok');
+      break;
+    }
+
+    case 'terminal.navigation_result': {
+      handleTerminalNavigationResult(message.payload);
       sendAck(socket, seq, 'ok');
       break;
     }

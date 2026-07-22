@@ -39,13 +39,39 @@ test.describe('FW6 mobile precision journeys', () => {
       terminalSocket = socket;
       socket.onMessage((message) => {
         if (typeof message !== 'string') return;
-        const parsed = JSON.parse(message) as { type?: string };
+        const parsed = JSON.parse(message) as {
+          type?: string;
+          op?: string;
+          request_id?: string;
+          pane_id?: string;
+          zoom?: boolean;
+        };
         if (parsed.type === 'hello') {
           socket.send(JSON.stringify({
             type: 'attached',
             readonly: false,
             resumed: false,
             resume_token: 'fw6-precision-terminal-resume',
+          }));
+        }
+        if (parsed.type === 'navigate' && parsed.op === 'focus_pane' && parsed.request_id) {
+          socket.send(JSON.stringify({
+            type: 'navigation_result',
+            request_id: parsed.request_id,
+            ok: true,
+            pane_id: parsed.pane_id,
+            window_index: 0,
+            zoomed: parsed.zoom,
+          }));
+        }
+        if (parsed.type === 'navigate' && parsed.op === 'viewer_state' && parsed.request_id) {
+          socket.send(JSON.stringify({
+            type: 'navigation_result',
+            request_id: parsed.request_id,
+            ok: true,
+            pane_id: interactiveSession.tmux_pane_id,
+            window_index: 0,
+            zoomed: true,
           }));
         }
       });

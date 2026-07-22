@@ -21,10 +21,10 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import { useTmuxTopologyFeed } from '@/hooks/useTmuxTopology';
 import {
   getAttachedTmuxSelectionUpdates,
-  getTmuxViewerNavigation,
   getTmuxViewerSessionKey,
   shouldRestoreLastTmuxAttachment,
 } from '@/hooks/tmuxNavigation';
+import { COMMAND_CENTER_SHELL_BREAKPOINT, useIsMobile } from '@/hooks/useIsMobile';
 import { terminalHostStore } from '@/components/terminal/terminalHostStore';
 import { useHydrated } from '@/hooks/useHydrated';
 import { selectFleetRosterGroups, useFleetStore } from '@/stores/fleet';
@@ -73,6 +73,8 @@ export function useTmuxRosterData() {
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const previousSelectedSessionIdRef = useRef<string>('');
+  const isMobileLayout = useIsMobile(COMMAND_CENTER_SHELL_BREAKPOINT);
+  const autoFocusPane = useSettingsStore((state) => state.autoFocusPane);
   const restoreAttemptedRef = useRef(false);
   const pendingSearchRef = useRef(searchParams.toString());
   const [expandedClusterKey, setExpandedClusterKey] = useState<string | null>(null);
@@ -465,27 +467,29 @@ export function useTmuxRosterData() {
   );
 
   const selectSession = useCallback(
-    (sessionId: string) => {
+    async (sessionId: string): Promise<boolean> => {
       const clusterKey = sessionToClusterKey.get(sessionId);
       if (clusterKey) {
         setExpandedClusterKey(clusterKey);
       }
       const session = quickSwitchSessions.find((candidate) => candidate.id === sessionId);
       if (session) {
-        terminalHostStore.navigateWithinAttachment({
+        const focused = await terminalHostStore.focusWithinAttachment({
           sessionId: session.id,
           hostId: session.host_id,
           paneId: session.tmux_pane_id || undefined,
           tmuxSessionKey: getTmuxViewerSessionKey(session),
           autoAttach: true,
-        }, getTmuxViewerNavigation(session));
+        }, isMobileLayout && autoFocusPane);
+        if (focused.status === 'error' || focused.status === 'superseded') return false;
       }
       updateTmuxParams(getAttachedTmuxSelectionUpdates({
         sessionId,
         hostId: session?.host_id,
       }));
+      return true;
     },
-    [quickSwitchSessions, sessionToClusterKey, updateTmuxParams]
+    [autoFocusPane, isMobileLayout, quickSwitchSessions, sessionToClusterKey, updateTmuxParams]
   );
 
   return {

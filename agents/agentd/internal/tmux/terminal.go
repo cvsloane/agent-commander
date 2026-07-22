@@ -122,6 +122,14 @@ type TerminalNavigation struct {
 	Lines       int
 }
 
+// TerminalViewerState is the state read back from the grouped viewer after a
+// state-changing navigation request.
+type TerminalViewerState struct {
+	PaneID      string
+	WindowIndex int
+	Zoomed      bool
+}
+
 // AttachOptions contains additive terminal.attach fields.
 type AttachOptions struct {
 	SessionID   string
@@ -811,6 +819,103 @@ func (m *TerminalManager) Navigate(channelID string, navigation TerminalNavigati
 	default:
 		return fmt.Errorf("unsupported terminal navigation op %q", navigation.Op)
 	}
+}
+
+// ViewerState returns the current grouped-viewer state read directly from tmux.
+func (m *TerminalManager) ViewerState(channelID string) (TerminalViewerState, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, exists := m.channelToPane[channelID]
+	viewer := m.viewerByChannel[channelID]
+	if !exists {
+		return TerminalViewerState{}, fmt.Errorf("channel %s not found", channelID)
+	}
+	if viewer == nil || viewer.bridge == nil {
+		return TerminalViewerState{}, fmt.Errorf("channel %s does not use a grouped viewer session", channelID)
+	}
+	return viewer.bridge.State()
+}
+
+// FocusPane applies pane selection and zoom as one serialized viewer intent,
+// then returns the state read back from tmux. Callers should not treat the
+// request as successful until this method returns the requested state.
+func (m *TerminalManager) FocusPane(channelID, paneID string, zoom bool) (TerminalViewerState, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, exists := m.channelToPane[channelID]
+	viewer := m.viewerByChannel[channelID]
+	if !exists {
+		return TerminalViewerState{}, fmt.Errorf("channel %s not found", channelID)
+	}
+	if viewer == nil || viewer.bridge == nil {
+		return TerminalViewerState{}, fmt.Errorf("channel %s does not use a grouped viewer session", channelID)
+	}
+	if strings.TrimSpace(paneID) == "" {
+		return TerminalViewerState{}, fmt.Errorf("pane id is required")
+	}
+	previous, err := viewer.bridge.State()
+	if err != nil {
+		return TerminalViewerState{}, fmt.Errorf("read viewer state before pane focus: %w", err)
+	}
+	if previous.Zoomed {
+		if err := viewer.bridge.SetZoom(false); err != nil {
+			return previous, fmt.Errorf("unzoom viewer before pane focus: %w", err)
+		}
+		viewer.zoomApplied = false
+	}
+	if err := viewer.bridge.SelectPane(paneID); err != nil {
+		return m.restoreViewerFocusLocked(viewer, previous, err)
+	}
+	if err := viewer.bridge.SetZoom(zoom); err != nil {
+		return m.restoreViewerFocusLocked(viewer, previous, err)
+	}
+	viewer.zoomApplied = zoom
+	state, err := viewer.bridge.State()
+	if err != nil {
+		return m.restoreViewerFocusLocked(viewer, previous, err)
+	}
+	if state.PaneID != paneID || state.Zoomed != zoom {
+		return m.restoreViewerFocusLocked(viewer, previous, fmt.Errorf(
+			"viewer state did not converge: pane=%s zoomed=%t, want pane=%s zoomed=%t",
+			state.PaneID,
+			state.Zoomed,
+			paneID,
+			zoom,
+		))
+	}
+	return state, nil
+}
+
+func (m *TerminalManager) restoreViewerFocusLocked(
+	viewer *terminalViewer,
+	previous TerminalViewerState,
+	cause error,
+) (TerminalViewerState, error) {
+	var rollbackErrors []error
+	if err := viewer.bridge.SelectPane(previous.PaneID); err != nil {
+		rollbackErrors = append(rollbackErrors, fmt.Errorf("restore pane: %w", err))
+	}
+	if err := viewer.bridge.SetZoom(previous.Zoomed); err != nil {
+		rollbackErrors = append(rollbackErrors, fmt.Errorf("restore zoom: %w", err))
+	} else {
+		viewer.zoomApplied = previous.Zoomed
+	}
+	state, err := viewer.bridge.State()
+	if err != nil {
+		rollbackErrors = append(rollbackErrors, fmt.Errorf("verify restored viewer: %w", err))
+	} else if state.PaneID != previous.PaneID || state.Zoomed != previous.Zoomed {
+		rollbackErrors = append(rollbackErrors, fmt.Errorf(
+			"restored viewer state did not converge: pane=%s zoomed=%t, want pane=%s zoomed=%t",
+			state.PaneID,
+			state.Zoomed,
+			previous.PaneID,
+			previous.Zoomed,
+		))
+	}
+	if len(rollbackErrors) > 0 {
+		return state, fmt.Errorf("%w; viewer rollback failed: %v", cause, errors.Join(rollbackErrors...))
+	}
+	return state, fmt.Errorf("%w; previous viewer state restored", cause)
 }
 
 func (m *TerminalManager) navigateScrollLocked(bridge *viewerPTYBridge, lines int) error {

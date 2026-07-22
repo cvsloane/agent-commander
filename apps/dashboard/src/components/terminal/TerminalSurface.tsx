@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, type RefObject } from 'react';
-import { ArrowDown } from 'lucide-react';
+import { ArrowDown, Loader2, MessageSquareText } from 'lucide-react';
 import { SelectionPopup, TerminalContextMenu } from '@/components/mobile';
 import type { SelectionPopupHandle } from '@/components/mobile';
 import { TerminalKeyRail } from '@/components/mobile/TerminalKeyRail';
@@ -37,6 +37,10 @@ interface TerminalSurfaceProps {
   historyOverlayOpen: boolean;
   historySessionId: string;
   historyFontSize: number;
+  preferLocalChat: boolean;
+  chatRefreshToken: number;
+  interactionBlocked: boolean;
+  onOpenChat: () => void;
   onHistoryScrollModeResolved: (mode: TerminalScrollMode) => void;
   onCloseHistoryOverlay: () => void;
   tmuxPrefix?: string;
@@ -78,6 +82,10 @@ export function TerminalSurface({
   historyOverlayOpen,
   historySessionId,
   historyFontSize,
+  preferLocalChat,
+  chatRefreshToken,
+  interactionBlocked,
+  onOpenChat,
   onHistoryScrollModeResolved,
   onCloseHistoryOverlay,
   tmuxPrefix,
@@ -117,7 +125,7 @@ export function TerminalSurface({
 
   return (
     <>
-      <div className="relative flex-1 min-h-0 overflow-hidden bg-[#0a0a0a]">
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-[#0a0a0a]">
         <div
           ref={termRef as RefObject<HTMLDivElement>}
           tabIndex={0}
@@ -130,14 +138,29 @@ export function TerminalSurface({
           className={cn(
             'relative h-full w-full cursor-text overflow-hidden bg-[#0a0a0a] p-1 focus:outline-none',
             isMobile && 'touch-none',
+            interactionBlocked && 'pointer-events-none',
             status === 'connected' &&
               'border-l-2 border-emerald-500 shadow-[inset_2px_0_0_rgba(16,185,129,0.35)]'
           )}
           aria-label="Interactive terminal"
+          aria-busy={interactionBlocked}
+          aria-disabled={interactionBlocked}
         />
 
+        {interactionBlocked && (
+          <div
+            className="absolute inset-0 z-20 flex items-center justify-center bg-black/55 text-sm text-white backdrop-blur-[1px]"
+            role="status"
+          >
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/80 px-3 py-2">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              Switching pane — input paused
+            </span>
+          </div>
+        )}
+
         <TerminalTouchSelection
-          enabled={isMobile && status === 'connected'}
+          enabled={isMobile && status === 'connected' && !interactionBlocked}
           containerRef={termRef}
           terminalRef={terminalRef}
           onCopy={onCopySelectionText}
@@ -178,10 +201,26 @@ export function TerminalSurface({
           <span ref={jumpToLiveLabelRef}>Live</span>
         </Button>
 
+        {preferLocalChat && status === 'connected' && !historyOverlayOpen && (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="absolute right-3 top-3 z-10 gap-1.5 border shadow-lg"
+            onClick={onOpenChat}
+            aria-label="Claude chat"
+          >
+            <MessageSquareText className="h-3.5 w-3.5" aria-hidden="true" />
+            Chat
+          </Button>
+        )}
+
         <TerminalHistoryOverlay
           sessionId={historySessionId}
           open={historyOverlayOpen}
           fontSize={historyFontSize}
+          preferChat={preferLocalChat}
+          refreshToken={chatRefreshToken}
           onScrollModeResolved={onHistoryScrollModeResolved}
           onClose={onCloseHistoryOverlay}
         />
@@ -204,13 +243,13 @@ export function TerminalSurface({
             onCopyAll={onCopyAll}
             onPaste={() => onPaste()}
             onClear={onClear}
-            canPaste={!readOnly}
+            canPaste={!readOnly && !interactionBlocked}
             selectionRef={selectionTextRef}
           />
         </>
       )}
 
-      {status === 'connected' && !readOnly && (
+      {status === 'connected' && !readOnly && !interactionBlocked && (
         <TerminalKeyRail
           onInput={onVirtualInput}
           onHistory={onOpenHistory}
