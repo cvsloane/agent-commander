@@ -85,3 +85,7 @@
 - Date: 2026-07-22
   Correction: The repaired production terminal connected and accepted input, but the laptop Command Center still allocated too little space to the actual tmux workbench for meaningful use or scrollback review.
   Rule: On desktop, treat the active tmux terminal as the primary work surface: cap and independently scroll navigation/roster regions, give the terminal the remaining viewport with a substantial minimum height, and verify its rendered pixel/grid dimensions at a common laptop viewport rather than accepting any merely nonzero terminal size.
+
+- Date: 2026-07-22
+  Correction: Scrollback text copied correctly but WebGL-rendered boundary artifacts made the visible terminal hard to read, while ordinary waiting-for-input state repeatedly interrupted work with a "Needs attention" overlay.
+  Rule: Verify terminal text at both the buffer and renderer layers; prefer the reliable DOM renderer until the upstream WebGL fixes are adopted and proven. Keep passive waiting-for-input state in the roster/status surfaces, and reserve terminal overlays for explicit approvals or actionable failures.
