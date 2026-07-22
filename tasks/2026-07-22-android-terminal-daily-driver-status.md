@@ -3,7 +3,7 @@
 - Plan status/version: approved `1719c8c` scope, approval recorded 2026-07-22T12:04:25-04:00
 - Current phase: W1 authoritative pane correction
 - Overall state: running
-- Last updated: 2026-07-22T12:34:57-04:00
+- Last updated: 2026-07-22T12:35:52-04:00
 - Current accepted baseline: production `7b30df046208f1a2ba14b8e34b0095afe9888750`
 - Current candidate: local program branch at `1719c8cf2b01dcf32ca4704193e6648a936f18b5`
 - Budget used/remaining: setup complete; 7-day project ceiling remains
@@ -13,7 +13,7 @@
 
 | Lane | Current role | State | Deliverable/ref | Last proof | Blocked on | Next action |
 |---|---|---|---|---|---|---|
-| W1 — Shared terminal repair | Codex Sol/xhigh R2 Builder | launching | Reviewer BLOCK handoff `e0188e0`; R2 brief | WEB-1/2/3/5 pass; WEB-4 blocked on reconnect/failed-focus pane convergence | R2 worktree/pickup | Close only the authoritative-pane input-fence finding |
+| W1 — Shared terminal repair | Codex Sol/xhigh R2 Builder | running | Worktree `ac-android-w1-terminal-r2`, tmux `agent-command:android-w1-r2` | Pickup verified: Codex 0.145.0, `gpt-5.6-sol`, xhigh, session `019f8aae-db80-7b00-a981-f3bf0731e2b2` | None | Close only the authoritative-pane input-fence finding |
 | W2 — Android vertical slice | Unassigned until W1 contract freeze | held | None | Research and approved acceptance checklist | W1 reviewer pass | Remain held |
 | W3 — Integration and rollout | AI Lead | pending | None | Production baseline identified | W1 and W2 acceptance | Maintain recovery receipts |
 
