@@ -2,7 +2,10 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from '@agent-command/schema';
-import { TerminalAttentionOverlayCard } from '@/components/orchestrator/TerminalAttentionOverlay';
+import {
+  TerminalAttentionOverlayCard,
+  shouldShowTerminalAttention,
+} from '@/components/orchestrator/TerminalAttentionOverlay';
 import { type OrchestratorItem, useOrchestratorStore } from '@/stores/orchestrator';
 import { PromptComposer } from './PromptComposer';
 
@@ -65,6 +68,23 @@ const approvalItem: OrchestratorItem = {
   createdAt: Date.parse('2026-07-20T12:00:00.000Z'),
 };
 
+const staleWaitingErrorItem: OrchestratorItem = {
+  ...approvalItem,
+  id: 'error-1',
+  source: 'status',
+  sessionStatus: 'WAITING_FOR_INPUT',
+  attentionReason: 'waiting_input',
+  approval: undefined,
+  approvalType: undefined,
+  action: {
+    type: 'error',
+    question: 'Deployment failed',
+    options: [],
+    context: '',
+    confidence: 1,
+  },
+};
+
 function buttonMarkup(markup: string, label: string): string {
   return (markup.match(/<button[\s\S]*?<\/button>/g) ?? [])
     .find((button) => button.includes(label)) ?? '';
@@ -94,5 +114,12 @@ describe('read-only terminal input surfaces', () => {
     expect(buttonMarkup(markup, 'Approve')).not.toContain(' disabled=""');
     expect(buttonMarkup(markup, 'Deny')).not.toContain(' disabled=""');
     expect(markup).toContain('Read-only — take control to type');
+  });
+
+  it('keeps explicit errors visible when waiting-input metadata is stale', () => {
+    expect(shouldShowTerminalAttention(
+      staleWaitingErrorItem,
+      terminalSession.id
+    )).toBe(true);
   });
 });
