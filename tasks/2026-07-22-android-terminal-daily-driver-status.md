@@ -1,11 +1,11 @@
 # Android Terminal Daily Driver — Status
 
 - Plan status/version: approved `1719c8c` scope, approval recorded 2026-07-22T12:04:25-04:00
-- Current phase: W1 live acceptance and W3 source-aligned APK follow-up rollout
+- Current phase: W2 Android attach rollout; W1 visual repair held at its verification wall
 - Overall state: running
-- Last updated: 2026-07-22T19:10:04-04:00
+- Last updated: 2026-07-22T19:56:34-04:00
 - Current accepted baseline: production functionality through `997e522d71eef5dadd85a20139377f8848fb9a45`, with the remaining renderer artifact rejected
-- Current candidate: PR #108 merge `a1b4f413be88163a0a8300efe1e06fcec9a174f7` is deployed; a fresh APK rebuilt from that reviewed source has SHA-256 `8e845572d66422eef4f408ecdb8f03b9b7c53068bc13aac2f207268c7d2dee87` and awaits follow-up PR/deployment; W1 remains live at `12889bf`
+- Current candidate: Android source through `4bc94e9` and signed artifact commit `06e540a` correct the empty JSON ticket POST; request regression, Android test/lint/release build, bodyless production ticket probe, signature verification, and fresh review pass. Signed APK SHA-256 is `356c1ab5153596cac8acc08261fef4da60b5b14acf7c1eab8736a3669c9f845c`. W1 line artefacts remain visible in exact production screenshots; its proposed DOM invalidation change is not included because the existing journey could not target the active one of two mounted xterm instances for RED/GREEN proof.
 - Budget used/remaining: setup complete; 7-day project ceiling remains
 - Next Human Owner checkpoint: production laptop terminal-use verdict
 
@@ -14,8 +14,8 @@
 | Lane | Current role | State | Deliverable/ref | Last proof | Blocked on | Next action |
 |---|---|---|---|---|---|---|
 | W1 — Shared terminal repair | AI Lead/integrator plus Human Owner | deployed | PR #107 merge `12889bf`; Coolify `z4ig8vlvpgvcncvzhiahnl2d`; identical agentd on both hosts | Full CI, fresh review, exact-source containers, one process per host, and public health `ok` with two agents | Live laptop interaction | Chris verifies connect/focus/switch responsiveness on the real laptop path |
-| W2 — Android vertical slice | Android Builder plus fresh Reviewer | integrated | Corrected native foundation through `f464360` merged into the integration branch | Gradle test/lint/release build, INTERNET as the only Android platform permission, one AndroidX package-local signature permission, no PTY/JNI, and fresh re-review PASS | Samsung/live-endpoint gates after release rollout | Preserve reviewed scope through CI |
-| W3 — Integration and rollout | AI Lead plus fresh Reviewer | follow-up ready | PR #108 merged as `a1b4f41` and Coolify `kcq6gn6w98c3c20m1ujtqm4d` finished at that source; fresh 2,233,182-byte APK is rebuilt from the merge | New APK SHA-256 `8e845572...`; v2/v3 signatures retain the release certificate and credential string redaction is present | Follow-up PR/deployment, physical Samsung install, live endpoint use | Ship the exact-source APK and pinned GPL link, verify production download hash, then run device acceptance |
+| W2 — Android vertical slice | Android Builder plus fresh Reviewer | release ready | Source `4bc94e9`; signed artifact `06e540a` | Exact request regression, Android test/lint/release build, production bodyless ticket 201, fresh review PASS, v2/v3 signer continuity, DEX request inspection | Merge/deploy and Samsung pane-attach re-test | Ship the reviewed APK without adding retries or transport fallbacks |
+| W3 — Integration and rollout | AI Lead plus fresh Reviewer | active | Current production baseline is PR #109 merge `87d7173`; PR #110 candidate includes the Android repair through `06e540a` | Existing authenticated APK route and exact-source distribution proof remain valid | PR #110 merge/deploy and physical Samsung use | Ship the reviewed Android correction independently; keep the unproven web renderer change out |
 
 ## Open Gates
 
@@ -32,6 +32,8 @@
 | W1 live laptop | waiting | W1-R7 is live on the actual Claude transcript overlay; automated painted-surface proof passes, human verdict pending | Human Owner | Hard refresh, then repeat Claude chat scrollback check |
 | W2 build/review | pass | Corrected Android foundation through `f464360` is integrated; Gradle test/lint/release and final fresh review pass | AI Lead | Preserve through CI; complete Samsung/live-endpoint gates after rollout |
 | W3 PR #108 rollout | pass | PR #108 merged as `a1b4f41`; Coolify `kcq6gn6w98c3c20m1ujtqm4d` finished at that exact source; the source-aligned replacement APK is prepared locally but not yet deployed | AI Lead | Follow-up PR/deploy and authenticated production hash check |
+| W2 Android pane attach | correction ready | Production requests `req-31` through `req-36` reproduce HTTP 400; candidate request builder removes the empty JSON content type, regression is red/green, and a bodyless production probe returns 201 with a ticket | AI Lead | Signed APK deployment and Samsung attach/render check |
+| W1 exact painted screenshot | held | Authenticated production SloaneVault terminal screenshots show unselectable left-edge line fragments; three direct test-trigger attempts could not select the populated one of two mounted xterm instances, so no renderer patch was retained | Visual diagnosis lane | Human chooses another direct active-instance pass, renderer-level proof, or manual-only verification |
 
 ## Current Risks and Escalations
 
@@ -40,7 +42,7 @@
 
 ## Immediate Next Sequence
 
-1. Chris verifies W1 connect/focus/switch responsiveness on the live laptop path.
-2. AI Lead pushes the source-aligned APK and immutable GPL link through a follow-up PR, CI, merge, and deployment.
-3. AI Lead verifies the live authenticated download artifact and source identity.
-4. Chris performs the irreducible laptop and Samsung interaction gates.
+1. AI Lead freezes the Android-only release candidate and completes the fresh release gate.
+2. Push, merge, and deploy the signed APK through the existing production web distribution path.
+3. Verify the authenticated production APK bytes and source identity.
+4. Chris updates the installed APK and repeats pane attach/render/input on Samsung.

@@ -113,3 +113,7 @@
 - Date: 2026-07-22
   Correction: The AI Lead collapsed back into single-threaded implementation even though the approved program had an independent Android file lane and the user explicitly wanted orchestration.
   Rule: Keep the AI Lead on shared integration, production, and acceptance. Dispatch independent acceptance-bearing lanes—especially isolated native modules—in parallel, and serialize only genuine shared-file or shared-contract dependencies.
+
+- Date: 2026-07-22
+  Correction: The owner still saw terminal line artefacts after prior DOM and painted-surface checks, and the first new production screenshot opened a generic roster/default pane instead of the exact reported SloaneVault terminal.
+  Rule: For a visual terminal defect, capture the exact production host/session/pane at current and scrolled positions and inspect the resulting pixels before accepting a fix. Generic or mocked terminal screenshots, copied text, and DOM equality do not substitute for the reported painted path.
