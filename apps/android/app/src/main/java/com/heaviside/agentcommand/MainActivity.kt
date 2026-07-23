@@ -329,6 +329,7 @@ class MainActivity : Activity() {
         terminalView = RemoteTerminalView(this).apply {
             onInput = { data -> if (authoritativeInput && !readOnly) terminalSocket?.sendInput(data) }
             onResize = { columns, rows -> terminalSocket?.sendResize(columns, rows) }
+            onScrollRows = { rows -> if (authoritativeInput && !readOnly) terminalSocket?.scroll(rows) }
             onTextSizeChanged = { size -> terminalStatus?.text = "${statusPrefix()} · ${columns}×${rows} · ${size}sp" }
             onControlModifierChanged = { enabled -> updateCtrlButton(enabled) }
         }.also { terminal ->

@@ -11,9 +11,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Typeface
-import android.text.Editable
 import android.text.InputType
-import android.text.SpannableStringBuilder
 import android.util.AttributeSet
 import android.view.GestureDetector
 import android.view.KeyEvent
@@ -36,6 +34,7 @@ class RemoteTerminalView @JvmOverloads constructor(
 ) : android.view.View(context, attrs) {
     var onInput: (String) -> Unit = {}
     var onResize: (columns: Int, rows: Int) -> Unit = { _, _ -> }
+    var onScrollRows: (rows: Int) -> Unit = {}
     var onTextSizeChanged: (sp: Int) -> Unit = {}
     var onControlModifierChanged: (enabled: Boolean) -> Unit = {}
 
@@ -44,7 +43,6 @@ class RemoteTerminalView @JvmOverloads constructor(
     private var topRow = 0
     private var scrollRemainder = 0f
     private var controlModifier = false
-    private var composingText = ""
 
     private val output = object : TerminalOutput() {
         override fun write(data: ByteArray, offset: Int, count: Int) {
@@ -139,11 +137,7 @@ class RemoteTerminalView @JvmOverloads constructor(
                 val rowDelta = (scrollRemainder / renderer.fontLineSpacing).toInt()
                 if (rowDelta != 0) {
                     scrollRemainder -= rowDelta * renderer.fontLineSpacing
-                    topRow = (topRow + rowDelta).coerceIn(
-                        -emulator.screen.activeTranscriptRows,
-                        0,
-                    )
-                    postInvalidateOnAnimation()
+                    onScrollRows(rowDelta)
                 }
                 return true
             }
@@ -212,10 +206,9 @@ class RemoteTerminalView @JvmOverloads constructor(
     override fun onCheckIsTextEditor(): Boolean = true
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
-        outAttrs.inputType = InputType.TYPE_CLASS_TEXT or
-            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or
+        outAttrs.inputType = InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or
             InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-        outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_ACTION_NONE
+        outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN
         return TerminalInputConnection()
     }
 
@@ -241,6 +234,9 @@ class RemoteTerminalView @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         scaleDetector.onTouchEvent(event)
         gestureDetector.onTouchEvent(event)
+        if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+            scrollRemainder = 0f
+        }
         return true
     }
 
@@ -272,7 +268,7 @@ class RemoteTerminalView @JvmOverloads constructor(
 
     private fun requestKeyboard() {
         requestFocus()
-        context.getSystemService(InputMethodManager::class.java).showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+        context.getSystemService(InputMethodManager::class.java).showSoftInput(this, 0)
     }
 
     private fun sendText(value: String) {
@@ -311,37 +307,24 @@ class RemoteTerminalView @JvmOverloads constructor(
         return TerminalRenderer(pixels, Typeface.MONOSPACE)
     }
 
-    private inner class TerminalInputConnection : BaseInputConnection(this@RemoteTerminalView, false) {
-        private val editable = SpannableStringBuilder()
-
-        override fun getEditable(): Editable = editable
-
-        override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
-            composingText = text?.toString().orEmpty()
-            return true
-        }
-
+    private inner class TerminalInputConnection : BaseInputConnection(this@RemoteTerminalView, true) {
         override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
-            composingText = ""
-            sendText(text?.toString().orEmpty())
+            super.commitText(text, newCursorPosition)
+            sendEditableContent()
             return true
         }
 
         override fun finishComposingText(): Boolean {
-            if (composingText.isNotEmpty()) {
-                sendText(composingText)
-                composingText = ""
-            }
+            super.finishComposingText()
+            sendEditableContent()
             return true
         }
 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
-            if (composingText.isNotEmpty()) {
-                composingText = composingText.dropLast(1)
-            } else {
+            repeat(beforeLength.coerceAtLeast(0)) {
                 sendText("\u007f")
             }
-            return true
+            return super.deleteSurroundingText(beforeLength, afterLength)
         }
 
         override fun sendKeyEvent(event: KeyEvent): Boolean =
@@ -350,6 +333,13 @@ class RemoteTerminalView @JvmOverloads constructor(
         override fun performEditorAction(actionCode: Int): Boolean {
             sendText("\r")
             return true
+        }
+
+        private fun sendEditableContent() {
+            val content = editable ?: return
+            if (content.isEmpty()) return
+            sendText(content.toString().replace('\n', '\r'))
+            content.clear()
         }
     }
 
