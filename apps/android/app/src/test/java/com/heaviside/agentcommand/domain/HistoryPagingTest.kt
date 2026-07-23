@@ -3,7 +3,9 @@
  */
 package com.heaviside.agentcommand.domain
 
+import com.heaviside.agentcommand.data.ScrollbackCapture
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class HistoryPagingTest {
@@ -56,5 +58,34 @@ class HistoryPagingTest {
         assertEquals(listOf(0, 1), history.filtered("old").map { it.index })
         assertEquals(0, history.beforeEntry)
         assertEquals(false, history.hasOlder)
+    }
+
+    @Test
+    fun `reader pages backward from live history and searches locally without reordering`() {
+        val reader = ScrollbackReaderState(pageLines = 2)
+
+        assertEquals(ScrollbackRange(-2, -1), reader.nextRange)
+        reader.accept(
+            reader.nextRange!!,
+            ScrollbackCapture("new", true, listOf("compile passed", "release ready"), false),
+        )
+        assertEquals(ScrollbackRange(-4, -3), reader.nextRange)
+        reader.accept(
+            reader.nextRange!!,
+            ScrollbackCapture("old", true, listOf("older note", "compile started"), false),
+        )
+        reader.query = "compile"
+
+        assertEquals(
+            listOf("compile started", "compile passed"),
+            reader.visibleLines.map { it.text },
+        )
+
+        reader.accept(
+            reader.nextRange!!,
+            ScrollbackCapture("end", true, emptyList(), false),
+        )
+        assertFalse(reader.canLoadOlder)
+        assertEquals(null, reader.nextRange)
     }
 }

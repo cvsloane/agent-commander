@@ -91,6 +91,48 @@ data class ScrollbackHistory(
     fun copyAll(): String = lines.joinToString("\n") { it.text }
 }
 
+class ScrollbackReaderState(
+    private val pageLines: Int = ScrollbackRange.DEFAULT_PAGE_LINES,
+) {
+    private var history = ScrollbackHistory()
+    private var oldestRange: ScrollbackRange? = null
+
+    var query: String = ""
+    var canLoadOlder: Boolean = true
+        private set
+
+    val nextRange: ScrollbackRange?
+        get() = if (!canLoadOlder) {
+            null
+        } else {
+            oldestRange?.older(pageLines) ?: ScrollbackRange.initial(pageLines)
+        }
+
+    val visibleLines: List<ScrollbackLine>
+        get() = history.filtered(query)
+
+    val allLines: List<ScrollbackLine>
+        get() = history.lines
+
+    fun accept(range: ScrollbackRange, capture: ScrollbackCapture) {
+        require(capture.ok) { capture.error?.message ?: "Scrollback capture failed" }
+        if (capture.lines.isEmpty()) {
+            canLoadOlder = false
+            return
+        }
+        history = history.withCapture(range, capture)
+        if (oldestRange == null || range.startLine < requireNotNull(oldestRange).startLine) {
+            oldestRange = range
+        }
+    }
+
+    fun copyRange(firstLine: Int, lastLine: Int): String = history.copyRange(firstLine, lastLine)
+
+    fun copyLast(count: Int): String = history.copyLast(count)
+
+    fun copyAll(): String = history.copyAll()
+}
+
 data class TranscriptEntry(
     val index: Int,
     val type: String?,
