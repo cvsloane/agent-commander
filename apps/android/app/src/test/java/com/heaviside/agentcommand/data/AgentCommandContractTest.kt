@@ -225,6 +225,16 @@ class AgentCommandContractTest {
     }
 
     @Test
+    fun `created pane adoption opens the returned pane id on the current host`() {
+        val open = TmuxOpenRequest(hostId = "host-a", paneId = "%42").toJson()
+
+        assertEquals("host-a", open.getString("host_id"))
+        assertEquals("%42", open.getString("pane_id"))
+        assertFalse(open.has("tmux_target"))
+        assertFalse(open.has("host_alias"))
+    }
+
+    @Test
     fun `scrollback range requests are bounded and capture content remains typed`() {
         val range = ScrollbackRequest.Range(startLine = -1_000, endLine = -501)
 

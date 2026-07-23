@@ -5,6 +5,8 @@ package com.heaviside.agentcommand.domain
 
 import com.heaviside.agentcommand.data.Host
 import com.heaviside.agentcommand.data.TmuxCommand
+import com.heaviside.agentcommand.data.TmuxOpenResult
+import com.heaviside.agentcommand.data.TmuxPane
 import com.heaviside.agentcommand.terminal.ViewerTarget
 import org.json.JSONObject
 
@@ -161,4 +163,38 @@ fun hostSupportsPercentSplits(host: Host?): Boolean {
     val major = match.groupValues[1].toIntOrNull() ?: return false
     val minor = match.groupValues[2].toIntOrNull() ?: return false
     return major > 3 || major == 3 && minor >= 1
+}
+
+sealed interface CreatedPaneAnchor {
+    data class Ready(val pane: TmuxPane) : CreatedPaneAnchor
+    data class Failed(val message: String) : CreatedPaneAnchor
+
+    companion object {
+        fun resolve(
+            expectedHostId: String,
+            expectedPaneId: String,
+            opened: TmuxOpenResult,
+        ): CreatedPaneAnchor {
+            if (!opened.terminalOpenable) {
+                return Failed("Created pane $expectedPaneId is not terminal-openable.")
+            }
+            if (opened.terminalPaneId != expectedPaneId) {
+                return Failed(
+                    "Opened pane ${opened.terminalPaneId ?: "none"} instead of created pane $expectedPaneId.",
+                )
+            }
+            if (opened.pane.paneId != expectedPaneId) {
+                return Failed(
+                    "Adopted pane ${opened.pane.paneId} instead of created pane $expectedPaneId.",
+                )
+            }
+            if (opened.pane.hostId != expectedHostId) {
+                return Failed("Created pane $expectedPaneId opened on the wrong host.")
+            }
+            if (opened.sessionId != opened.pane.sessionId || opened.pane.target.isBlank()) {
+                return Failed("Created pane $expectedPaneId did not return a durable command anchor.")
+            }
+            return Ready(opened.pane)
+        }
+    }
 }

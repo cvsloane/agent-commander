@@ -5,6 +5,8 @@ package com.heaviside.agentcommand.domain
 
 import com.heaviside.agentcommand.data.Host
 import com.heaviside.agentcommand.data.HostCapabilities
+import com.heaviside.agentcommand.data.TmuxOpenResult
+import com.heaviside.agentcommand.data.TmuxPane
 import com.heaviside.agentcommand.terminal.ViewerTarget
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -133,5 +135,44 @@ class TmuxLifecycleActionsTest {
             ),
         )
         assertFalse(hostSupportsPercentSplits(Host("host-a", "Alpha")))
+    }
+
+    @Test
+    fun `created pane requires an exact durable open anchor before viewer focus`() {
+        val pane = TmuxPane(
+            sessionId = "created-session",
+            hostId = "host-a",
+            hostName = "Alpha",
+            title = "Created",
+            status = "RUNNING",
+            provider = "shell",
+            paneId = "%42",
+            target = "vault:2.1",
+            tmuxSessionName = "vault",
+            windowName = "new",
+            windowIndex = 2,
+            paneIndex = 1,
+        )
+        val opened = TmuxOpenResult(
+            sessionId = pane.sessionId,
+            href = "/?session_id=created-session",
+            pane = pane,
+            adopted = true,
+            terminalOpenable = true,
+            terminalPaneId = pane.paneId,
+        )
+
+        assertEquals(
+            CreatedPaneAnchor.Ready(pane),
+            CreatedPaneAnchor.resolve("host-a", "%42", opened),
+        )
+        assertEquals(
+            CreatedPaneAnchor.Failed("Opened pane %41 instead of created pane %42."),
+            CreatedPaneAnchor.resolve(
+                "host-a",
+                "%42",
+                opened.copy(terminalPaneId = "%41"),
+            ),
+        )
     }
 }

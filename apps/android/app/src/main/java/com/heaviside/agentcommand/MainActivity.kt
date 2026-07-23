@@ -47,6 +47,7 @@ import com.heaviside.agentcommand.data.UiStreamSocket
 import com.heaviside.agentcommand.domain.AppPreferences
 import com.heaviside.agentcommand.domain.ClaudePaneVisibility
 import com.heaviside.agentcommand.domain.ClaudeTranscriptFormatter
+import com.heaviside.agentcommand.domain.CreatedPaneAnchor
 import com.heaviside.agentcommand.domain.KeyRailMode
 import com.heaviside.agentcommand.domain.LastTargetPreference
 import com.heaviside.agentcommand.domain.LifecycleAction
@@ -881,12 +882,8 @@ class MainActivity : Activity() {
         pendingLifecycleViewerTarget = target
         pendingLifecycleSuccess = "Succeeded · $label."
         setLifecycleStatus("Pending · confirming $label through the terminal viewer…", MUTED)
-        if (!requestViewerFocus(target)) {
-            pendingLifecycleViewerTarget = null
-            pendingLifecycleSuccess = null
-            workbenchNavigation.rejectCandidate()
-            setLifecyclePending(false)
-            setLifecycleStatus("Failed · pane focus request could not be sent.", ERROR)
+        if (!requestViewerFocus(target) && pendingLifecycleViewerTarget != null) {
+            failLifecycleViewerOperation("Pane focus request could not be sent.")
         }
     }
 
@@ -923,21 +920,7 @@ class MainActivity : Activity() {
                             )
                             return@dispatchTrackedCommand
                         }
-                        pendingLifecycleViewerTarget = ViewerTarget(createdPaneId, zoomed = false)
-                        pendingLifecycleSuccess = "Succeeded · $label; selected $createdPaneId."
-                        setLifecycleStatus(
-                            "Completed · created $createdPaneId · confirming viewer focus…",
-                            MUTED,
-                        )
-                        if (!requestViewerFocus(requireNotNull(pendingLifecycleViewerTarget))) {
-                            pendingLifecycleViewerTarget = null
-                            pendingLifecycleSuccess = null
-                            workbenchNavigation.rejectCandidate()
-                            reconcileRosterAfterMutation(
-                                "Command succeeded · created $createdPaneId · viewer focus failed to send.",
-                                ERROR,
-                            )
-                        }
+                        adoptCreatedPaneAndFocus(context, createdPaneId, label)
                     } else {
                         val closesCurrentWindow = transport.command.type == "kill_window"
                         reconcileRosterAfterMutation(
@@ -953,6 +936,90 @@ class MainActivity : Activity() {
                     }
                 }
             }
+        }
+    }
+
+    private fun adoptCreatedPaneAndFocus(
+        context: LifecycleContext,
+        createdPaneId: String,
+        label: String,
+    ) {
+        val successMessage = "Succeeded · $label; selected $createdPaneId."
+        pendingLifecycleSuccess = successMessage
+        val currentApi = api
+        if (currentApi == null) {
+            failLifecycleViewerOperation("Sign in again to adopt created pane $createdPaneId.")
+            return
+        }
+        setLifecycleStatus(
+            "Completed · created $createdPaneId · opening its durable command anchor…",
+            MUTED,
+        )
+        io.execute {
+            runCatching {
+                currentApi.openTmuxTarget(
+                    TmuxOpenRequest(
+                        hostId = context.host.host.id,
+                        paneId = createdPaneId,
+                    ),
+                )
+            }.onSuccess { opened -> runOnUiThread {
+                if (!lifecycleMutationPending || pendingLifecycleSuccess != successMessage) {
+                    return@runOnUiThread
+                }
+                when (
+                    val anchor = CreatedPaneAnchor.resolve(
+                        context.host.host.id,
+                        createdPaneId,
+                        opened,
+                    )
+                ) {
+                    is CreatedPaneAnchor.Failed ->
+                        failLifecycleViewerOperation(anchor.message, reconcileRoster = true)
+                    is CreatedPaneAnchor.Ready -> {
+                        if (anchor.pane.tmuxSessionName != context.session.name) {
+                            failLifecycleViewerOperation(
+                                "Created pane $createdPaneId opened in the wrong tmux session.",
+                                reconcileRoster = true,
+                            )
+                            return@runOnUiThread
+                        }
+                        val target = ViewerTarget(createdPaneId, zoomed = false)
+                        val navigation = workbenchNavigation.select(
+                            pane = anchor.pane,
+                            viewerAvailable = terminalSocket != null &&
+                                viewerAuthority.connectionState == TerminalConnectionState.ATTACHED,
+                            zoomed = false,
+                        )
+                        if (navigation !is WorkbenchNavigationAction.FocusCandidate) {
+                            failLifecycleViewerOperation(
+                                "Created pane $createdPaneId could not use the current viewer.",
+                                reconcileRoster = true,
+                            )
+                            return@runOnUiThread
+                        }
+                        pendingLifecycleViewerTarget = target
+                        setLifecycleStatus(
+                            "Adopted $createdPaneId · confirming authoritative viewer focus…",
+                            MUTED,
+                        )
+                        if (!requestViewerFocus(target) && pendingLifecycleViewerTarget != null) {
+                            failLifecycleViewerOperation(
+                                "Pane focus request for created pane $createdPaneId could not be sent.",
+                                reconcileRoster = true,
+                            )
+                        }
+                    }
+                }
+            } }.onFailure { failure -> runOnUiThread {
+                if (!lifecycleMutationPending || pendingLifecycleSuccess != successMessage) {
+                    return@runOnUiThread
+                }
+                failLifecycleViewerOperation(
+                    failure.message ?: "Unable to adopt created pane $createdPaneId.",
+                    reconcileRoster = true,
+                )
+            } }
         }
     }
 
@@ -1838,16 +1905,11 @@ class MainActivity : Activity() {
                 }
                 is ViewerResolution.Failed -> {
                     cancelNavigationTimeout()
-                    workbenchNavigation.rejectCandidate()
                     syncInteractionUi(resolution.message)
-                    if (pendingLifecycleViewerTarget != null) {
-                        pendingLifecycleViewerTarget = null
-                        pendingLifecycleSuccess = null
-                        reconcileRosterAfterMutation(
-                            "Failed · ${resolution.message}",
-                            ERROR,
-                        )
-                    }
+                    failLifecycleViewerOperation(
+                        resolution.message,
+                        reconcileRoster = true,
+                    )
                 }
             }
         }
@@ -1895,7 +1957,13 @@ class MainActivity : Activity() {
                 focusRequestId,
                 "Pane focus timed out and terminal viewer state could not be requested.",
             )
-            if (resolution is ViewerResolution.Failed) syncInteractionUi(resolution.message)
+            if (resolution is ViewerResolution.Failed) {
+                syncInteractionUi(resolution.message)
+                failLifecycleViewerOperation(
+                    resolution.message,
+                    reconcileRoster = true,
+                )
+            }
             return
         }
         if (!viewerAuthority.beginViewerStateReconciliation(focusRequestId, viewerStateRequestId)) return
@@ -1905,7 +1973,13 @@ class MainActivity : Activity() {
                 viewerStateRequestId,
                 "Pane focus timed out and viewer state could not be confirmed.",
             )
-            if (resolution is ViewerResolution.Failed) syncInteractionUi(resolution.message)
+            if (resolution is ViewerResolution.Failed) {
+                syncInteractionUi(resolution.message)
+                failLifecycleViewerOperation(
+                    resolution.message,
+                    reconcileRoster = true,
+                )
+            }
         }
     }
 
@@ -1923,18 +1997,32 @@ class MainActivity : Activity() {
     }
 
     private fun handleTerminalFailure(message: String) {
-        workbenchNavigation.rejectCandidate()
-        if (pendingLifecycleViewerTarget != null) {
-            pendingLifecycleViewerTarget = null
-            pendingLifecycleSuccess = null
-            setLifecyclePending(false)
-            setLifecycleStatus("Failed · $message", ERROR)
-        }
+        failLifecycleViewerOperation(message)
         disconnectTerminal()
         viewerAuthority.failed()
         reconnecting = true
         syncInteractionUi("Failed · $message · reconnecting")
         if (started && screen == Screen.TERMINAL) mainHandler.postDelayed(reconnect, RECONNECT_DELAY_MS)
+    }
+
+    private fun failLifecycleViewerOperation(
+        message: String,
+        reconcileRoster: Boolean = false,
+    ) {
+        val hadLifecycleOperation =
+            pendingLifecycleViewerTarget != null ||
+                pendingLifecycleSuccess != null
+        pendingLifecycleViewerTarget = null
+        pendingLifecycleSuccess = null
+        workbenchNavigation.rejectCandidate()
+        if (hadLifecycleOperation) {
+            setLifecyclePending(false)
+            val status = "Failed · $message"
+            setLifecycleStatus(status, ERROR)
+            if (reconcileRoster) {
+                reconcileRosterAfterMutation(status, ERROR)
+            }
+        }
     }
 
     private fun disconnectTerminal() {
