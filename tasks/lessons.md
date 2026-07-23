@@ -122,6 +122,6 @@
   Correction: A corrected Android APK was published with the same `versionCode` and `versionName` as the bad installed build, so neither Samsung nor the operator could reliably prove that the replacement bytes were running; the old request behavior remained live.
   Rule: Every published replacement APK must strictly increase `versionCode`, use a distinct user-visible `versionName`, expose that version in the app, and verify the installed identity before counting a device retest.
 
-- Date: 2026-07-23
+- Date: 2026-07-22
   Correction: The native Android client could authenticate, attach, focus, and render a real tmux pane, but its swipe gesture only moved the Termux emulator's empty local alternate-screen transcript and never invoked the existing remote tmux scroll operation; Samsung input behavior was therefore not yet a proven daily-use path.
   Rule: Native-terminal acceptance must separately prove rendering, remote tmux scrollback, and committed Samsung keyboard input on the physical device. For existing tmux panes, bind swipe rows to the canonical `terminal.navigate` scroll protocol rather than treating a renderer-local transcript as server history.
