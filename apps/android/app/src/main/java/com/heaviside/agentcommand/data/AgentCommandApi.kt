@@ -359,6 +359,11 @@ class TerminalSocket(
         return requestId.takeIf { sent }
     }
 
+    fun scroll(lines: Int): Boolean {
+        val message = buildScrollMessage(lines) ?: return false
+        return send(message)
+    }
+
     fun takeControl(): Boolean = send(JSONObject().put("type", "control"))
 
     fun close() {
@@ -367,4 +372,17 @@ class TerminalSocket(
     }
 
     private fun send(message: JSONObject): Boolean = socket?.send(message.toString()) == true
+
+    internal companion object {
+        fun buildScrollMessage(lines: Int): JSONObject? {
+            val normalized = lines.coerceIn(-MAX_SCROLL_LINES, MAX_SCROLL_LINES)
+            if (normalized == 0) return null
+            return JSONObject()
+                .put("type", "navigate")
+                .put("op", "scroll")
+                .put("lines", normalized)
+        }
+
+        private const val MAX_SCROLL_LINES = 120
+    }
 }
