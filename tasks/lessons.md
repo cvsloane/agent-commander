@@ -129,3 +129,7 @@
 - Date: 2026-07-23
   Correction: Physical Samsung scrolling passed after v0.1.2, but that single repaired gesture does not make the APK equivalent to Agent Command's existing tmux workbench.
   Rule: Treat Android completion as capability parity for the existing-session tmux workflow: authoritative multi-host navigation, separate viewer/control state, local and remote history, practical keys, pane/window lifecycle, Claude reading, and reconnect. Preserve general agent launch as a web-owned workflow and reserve one final owner device test until all planned native capability slices are complete.
+
+- Date: 2026-07-23
+  Correction: Awaiting each bulk termination serially with the router's 30-second default could outlive the dashboard's 15-second and Android's 30-second request deadlines, making correlated completion truth unobservable.
+  Rule: Fit server-side acknowledgement waits inside the shortest supported client deadline. Dispatch independent bulk commands concurrently with an explicit bounded timeout, then reduce settled outcomes in request order and apply one final state mutation without retries.
