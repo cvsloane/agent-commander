@@ -305,6 +305,8 @@ class TmuxLifecycleActionsTest {
         val cleared = CreatedPaneAdoptionState()
         remember(cleared, 42)
         cleared.clear()
+        cleared.clear()
+        assertFalse(cleared.isPending)
         assertEquals(
             CreatedPaneAdoptionAction.WaitForPersistence("host-42", "%42"),
             cleared.begin("host-42", "%42", "vault"),

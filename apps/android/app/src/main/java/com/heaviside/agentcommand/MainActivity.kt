@@ -194,12 +194,17 @@ class MainActivity : Activity() {
         started = false
         mainHandler.removeCallbacks(reconnect)
         mainHandler.removeCallbacks(reconnectUiStream)
+        clearCreatedPaneAdoption(
+            releaseLifecycleUi = true,
+            failureMessage = "Created pane adoption was cancelled when the app left the foreground.",
+        )
         disconnectUiStream()
         disconnectTerminal()
         super.onStop()
     }
 
     override fun onDestroy() {
+        clearCreatedPaneAdoption(releaseLifecycleUi = true)
         navigatorDialog?.dismiss()
         lifecycleDialog?.dismiss()
         io.shutdownNow()
@@ -224,6 +229,7 @@ class MainActivity : Activity() {
     }
 
     private fun showSignIn(error: String? = null) {
+        clearCreatedPaneAdoption(releaseLifecycleUi = true)
         screen = Screen.SIGN_IN
         disconnectUiStream()
         disconnectTerminal()
@@ -281,6 +287,10 @@ class MainActivity : Activity() {
     }
 
     private fun showRoster(restoreLastTarget: Boolean = false) {
+        clearCreatedPaneAdoption(
+            releaseLifecycleUi = true,
+            failureMessage = "Created pane adoption was cancelled when the terminal closed.",
+        )
         screen = Screen.ROSTER
         reconnecting = false
         restoreLastTargetPending = restoreLastTarget
@@ -1097,6 +1107,28 @@ class MainActivity : Activity() {
     private fun cancelCreatedPaneAdoptionTimeout() {
         createdPaneAdoptionTimeout?.let(mainHandler::removeCallbacks)
         createdPaneAdoptionTimeout = null
+    }
+
+    private fun clearCreatedPaneAdoption(
+        releaseLifecycleUi: Boolean = false,
+        failureMessage: String? = null,
+    ) {
+        val hadActiveAdoption =
+            createdPaneAdoption.isPending || createdPaneAdoptionTimeout != null
+        cancelCreatedPaneAdoptionTimeout()
+        createdPaneAdoption.clear()
+        if (!releaseLifecycleUi || !hadActiveAdoption) return
+
+        pendingLifecycleViewerTarget = null
+        pendingLifecycleSuccess = null
+        workbenchNavigation.rejectCandidate()
+        setLifecyclePending(false)
+        if (
+            failureMessage != null &&
+            lifecycleDialog?.isShowing == true
+        ) {
+            setLifecycleStatus("Failed · $failureMessage", ERROR)
+        }
     }
 
     private fun executeLifecycleTerminate(
@@ -1976,8 +2008,7 @@ class MainActivity : Activity() {
                     terminalView?.requestFocus()
                     if (pendingLifecycleViewerTarget == resolution.target) {
                         val success = pendingLifecycleSuccess ?: "Succeeded · tmux viewer updated."
-                        cancelCreatedPaneAdoptionTimeout()
-                        createdPaneAdoption.clear()
+                        clearCreatedPaneAdoption()
                         pendingLifecycleViewerTarget = null
                         pendingLifecycleSuccess = null
                         reconcileRosterAfterMutation(success, ONLINE)
@@ -2092,8 +2123,7 @@ class MainActivity : Activity() {
         val hadLifecycleOperation =
             pendingLifecycleViewerTarget != null ||
                 pendingLifecycleSuccess != null
-        cancelCreatedPaneAdoptionTimeout()
-        createdPaneAdoption.clear()
+        clearCreatedPaneAdoption()
         pendingLifecycleViewerTarget = null
         pendingLifecycleSuccess = null
         workbenchNavigation.rejectCandidate()
