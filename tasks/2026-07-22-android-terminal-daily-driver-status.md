@@ -1,21 +1,21 @@
 # Android Terminal Daily Driver — Status
 
 - Plan status/version: approved `1719c8c` scope, approval recorded 2026-07-22T12:04:25-04:00
-- Current phase: W2 Android attach rollout; W1 visual repair held at its verification wall
+- Current phase: W2 Samsung attach re-test; W1 visual repair held at its verification wall
 - Overall state: running
-- Last updated: 2026-07-22T19:56:34-04:00
-- Current accepted baseline: production functionality through `997e522d71eef5dadd85a20139377f8848fb9a45`, with the remaining renderer artifact rejected
-- Current candidate: Android source through `4bc94e9` and signed artifact commit `06e540a` correct the empty JSON ticket POST; request regression, Android test/lint/release build, bodyless production ticket probe, signature verification, and fresh review pass. Signed APK SHA-256 is `356c1ab5153596cac8acc08261fef4da60b5b14acf7c1eab8736a3669c9f845c`. W1 line artefacts remain visible in exact production screenshots; its proposed DOM invalidation change is not included because the existing journey could not target the active one of two mounted xterm instances for RED/GREEN proof.
+- Last updated: 2026-07-22T20:19:48-04:00
+- Current accepted baseline: PR #110 merge `b5f01331019e105b8aea1a1c9a72c93c1b74c32a` is live, with the remaining web renderer artefact rejected and held separately
+- Current candidate: Production serves the signed Android repair from source `4bc94e9` and artifact commit `06e540a`; authenticated download returns 2,233,182 bytes with SHA-256 `356c1ab5153596cac8acc08261fef4da60b5b14acf7c1eab8736a3669c9f845c`. Both containers run merge `b5f0133`, health is `ok` with two agents, and the rotated NextAuth secret matches Bitwarden. Samsung attach/render/input remains the irreducible gate.
 - Budget used/remaining: setup complete; 7-day project ceiling remains
-- Next Human Owner checkpoint: production laptop terminal-use verdict
+- Next Human Owner checkpoint: corrected APK install and Samsung pane attach/render/input verdict
 
 ## Lane Status
 
 | Lane | Current role | State | Deliverable/ref | Last proof | Blocked on | Next action |
 |---|---|---|---|---|---|---|
 | W1 — Shared terminal repair | AI Lead/integrator plus Human Owner | deployed | PR #107 merge `12889bf`; Coolify `z4ig8vlvpgvcncvzhiahnl2d`; identical agentd on both hosts | Full CI, fresh review, exact-source containers, one process per host, and public health `ok` with two agents | Live laptop interaction | Chris verifies connect/focus/switch responsiveness on the real laptop path |
-| W2 — Android vertical slice | Android Builder plus fresh Reviewer | release ready | Source `4bc94e9`; signed artifact `06e540a` | Exact request regression, Android test/lint/release build, production bodyless ticket 201, fresh review PASS, v2/v3 signer continuity, DEX request inspection | Merge/deploy and Samsung pane-attach re-test | Ship the reviewed APK without adding retries or transport fallbacks |
-| W3 — Integration and rollout | AI Lead plus fresh Reviewer | active | Current production baseline is PR #109 merge `87d7173`; PR #110 candidate includes the Android repair through `06e540a` | Existing authenticated APK route and exact-source distribution proof remain valid | PR #110 merge/deploy and physical Samsung use | Ship the reviewed Android correction independently; keep the unproven web renderer change out |
+| W2 — Android vertical slice | Android Builder plus fresh Reviewer | deployed | Source `4bc94e9`; signed artifact `06e540a`; production merge `b5f0133` | Exact request regression, Android test/lint/release build, production bodyless ticket 201, fresh review PASS, v2/v3 signer continuity, DEX request inspection, authenticated production artifact identity | Samsung pane-attach re-test | Chris updates the installed APK and exercises one real pane |
+| W3 — Integration and rollout | AI Lead plus fresh Reviewer | deployed | PR #110 merge `b5f0133`; Coolify release `mym0vn6whe76tovzighnre8e`; secret-rotation redeploy `ddodmvrvv715n7in7cqd5sb9` | Exact-source containers, health `ok` with two agents, deployed NextAuth secret matches Bitwarden, authenticated APK status/headers/bytes/hash pass | Physical Samsung use | Preserve the Android-only release; keep the unproven web renderer change out |
 
 ## Open Gates
 
@@ -32,7 +32,9 @@
 | W1 live laptop | waiting | W1-R7 is live on the actual Claude transcript overlay; automated painted-surface proof passes, human verdict pending | Human Owner | Hard refresh, then repeat Claude chat scrollback check |
 | W2 build/review | pass | Corrected Android foundation through `f464360` is integrated; Gradle test/lint/release and final fresh review pass | AI Lead | Preserve through CI; complete Samsung/live-endpoint gates after rollout |
 | W3 PR #108 rollout | pass | PR #108 merged as `a1b4f41`; Coolify `kcq6gn6w98c3c20m1ujtqm4d` finished at that exact source; the source-aligned replacement APK is prepared locally but not yet deployed | AI Lead | Follow-up PR/deploy and authenticated production hash check |
-| W2 Android pane attach | correction ready | Production requests `req-31` through `req-36` reproduce HTTP 400; candidate request builder removes the empty JSON content type, regression is red/green, and a bodyless production probe returns 201 with a ticket | AI Lead | Signed APK deployment and Samsung attach/render check |
+| W2 Android pane attach | waiting | Corrected signed APK is live and the authenticated production download matches SHA-256 `356c1ab5...`; server-side bodyless ticket probe returns 201 | Human Owner | Install/update APK, select `heavisidelinux` → `SloaneVault`, and confirm render/input |
+| W3 PR #110 rollout | pass | Full CI and review passed; merge `b5f0133` is live in both containers; health is `ok` with two agents; authenticated APK headers, length, and SHA-256 match | AI Lead | Samsung real-path check |
+| Credential rotation | pass | Exposed NextAuth signing value was replaced in production and preview configuration, stored as Bitwarden `Agent Command / AGENT_COMMAND_NEXTAUTH_SECRET`, redeployed, and compared against the running dashboard without printing it | AI Lead | Existing web sessions reauthenticate once |
 | W1 exact painted screenshot | held | Authenticated production SloaneVault terminal screenshots show unselectable left-edge line fragments; three direct test-trigger attempts could not select the populated one of two mounted xterm instances, so no renderer patch was retained | Visual diagnosis lane | Human chooses another direct active-instance pass, renderer-level proof, or manual-only verification |
 
 ## Current Risks and Escalations
@@ -42,7 +44,7 @@
 
 ## Immediate Next Sequence
 
-1. AI Lead freezes the Android-only release candidate and completes the fresh release gate.
-2. Push, merge, and deploy the signed APK through the existing production web distribution path.
-3. Verify the authenticated production APK bytes and source identity.
-4. Chris updates the installed APK and repeats pane attach/render/input on Samsung.
+1. Chris signs back into the production web app once after the NextAuth rotation.
+2. Download and install the current APK from Settings.
+3. Open `heavisidelinux` → `SloaneVault`; verify the pane renders and typed input reaches tmux.
+4. Report the Android result separately from the still-held web line artefact.
