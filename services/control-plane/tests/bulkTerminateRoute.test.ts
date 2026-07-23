@@ -54,7 +54,7 @@ describe('bulk terminate route', () => {
     vi.unstubAllEnvs();
   });
 
-  it('archives only kills confirmed by the agent and reports exact failures', async () => {
+  it('dispatches bounded kills concurrently and archives only confirmed successes', async () => {
     let resolveSuccessfulKill!: (result: { ok: true }) => void;
     const successfulKill = new Promise<{ ok: true }>((resolve) => {
       resolveSuccessfulKill = resolve;
@@ -80,8 +80,13 @@ describe('bulk terminate route', () => {
       },
     });
 
-    await vi.waitFor(() => expect(dispatchAndWait).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(dispatchAndWait).toHaveBeenCalledTimes(3));
     expect(archiveSessions).not.toHaveBeenCalled();
+    expect(dispatchAndWait.mock.calls.map((call) => call[4])).toEqual([
+      12_000,
+      12_000,
+      12_000,
+    ]);
     resolveSuccessfulKill({ ok: true });
 
     const response = await responsePromise;
@@ -101,7 +106,8 @@ describe('bulk terminate route', () => {
       hostId,
       successfulSessionId,
       expect.any(String),
-      { type: 'kill_session', payload: {} }
+      { type: 'kill_session', payload: {} },
+      12_000
     );
     expect(archiveSessions).toHaveBeenCalledOnce();
     expect(archiveSessions).toHaveBeenCalledWith([successfulSessionId]);

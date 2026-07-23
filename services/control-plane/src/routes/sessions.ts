@@ -815,55 +815,58 @@ export function registerSessionRoutes(app: FastifyInstance): void {
     let result: db.BulkOperationResult;
 
     const bulkTerminateSessions = async (ids: string[]): Promise<db.BulkOperationResult> => {
-      const errors: db.BulkOperationError[] = [];
-      let successCount = 0;
-
       const sessions = await db.getSessionsByIds(ids);
       const sessionById = new Map(sessions.map((session) => [session.id, session]));
-      const archivedIds: string[] = [];
 
-      for (const id of ids) {
-        const session = sessionById.get(id);
-        if (!session) {
-          errors.push({ session_id: id, error: 'Session not found' });
-          continue;
-        }
-
-        const cmdId = randomUUID();
-        try {
-          const terminateResult = await commandRouter.dispatchAndWait(
-            session.host_id,
-            id,
-            cmdId,
-            {
-              type: 'kill_session',
-              payload: {},
-            }
-          );
-          if (!terminateResult.ok) {
-            errors.push({
-              session_id: id,
-              error: terminateResult.error?.message ?? 'Agent command failed',
-            });
-            continue;
+      const outcomes: Array<{ session_id: string; error?: string }> = await Promise.all(
+        ids.map(async (id) => {
+          const session = sessionById.get(id);
+          if (!session) {
+            return { session_id: id, error: 'Session not found' };
           }
-        } catch (error) {
-          errors.push({
-            session_id: id,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          continue;
-        }
 
-        archivedIds.push(id);
-        successCount++;
-      }
+          const cmdId = randomUUID();
+          try {
+            const terminateResult = await commandRouter.dispatchAndWait(
+              session.host_id,
+              id,
+              cmdId,
+              {
+                type: 'kill_session',
+                payload: {},
+              },
+              12_000
+            );
+            if (!terminateResult.ok) {
+              return {
+                session_id: id,
+                error: terminateResult.error?.message ?? 'Agent command failed',
+              };
+            }
+          } catch (error) {
+            return {
+              session_id: id,
+              error: error instanceof Error ? error.message : String(error),
+            };
+          }
+
+          return { session_id: id };
+        })
+      );
+
+      const errors: db.BulkOperationError[] = outcomes
+        .filter((outcome): outcome is { session_id: string; error: string } =>
+          outcome.error !== undefined)
+        .map((outcome) => ({ session_id: outcome.session_id, error: outcome.error }));
+      const archivedIds = outcomes
+        .filter((outcome) => outcome.error === undefined)
+        .map((outcome) => outcome.session_id);
 
       if (archivedIds.length > 0) {
         await db.archiveSessions(archivedIds);
       }
 
-      return { success_count: successCount, error_count: errors.length, errors };
+      return { success_count: archivedIds.length, error_count: errors.length, errors };
     };
 
     if (operation === 'assign_group') {
