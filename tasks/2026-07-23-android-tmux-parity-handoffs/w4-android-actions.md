@@ -6,7 +6,8 @@ implementation_sha: 3f3c823d1d604361745a88f58c15ea2ec541f089
 review_correction_sha: 1dd1bae3334524ea9e7ce896f0f7d3f4cd6f980d
 final_review_correction_sha: b3123b12c2fd3275438fc40357cc19ec0d802966
 ordering_review_correction_sha: 6a95740a8344414f867a7697ddf1f5e9e98e64ab
-status: frozen after final ordering review correction
+teardown_review_correction_sha: d5d97f21355a4d99936102d28dd6df6a29c65ecd
+status: frozen after final teardown review correction
 acceptance:
   - WIN-1
   - WIN-2
@@ -72,6 +73,12 @@ Final event-ordering correction:
 - `TmuxLifecycleActionsTest` (+2, suite total 9): event-before-begin proceeds through exact adoption, retention evicts the oldest identity at 128, and teardown clears retained identity. Existing event-after-begin and timeout regressions remain green.
 - RED receipts: event-before-begin returned `WaitForPersistence` instead of `RefreshRoster`; teardown-clear coverage then failed on the missing `clear` transition. Both passed after the bounded correlation state was added.
 
+Final teardown correction:
+
+- One idempotent `clearCreatedPaneAdoption` Activity helper now cancels and nulls the persistence timeout, clears pending/coordinator cache state, and releases the lifecycle mutation UI only when an adoption was active.
+- `onStop`, `showRoster`, `showSignIn`, and `onDestroy` invoke the helper before terminal/socket/executor teardown. Normal correlated completion and lifecycle failure also use it. Stopped/destroyed paths do not reconcile the roster or schedule delayed work.
+- The existing pure teardown regression now calls `clear` twice and proves the coordinator remains unlocked and its retained identity is gone.
+
 Focused preservation command:
 
 ```bash
@@ -99,8 +106,8 @@ Result:
 - 52/52 release unit tests passed.
 - Android lint passed with zero errors and 34 warnings.
 - Unsigned release assembly passed.
-- `app-release-unsigned.apk`: 2,340,634 bytes.
-- SHA-256: `727c522c567bdb35d376fc80a64cd8dad34d719da8e49e091ac482534281190a`.
+- `app-release-unsigned.apk`: 2,341,014 bytes.
+- SHA-256: `aba5c4d8317f3537ea2ef68c0788eb4fa3e0981eab413ca8df666afe0e2fd68b`.
 - `git diff --check`: passed before freeze.
 
 ## Changed paths
@@ -127,7 +134,7 @@ No backend, shared schema, renderer, transport, native launch, retry, harness, s
 - **WIN-1:** The authoritative action dialog exposes active/activity/bell window state and acknowledged selection through the existing correlated viewer focus path, with exact fallback topology truth only when no pane exists.
 - **WIN-2:** New/rename/close are available, every close is confirmed, the live single-window case warns that the whole tmux session ends, exact completion is shown, and the roster reconciles after success or failure.
 - **PANE-1:** Both split directions, spatial direction controls, explicit focus/unfocus, and confirmed tracked-pane terminate/archive are present. Live-only destructive controls are disabled.
-- **PANE-2:** Generic REST acceptance remains pending in `TmuxCommandTracker`; exact agent errors are retained; new/split correlate exact persisted identity in either event order before a single canonical refresh and conditional adoption; dedicated terminate trusts only the reviewed completion response; duplicate mutation is disabled until reconciliation finishes, including persistence and viewer-resolution timeout/failure exits.
+- **PANE-2:** Generic REST acceptance remains pending in `TmuxCommandTracker`; exact agent errors are retained; new/split correlate exact persisted identity in either event order before a single canonical refresh and conditional adoption; dedicated terminate trusts only the reviewed completion response; duplicate mutation is disabled until reconciliation finishes, including persistence/viewer timeouts, failures, and Activity/terminal teardown.
 - **REG-1 / REG-2:** Focused and full Android gates pass. No adjacent platform, release, renderer, backend, or schema scope was added.
 
 Integration, signed artifact, live public-path proof, and final Samsung interaction proof remain AI Lead/W5-owned. No true wall was encountered.
