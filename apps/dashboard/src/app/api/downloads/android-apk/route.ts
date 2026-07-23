@@ -7,6 +7,7 @@ import { authOptions } from '@/lib/auth';
 export const dynamic = 'force-dynamic';
 
 const APK_FILENAME = 'agent-command-android.apk';
+const APK_DOWNLOAD_FILENAME = 'agent-command-android-0.1.1.apk';
 const APK_PATH = path.resolve(process.cwd(), '..', '..', 'android-distribution', APK_FILENAME);
 
 export async function GET() {
@@ -20,7 +21,7 @@ export async function GET() {
     return new NextResponse(new Uint8Array(apk), {
       headers: {
         'Cache-Control': 'private, no-store',
-        'Content-Disposition': `attachment; filename="${APK_FILENAME}"`,
+        'Content-Disposition': `attachment; filename="${APK_DOWNLOAD_FILENAME}"`,
         'Content-Length': String(apkStat.size),
         'Content-Type': 'application/vnd.android.package-archive',
         'Last-Modified': apkStat.mtime.toUTCString(),

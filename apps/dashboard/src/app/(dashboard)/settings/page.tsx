@@ -45,7 +45,7 @@ export default function SettingsPage() {
               </p>
               {apk ? (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Signed APK · {apk.size} · Updated {apk.updated}
+                  Signed APK · v0.1.1 (2) · {apk.size} · Updated {apk.updated}
                 </p>
               ) : (
                 <p className="mt-2 text-xs text-amber-500">

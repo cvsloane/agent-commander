@@ -117,3 +117,7 @@
 - Date: 2026-07-22
   Correction: The owner still saw terminal line artefacts after prior DOM and painted-surface checks, and the first new production screenshot opened a generic roster/default pane instead of the exact reported SloaneVault terminal.
   Rule: For a visual terminal defect, capture the exact production host/session/pane at current and scrolled positions and inspect the resulting pixels before accepting a fix. Generic or mocked terminal screenshots, copied text, and DOM equality do not substitute for the reported painted path.
+
+- Date: 2026-07-22
+  Correction: A corrected Android APK was published with the same `versionCode` and `versionName` as the bad installed build, so neither Samsung nor the operator could reliably prove that the replacement bytes were running; the old request behavior remained live.
+  Rule: Every published replacement APK must strictly increase `versionCode`, use a distinct user-visible `versionName`, expose that version in the app, and verify the installed identity before counting a device retest.
