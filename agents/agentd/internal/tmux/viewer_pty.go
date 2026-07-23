@@ -454,7 +454,10 @@ func (b *viewerPTYBridge) close(removeResumeToken bool) {
 	})
 	if removeResumeToken {
 		b.removeOnce.Do(func() {
-			_ = b.runner.Run("set-option", "-pu", "-t", b.paneID, b.resumeOption)
+			b.mu.RLock()
+			paneID := b.paneID
+			b.mu.RUnlock()
+			_ = b.runner.Run("set-option", "-pu", "-t", paneID, b.resumeOption)
 		})
 	}
 }

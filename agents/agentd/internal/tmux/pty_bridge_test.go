@@ -252,6 +252,85 @@ func TestTerminalFocusPaneSelectsAndZoomsVerifiedTargetOnPrivateTmuxSocket(t *te
 	}
 }
 
+func TestTerminalSendInputRejectsGroupedViewerWithoutActiveBridge(t *testing.T) {
+	manager := newTerminalManagerWithRunner(nil, newFakeTmuxRunner(), t.TempDir())
+	manager.channelToPane["missing-bridge"] = "%7"
+	manager.channelToPTY["missing-bridge"] = true
+	manager.channelPerViewer["missing-bridge"] = true
+	manager.channelReadOnly["missing-bridge"] = false
+	manager.viewerByChannel["missing-bridge"] = &terminalViewer{
+		channelID: "missing-bridge",
+		paneID:    "%7",
+	}
+
+	if err := manager.SendInput("missing-bridge", "input"); err == nil ||
+		err.Error() != "channel missing-bridge has no active viewer bridge" {
+		t.Fatalf("input error=%v, want missing active viewer bridge", err)
+	}
+}
+
+func TestTerminalSendInputFinishesBeforeGroupedViewerCanChangePane(t *testing.T) {
+	client, _ := newPrivateTmuxClient(t)
+	panes, err := client.ListPanes()
+	if err != nil || len(panes) != 1 {
+		t.Fatalf("initial private panes=%+v err=%v", panes, err)
+	}
+	target, err := client.SplitPaneWithOptions(panes[0].PaneID, "horizontal", nil, "")
+	if err != nil {
+		t.Fatalf("split private pane: %v", err)
+	}
+
+	manager := newTerminalManagerWithRunner(client, newExecTmuxRunner(client), t.TempDir())
+	defer manager.Close()
+	if _, err := manager.AttachWithOptions("input-focus-fence", panes[0].PaneID, AttachOptions{SessionID: "session-1"}); err != nil {
+		t.Fatalf("attach viewer: %v", err)
+	}
+
+	manager.mu.Lock()
+	bridge := manager.viewerByChannel["input-focus-fence"].bridge
+	blockingProcess := &blockingWritePTYProcess{
+		PTYProcess:   bridge.process,
+		writeStarted: make(chan struct{}),
+		allowWrite:   make(chan struct{}),
+	}
+	bridge.process = blockingProcess
+	manager.mu.Unlock()
+
+	inputDone := make(chan error, 1)
+	go func() {
+		inputDone <- manager.SendInput("input-focus-fence", "input")
+	}()
+	<-blockingProcess.writeStarted
+	if manager.mu.TryLock() {
+		manager.mu.Unlock()
+		close(blockingProcess.allowWrite)
+		<-inputDone
+		t.Fatal("manager authority lock was released before the grouped-viewer write completed")
+	}
+
+	focusDone := make(chan error, 1)
+	go func() {
+		_, focusErr := manager.FocusPane("input-focus-fence", target.PaneID, false)
+		focusDone <- focusErr
+	}()
+
+	select {
+	case focusErr := <-focusDone:
+		close(blockingProcess.allowWrite)
+		<-inputDone
+		t.Fatalf("pane focus completed while input write was still in progress: %v", focusErr)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(blockingProcess.allowWrite)
+	if err := <-inputDone; err != nil {
+		t.Fatalf("send input: %v", err)
+	}
+	if err := <-focusDone; err != nil {
+		t.Fatalf("focus viewer after input: %v", err)
+	}
+}
+
 func TestTerminalFocusPaneMovesChannelAuthorityToVerifiedTarget(t *testing.T) {
 	client, _ := newPrivateTmuxClient(t)
 	panes, err := client.ListPanes()
@@ -391,6 +470,97 @@ func TestTerminalFocusPaneRollsBackWhenZoomFails(t *testing.T) {
 			viewerPaneID,
 			controller,
 		)
+	}
+}
+
+type failResumeTokenRemovalRunner struct {
+	TmuxRunner
+	enabled  bool
+	failures map[string]error
+}
+
+func (r *failResumeTokenRemovalRunner) Run(args ...string) error {
+	if r.enabled &&
+		len(args) == 5 &&
+		args[0] == "set-option" &&
+		args[1] == "-pu" &&
+		args[2] == "-t" {
+		if err := r.failures[args[3]]; err != nil {
+			return err
+		}
+	}
+	return r.TmuxRunner.Run(args...)
+}
+
+func TestTerminalFocusPaneReportsResumeTokenRollbackFailureAndKeepsAuthority(t *testing.T) {
+	client, _ := newPrivateTmuxClient(t)
+	panes, err := client.ListPanes()
+	if err != nil || len(panes) != 1 {
+		t.Fatalf("initial private panes=%+v err=%v", panes, err)
+	}
+	originPaneID := panes[0].PaneID
+	target, err := client.SplitPaneWithOptions(originPaneID, "horizontal", nil, "")
+	if err != nil {
+		t.Fatalf("split private pane: %v", err)
+	}
+
+	runner := &failResumeTokenRemovalRunner{
+		TmuxRunner: newExecTmuxRunner(client),
+		failures: map[string]error{
+			originPaneID:  errors.New("injected previous-pane removal failure"),
+			target.PaneID: errors.New("injected rollback removal failure"),
+		},
+	}
+	manager := newTerminalManagerWithRunner(client, runner, t.TempDir())
+	defer manager.Close()
+	attached, err := manager.AttachWithOptions("focus-token-rollback", originPaneID, AttachOptions{SessionID: "session-1"})
+	if err != nil {
+		t.Fatalf("attach viewer: %v", err)
+	}
+	runner.enabled = true
+
+	if _, err := manager.FocusPane("focus-token-rollback", target.PaneID, false); err == nil {
+		t.Fatal("focus unexpectedly succeeded")
+	} else {
+		for _, want := range []string{
+			"injected previous-pane removal failure",
+			"injected rollback removal failure",
+			"resume token may exist on both panes",
+		} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("focus error=%q, want it to contain %q", err, want)
+			}
+		}
+	}
+
+	manager.mu.RLock()
+	mappedPaneID := manager.channelToPane["focus-token-rollback"]
+	viewerPaneID := manager.viewerByChannel["focus-token-rollback"].paneID
+	controller := manager.paneController[originPaneID]
+	manager.mu.RUnlock()
+	if mappedPaneID != originPaneID || viewerPaneID != originPaneID || controller != "focus-token-rollback" {
+		t.Fatalf(
+			"authority after failed token move: channel=%q viewer=%q controller=%q",
+			mappedPaneID,
+			viewerPaneID,
+			controller,
+		)
+	}
+
+	for _, paneID := range []string{originPaneID, target.PaneID} {
+		stored, err := runner.TmuxRunner.Output(
+			"show-options",
+			"-p",
+			"-v",
+			"-t", paneID,
+			resumeOptionName(attached.ResumeToken),
+		)
+		if err != nil {
+			t.Fatalf("read resume token from %s: %v", paneID, err)
+		}
+		if got := strings.TrimSpace(string(stored)); got != attached.ResumeToken {
+			t.Fatalf("resume token on %s=%q, want %q", paneID, got, attached.ResumeToken)
+		}
 	}
 }
 
@@ -1256,6 +1426,19 @@ type fakePTYProcess struct {
 	writes []byte
 	mu     sync.Mutex
 	reads  chan []byte
+}
+
+type blockingWritePTYProcess struct {
+	PTYProcess
+	writeStarted chan struct{}
+	allowWrite   chan struct{}
+	startOnce    sync.Once
+}
+
+func (p *blockingWritePTYProcess) Write(data []byte) (int, error) {
+	p.startOnce.Do(func() { close(p.writeStarted) })
+	<-p.allowWrite
+	return p.PTYProcess.Write(data)
 }
 
 func newFakePTYProcess() *fakePTYProcess {

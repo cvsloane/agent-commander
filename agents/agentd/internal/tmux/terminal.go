@@ -759,6 +759,12 @@ func (m *TerminalManager) SendInput(channelID string, data string) error {
 		return ErrReadOnly
 	}
 	if viewer != nil {
+		if viewer.bridge == nil {
+			m.mu.RUnlock()
+			return fmt.Errorf("channel %s has no active viewer bridge", channelID)
+		}
+		// Keep the authority snapshot stable through the write. Releasing the
+		// manager lock here would let FocusPane retarget this grouped PTY first.
 		err := viewer.bridge.Write([]byte(data))
 		m.mu.RUnlock()
 		return err
@@ -954,12 +960,20 @@ func (m *TerminalManager) moveViewerResumeTokenLocked(viewer *terminalViewer, pa
 		"-t", viewer.paneID,
 		resumeOptionName(viewer.resumeToken),
 	); err != nil {
-		_ = m.runner.Run(
+		if rollbackErr := m.runner.Run(
 			"set-option",
 			"-pu",
 			"-t", paneID,
 			resumeOptionName(viewer.resumeToken),
-		)
+		); rollbackErr != nil {
+			return fmt.Errorf(
+				"%w; resume token may exist on both panes",
+				errors.Join(
+					fmt.Errorf("remove terminal resume token from previous pane: %w", err),
+					fmt.Errorf("rollback resume token on focused pane: %w", rollbackErr),
+				),
+			)
+		}
 		return fmt.Errorf("remove terminal resume token from previous pane: %w", err)
 	}
 	return nil
