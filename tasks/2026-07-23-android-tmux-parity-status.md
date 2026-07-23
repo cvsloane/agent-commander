@@ -17,12 +17,12 @@ The plan and checklist are approved. W1 and W2 are ready to launch in isolated n
 | Workstream | State | Owner | Next gate |
 |---|---|---|---|
 | W0 baseline/contract | accepted | AI Lead | Complete |
-| W1 interaction authority/scroll | integrated, review running | Android Builder | Fresh integrated verdict |
-| W2 topology/API/domain | correction running | Android Builder | Authoritative topology add/remove/live-only re-review |
-| W3 workbench UI | pending | Android Builder | W1/W2 accepted |
+| W1 interaction authority/scroll | accepted | Android Builder + fresh Reviewer | Complete |
+| W2 topology/API/domain | accepted after correction | Android Builder + fresh Reviewer | Complete |
+| W3 workbench UI | ready | Android Builder | Approved brief |
 | W4 window/pane lifecycle | pending | Android Builder | W2/W3 accepted |
 | W5 release | pending | AI Lead + critical Reviewer | W1-W4 accepted |
 
 W1 owns the Android activity/terminal interaction seam in isolated worktree `android-tmux-parity-w1`. W2 owns Android data/domain/preferences in isolated worktree `android-tmux-parity-w2`; their declared paths do not overlap.
 
-Integrated source `8510b1f` passes 28/28 debug and 28/28 release unit tests, lint, and release assembly. Fresh review passed W1 and most W2 seams but found one HIGH: `withTopology` overlaid only durable roster nodes, so it could not add/remove split/new/killed/live-only nodes. A bounded W2 correction is running; W3 remains gated.
+Integrated source `ec5a271` passes the full Android test/lint/release gate. Fresh review passed W1 and passed W2 after `af01e43` made live topology authoritative for add/remove/live-only membership while preserving durable attach metadata. W3 is cleared to launch.
