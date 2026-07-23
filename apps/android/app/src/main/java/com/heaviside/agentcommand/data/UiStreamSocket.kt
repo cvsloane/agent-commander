@@ -16,16 +16,23 @@ import java.util.UUID
 object UiStreamEventParser {
     fun parse(text: String): UiStreamEvent? {
         val message = JSONObject(text)
-        val timestamp = message.getString("ts")
-        val payload = message.getJSONObject("payload")
         return when (message.getString("type")) {
             "ui.subscribed" -> UiStreamSubscribedEvent(
-                timestamp = timestamp,
-                subscriptionId = payload.getString("subscription_id"),
+                timestamp = message.getString("ts"),
+                subscriptionId = message.getJSONObject("payload").getString("subscription_id"),
             )
-            "commands.result" -> parseCommandResult(timestamp, payload)
-            "sessions.changed" -> parseSessionsChanged(timestamp, payload)
-            "tmux.topology" -> parseTopology(timestamp, payload)
+            "commands.result" -> parseCommandResult(
+                message.getString("ts"),
+                message.getJSONObject("payload"),
+            )
+            "sessions.changed" -> parseSessionsChanged(
+                message.getString("ts"),
+                message.getJSONObject("payload"),
+            )
+            "tmux.topology" -> parseTopology(
+                message.getString("ts"),
+                message.getJSONObject("payload"),
+            )
             else -> null
         }
     }
@@ -123,13 +130,14 @@ class UiStreamSocket(
         fun onClosed()
     }
 
-    private var socket: WebSocket? = null
+    @Volatile private var socket: WebSocket? = null
     @Volatile private var intentionallyClosed = false
     private val subscriptionId = UUID.randomUUID().toString()
-    private var subscriptionReady = false
+    @Volatile private var subscriptionReady = false
 
     fun connect() {
         if (socket != null || intentionallyClosed) return
+        subscriptionReady = false
         socket = client.newWebSocket(Request.Builder().url(url).header("Origin", origin).build(), this)
     }
 
@@ -157,16 +165,20 @@ class UiStreamSocket(
     }
 
     override fun onFailure(webSocket: WebSocket, throwable: Throwable, response: Response?) {
+        if (socket === webSocket) socket = null
+        subscriptionReady = false
         if (!intentionallyClosed) listener.onFailure(throwable.message ?: "Event connection failed")
     }
 
     override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-        socket = null
+        if (socket === webSocket) socket = null
+        subscriptionReady = false
         if (!intentionallyClosed) listener.onClosed()
     }
 
     fun close() {
         intentionallyClosed = true
+        subscriptionReady = false
         socket?.close(1000, "Android event stream closed")
         socket = null
     }

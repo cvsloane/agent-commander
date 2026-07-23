@@ -369,7 +369,8 @@ class AgentCommandApi(credentials: SavedCredentials) {
             val pane = parseRoster(
                 JSONObject().put("sessions", JSONArray().put(payload.getJSONObject("session"))),
                 hostNames,
-            ).single()
+            ).singleOrNull()
+                ?: throw IOException("Opened tmux session response is missing a pane identifier")
             val terminal = payload.getJSONObject("terminal")
             return TmuxOpenResult(
                 sessionId = payload.getString("session_id"),

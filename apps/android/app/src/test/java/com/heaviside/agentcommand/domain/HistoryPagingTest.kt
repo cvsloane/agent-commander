@@ -88,4 +88,22 @@ class HistoryPagingTest {
         assertFalse(reader.canLoadOlder)
         assertEquals(null, reader.nextRange)
     }
+
+    @Test
+    fun `reader accepts one stable full snapshot without offering moving-offset pagination`() {
+        val reader = ScrollbackReaderState(pageLines = 2)
+
+        reader.acceptSnapshot(
+            ScrollbackCapture(
+                cmdId = "snapshot",
+                ok = true,
+                lines = listOf("oldest available", "middle", "current"),
+                truncated = true,
+            ),
+        )
+
+        assertEquals(listOf("oldest available", "middle", "current"), reader.allLines.map { it.text })
+        assertFalse(reader.canLoadOlder)
+        assertEquals(null, reader.nextRange)
+    }
 }

@@ -12,6 +12,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import okio.Buffer
+import java.io.IOException
 
 class AgentCommandContractTest {
     @Test
@@ -222,6 +223,36 @@ class AgentCommandContractTest {
         assertTrue(result.adopted)
         assertTrue(result.terminalOpenable)
         assertEquals("%7", result.pane.paneId)
+    }
+
+    @Test
+    fun `tmux open rejects a response without a pane identifier`() {
+        val failure = assertThrows(IOException::class.java) {
+            AgentCommandApi.parseTmuxOpen(
+                JSONObject(
+                    """
+                    {
+                      "session_id":"session-a",
+                      "href":"/?host_id=host-a&session_id=session-a&mode=terminal&attach=1",
+                      "adopted":true,
+                      "terminal":{"openable":false},
+                      "session":{
+                        "id":"session-a",
+                        "host_id":"host-a",
+                        "status":"RUNNING",
+                        "provider":"claude",
+                        "title":"Agent work",
+                        "tmux_target":"vault:2.3",
+                        "metadata":{"tmux":{"session_name":"vault","window_name":"code"}}
+                      }
+                    }
+                    """.trimIndent(),
+                ),
+                mapOf("host-a" to "Workstation"),
+            )
+        }
+
+        assertEquals("Opened tmux session response is missing a pane identifier", failure.message)
     }
 
     @Test

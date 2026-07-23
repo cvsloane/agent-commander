@@ -126,6 +126,25 @@ class ScrollbackReaderState(
         }
     }
 
+    fun acceptSnapshot(capture: ScrollbackCapture) {
+        require(capture.ok) { capture.error?.message ?: "Scrollback capture failed" }
+        require(capture.lines.size <= ScrollbackRange.MAX_SCROLLBACK_LINES) {
+            "Scrollback snapshot cannot exceed ${ScrollbackRange.MAX_SCROLLBACK_LINES} lines"
+        }
+        history = if (capture.lines.isEmpty()) {
+            ScrollbackHistory()
+        } else {
+            ScrollbackHistory().withPage(
+                ScrollbackPage(
+                    ScrollbackRange(-capture.lines.size, -1),
+                    capture.lines,
+                ),
+            )
+        }
+        oldestRange = null
+        canLoadOlder = false
+    }
+
     fun copyRange(firstLine: Int, lastLine: Int): String = history.copyRange(firstLine, lastLine)
 
     fun copyLast(count: Int): String = history.copyLast(count)

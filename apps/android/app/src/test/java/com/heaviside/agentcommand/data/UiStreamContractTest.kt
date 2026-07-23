@@ -11,6 +11,7 @@ import okhttp3.WebSocket
 import okio.ByteString
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.json.JSONArray
@@ -64,6 +65,85 @@ class UiStreamContractTest {
         socket.onMessage(webSocket, acknowledgement)
 
         assertEquals(1, connected)
+        assertTrue(failures.isEmpty())
+    }
+
+    @Test
+    fun `socket becomes command-ready again after close and failure callbacks`() {
+        var connected = 0
+        val failures = mutableListOf<String>()
+        val socket = UiStreamSocket(
+            client = OkHttpClient(),
+            url = "wss://agent-command.example.com/v1/ui/stream?ticket=one-time-ticket",
+            origin = "https://agent-command.example.com",
+            listener = object : UiStreamSocket.Listener {
+                override fun onConnected() {
+                    connected += 1
+                }
+
+                override fun onEvent(event: UiStreamEvent) = Unit
+
+                override fun onFailure(message: String) {
+                    failures += message
+                }
+
+                override fun onClosed() = Unit
+            },
+        )
+        val first = RecordingWebSocket()
+        socket.onOpen(first, switchingProtocols(first))
+        val subscriptionId = JSONObject(first.sent.single())
+            .getJSONObject("payload")
+            .getString("subscription_id")
+        val acknowledgement = subscribedAcknowledgement(subscriptionId)
+
+        socket.onMessage(first, acknowledgement)
+        socket.onClosed(first, 1006, "network changed")
+
+        val second = RecordingWebSocket()
+        socket.onOpen(second, switchingProtocols(second))
+        socket.onMessage(second, acknowledgement)
+        socket.onFailure(second, IllegalStateException("network lost"), null)
+
+        val third = RecordingWebSocket()
+        socket.onOpen(third, switchingProtocols(third))
+        socket.onMessage(third, acknowledgement)
+
+        assertEquals(3, connected)
+        assertEquals(listOf("network lost"), failures)
+    }
+
+    @Test
+    fun `payload-less unknown events are ignored without failing the stream`() {
+        assertNull(
+            UiStreamEventParser.parse(
+                JSONObject()
+                    .put("v", 1)
+                    .put("type", "future.event")
+                    .toString(),
+            ),
+        )
+
+        val failures = mutableListOf<String>()
+        val socket = UiStreamSocket(
+            client = OkHttpClient(),
+            url = "wss://agent-command.example.com/v1/ui/stream?ticket=one-time-ticket",
+            origin = "https://agent-command.example.com",
+            listener = object : UiStreamSocket.Listener {
+                override fun onConnected() = Unit
+                override fun onEvent(event: UiStreamEvent) = Unit
+                override fun onFailure(message: String) {
+                    failures += message
+                }
+                override fun onClosed() = Unit
+            },
+        )
+
+        socket.onMessage(
+            RecordingWebSocket(),
+            JSONObject().put("v", 1).put("type", "future.event").toString(),
+        )
+
         assertTrue(failures.isEmpty())
     }
 
@@ -225,4 +305,18 @@ class UiStreamContractTest {
 
         override fun cancel() = Unit
     }
+
+    private fun switchingProtocols(webSocket: WebSocket): Response = Response.Builder()
+        .request(webSocket.request())
+        .protocol(Protocol.HTTP_1_1)
+        .code(101)
+        .message("Switching Protocols")
+        .build()
+
+    private fun subscribedAcknowledgement(subscriptionId: String): String = JSONObject()
+        .put("v", 1)
+        .put("type", "ui.subscribed")
+        .put("ts", "2026-07-23T12:00:01Z")
+        .put("payload", JSONObject().put("subscription_id", subscriptionId))
+        .toString()
 }

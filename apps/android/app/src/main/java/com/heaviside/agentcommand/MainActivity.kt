@@ -1433,6 +1433,7 @@ class MainActivity : Activity() {
 
     private fun showHistory(pane: TmuxPane) {
         val reader = ScrollbackReaderState()
+        var snapshotTruncated = false
         val root = verticalLayout().apply { setPadding(dp(12), dp(8), dp(12), dp(8)) }
         val dialog = fullScreenDialog(root)
         val header = horizontalLayout().apply { gravity = Gravity.CENTER_VERTICAL }
@@ -1441,7 +1442,7 @@ class MainActivity : Activity() {
         })
         header.addView(button("Return live") { dialog.dismiss() })
         root.addView(header, matchWrap())
-        val status = body("Loading recent server history…")
+        val status = body("Loading available server history…")
         root.addView(status, matchWrap())
         val search = EditText(this).apply {
             hint = "Search loaded history"
@@ -1456,8 +1457,6 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f),
         )
         val actions = horizontalLayout()
-        val older = button("Load older") {}
-        actions.addView(older)
         actions.addView(button("Copy visible") {
             copyScrollbackCapture(pane, ScrollbackRequest.Visible(), "Visible history copied", status)
         })
@@ -1477,50 +1476,48 @@ class MainActivity : Activity() {
                 append("${reader.allLines.size} lines loaded")
                 if (search.text?.isNotBlank() == true) append(" · ${lines.size} matching")
                 append(" · selectable")
+                if (snapshotTruncated) append(" · newest 5,000")
                 if (viewerAuthority.controllerOwnership == ControllerOwnership.READ_ONLY) {
                     append(" · read-only safe")
                 }
             }
-            older.isEnabled = reader.canLoadOlder
         }
 
-        fun loadOlder() {
-            val range = reader.nextRange ?: return
-            older.isEnabled = false
+        fun loadSnapshot() {
             status.setTextColor(MUTED)
-            status.text = "Loading lines ${range.startLine}…${range.endLine}…"
+            status.text = "Loading available server history…"
             val currentApi = api ?: return
             io.execute {
                 runCatching {
                     currentApi.loadScrollback(
                         pane.sessionId,
-                        ScrollbackRequest.Range(range.startLine, range.endLine),
+                        ScrollbackRequest.Full(),
                     )
                 }.onSuccess { capture -> runOnUiThread {
                     if (!dialog.isShowing) return@runOnUiThread
-                    runCatching { reader.accept(range, capture) }
-                        .onSuccess { render() }
+                    runCatching { reader.acceptSnapshot(capture) }
+                        .onSuccess {
+                            snapshotTruncated = capture.truncated
+                            render()
+                        }
                         .onFailure {
                             status.setTextColor(ERROR)
                             status.text = it.message ?: "Unable to load history"
-                            older.isEnabled = true
                         }
                 } }.onFailure { failure -> runOnUiThread {
                     if (!dialog.isShowing) return@runOnUiThread
                     status.setTextColor(ERROR)
                     status.text = failure.message ?: "Unable to load history"
-                    older.isEnabled = true
                 } }
             }
         }
 
-        older.setOnClickListener { loadOlder() }
         search.doAfterTextChanged {
             reader.query = it?.toString().orEmpty()
             render()
         }
         dialog.showFullScreen()
-        loadOlder()
+        loadSnapshot()
     }
 
     private fun copyScrollbackCapture(
@@ -1918,13 +1915,13 @@ class MainActivity : Activity() {
         if (terminalSocket != null) return
         val generation = ++connectionGeneration
         val tokenForPane = resumeToken.takeIf { resumeSessionId == pane.sessionId }
-        terminalStatus?.text = when {
+        val connectingStatus = when {
             reconnecting -> "Reconnecting…"
             tokenForPane == null -> "Connecting…"
             else -> "Resuming…"
         }
         viewerAuthority.connecting(ViewerTarget(pane.paneId, tmuxZoomed))
-        syncInteractionUi()
+        syncInteractionUi(connectingStatus)
         val columns = terminalView?.columns ?: 80
         val rows = terminalView?.rows ?: 24
         io.execute {
