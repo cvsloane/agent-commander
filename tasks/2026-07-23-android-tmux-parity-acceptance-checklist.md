@@ -1,6 +1,8 @@
 # Android Tmux Parity — Acceptance Checklist
 
 - Status: approved at 2026-07-23T00:19:00-04:00
+- Technical result: passed at replacement source `824406dd76b0601ef47e7d592089ae0d7e9a0cc4`
+- Production result: merge `b41a595ff890cdb753dfd22f30c13429688933e5`, Coolify `f10cgejtgwwtlckkz23cfi5d`
 - Human Owner: Chris Sloane
 - Project Plan: `tasks/2026-07-23-android-tmux-parity-plan.md`
 
