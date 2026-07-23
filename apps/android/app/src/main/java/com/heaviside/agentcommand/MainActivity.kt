@@ -28,7 +28,12 @@ import com.heaviside.agentcommand.data.TerminalSocket
 import com.heaviside.agentcommand.data.TmuxPane
 import com.heaviside.agentcommand.data.Topology
 import com.heaviside.agentcommand.security.SecureStore
+import com.heaviside.agentcommand.terminal.ControllerOwnership
 import com.heaviside.agentcommand.terminal.RemoteTerminalView
+import com.heaviside.agentcommand.terminal.TerminalConnectionState
+import com.heaviside.agentcommand.terminal.ViewerAuthority
+import com.heaviside.agentcommand.terminal.ViewerResolution
+import com.heaviside.agentcommand.terminal.ViewerTarget
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
 
@@ -53,10 +58,9 @@ class MainActivity : Activity() {
     private var ctrlButton: Button? = null
     private var resumeToken: String? = null
     private var resumeSessionId: String? = null
-    private var pendingNavigationId: String? = null
+    private val viewerAuthority = ViewerAuthority()
+    private var navigationTimeout: Runnable? = null
     private var connectionGeneration = 0L
-    private var authoritativeInput = false
-    private var readOnly = false
     private var tmuxZoomed = false
 
     private val reconnect = Runnable {
@@ -175,7 +179,6 @@ class MainActivity : Activity() {
         screen = Screen.ROSTER
         disconnectTerminal()
         activePane = null
-        authoritativeInput = false
 
         val root = verticalLayout()
         val header = horizontalLayout().apply {
@@ -275,9 +278,6 @@ class MainActivity : Activity() {
         screen = Screen.TERMINAL
         activePane = pane
         disconnectTerminal()
-        authoritativeInput = false
-        readOnly = false
-        pendingNavigationId = null
 
         val root = verticalLayout()
         val titleRow = horizontalLayout().apply {
@@ -296,10 +296,24 @@ class MainActivity : Activity() {
         )
         root.addView(titleRow, matchWrap())
 
-        terminalStatus = body("Connecting…", MUTED).apply {
-            setPadding(dp(12), 0, dp(12), dp(4))
+        val statusRow = horizontalLayout().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), 0, dp(8), dp(4))
         }
-        root.addView(terminalStatus, matchWrap())
+        terminalStatus = body("Connecting…", MUTED).apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }.also(statusRow::addView)
+        controlButton = button("Take Control") {
+            if (terminalSocket?.takeControl() == true) {
+                terminalStatus?.text = "Requesting control…"
+            } else {
+                terminalStatus?.text = "Take control request could not be sent"
+            }
+        }.apply {
+            isEnabled = false
+            contentDescription = "Take control of this terminal"
+        }.also(statusRow::addView)
+        root.addView(statusRow, matchWrap())
 
         val toolbar = horizontalLayout().apply { gravity = Gravity.CENTER_VERTICAL }
         toolbar.addView(button("A−") { terminalView?.decreaseTextSize() })
@@ -310,9 +324,9 @@ class MainActivity : Activity() {
             terminalView?.setControlModifier(enabled)
             updateCtrlButton(enabled)
         }.also(toolbar::addView)
-        toolbar.addView(button("Esc") { if (authoritativeInput) terminalView?.sendEscape() })
-        toolbar.addView(button("Tab") { if (authoritativeInput) terminalView?.sendTab() })
-        toolbar.addView(button("Paste") { if (authoritativeInput) terminalView?.pasteClipboard() })
+        toolbar.addView(button("Esc") { if (viewerAuthority.canSendInput) terminalView?.sendEscape() })
+        toolbar.addView(button("Tab") { if (viewerAuthority.canSendInput) terminalView?.sendTab() })
+        toolbar.addView(button("Paste") { if (viewerAuthority.canSendInput) terminalView?.pasteClipboard() })
         toolbar.addView(button("Copy") {
             val copied = terminalView?.copyVisibleText().orEmpty()
             Toast.makeText(this, if (copied.isEmpty()) "No visible text" else "Visible terminal text copied", Toast.LENGTH_SHORT).show()
@@ -320,16 +334,12 @@ class MainActivity : Activity() {
         zoomButton = button(if (tmuxZoomed) "Unzoom pane" else "Zoom pane") {
             requestPaneFocus(!tmuxZoomed)
         }.also(toolbar::addView)
-        controlButton = button("Take control") {
-            terminalSocket?.takeControl()
-            terminalStatus?.text = "Requesting control…"
-        }.apply { isEnabled = false }.also(toolbar::addView)
         root.addView(HorizontalScrollView(this).apply { addView(toolbar) }, matchWrap())
 
         terminalView = RemoteTerminalView(this).apply {
-            onInput = { data -> if (authoritativeInput && !readOnly) terminalSocket?.sendInput(data) }
+            onInput = { data -> if (viewerAuthority.canSendInput) terminalSocket?.sendInput(data) }
             onResize = { columns, rows -> terminalSocket?.sendResize(columns, rows) }
-            onScrollRows = { rows -> if (authoritativeInput && !readOnly) terminalSocket?.scroll(rows) }
+            onScrollRows = { rows -> if (viewerAuthority.canSendInput) terminalSocket?.scroll(rows) }
             onTextSizeChanged = { size -> terminalStatus?.text = "${statusPrefix()} · ${columns}×${rows} · ${size}sp" }
             onControlModifierChanged = { enabled -> updateCtrlButton(enabled) }
         }.also { terminal ->
@@ -346,7 +356,8 @@ class MainActivity : Activity() {
         val generation = ++connectionGeneration
         val tokenForPane = resumeToken.takeIf { resumeSessionId == pane.sessionId }
         terminalStatus?.text = if (tokenForPane == null) "Connecting…" else "Resuming…"
-        authoritativeInput = false
+        viewerAuthority.connecting(ViewerTarget(pane.paneId, tmuxZoomed))
+        syncInteractionUi()
         val columns = terminalView?.columns ?: 80
         val rows = terminalView?.rows ?: 24
         io.execute {
@@ -383,18 +394,14 @@ class MainActivity : Activity() {
         override fun onAttached(readOnly: Boolean, resumed: Boolean, resumeToken: String?) = runOnUiThread {
             if (!isCurrentConnection(generation, sessionId)) return@runOnUiThread
             resumeAttemptPending = false
-            this@MainActivity.readOnly = readOnly
+            viewerAuthority.attached(readOnly)
             if (!resumeToken.isNullOrBlank()) {
                 this@MainActivity.resumeToken = resumeToken
                 resumeSessionId = activePane?.sessionId
             }
-            controlButton?.isEnabled = readOnly
-            if (readOnly) {
-                authoritativeInput = false
-                terminalStatus?.text = "Read-only · take control to type"
-            } else if (!authoritativeInput) {
-                requestPaneFocus(tmuxZoomed)
-            }
+            syncInteractionUi()
+            // Fresh and resumed attachments use the same correlated authority check, including read-only viewers.
+            requestPaneFocus(tmuxZoomed)
         }
 
         override fun onOutput(data: ByteArray) = runOnUiThread {
@@ -406,15 +413,14 @@ class MainActivity : Activity() {
             if (!isCurrentConnection(generation, sessionId)) return@runOnUiThread
             when (type) {
                 "control" -> {
-                    val needsFocusConfirmation = readOnly || !authoritativeInput
-                    readOnly = false
-                    controlButton?.isEnabled = false
-                    if (needsFocusConfirmation) requestPaneFocus(tmuxZoomed)
+                    viewerAuthority.controllerChanged(hasControl = true)
+                    syncInteractionUi(message ?: statusPrefix())
+                    return@runOnUiThread
                 }
                 "readonly" -> {
-                    readOnly = true
-                    authoritativeInput = false
-                    controlButton?.isEnabled = true
+                    viewerAuthority.controllerChanged(hasControl = false)
+                    syncInteractionUi(message ?: statusPrefix())
+                    return@runOnUiThread
                 }
                 "error" -> {
                     if (resumeAttemptPending && message.orEmpty().contains("resume token", ignoreCase = true)) {
@@ -439,18 +445,19 @@ class MainActivity : Activity() {
 
         override fun onNavigationResult(result: NavigationResult) = runOnUiThread {
             if (!isCurrentConnection(generation, sessionId)) return@runOnUiThread
-            if (result.requestId != pendingNavigationId) return@runOnUiThread
-            pendingNavigationId = null
-            val pane = activePane ?: return@runOnUiThread
-            if (result.ok && result.paneId == pane.paneId) {
-                tmuxZoomed = result.zoomed == true
-                authoritativeInput = !readOnly
-                terminalStatus?.text = statusPrefix()
-                zoomButton?.text = if (tmuxZoomed) "Unzoom pane" else "Zoom pane"
-                terminalView?.requestFocus()
-            } else {
-                authoritativeInput = false
-                terminalStatus?.text = result.message ?: "Pane focus was not confirmed"
+            when (val resolution = viewerAuthority.resolve(result)) {
+                ViewerResolution.Ignored -> return@runOnUiThread
+                is ViewerResolution.Converged -> {
+                    cancelNavigationTimeout()
+                    tmuxZoomed = resolution.target.zoomed
+                    zoomButton?.text = if (tmuxZoomed) "Unzoom pane" else "Zoom pane"
+                    syncInteractionUi()
+                    terminalView?.requestFocus()
+                }
+                is ViewerResolution.Failed -> {
+                    cancelNavigationTimeout()
+                    syncInteractionUi(resolution.message)
+                }
             }
         }
 
@@ -466,37 +473,94 @@ class MainActivity : Activity() {
     private fun requestPaneFocus(zoom: Boolean) {
         val pane = activePane ?: return
         val socket = terminalSocket ?: return
-        if (pendingNavigationId != null) return
-        authoritativeInput = false
-        terminalStatus?.text = if (zoom) "Confirming pane zoom…" else "Confirming pane focus…"
+        if (viewerAuthority.hasPendingNavigation) return
+        val expected = ViewerTarget(pane.paneId, zoom)
         val requestId = socket.focusPane(pane.paneId, zoom)
         if (requestId == null) {
             handleTerminalFailure("Pane focus request could not be sent")
             return
         }
-        pendingNavigationId = requestId
+        viewerAuthority.beginFocus(requestId, expected)
+        syncInteractionUi(if (zoom) "Confirming pane zoom…" else "Confirming pane focus…")
+        scheduleNavigationTimeout { reconcileTimedOutFocus(requestId) }
+    }
+
+    private fun reconcileTimedOutFocus(focusRequestId: String) {
+        val socket = terminalSocket ?: return
+        val viewerStateRequestId = socket.viewerState()
+        if (viewerStateRequestId == null) {
+            val resolution = viewerAuthority.failPending(
+                focusRequestId,
+                "Pane focus timed out and terminal viewer state could not be requested.",
+            )
+            if (resolution is ViewerResolution.Failed) syncInteractionUi(resolution.message)
+            return
+        }
+        if (!viewerAuthority.beginViewerStateReconciliation(focusRequestId, viewerStateRequestId)) return
+        syncInteractionUi("Pane focus result timed out · checking viewer state…")
+        scheduleNavigationTimeout {
+            val resolution = viewerAuthority.failPending(
+                viewerStateRequestId,
+                "Pane focus timed out and viewer state could not be confirmed.",
+            )
+            if (resolution is ViewerResolution.Failed) syncInteractionUi(resolution.message)
+        }
+    }
+
+    private fun scheduleNavigationTimeout(action: () -> Unit) {
+        cancelNavigationTimeout()
+        navigationTimeout = Runnable {
+            navigationTimeout = null
+            action()
+        }.also { mainHandler.postDelayed(it, FOCUS_TIMEOUT_MS) }
+    }
+
+    private fun cancelNavigationTimeout() {
+        navigationTimeout?.let(mainHandler::removeCallbacks)
+        navigationTimeout = null
     }
 
     private fun handleTerminalFailure(message: String) {
         disconnectTerminal()
-        terminalStatus?.text = "$message · reconnecting"
+        viewerAuthority.failed()
+        syncInteractionUi("$message · reconnecting")
         if (started && screen == Screen.TERMINAL) mainHandler.postDelayed(reconnect, RECONNECT_DELAY_MS)
     }
 
     private fun disconnectTerminal() {
         connectionGeneration += 1
         mainHandler.removeCallbacks(reconnect)
+        cancelNavigationTimeout()
         val existing = terminalSocket
         terminalSocket = null
-        pendingNavigationId = null
-        authoritativeInput = false
+        viewerAuthority.detached()
+        syncInteractionUi()
         existing?.close()
     }
 
     private fun statusPrefix(): String = when {
-        readOnly -> "Read-only"
-        authoritativeInput -> "Connected · ${activePane?.paneId}"
-        else -> "Connected · confirming pane"
+        viewerAuthority.connectionState == TerminalConnectionState.DETACHED -> "Detached"
+        viewerAuthority.connectionState == TerminalConnectionState.CONNECTING -> "Connecting"
+        viewerAuthority.connectionState == TerminalConnectionState.FAILED -> "Failed"
+        !viewerAuthority.failureMessage.isNullOrBlank() -> viewerAuthority.failureMessage.orEmpty()
+        viewerAuthority.hasPendingNavigation &&
+            viewerAuthority.controllerOwnership == ControllerOwnership.READ_ONLY ->
+            "Read-only · confirming pane"
+        viewerAuthority.hasPendingNavigation -> "Connected · confirming pane"
+        viewerAuthority.controllerOwnership == ControllerOwnership.READ_ONLY &&
+            viewerAuthority.authoritativeTarget == viewerAuthority.desiredTarget ->
+            "Read-only · viewing ${viewerAuthority.authoritativeTarget?.paneId}"
+        viewerAuthority.controllerOwnership == ControllerOwnership.READ_ONLY -> "Read-only"
+        viewerAuthority.canSendInput -> "Interactive · ${viewerAuthority.authoritativeTarget?.paneId}"
+        else -> "Connected · pane not confirmed"
+    }
+
+    private fun syncInteractionUi(status: String = statusPrefix()) {
+        controlButton?.isEnabled =
+            viewerAuthority.connectionState == TerminalConnectionState.ATTACHED &&
+            viewerAuthority.controllerOwnership == ControllerOwnership.READ_ONLY
+        terminalView?.setRemoteScrollEnabled(viewerAuthority.canSendInput)
+        terminalStatus?.text = status
     }
 
     private fun appVersionLabel(): String = "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
@@ -587,6 +651,7 @@ class MainActivity : Activity() {
 
     private companion object {
         const val RECONNECT_DELAY_MS = 1_500L
+        const val FOCUS_TIMEOUT_MS = 5_000L
         const val ROSTER_STATUS_TAG = "roster-status"
         const val ROSTER_PROGRESS_TAG = "roster-progress"
         const val ROSTER_LIST_TAG = "roster-list"

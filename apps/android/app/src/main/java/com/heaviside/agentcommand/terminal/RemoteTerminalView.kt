@@ -43,6 +43,7 @@ class RemoteTerminalView @JvmOverloads constructor(
     private var topRow = 0
     private var scrollRemainder = 0f
     private var controlModifier = false
+    private var remoteScrollEnabled = false
 
     private val output = object : TerminalOutput() {
         override fun write(data: ByteArray, offset: Int, count: Int) {
@@ -137,7 +138,17 @@ class RemoteTerminalView @JvmOverloads constructor(
                 val rowDelta = (scrollRemainder / renderer.fontLineSpacing).toInt()
                 if (rowDelta != 0) {
                     scrollRemainder -= rowDelta * renderer.fontLineSpacing
-                    onScrollRows(rowDelta)
+                    when (
+                        resolveTerminalScrollRoute(
+                            alternateScreen = emulator.isAlternateBufferActive,
+                            mouseTracking = emulator.isMouseTrackingActive,
+                            hasControl = remoteScrollEnabled,
+                        )
+                    ) {
+                        TerminalScrollRoute.LOCAL_HISTORY -> scrollLocalHistory(rowDelta)
+                        TerminalScrollRoute.REMOTE_NAVIGATION -> onScrollRows(rowDelta)
+                        TerminalScrollRoute.BLOCKED -> Unit
+                    }
                 }
                 return true
             }
@@ -172,6 +183,10 @@ class RemoteTerminalView @JvmOverloads constructor(
         controlModifier = enabled
         onControlModifierChanged(enabled)
         requestKeyboard()
+    }
+
+    fun setRemoteScrollEnabled(enabled: Boolean) {
+        remoteScrollEnabled = enabled
     }
 
     fun setTextSizeSp(size: Int) {
@@ -264,6 +279,11 @@ class RemoteTerminalView @JvmOverloads constructor(
         )
         topRow = topRow.coerceIn(-emulator.screen.activeTranscriptRows, 0)
         onResize(newColumns, newRows)
+    }
+
+    private fun scrollLocalHistory(rowsDown: Int) {
+        topRow = (topRow + rowsDown).coerceIn(-emulator.screen.activeTranscriptRows, 0)
+        postInvalidateOnAnimation()
     }
 
     private fun requestKeyboard() {
