@@ -17,10 +17,12 @@ The plan and checklist are approved. W1 and W2 are ready to launch in isolated n
 | Workstream | State | Owner | Next gate |
 |---|---|---|---|
 | W0 baseline/contract | accepted | AI Lead | Complete |
-| W1 interaction authority/scroll | running | Android Builder | Frozen commit and focused gates |
-| W2 topology/API/domain | running | Android Builder | Frozen commit and focused gates |
+| W1 interaction authority/scroll | integrated, review running | Android Builder | Fresh integrated verdict |
+| W2 topology/API/domain | integrated, review running | Android Builder | Fresh integrated verdict |
 | W3 workbench UI | pending | Android Builder | W1/W2 accepted |
 | W4 window/pane lifecycle | pending | Android Builder | W2/W3 accepted |
 | W5 release | pending | AI Lead + critical Reviewer | W1-W4 accepted |
 
 W1 owns the Android activity/terminal interaction seam in isolated worktree `android-tmux-parity-w1`. W2 owns Android data/domain/preferences in isolated worktree `android-tmux-parity-w2`; their declared paths do not overlap.
+
+Integrated source `8510b1f` passes 28/28 debug and 28/28 release unit tests, lint, and release assembly. Fresh-context review is running against the frozen W1+W2 diff before W3 launches.
