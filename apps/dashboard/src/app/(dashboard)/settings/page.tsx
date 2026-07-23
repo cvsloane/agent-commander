@@ -23,6 +23,8 @@ function getAndroidApkMeta() {
 
 export default function SettingsPage() {
   const apk = getAndroidApkMeta();
+  const sourceRef = process.env.SOURCE_COMMIT?.trim() || 'main';
+  const androidSourceUrl = `https://github.com/cvsloane/agent-commander/tree/${encodeURIComponent(sourceRef)}/apps/android`;
   return (
     <div className="mx-auto w-full max-w-5xl space-y-5 px-3 py-4 sm:px-4 sm:py-6">
       <header className="flex items-center gap-3">
@@ -45,7 +47,7 @@ export default function SettingsPage() {
               </p>
               {apk ? (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Signed APK · v0.1.2 (3) · {apk.size} · Updated {apk.updated}
+                  Signed APK · {apk.size} · Updated {apk.updated}
                 </p>
               ) : (
                 <p className="mt-2 text-xs text-amber-500">
@@ -56,7 +58,7 @@ export default function SettingsPage() {
                 GPLv3 source and build instructions are available in the{' '}
                 <a
                   className="underline underline-offset-2 hover:text-foreground"
-                  href="https://github.com/cvsloane/agent-commander/tree/2a568c5adf4e01552429e5137ccefb51fce1b800/apps/android"
+                  href={androidSourceUrl}
                   rel="noreferrer"
                   target="_blank"
                 >

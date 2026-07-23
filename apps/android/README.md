@@ -1,6 +1,20 @@
 # Agent Command for Android
 
-This module is the native Android foundation for attaching to existing Agent Command tmux panes. It uses the public Agent Command HTTPS/WSS control-plane contract and a single Termux-derived terminal emulator/renderer. It does not open direct SSH connections or start new sessions.
+This module is the native Android tmux workbench for Agent Command. It uses the public Agent Command HTTPS/WSS control-plane contract and a single Termux-derived terminal emulator/renderer.
+
+The native workbench includes:
+
+- A searchable multi-host tmux roster organized by host, session, window, and pane, with managed and live-only target state.
+- Transactional pane/window switching, verified viewer ownership, explicit read-only and Take Control states, reconnect/resume, and persisted last-target preferences.
+- Terminal input, paste, physical/Samsung keyboard support, fixed and expanded key rails, local and remote scrolling, text zoom, and verified tmux pane zoom.
+- Paged tmux history with search, selection, copy actions, and return-to-live behavior.
+- A paged Claude transcript reader with direct prompt entry for the verified writable pane.
+- Acknowledged window create/rename/close and pane split/select/focus/unfocus/terminate actions with destructive confirmations and topology reconciliation.
+- An authenticated browser handoff to the existing web launch workflow.
+
+## Non-goals
+
+The app does not open direct SSH/Tailscale connections, start general Claude/Codex sessions natively, duplicate non-tmux dashboard areas, package another terminal renderer, provide notifications, or publish through the Play Store. General session launch remains web-owned.
 
 ## Build
 
