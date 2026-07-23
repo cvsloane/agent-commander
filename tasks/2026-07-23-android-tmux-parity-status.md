@@ -20,8 +20,8 @@ The plan and checklist are approved. W1 and W2 are ready to launch in isolated n
 | W1 interaction authority/scroll | accepted | Android Builder + fresh Reviewer | Complete |
 | W2 topology/API/domain | accepted after correction | Android Builder + fresh Reviewer | Complete |
 | W3 workbench UI | accepted after correction | Android Builder + fresh Reviewer | Complete |
-| W4 window/pane lifecycle | Android UI running | Android Builder | Frozen candidate and fresh review |
-| W5 release | pending | AI Lead + critical Reviewer | W1-W4 accepted |
+| W4 window/pane lifecycle | accepted after corrections | Android Builder + fresh Reviewer | Complete |
+| W5 release | running | AI Lead + release Builder + critical Reviewer | Versioned candidate, signing, PR, deploy |
 
 W1 owns the Android activity/terminal interaction seam in isolated worktree `android-tmux-parity-w1`. W2 owns Android data/domain/preferences in isolated worktree `android-tmux-parity-w2`; their declared paths do not overlap.
 
@@ -36,3 +36,5 @@ Backend correction `8c6accd` now dispatches kills concurrently with explicit 12-
 W3 correction `8f125dd` recognizes canonical `claude_code`, re-establishes the UI stream only in the foreground, and clears callbacks plus tracker state on loss/teardown. The full 37+37 test/lint/release gate passed and fresh re-review returned PASS. W4 Android lifecycle UI is cleared to launch.
 
 W4 Android action UI is running in isolated worktree `android-tmux-parity-w4-ui` from accepted source `8076f23`. It is the final feature lane before release.
+
+W4 final source `fb457a4` passes 52/52 debug and 52/52 release tests, lint, and release assembly. Fresh review accepted acknowledged lifecycle actions after correcting durable-pane anchoring, persistence ordering, early-event correlation, focus timeout unlock, and teardown clearing. W5 release is active.
