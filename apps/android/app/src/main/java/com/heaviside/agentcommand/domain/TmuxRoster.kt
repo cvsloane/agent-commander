@@ -15,7 +15,7 @@ data class TmuxRoster(
     val panes: List<TmuxPane>
         get() = hosts.flatMap { host ->
             host.sessions.flatMap { session ->
-                session.windows.flatMap { window -> window.panes.map { it.pane } }
+                session.windows.flatMap { window -> window.panes.mapNotNull { it.pane } }
             }
         }
 
@@ -25,7 +25,7 @@ data class TmuxRoster(
             ?.asSequence()
             ?.flatMap { it.windows.asSequence() }
             ?.flatMap { it.panes.asSequence() }
-            ?.firstOrNull { it.pane.paneId == paneId }
+            ?.firstOrNull { it.paneId == paneId }
             ?.pane
 
     fun resolve(target: ValidatedTmuxTarget): TmuxPane? =
@@ -35,41 +35,52 @@ data class TmuxRoster(
 
     fun withTopology(event: TmuxTopologyEvent): TmuxRoster = copy(
         hosts = hosts.map { host ->
-            if (host.host.id != event.hostId) return@map host
+            if (host.host.id != event.hostId) {
+                return@map host
+            }
+            val durablePanes = host.sessions
+                .flatMap { it.windows }
+                .flatMap { it.panes }
+                .mapNotNull { it.pane }
+                .associateBy { it.paneId }
             host.copy(
-                sessions = host.sessions.map { session ->
-                    val liveSession = event.sessions.firstOrNull { it.name == session.name }
-                        ?: return@map session
-                    session.copy(
-                        attached = liveSession.attached,
-                        attachedClients = liveSession.attachedClients,
-                        windows = session.windows.map { window ->
-                            val liveWindow = liveSession.windows.firstOrNull { it.index == window.index }
-                                ?: return@map window
-                            window.copy(
-                                name = liveWindow.name,
-                                active = liveWindow.active,
-                                zoomed = liveWindow.zoomed,
-                                layout = liveWindow.layout,
-                                bell = liveWindow.bell,
-                                activity = liveWindow.activity,
-                                panes = window.panes.map { pane ->
-                                    val livePane = liveWindow.panes.firstOrNull {
-                                        it.paneId == pane.pane.paneId
-                                    } ?: return@map pane
-                                    pane.copy(
-                                        active = livePane.active,
-                                        width = livePane.width,
-                                        height = livePane.height,
-                                        liveTitle = livePane.title,
-                                        currentCommand = livePane.currentCommand,
-                                        currentPath = livePane.currentPath,
+                sessions = event.sessions
+                    .sortedWith(compareBy({ it.name.lowercase(Locale.ROOT) }, { it.name }))
+                    .map { liveSession ->
+                        TmuxSessionNode(
+                            name = liveSession.name,
+                            attached = liveSession.attached,
+                            attachedClients = liveSession.attachedClients,
+                            windows = liveSession.windows
+                                .sortedWith(compareBy({ it.index }, { it.name }))
+                                .map { liveWindow ->
+                                    TmuxWindowNode(
+                                        index = liveWindow.index,
+                                        name = liveWindow.name,
+                                        active = liveWindow.active,
+                                        zoomed = liveWindow.zoomed,
+                                        layout = liveWindow.layout,
+                                        bell = liveWindow.bell,
+                                        activity = liveWindow.activity,
+                                        panes = liveWindow.panes
+                                            .sortedWith(compareBy({ it.index }, { it.paneId }))
+                                            .map { livePane ->
+                                                TmuxPaneNode(
+                                                    paneId = livePane.paneId,
+                                                    paneIndex = livePane.index,
+                                                    pane = durablePanes[livePane.paneId],
+                                                    active = livePane.active,
+                                                    width = livePane.width,
+                                                    height = livePane.height,
+                                                    liveTitle = livePane.title,
+                                                    currentCommand = livePane.currentCommand,
+                                                    currentPath = livePane.currentPath,
+                                                )
+                                            },
                                     )
                                 },
-                            )
-                        },
-                    )
-                },
+                        )
+                    },
             )
         },
     )
@@ -92,11 +103,13 @@ data class TmuxRoster(
                         val panes = window.panes.filter { paneNode ->
                             val pane = paneNode.pane
                             val providerMatches =
-                                providers.isEmpty() || pane.provider.lowercase(Locale.ROOT) in providers
+                                providers.isEmpty() ||
+                                    pane?.provider?.lowercase(Locale.ROOT) in providers
                             val statusMatches =
-                                statuses.isEmpty() || pane.status.lowercase(Locale.ROOT) in statuses
+                                statuses.isEmpty() ||
+                                    pane?.status?.lowercase(Locale.ROOT) in statuses
                             providerMatches && statusMatches &&
-                                matchesTerms(terms, hostNode.host, session, window, pane)
+                                matchesTerms(terms, hostNode.host, session, window, paneNode)
                         }
                         window.copy(panes = panes).takeIf { panes.isNotEmpty() }
                     }
@@ -145,7 +158,13 @@ data class TmuxRoster(
                                         .windowName,
                                     panes = windowPanes
                                         .sortedWith(compareBy<TmuxPane>({ it.paneIndex }, { it.paneId }))
-                                        .map(::TmuxPaneNode),
+                                        .map {
+                                            TmuxPaneNode(
+                                                paneId = it.paneId,
+                                                paneIndex = it.paneIndex,
+                                                pane = it,
+                                            )
+                                        },
                                 )
                             },
                     )
@@ -156,28 +175,33 @@ data class TmuxRoster(
             host: Host,
             session: TmuxSessionNode,
             window: TmuxWindowNode,
-            pane: TmuxPane,
+            paneNode: TmuxPaneNode,
         ): Boolean {
             if (terms.isEmpty()) return true
+            val pane = paneNode.pane
             val searchable = listOfNotNull(
                 host.name,
                 host.id,
                 session.name,
                 window.name,
                 window.index.toString(),
-                pane.sessionId,
-                pane.title,
-                pane.status,
-                pane.provider,
-                pane.paneId,
-                pane.target,
-                pane.cwd,
-                pane.repoRoot,
-                pane.gitBranch,
-                pane.attentionReason,
-                pane.statusDetail,
-                pane.currentCommand,
-                pane.latestSnapshot?.captureText,
+                paneNode.paneId,
+                paneNode.paneIndex.toString(),
+                paneNode.liveTitle,
+                paneNode.currentCommand,
+                paneNode.currentPath,
+                pane?.sessionId,
+                pane?.title,
+                pane?.status,
+                pane?.provider,
+                pane?.target,
+                pane?.cwd,
+                pane?.repoRoot,
+                pane?.gitBranch,
+                pane?.attentionReason,
+                pane?.statusDetail,
+                pane?.currentCommand,
+                pane?.latestSnapshot?.captureText,
             ).joinToString("\n").lowercase(Locale.ROOT)
             return terms.all(searchable::contains)
         }
@@ -216,11 +240,16 @@ data class TmuxWindowNode(
 )
 
 data class TmuxPaneNode(
-    val pane: TmuxPane,
+    val paneId: String,
+    val paneIndex: Int,
+    val pane: TmuxPane? = null,
     val active: Boolean? = null,
     val width: Int? = null,
     val height: Int? = null,
     val liveTitle: String? = null,
     val currentCommand: String? = null,
     val currentPath: String? = null,
-)
+) {
+    val attachable: Boolean
+        get() = pane != null
+}

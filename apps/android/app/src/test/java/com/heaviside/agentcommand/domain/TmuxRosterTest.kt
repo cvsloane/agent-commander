@@ -12,6 +12,8 @@ import com.heaviside.agentcommand.data.TmuxTopologyPane
 import com.heaviside.agentcommand.data.TmuxTopologySession
 import com.heaviside.agentcommand.data.TmuxTopologyWindow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -37,7 +39,7 @@ class TmuxRosterTest {
         assertEquals(listOf(1), roster.hosts.first().sessions.first().windows.map { it.index })
         assertEquals(
             listOf("%20", "%21"),
-            roster.hosts.first().sessions.first().windows.first().panes.map { it.pane.paneId },
+            roster.hosts.first().sessions.first().windows.first().panes.map { it.paneId },
         )
         assertEquals("session-1", roster.findPane("host-a", "%20")?.sessionId)
     }
@@ -141,8 +143,90 @@ class TmuxRosterTest {
         assertTrue(window.active == true && window.zoomed == true && window.bell == true)
         assertEquals(2, enriched.hosts.single().sessions.single().attachedClients)
         assertEquals(true, window.panes.single().active)
-        assertEquals("WAITING_FOR_INPUT", window.panes.single().pane.status)
-        assertEquals("Keep this preview", window.panes.single().pane.latestSnapshot?.captureText)
+        assertEquals("WAITING_FOR_INPUT", window.panes.single().pane?.status)
+        assertEquals("Keep this preview", window.panes.single().pane?.latestSnapshot?.captureText)
+    }
+
+    @Test
+    fun `live topology authoritatively adds and removes membership while live-only panes remain searchable`() {
+        val durable = pane("session-1", "host-a", "Alpha", "vault", "code", 1, 0, "%20")
+            .copy(
+                status = "WAITING_FOR_INPUT",
+                latestSnapshot = TmuxSnapshot("2026-07-23T12:00:00Z", "Durable preview", "hash"),
+            )
+        val roster = TmuxRoster.from(
+            Topology(
+                hosts = listOf(Host("host-a", "Alpha"), Host("host-b", "Beta")),
+                panes = listOf(
+                    durable,
+                    pane("session-stale", "host-a", "Alpha", "old", "stale", 9, 0, "%21"),
+                    pane("session-b", "host-b", "Beta", "agents", "shell", 0, 0, "%30"),
+                ),
+            ),
+        )
+
+        val reconciled = roster.withTopology(
+            TmuxTopologyEvent(
+                timestamp = "2026-07-23T12:01:00Z",
+                hostId = "host-a",
+                reason = "hook:window-layout-changed",
+                sessions = listOf(
+                    TmuxTopologySession(
+                        name = "vault",
+                        attached = true,
+                        attachedClients = 1,
+                        windows = listOf(
+                            TmuxTopologyWindow(
+                                index = 1,
+                                name = "code",
+                                active = true,
+                                zoomed = false,
+                                layout = "split-layout",
+                                bell = false,
+                                activity = true,
+                                panes = listOf(
+                                    topologyPane("%20", 0, "Durable live", "claude", "/repo"),
+                                    topologyPane("%22", 1, "Fresh split", "bash", "/repo"),
+                                ),
+                            ),
+                            TmuxTopologyWindow(
+                                index = 2,
+                                name = "scratch",
+                                active = false,
+                                zoomed = false,
+                                layout = "single-layout",
+                                bell = false,
+                                activity = false,
+                                panes = listOf(
+                                    topologyPane("%99", 0, "Live scratch", "htop", "/tmp/live-only"),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(listOf("Alpha", "Beta"), reconciled.hosts.map { it.host.name })
+        val alpha = reconciled.hosts.first()
+        assertEquals(listOf(1, 2), alpha.sessions.single().windows.map { it.index })
+        assertEquals(
+            listOf("%20", "%22", "%99"),
+            alpha.sessions.single().windows.flatMap { it.panes }.map { it.paneId },
+        )
+        assertFalse(alpha.sessions.single().windows.flatMap { it.panes }.any { it.paneId == "%21" })
+        val matched = alpha.sessions.single().windows.first().panes.first()
+        assertTrue(matched.attachable)
+        assertEquals("WAITING_FOR_INPUT", matched.pane?.status)
+        assertEquals("Durable preview", matched.pane?.latestSnapshot?.captureText)
+        val liveOnly = alpha.sessions.single().windows.last().panes.single()
+        assertFalse(liveOnly.attachable)
+        assertNull(liveOnly.pane)
+        assertEquals("%30", reconciled.hosts.last().sessions.single().windows.single().panes.single().paneId)
+
+        val searchResult = reconciled.filtered(RosterFilter(query = "live scratch htop live-only"))
+        val searchedNodes = searchResult.hosts.single().sessions.single().windows.single().panes
+        assertEquals(listOf("%99"), searchedNodes.map { it.paneId })
     }
 
     private fun pane(
@@ -167,5 +251,22 @@ class TmuxRosterTest {
         windowName = windowName,
         windowIndex = windowIndex,
         paneIndex = paneIndex,
+    )
+
+    private fun topologyPane(
+        paneId: String,
+        paneIndex: Int,
+        title: String,
+        command: String,
+        path: String,
+    ) = TmuxTopologyPane(
+        paneId = paneId,
+        index = paneIndex,
+        active = paneIndex == 0,
+        width = 120,
+        height = 40,
+        title = title,
+        currentCommand = command,
+        currentPath = path,
     )
 }
