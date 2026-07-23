@@ -17,8 +17,10 @@ The plan and checklist are approved. W1 and W2 are ready to launch in isolated n
 | Workstream | State | Owner | Next gate |
 |---|---|---|---|
 | W0 baseline/contract | accepted | AI Lead | Complete |
-| W1 interaction authority/scroll | ready | Android Builder | Approved brief |
-| W2 topology/API/domain | ready | Android Builder | Approved brief |
+| W1 interaction authority/scroll | running | Android Builder | Frozen commit and focused gates |
+| W2 topology/API/domain | running | Android Builder | Frozen commit and focused gates |
 | W3 workbench UI | pending | Android Builder | W1/W2 accepted |
 | W4 window/pane lifecycle | pending | Android Builder | W2/W3 accepted |
 | W5 release | pending | AI Lead + critical Reviewer | W1-W4 accepted |
+
+W1 owns the Android activity/terminal interaction seam in isolated worktree `android-tmux-parity-w1`. W2 owns Android data/domain/preferences in isolated worktree `android-tmux-parity-w2`; their declared paths do not overlap.
