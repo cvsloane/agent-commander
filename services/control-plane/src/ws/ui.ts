@@ -22,7 +22,6 @@ export function registerUIWebSocket(app: FastifyInstance): void {
 
       app.log.info({ clientId }, 'UI client connected');
 
-      let hasSubscribed = false;
       let subscriptionQueue = Promise.resolve();
 
       socket.on('message', (data: Buffer) => {
@@ -49,10 +48,7 @@ export function registerUIWebSocket(app: FastifyInstance): void {
                     parseResult.data.payload.since
                   ));
                 }
-                if (!hasSubscribed) {
-                  messages.push(...await uiStreamResume.initialSnapshot(user.id, topics));
-                  hasSubscribed = true;
-                }
+                messages.push(...await uiStreamResume.initialSnapshot(user.id, topics));
                 for (const message of messages) {
                   socket.send(JSON.stringify(message));
                 }

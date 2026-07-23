@@ -89,14 +89,14 @@ describe('UI stream subscription readiness', () => {
     });
     expect(subscribed.payload.subscription_id).toBe(uuid);
 
-    expect(
-      ServerToUIMessageSchema.parse({
-        v: 1,
-        type: 'ui.subscribed',
-        ts: '2026-07-23T12:00:00.001Z',
-        payload: { subscription_id: uuid },
-      }).type
-    ).toBe('ui.subscribed');
+    const acknowledgement = ServerToUIMessageSchema.parse({
+      v: 1,
+      type: 'ui.subscribed',
+      ts: '2026-07-23T12:00:00.001Z',
+      payload: { subscription_id: uuid },
+    });
+    expect(acknowledgement.type).toBe('ui.subscribed');
+    expect(acknowledgement.payload.subscription_id).toBe(uuid);
   });
 });
 
