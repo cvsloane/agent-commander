@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const userId = '11111111-1111-4111-8111-111111111111';
 const sessionId = '22222222-2222-4222-8222-222222222222';
+const subscriptionId = '33333333-3333-4333-8333-333333333333';
 const now = '2026-07-19T16:00:00.000Z';
 
 function waitForMessages(socket: WebSocket, count: number): Promise<Record<string, unknown>[]> {
@@ -72,30 +73,50 @@ describe('UI WebSocket resume', () => {
     });
     await new Promise<void>((resolve) => socket.once('open', resolve));
 
-    const firstMessages = waitForMessages(socket, 2);
+    const firstMessages = waitForMessages(socket, 3);
     socket.send(
       JSON.stringify({
         v: 1,
         type: 'ui.subscribe',
         ts: now,
-        payload: { since: 41, topics: [{ type: 'events' }, { type: 'sessions' }] },
+        payload: {
+          subscription_id: subscriptionId,
+          since: 41,
+          topics: [{ type: 'events' }, { type: 'sessions' }],
+        },
       })
     );
-    expect((await firstMessages).map((message) => message.type)).toEqual([
+    const first = await firstMessages;
+    expect(first.map((message) => message.type)).toEqual([
       'events.appended',
       'sessions.changed',
+      'ui.subscribed',
     ]);
+    expect(first[2]).toMatchObject({
+      payload: { subscription_id: subscriptionId },
+    });
 
-    const keepaliveMessages = waitForMessages(socket, 1);
+    const keepaliveMessages = waitForMessages(socket, 2);
     socket.send(
       JSON.stringify({
         v: 1,
         type: 'ui.subscribe',
         ts: now,
-        payload: { since: 41, topics: [{ type: 'events' }, { type: 'sessions' }] },
+        payload: {
+          subscription_id: subscriptionId,
+          since: 41,
+          topics: [{ type: 'events' }, { type: 'sessions' }],
+        },
       })
     );
-    expect((await keepaliveMessages).map((message) => message.type)).toEqual(['events.appended']);
+    const keepalive = await keepaliveMessages;
+    expect(keepalive.map((message) => message.type)).toEqual([
+      'events.appended',
+      'ui.subscribed',
+    ]);
+    expect(keepalive[1]).toMatchObject({
+      payload: { subscription_id: subscriptionId },
+    });
     expect(replay).toHaveBeenCalledTimes(2);
     expect(replay).toHaveBeenCalledWith(userId, expect.any(Array), 41);
     expect(initialSnapshot).toHaveBeenCalledOnce();

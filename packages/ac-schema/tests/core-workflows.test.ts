@@ -76,6 +76,30 @@ describe('host presence schemas', () => {
   });
 });
 
+describe('UI stream subscription readiness', () => {
+  it('correlates an optional subscription request with a server acknowledgement', () => {
+    const subscribed = UISubscribeMessageSchema.parse({
+      v: 1,
+      type: 'ui.subscribe',
+      ts: '2026-07-23T12:00:00.000Z',
+      payload: {
+        subscription_id: uuid,
+        topics: [{ type: 'commands.result' }],
+      },
+    });
+    expect(subscribed.payload.subscription_id).toBe(uuid);
+
+    expect(
+      ServerToUIMessageSchema.parse({
+        v: 1,
+        type: 'ui.subscribed',
+        ts: '2026-07-23T12:00:00.001Z',
+        payload: { subscription_id: uuid },
+      }).type
+    ).toBe('ui.subscribed');
+  });
+});
+
 describe('memory schemas', () => {
   it('bounds memory search limits for operator queries', () => {
     const parsed = MemorySearchQuerySchema.parse({ q: 'approval policy', limit: '25' });

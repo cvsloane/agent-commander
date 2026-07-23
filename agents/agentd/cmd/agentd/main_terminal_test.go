@@ -211,6 +211,41 @@ func TestHandleTerminalViewerStateReportsCurrentViewerState(t *testing.T) {
 	}
 }
 
+func TestHandleTerminalStatusIncludesAuthorizedPane(t *testing.T) {
+	tmuxClient := newPrivateCommandTmux(t)
+	panes, err := tmuxClient.ListPanes()
+	if err != nil || len(panes) != 1 {
+		t.Fatalf("initial panes=%+v err=%v", panes, err)
+	}
+
+	manager := tmux.NewTerminalManager(tmuxClient, t.TempDir())
+	manager.SetPerViewerPTY(true)
+	defer manager.Close()
+	if _, err := manager.AttachWithOptions("status-channel", panes[0].PaneID, tmux.AttachOptions{SessionID: "session-1"}); err != nil {
+		t.Fatalf("attach viewer: %v", err)
+	}
+
+	var gotType string
+	var gotPayload any
+	agent := &Agent{
+		terminalManager: manager,
+		sendMessage: func(msgType string, payload any) error {
+			gotType = msgType
+			gotPayload = payload
+			return nil
+		},
+	}
+	agent.handleTerminalStatus("status-channel", "control", "Control granted")
+
+	status, ok := gotPayload.(protocol.TerminalStatusPayload)
+	if gotType != protocol.TypeTerminalControl || !ok {
+		t.Fatalf("message=(%q, %#v), want terminal control status", gotType, gotPayload)
+	}
+	if status.PaneID != panes[0].PaneID {
+		t.Fatalf("terminal status pane=%q, want %q", status.PaneID, panes[0].PaneID)
+	}
+}
+
 func boolPointer(value bool) *bool {
 	return &value
 }

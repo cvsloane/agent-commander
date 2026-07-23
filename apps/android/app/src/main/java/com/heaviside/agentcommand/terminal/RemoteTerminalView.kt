@@ -43,6 +43,7 @@ class RemoteTerminalView @JvmOverloads constructor(
     private var topRow = 0
     private var scrollRemainder = 0f
     private var controlModifier = false
+    private var remoteScrollEnabled = false
 
     private val output = object : TerminalOutput() {
         override fun write(data: ByteArray, offset: Int, count: Int) {
@@ -76,7 +77,9 @@ class RemoteTerminalView @JvmOverloads constructor(
             if (!text.isNullOrEmpty()) copyToClipboard(text)
         }
 
-        override fun onPasteTextFromClipboard(session: TerminalSession?) = pasteClipboard()
+        override fun onPasteTextFromClipboard(session: TerminalSession?) {
+            pasteClipboard()
+        }
         override fun onBell(session: TerminalSession?) = output.onBell()
         override fun onColorsChanged(session: TerminalSession?) = postInvalidateOnAnimation()
         override fun onTerminalCursorStateChange(state: Boolean) = postInvalidateOnAnimation()
@@ -137,7 +140,17 @@ class RemoteTerminalView @JvmOverloads constructor(
                 val rowDelta = (scrollRemainder / renderer.fontLineSpacing).toInt()
                 if (rowDelta != 0) {
                     scrollRemainder -= rowDelta * renderer.fontLineSpacing
-                    onScrollRows(rowDelta)
+                    when (
+                        resolveTerminalScrollRoute(
+                            alternateScreen = emulator.isAlternateBufferActive,
+                            mouseTracking = emulator.isMouseTrackingActive,
+                            hasControl = remoteScrollEnabled,
+                        )
+                    ) {
+                        TerminalScrollRoute.LOCAL_HISTORY -> scrollLocalHistory(rowDelta)
+                        TerminalScrollRoute.REMOTE_NAVIGATION -> onScrollRows(rowDelta)
+                        TerminalScrollRoute.BLOCKED -> Unit
+                    }
                 }
                 return true
             }
@@ -152,6 +165,7 @@ class RemoteTerminalView @JvmOverloads constructor(
 
     val columns: Int get() = emulator.mColumns
     val rows: Int get() = emulator.mRows
+    val currentTextSizeSp: Int get() = textSizeSp
 
     fun append(data: ByteArray) {
         val wasAtTail = topRow == 0
@@ -174,6 +188,10 @@ class RemoteTerminalView @JvmOverloads constructor(
         requestKeyboard()
     }
 
+    fun setRemoteScrollEnabled(enabled: Boolean) {
+        remoteScrollEnabled = enabled
+    }
+
     fun setTextSizeSp(size: Int) {
         val normalized = size.coerceIn(MIN_TEXT_SIZE_SP, MAX_TEXT_SIZE_SP)
         if (normalized == textSizeSp) return
@@ -187,10 +205,12 @@ class RemoteTerminalView @JvmOverloads constructor(
     fun increaseTextSize() = setTextSizeSp(textSizeSp + 1)
     fun decreaseTextSize() = setTextSizeSp(textSizeSp - 1)
 
-    fun pasteClipboard() {
+    fun pasteClipboard(): Boolean {
         val clipboard = context.getSystemService(ClipboardManager::class.java)
         val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString()
-        if (!text.isNullOrEmpty()) emulator.paste(text)
+        if (text.isNullOrEmpty()) return false
+        emulator.paste(text)
+        return true
     }
 
     fun copyVisibleText(): String {
@@ -203,6 +223,24 @@ class RemoteTerminalView @JvmOverloads constructor(
     fun sendEscape() = sendText("\u001b")
     fun sendTab() = sendText("\t")
 
+    fun sendKey(key: TerminalKey) {
+        sendText(TerminalKeyEncoder.encode(key, emulator.isCursorKeysApplicationMode))
+    }
+
+    fun sendTmuxPrefix(configured: String) {
+        sendText(TerminalKeyEncoder.tmuxPrefix(configured))
+    }
+
+    fun toggleKeyboard() {
+        val keyboard = context.getSystemService(InputMethodManager::class.java)
+        if (hasFocus() && keyboard.isActive(this)) {
+            keyboard.hideSoftInputFromWindow(windowToken, 0)
+            clearFocus()
+        } else {
+            requestKeyboard()
+        }
+    }
+
     override fun onCheckIsTextEditor(): Boolean = true
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
@@ -213,15 +251,18 @@ class RemoteTerminalView @JvmOverloads constructor(
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        TerminalKeyEncoder.physicalKey(keyCode, event.isShiftPressed)?.let { key ->
+            sendKey(key)
+            return true
+        }
         when (keyCode) {
-            KeyEvent.KEYCODE_ENTER -> sendText("\r")
+            KeyEvent.KEYCODE_ENTER -> sendKey(TerminalKey.ENTER)
             KeyEvent.KEYCODE_DEL -> sendText("\u007f")
-            KeyEvent.KEYCODE_TAB -> sendText("\t")
-            KeyEvent.KEYCODE_ESCAPE -> sendText("\u001b")
-            KeyEvent.KEYCODE_DPAD_UP -> sendText(if (emulator.isCursorKeysApplicationMode) "\u001bOA" else "\u001b[A")
-            KeyEvent.KEYCODE_DPAD_DOWN -> sendText(if (emulator.isCursorKeysApplicationMode) "\u001bOB" else "\u001b[B")
-            KeyEvent.KEYCODE_DPAD_RIGHT -> sendText(if (emulator.isCursorKeysApplicationMode) "\u001bOC" else "\u001b[C")
-            KeyEvent.KEYCODE_DPAD_LEFT -> sendText(if (emulator.isCursorKeysApplicationMode) "\u001bOD" else "\u001b[D")
+            KeyEvent.KEYCODE_ESCAPE -> sendKey(TerminalKey.ESCAPE)
+            KeyEvent.KEYCODE_DPAD_UP -> sendKey(TerminalKey.UP)
+            KeyEvent.KEYCODE_DPAD_DOWN -> sendKey(TerminalKey.DOWN)
+            KeyEvent.KEYCODE_DPAD_RIGHT -> sendKey(TerminalKey.RIGHT)
+            KeyEvent.KEYCODE_DPAD_LEFT -> sendKey(TerminalKey.LEFT)
             else -> {
                 val codePoint = event.unicodeChar
                 if (codePoint == 0) return super.onKeyDown(keyCode, event)
@@ -266,6 +307,11 @@ class RemoteTerminalView @JvmOverloads constructor(
         onResize(newColumns, newRows)
     }
 
+    private fun scrollLocalHistory(rowsDown: Int) {
+        topRow = (topRow + rowsDown).coerceIn(-emulator.screen.activeTranscriptRows, 0)
+        postInvalidateOnAnimation()
+    }
+
     private fun requestKeyboard() {
         requestFocus()
         context.getSystemService(InputMethodManager::class.java).showSoftInput(this, 0)
@@ -285,17 +331,9 @@ class RemoteTerminalView @JvmOverloads constructor(
         onInput(outgoing)
     }
 
-    private fun controlCode(codePoint: Int): Char? = when (codePoint) {
-        in 'a'.code..'z'.code -> (codePoint - 'a'.code + 1).toChar()
-        in 'A'.code..'Z'.code -> (codePoint - 'A'.code + 1).toChar()
-        ' '.code, '2'.code -> 0.toChar()
-        '['.code -> 27.toChar()
-        '\\'.code -> 28.toChar()
-        ']'.code -> 29.toChar()
-        '^'.code -> 30.toChar()
-        '_'.code -> 31.toChar()
-        else -> null
-    }
+    private fun controlCode(codePoint: Int): Char? =
+        if (codePoint == ' '.code || codePoint == '2'.code) 0.toChar()
+        else TerminalKeyEncoder.controlCode(codePoint)
 
     private fun copyToClipboard(text: String) {
         context.getSystemService(ClipboardManager::class.java)

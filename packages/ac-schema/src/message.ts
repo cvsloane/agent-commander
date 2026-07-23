@@ -135,6 +135,7 @@ export const TerminalStatusMessageSchema = ServerMessageEnvelopeSchema.extend({
   ]),
   payload: z.object({
     channel_id: z.string().uuid(),
+    pane_id: z.string().min(1).optional(),
     message: z.string().optional(),
     readonly: z.boolean().optional(),
     resumed: z.boolean().optional(),
@@ -485,6 +486,7 @@ export type UISubscriptionTopic = z.infer<typeof UISubscriptionTopicSchema>;
 export const UISubscribeMessageSchema = MessageEnvelopeBaseSchema.extend({
   type: z.literal('ui.subscribe'),
   payload: z.object({
+    subscription_id: z.string().uuid().optional(),
     topics: z.array(
       z.object({
         type: UISubscriptionTopicSchema,
@@ -500,6 +502,16 @@ export const UISubscribeMessageSchema = MessageEnvelopeBaseSchema.extend({
   }),
 });
 export type UISubscribeMessage = z.infer<typeof UISubscribeMessageSchema>;
+
+// Subscription acknowledgement. Sent only when the client supplies a
+// subscription_id, after its requested topics and initial snapshot are ready.
+export const UISubscribedMessageSchema = ServerToUIEnvelopeSchema.extend({
+  type: z.literal('ui.subscribed'),
+  payload: z.object({
+    subscription_id: z.string().uuid(),
+  }),
+});
+export type UISubscribedMessage = z.infer<typeof UISubscribedMessageSchema>;
 
 // Sessions changed
 export const SessionsChangedMessageSchema = ServerToUIEnvelopeSchema.extend({
@@ -695,6 +707,7 @@ export type UIAttentionChangedMessage = z.infer<typeof UIAttentionChangedMessage
 
 // Union of all UI messages from server
 export const ServerToUIMessageSchema = z.discriminatedUnion('type', [
+  UISubscribedMessageSchema,
   UITmuxTopologyMessageSchema,
   UICommandResultMessageSchema,
   SessionsChangedMessageSchema,

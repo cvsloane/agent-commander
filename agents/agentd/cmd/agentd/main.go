@@ -5483,6 +5483,7 @@ func (a *Agent) handleTerminalAttach(payload json.RawMessage) {
 	resumed := result.Resumed
 	a.send(protocol.TypeTerminalAttached, protocol.TerminalStatusPayload{
 		ChannelID:   req.ChannelID,
+		PaneID:      req.PaneID,
 		ReadOnly:    &readOnly,
 		ResumeToken: result.ResumeToken,
 		Resumed:     &resumed,
@@ -5647,7 +5648,8 @@ func (a *Agent) handleTerminalOutput(channelID, encodedData string) {
 
 func (a *Agent) handleTerminalStatus(channelID, status, message string) {
 	msgType := "terminal." + status
-	a.send(msgType, protocol.TerminalStatusPayload{ChannelID: channelID, Message: message})
+	paneID, _ := a.terminalManager.PaneForChannel(channelID)
+	a.send(msgType, protocol.TerminalStatusPayload{ChannelID: channelID, PaneID: paneID, Message: message})
 }
 
 func (a *Agent) handleTerminalAudit(event tmux.TerminalAuditEvent) {

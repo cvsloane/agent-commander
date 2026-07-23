@@ -284,6 +284,12 @@ func (b *viewerPTYBridge) Size() TerminalSize {
 	return b.size
 }
 
+func (b *viewerPTYBridge) setPaneID(paneID string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.paneID = paneID
+}
+
 func (b *viewerPTYBridge) SelectWindow(windowIndex int) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()

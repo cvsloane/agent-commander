@@ -252,6 +252,91 @@ func TestTerminalFocusPaneSelectsAndZoomsVerifiedTargetOnPrivateTmuxSocket(t *te
 	}
 }
 
+func TestTerminalFocusPaneMovesChannelAuthorityToVerifiedTarget(t *testing.T) {
+	client, _ := newPrivateTmuxClient(t)
+	panes, err := client.ListPanes()
+	if err != nil || len(panes) != 1 {
+		t.Fatalf("initial private panes=%+v err=%v", panes, err)
+	}
+	originPaneID := panes[0].PaneID
+	target, err := client.SplitPaneWithOptions(originPaneID, "horizontal", nil, "")
+	if err != nil {
+		t.Fatalf("split private pane: %v", err)
+	}
+
+	manager := newTerminalManagerWithRunner(client, newExecTmuxRunner(client), t.TempDir())
+	defer manager.Close()
+	if _, err := manager.AttachWithOptions("focus-authority", originPaneID, AttachOptions{SessionID: "session-1"}); err != nil {
+		t.Fatalf("attach viewer: %v", err)
+	}
+
+	if _, err := manager.FocusPane("focus-authority", target.PaneID, false); err != nil {
+		t.Fatalf("focus viewer pane: %v", err)
+	}
+
+	manager.mu.RLock()
+	mappedPaneID := manager.channelToPane["focus-authority"]
+	viewerPaneID := manager.viewerByChannel["focus-authority"].paneID
+	originController := manager.paneController[originPaneID]
+	targetController := manager.paneController[target.PaneID]
+	manager.mu.RUnlock()
+	if mappedPaneID != target.PaneID || viewerPaneID != target.PaneID {
+		t.Fatalf("focused channel authority points to channel=%q viewer=%q, want %q", mappedPaneID, viewerPaneID, target.PaneID)
+	}
+	if originController != "" || targetController != "focus-authority" {
+		t.Fatalf("controllers after focus: origin=%q target=%q", originController, targetController)
+	}
+}
+
+func TestTerminalFocusPaneCannotBypassTargetControllerAndTakeControlTargetsFocusedPane(t *testing.T) {
+	client, _ := newPrivateTmuxClient(t)
+	panes, err := client.ListPanes()
+	if err != nil || len(panes) != 1 {
+		t.Fatalf("initial private panes=%+v err=%v", panes, err)
+	}
+	originPaneID := panes[0].PaneID
+	target, err := client.SplitPaneWithOptions(originPaneID, "horizontal", nil, "")
+	if err != nil {
+		t.Fatalf("split private pane: %v", err)
+	}
+
+	manager := newTerminalManagerWithRunner(client, newExecTmuxRunner(client), t.TempDir())
+	defer manager.Close()
+	if _, err := manager.AttachWithOptions("origin-controller", originPaneID, AttachOptions{SessionID: "session-1"}); err != nil {
+		t.Fatalf("attach origin controller: %v", err)
+	}
+	if _, err := manager.AttachWithOptions("target-controller", target.PaneID, AttachOptions{SessionID: "session-1"}); err != nil {
+		t.Fatalf("attach target controller: %v", err)
+	}
+
+	if _, err := manager.FocusPane("origin-controller", target.PaneID, false); err != nil {
+		t.Fatalf("focus viewer pane: %v", err)
+	}
+	if err := manager.SendInput("origin-controller", "blocked"); !errors.Is(err, ErrReadOnly) {
+		t.Fatalf("focused viewer input error=%v, want ErrReadOnly", err)
+	}
+
+	if err := manager.TakeControl("origin-controller"); err != nil {
+		t.Fatalf("take control after focus: %v", err)
+	}
+	manager.mu.RLock()
+	targetController := manager.paneController[target.PaneID]
+	originReadOnly := manager.channelReadOnly["origin-controller"]
+	targetReadOnly := manager.channelReadOnly["target-controller"]
+	manager.mu.RUnlock()
+	if targetController != "origin-controller" || originReadOnly || !targetReadOnly {
+		t.Fatalf(
+			"target control after transfer: controller=%q origin_readonly=%t target_readonly=%t",
+			targetController,
+			originReadOnly,
+			targetReadOnly,
+		)
+	}
+	if err := manager.SendInput("target-controller", "blocked"); !errors.Is(err, ErrReadOnly) {
+		t.Fatalf("former target controller input error=%v, want ErrReadOnly", err)
+	}
+}
+
 type failFirstZoomRunner struct {
 	TmuxRunner
 	failed bool
@@ -293,6 +378,19 @@ func TestTerminalFocusPaneRollsBackWhenZoomFails(t *testing.T) {
 	}
 	if state.PaneID != originPaneID || state.Zoomed {
 		t.Fatalf("viewer state after failed focus=%+v, want pane=%s unzoomed", state, originPaneID)
+	}
+	manager.mu.RLock()
+	mappedPaneID := manager.channelToPane["focus-rollback"]
+	viewerPaneID := manager.viewerByChannel["focus-rollback"].paneID
+	controller := manager.paneController[originPaneID]
+	manager.mu.RUnlock()
+	if mappedPaneID != originPaneID || viewerPaneID != originPaneID || controller != "focus-rollback" {
+		t.Fatalf(
+			"authority after failed focus: channel=%q viewer=%q controller=%q",
+			mappedPaneID,
+			viewerPaneID,
+			controller,
+		)
 	}
 }
 

@@ -125,3 +125,11 @@
 - Date: 2026-07-22
   Correction: The native Android client could authenticate, attach, focus, and render a real tmux pane, but its swipe gesture only moved the Termux emulator's empty local alternate-screen transcript and never invoked the existing remote tmux scroll operation; Samsung input behavior was therefore not yet a proven daily-use path.
   Rule: Native-terminal acceptance must separately prove rendering, remote tmux scrollback, and committed Samsung keyboard input on the physical device. For existing tmux panes, bind swipe rows to the canonical `terminal.navigate` scroll protocol rather than treating a renderer-local transcript as server history.
+
+- Date: 2026-07-23
+  Correction: Physical Samsung scrolling passed after v0.1.2, but that single repaired gesture does not make the APK equivalent to Agent Command's existing tmux workbench.
+  Rule: Treat Android completion as capability parity for the existing-session tmux workflow: authoritative multi-host navigation, separate viewer/control state, local and remote history, practical keys, pane/window lifecycle, Claude reading, and reconnect. Preserve general agent launch as a web-owned workflow and reserve one final owner device test until all planned native capability slices are complete.
+
+- Date: 2026-07-23
+  Correction: Awaiting each bulk termination serially with the router's 30-second default could outlive the dashboard's 15-second and Android's 30-second request deadlines, making correlated completion truth unobservable.
+  Rule: Fit server-side acknowledgement waits inside the shortest supported client deadline. Dispatch independent bulk commands concurrently with an explicit bounded timeout, then reduce settled outcomes in request order and apply one final state mutation without retries.
