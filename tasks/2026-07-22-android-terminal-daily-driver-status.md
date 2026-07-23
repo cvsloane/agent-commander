@@ -15,7 +15,7 @@
 |---|---|---|---|---|---|---|
 | W1 — Shared terminal repair | AI Lead/integrator plus Human Owner | deployed | PR #107 merge `12889bf`; Coolify `z4ig8vlvpgvcncvzhiahnl2d`; identical agentd on both hosts | Full CI, fresh review, exact-source containers, one process per host, and public health `ok` with two agents | Live laptop interaction | Chris verifies connect/focus/switch responsiveness on the real laptop path |
 | W2 — Android vertical slice | Android Builder plus fresh Reviewer | release ready | Source `4bc94e9`; signed artifact `06e540a` | Exact request regression, Android test/lint/release build, production bodyless ticket 201, fresh review PASS, v2/v3 signer continuity, DEX request inspection | Merge/deploy and Samsung pane-attach re-test | Ship the reviewed APK without adding retries or transport fallbacks |
-| W3 — Integration and rollout | AI Lead plus fresh Reviewer | active | Production PR #109 merge `87d7173`; Android repair integrated through `06e540a` | Existing authenticated APK route and exact-source distribution proof remain valid | Android-only release gate, CI/deploy, physical Samsung use | Ship the reviewed Android correction independently; keep the unproven web renderer change out |
+| W3 — Integration and rollout | AI Lead plus fresh Reviewer | active | Current production baseline is PR #109 merge `87d7173`; PR #110 candidate includes the Android repair through `06e540a` | Existing authenticated APK route and exact-source distribution proof remain valid | PR #110 merge/deploy and physical Samsung use | Ship the reviewed Android correction independently; keep the unproven web renderer change out |
 
 ## Open Gates
 
