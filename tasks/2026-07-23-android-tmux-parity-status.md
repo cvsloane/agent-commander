@@ -19,8 +19,8 @@ The plan and checklist are approved. W1 and W2 are ready to launch in isolated n
 | W0 baseline/contract | accepted | AI Lead | Complete |
 | W1 interaction authority/scroll | accepted | Android Builder + fresh Reviewer | Complete |
 | W2 topology/API/domain | accepted after correction | Android Builder + fresh Reviewer | Complete |
-| W3 workbench UI | correction running | Android Builder | Claude reachability and UI-stream lifecycle re-review |
-| W4 window/pane lifecycle | backend prerequisite accepted; Android UI waits | Backend Builder + fresh Reviewer | W3 accepted |
+| W3 workbench UI | accepted after correction | Android Builder + fresh Reviewer | Complete |
+| W4 window/pane lifecycle | ready | Android Builder | Approved action brief and accepted backend |
 | W5 release | pending | AI Lead + critical Reviewer | W1-W4 accepted |
 
 W1 owns the Android activity/terminal interaction seam in isolated worktree `android-tmux-parity-w1`. W2 owns Android data/domain/preferences in isolated worktree `android-tmux-parity-w2`; their declared paths do not overlap.
@@ -32,3 +32,5 @@ W3 is running in isolated worktree `android-tmux-parity-w3` from accepted base `
 Read-only W4 contract review found one real backend gap: bulk terminate archived a pane before `kill_session` completed. A non-colliding backend lane is correcting that path with existing `dispatchAndWait`; Android W4 UI still waits for W3.
 
 Backend correction `8c6accd` now dispatches kills concurrently with explicit 12-second waits, preserves input-order results, and archives once after all outcomes; fresh critical review passed. W3 candidate `14e2677` passed 35+35 tests/lint/release assembly but review found Claude provider visibility and UI-stream lifecycle/pending-state defects; bounded correction is running.
+
+W3 correction `8f125dd` recognizes canonical `claude_code`, re-establishes the UI stream only in the foreground, and clears callbacks plus tracker state on loss/teardown. The full 37+37 test/lint/release gate passed and fresh re-review returned PASS. W4 Android lifecycle UI is cleared to launch.
