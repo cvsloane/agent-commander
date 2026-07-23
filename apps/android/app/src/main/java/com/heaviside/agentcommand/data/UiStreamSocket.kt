@@ -146,6 +146,7 @@ class UiStreamSocket(
     }
 
     override fun onMessage(webSocket: WebSocket, text: String) {
+        if (socket !== webSocket) return
         val event = runCatching { UiStreamEventParser.parse(text) }.getOrElse {
             listener.onFailure("Invalid Agent Command event")
             return
@@ -165,13 +166,15 @@ class UiStreamSocket(
     }
 
     override fun onFailure(webSocket: WebSocket, throwable: Throwable, response: Response?) {
-        if (socket === webSocket) socket = null
+        if (socket !== webSocket) return
+        socket = null
         subscriptionReady = false
         if (!intentionallyClosed) listener.onFailure(throwable.message ?: "Event connection failed")
     }
 
     override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-        if (socket === webSocket) socket = null
+        if (socket !== webSocket) return
+        socket = null
         subscriptionReady = false
         if (!intentionallyClosed) listener.onClosed()
     }

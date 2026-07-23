@@ -41,6 +41,7 @@ class UiStreamContractTest {
             },
         )
         val webSocket = RecordingWebSocket()
+        socket.setActiveSocket(webSocket)
         socket.onOpen(
             webSocket,
             Response.Builder()
@@ -91,6 +92,7 @@ class UiStreamContractTest {
             },
         )
         val first = RecordingWebSocket()
+        socket.setActiveSocket(first)
         socket.onOpen(first, switchingProtocols(first))
         val subscriptionId = JSONObject(first.sent.single())
             .getJSONObject("payload")
@@ -101,11 +103,13 @@ class UiStreamContractTest {
         socket.onClosed(first, 1006, "network changed")
 
         val second = RecordingWebSocket()
+        socket.setActiveSocket(second)
         socket.onOpen(second, switchingProtocols(second))
         socket.onMessage(second, acknowledgement)
         socket.onFailure(second, IllegalStateException("network lost"), null)
 
         val third = RecordingWebSocket()
+        socket.setActiveSocket(third)
         socket.onOpen(third, switchingProtocols(third))
         socket.onMessage(third, acknowledgement)
 
@@ -139,12 +143,68 @@ class UiStreamContractTest {
             },
         )
 
+        val webSocket = RecordingWebSocket()
+        socket.setActiveSocket(webSocket)
         socket.onMessage(
-            RecordingWebSocket(),
+            webSocket,
             JSONObject().put("v", 1).put("type", "future.event").toString(),
         )
 
         assertTrue(failures.isEmpty())
+    }
+
+    @Test
+    fun `callbacks from a replaced socket cannot affect the active connection`() {
+        var connected = 0
+        var closed = 0
+        val failures = mutableListOf<String>()
+        val events = mutableListOf<UiStreamEvent>()
+        val socket = UiStreamSocket(
+            client = OkHttpClient(),
+            url = "wss://agent-command.example.com/v1/ui/stream?ticket=one-time-ticket",
+            origin = "https://agent-command.example.com",
+            listener = object : UiStreamSocket.Listener {
+                override fun onConnected() {
+                    connected += 1
+                }
+
+                override fun onEvent(event: UiStreamEvent) {
+                    events += event
+                }
+
+                override fun onFailure(message: String) {
+                    failures += message
+                }
+
+                override fun onClosed() {
+                    closed += 1
+                }
+            },
+        )
+        val replaced = RecordingWebSocket()
+        val active = RecordingWebSocket()
+        socket.setActiveSocket(active)
+
+        socket.onOpen(active, switchingProtocols(active))
+
+        val subscriptionId = JSONObject(active.sent.single())
+            .getJSONObject("payload")
+            .getString("subscription_id")
+        val acknowledgement = subscribedAcknowledgement(subscriptionId)
+        socket.onMessage(replaced, acknowledgement)
+        assertEquals(0, connected)
+
+        socket.onMessage(active, acknowledgement)
+        socket.onMessage(replaced, sessionsChanged())
+        socket.onFailure(replaced, IllegalStateException("stale failure"), null)
+        socket.onClosed(replaced, 1006, "stale close")
+        socket.onMessage(active, acknowledgement)
+        socket.onMessage(active, sessionsChanged())
+
+        assertEquals(1, connected)
+        assertEquals(1, events.size)
+        assertTrue(failures.isEmpty())
+        assertEquals(0, closed)
     }
 
     @Test
@@ -319,4 +379,18 @@ class UiStreamContractTest {
         .put("ts", "2026-07-23T12:00:01Z")
         .put("payload", JSONObject().put("subscription_id", subscriptionId))
         .toString()
+
+    private fun sessionsChanged(): String = JSONObject()
+        .put("v", 1)
+        .put("type", "sessions.changed")
+        .put("ts", "2026-07-23T12:00:02Z")
+        .put("payload", JSONObject().put("sessions", JSONArray()))
+        .toString()
+
+    private fun UiStreamSocket.setActiveSocket(webSocket: WebSocket) {
+        UiStreamSocket::class.java.getDeclaredField("socket").apply {
+            isAccessible = true
+            set(this@setActiveSocket, webSocket)
+        }
+    }
 }
