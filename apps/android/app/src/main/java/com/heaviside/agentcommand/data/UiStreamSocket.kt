@@ -3,7 +3,6 @@
  */
 package com.heaviside.agentcommand.data
 
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
@@ -118,11 +117,11 @@ object UiStreamEventParser {
 }
 
 class UiStreamSocket(
-    private val client: OkHttpClient,
+    private val client: WebSocket.Factory,
     private val url: String,
     private val origin: String,
     private val listener: Listener,
-) : WebSocketListener() {
+) {
     interface Listener {
         fun onConnected()
         fun onEvent(event: UiStreamEvent)
@@ -130,60 +129,130 @@ class UiStreamSocket(
         fun onClosed()
     }
 
-    @Volatile private var socket: WebSocket? = null
-    @Volatile private var intentionallyClosed = false
+    private val stateLock = Any()
+    private var socket: WebSocket? = null
+    private var intentionallyClosed = false
     private val subscriptionId = UUID.randomUUID().toString()
-    @Volatile private var subscriptionReady = false
+    private var subscriptionReady = false
+    private var nextGeneration = 0L
+    private var activeGeneration: Long? = null
 
     fun connect() {
-        if (socket != null || intentionallyClosed) return
-        subscriptionReady = false
-        socket = client.newWebSocket(Request.Builder().url(url).header("Origin", origin).build(), this)
-    }
-
-    override fun onOpen(webSocket: WebSocket, response: Response) {
-        webSocket.send(buildSubscription(Instant.now().toString(), subscriptionId).toString())
-    }
-
-    override fun onMessage(webSocket: WebSocket, text: String) {
-        if (socket !== webSocket) return
-        val event = runCatching { UiStreamEventParser.parse(text) }.getOrElse {
-            listener.onFailure("Invalid Agent Command event")
-            return
+        val generation = synchronized(stateLock) {
+            if (activeGeneration != null || intentionallyClosed) return
+            subscriptionReady = false
+            nextGeneration += 1
+            activeGeneration = nextGeneration
+            nextGeneration
         }
-        when (event) {
-            is UiStreamSubscribedEvent -> {
-                if (event.subscriptionId != subscriptionId) {
-                    listener.onFailure("Agent Command acknowledged the wrong event subscription")
-                } else if (!subscriptionReady) {
-                    subscriptionReady = true
-                    listener.onConnected()
-                }
+        val createdSocket = try {
+            client.newWebSocket(
+                Request.Builder().url(url).header("Origin", origin).build(),
+                AttemptListener(generation),
+            )
+        } catch (failure: RuntimeException) {
+            synchronized(stateLock) {
+                if (activeGeneration == generation) activeGeneration = null
             }
-            null -> Unit
-            else -> listener.onEvent(event)
+            throw failure
         }
-    }
-
-    override fun onFailure(webSocket: WebSocket, throwable: Throwable, response: Response?) {
-        if (socket !== webSocket) return
-        socket = null
-        subscriptionReady = false
-        if (!intentionallyClosed) listener.onFailure(throwable.message ?: "Event connection failed")
-    }
-
-    override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-        if (socket !== webSocket) return
-        socket = null
-        subscriptionReady = false
-        if (!intentionallyClosed) listener.onClosed()
+        val discarded = synchronized(stateLock) {
+            if (activeGeneration == generation) {
+                socket = createdSocket
+                false
+            } else {
+                true
+            }
+        }
+        if (discarded) createdSocket.close(1000, "Android event stream attempt ended")
     }
 
     fun close() {
-        intentionallyClosed = true
-        subscriptionReady = false
-        socket?.close(1000, "Android event stream closed")
-        socket = null
+        val socketToClose = synchronized(stateLock) {
+            intentionallyClosed = true
+            activeGeneration = null
+            subscriptionReady = false
+            socket.also { socket = null }
+        }
+        socketToClose?.close(1000, "Android event stream closed")
+    }
+
+    private fun onOpen(generation: Long, webSocket: WebSocket) {
+        synchronized(stateLock) {
+            if (activeGeneration != generation) return
+            webSocket.send(buildSubscription(Instant.now().toString(), subscriptionId).toString())
+        }
+    }
+
+    private fun onMessage(generation: Long, text: String) {
+        synchronized(stateLock) {
+            if (activeGeneration != generation) return
+        }
+        val event = runCatching { UiStreamEventParser.parse(text) }.getOrElse {
+            synchronized(stateLock) {
+                if (activeGeneration == generation) {
+                    listener.onFailure("Invalid Agent Command event")
+                }
+            }
+            return
+        }
+        synchronized(stateLock) {
+            if (activeGeneration != generation) return
+            when (event) {
+                is UiStreamSubscribedEvent -> {
+                    if (event.subscriptionId != subscriptionId) {
+                        listener.onFailure("Agent Command acknowledged the wrong event subscription")
+                    } else if (!subscriptionReady) {
+                        subscriptionReady = true
+                        listener.onConnected()
+                    }
+                }
+                null -> Unit
+                else -> listener.onEvent(event)
+            }
+        }
+    }
+
+    private fun onFailure(generation: Long, throwable: Throwable) {
+        synchronized(stateLock) {
+            if (activeGeneration != generation) return
+            activeGeneration = null
+            socket = null
+            subscriptionReady = false
+            if (!intentionallyClosed) {
+                listener.onFailure(throwable.message ?: "Event connection failed")
+            }
+        }
+    }
+
+    private fun onClosed(generation: Long) {
+        synchronized(stateLock) {
+            if (activeGeneration != generation) return
+            activeGeneration = null
+            socket = null
+            subscriptionReady = false
+            if (!intentionallyClosed) listener.onClosed()
+        }
+    }
+
+    private inner class AttemptListener(
+        private val generation: Long,
+    ) : WebSocketListener() {
+        override fun onOpen(webSocket: WebSocket, response: Response) {
+            this@UiStreamSocket.onOpen(generation, webSocket)
+        }
+
+        override fun onMessage(webSocket: WebSocket, text: String) {
+            this@UiStreamSocket.onMessage(generation, text)
+        }
+
+        override fun onFailure(webSocket: WebSocket, throwable: Throwable, response: Response?) {
+            this@UiStreamSocket.onFailure(generation, throwable)
+        }
+
+        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            this@UiStreamSocket.onClosed(generation)
+        }
     }
 
     internal companion object {
