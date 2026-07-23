@@ -3,6 +3,7 @@
  */
 package com.heaviside.agentcommand.terminal
 
+import android.view.KeyEvent
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -31,5 +32,37 @@ class TerminalKeyEncoderTest {
         assertEquals("\u0001", TerminalKeyEncoder.tmuxPrefix("ctrl+a"))
         assertEquals("\u001b", TerminalKeyEncoder.tmuxPrefix("^["))
         assertEquals("custom", TerminalKeyEncoder.tmuxPrefix("custom"))
+    }
+
+    @Test
+    fun `physical shift tab resolves to the modifier-aware terminal key`() {
+        assertEquals(
+            TerminalKey.SHIFT_TAB,
+            TerminalKeyEncoder.physicalKey(KeyEvent.KEYCODE_TAB, shiftPressed = true),
+        )
+        assertEquals(
+            TerminalKey.TAB,
+            TerminalKeyEncoder.physicalKey(KeyEvent.KEYCODE_TAB, shiftPressed = false),
+        )
+    }
+
+    @Test
+    fun `physical paging and line boundary keys resolve to terminal keys`() {
+        assertEquals(
+            TerminalKey.PAGE_UP,
+            TerminalKeyEncoder.physicalKey(KeyEvent.KEYCODE_PAGE_UP, shiftPressed = false),
+        )
+        assertEquals(
+            TerminalKey.PAGE_DOWN,
+            TerminalKeyEncoder.physicalKey(KeyEvent.KEYCODE_PAGE_DOWN, shiftPressed = false),
+        )
+        assertEquals(
+            TerminalKey.HOME,
+            TerminalKeyEncoder.physicalKey(KeyEvent.KEYCODE_MOVE_HOME, shiftPressed = false),
+        )
+        assertEquals(
+            TerminalKey.END,
+            TerminalKeyEncoder.physicalKey(KeyEvent.KEYCODE_MOVE_END, shiftPressed = false),
+        )
     }
 }

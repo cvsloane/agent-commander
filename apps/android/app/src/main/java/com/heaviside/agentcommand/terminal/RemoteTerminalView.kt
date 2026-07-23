@@ -251,10 +251,13 @@ class RemoteTerminalView @JvmOverloads constructor(
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        TerminalKeyEncoder.physicalKey(keyCode, event.isShiftPressed)?.let { key ->
+            sendKey(key)
+            return true
+        }
         when (keyCode) {
             KeyEvent.KEYCODE_ENTER -> sendKey(TerminalKey.ENTER)
             KeyEvent.KEYCODE_DEL -> sendText("\u007f")
-            KeyEvent.KEYCODE_TAB -> sendKey(TerminalKey.TAB)
             KeyEvent.KEYCODE_ESCAPE -> sendKey(TerminalKey.ESCAPE)
             KeyEvent.KEYCODE_DPAD_UP -> sendKey(TerminalKey.UP)
             KeyEvent.KEYCODE_DPAD_DOWN -> sendKey(TerminalKey.DOWN)

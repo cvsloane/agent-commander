@@ -3,6 +3,8 @@
  */
 package com.heaviside.agentcommand.terminal
 
+import android.view.KeyEvent
+
 enum class TerminalKey {
     ESCAPE,
     TAB,
@@ -19,6 +21,15 @@ enum class TerminalKey {
 }
 
 object TerminalKeyEncoder {
+    fun physicalKey(keyCode: Int, shiftPressed: Boolean): TerminalKey? = when (keyCode) {
+        KeyEvent.KEYCODE_TAB -> if (shiftPressed) TerminalKey.SHIFT_TAB else TerminalKey.TAB
+        KeyEvent.KEYCODE_PAGE_UP -> TerminalKey.PAGE_UP
+        KeyEvent.KEYCODE_PAGE_DOWN -> TerminalKey.PAGE_DOWN
+        KeyEvent.KEYCODE_MOVE_HOME -> TerminalKey.HOME
+        KeyEvent.KEYCODE_MOVE_END -> TerminalKey.END
+        else -> null
+    }
+
     fun encode(key: TerminalKey, applicationCursorMode: Boolean = false): String = when (key) {
         TerminalKey.ESCAPE -> "\u001b"
         TerminalKey.TAB -> "\t"
