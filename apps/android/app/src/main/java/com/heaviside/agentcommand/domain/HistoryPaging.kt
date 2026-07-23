@@ -4,6 +4,7 @@
 package com.heaviside.agentcommand.domain
 
 import com.heaviside.agentcommand.data.ScrollbackCapture
+import com.heaviside.agentcommand.data.ScrollbackRequest
 import com.heaviside.agentcommand.data.TranscriptCapture
 import java.util.Locale
 
@@ -18,20 +19,8 @@ data class ScrollbackRange(
         }
     }
 
-    fun older(pageLines: Int = DEFAULT_PAGE_LINES): ScrollbackRange {
-        require(pageLines in 1..MAX_SCROLLBACK_LINES)
-        val olderEnd = startLine - 1
-        return ScrollbackRange(olderEnd - pageLines + 1, olderEnd)
-    }
-
     companion object {
-        const val DEFAULT_PAGE_LINES = 500
         const val MAX_SCROLLBACK_LINES = 5_000
-
-        fun initial(pageLines: Int = DEFAULT_PAGE_LINES): ScrollbackRange {
-            require(pageLines in 1..MAX_SCROLLBACK_LINES)
-            return ScrollbackRange(-pageLines, -1)
-        }
     }
 }
 
@@ -55,20 +44,17 @@ data class ScrollbackHistory(
     private val pages: List<ScrollbackPage> = emptyList(),
 ) {
     val lines: List<ScrollbackLine>
-        get() = pages
-            .flatMap(ScrollbackPage::numberedLines)
-            .associateBy { it.lineNumber }
-            .toSortedMap()
-            .values
-            .toList()
+        by lazy(LazyThreadSafetyMode.NONE) {
+            pages
+                .flatMap(ScrollbackPage::numberedLines)
+                .associateBy { it.lineNumber }
+                .toSortedMap()
+                .values
+                .toList()
+        }
 
     fun withPage(page: ScrollbackPage): ScrollbackHistory =
         ScrollbackHistory((pages.filterNot { it.range == page.range } + page).sortedBy { it.range.startLine })
-
-    fun withCapture(range: ScrollbackRange, capture: ScrollbackCapture): ScrollbackHistory {
-        require(capture.ok) { capture.error?.message ?: "Scrollback capture failed" }
-        return withPage(ScrollbackPage(range, capture.lines))
-    }
 
     fun filtered(query: String): List<ScrollbackLine> {
         val normalized = query.trim().lowercase(Locale.ROOT)
@@ -91,22 +77,52 @@ data class ScrollbackHistory(
     fun copyAll(): String = lines.joinToString("\n") { it.text }
 }
 
+data class ScrollbackSnapshotPageRequest(
+    val snapshotId: String,
+    val beforeLine: Int,
+    val pageSize: Int,
+)
+
 class ScrollbackReaderState(
-    private val pageLines: Int = ScrollbackRange.DEFAULT_PAGE_LINES,
+    private val pageLines: Int = ScrollbackRequest.DEFAULT_SNAPSHOT_PAGE_SIZE,
 ) {
     private var history = ScrollbackHistory()
-    private var oldestRange: ScrollbackRange? = null
+    private var snapshotId: String? = null
+    private var oldestLine: Int? = null
 
     var query: String = ""
-    var canLoadOlder: Boolean = true
+    var canLoadOlder: Boolean = false
         private set
 
-    val nextRange: ScrollbackRange?
-        get() = if (!canLoadOlder) {
-            null
+    var totalLines: Int? = null
+        private set
+
+    var sourceTotalLines: Int? = null
+        private set
+
+    var snapshotTruncated: Boolean = false
+        private set
+
+    init {
+        require(pageLines in 1..ScrollbackRange.MAX_SCROLLBACK_LINES)
+    }
+
+    val nextSnapshotPage: ScrollbackSnapshotPageRequest?
+        get() = if (canLoadOlder) {
+            ScrollbackSnapshotPageRequest(
+                snapshotId = requireNotNull(snapshotId),
+                beforeLine = requireNotNull(oldestLine),
+                pageSize = pageLines,
+            )
         } else {
-            oldestRange?.older(pageLines) ?: ScrollbackRange.initial(pageLines)
+            null
         }
+
+    val hasLoadedSnapshot: Boolean
+        get() = snapshotId != null
+
+    val copyAllLabel: String
+        get() = if (canLoadOlder) "Copy loaded" else "Copy all"
 
     val visibleLines: List<ScrollbackLine>
         get() = history.filtered(query)
@@ -114,35 +130,44 @@ class ScrollbackReaderState(
     val allLines: List<ScrollbackLine>
         get() = history.lines
 
-    fun accept(range: ScrollbackRange, capture: ScrollbackCapture) {
-        require(capture.ok) { capture.error?.message ?: "Scrollback capture failed" }
-        if (capture.lines.isEmpty()) {
-            canLoadOlder = false
-            return
+    fun acceptInitial(capture: ScrollbackCapture) {
+        val page = validatedPage(capture)
+        require(page.rangeEnd == page.totalLines) {
+            "History snapshot did not return its newest page. Refresh history."
         }
-        history = history.withCapture(range, capture)
-        if (oldestRange == null || range.startLine < requireNotNull(oldestRange).startLine) {
-            oldestRange = range
-        }
+        history = page.asHistory()
+        snapshotId = page.snapshotId
+        oldestLine = page.nextBefore ?: page.rangeStart
+        canLoadOlder = page.hasOlder
+        totalLines = page.totalLines
+        sourceTotalLines = page.sourceTotalLines
+        snapshotTruncated = page.snapshotTruncated
     }
 
-    fun acceptSnapshot(capture: ScrollbackCapture) {
-        require(capture.ok) { capture.error?.message ?: "Scrollback capture failed" }
-        require(capture.lines.size <= ScrollbackRange.MAX_SCROLLBACK_LINES) {
-            "Scrollback snapshot cannot exceed ${ScrollbackRange.MAX_SCROLLBACK_LINES} lines"
+    fun acceptOlder(request: ScrollbackSnapshotPageRequest, capture: ScrollbackCapture) {
+        require(request.snapshotId == snapshotId && request.beforeLine == oldestLine) {
+            "History snapshot cursor is stale. Refresh history."
         }
-        history = if (capture.lines.isEmpty()) {
-            ScrollbackHistory()
-        } else {
-            ScrollbackHistory().withPage(
-                ScrollbackPage(
-                    ScrollbackRange(-capture.lines.size, -1),
-                    capture.lines,
-                ),
-            )
+        val page = validatedPage(capture)
+        require(page.snapshotId == request.snapshotId) {
+            "History snapshot expired or changed. Refresh history."
         }
-        oldestRange = null
-        canLoadOlder = false
+        require(page.rangeEnd == request.beforeLine) {
+            "History snapshot page is not contiguous. Refresh history."
+        }
+        require(
+            page.totalLines == totalLines &&
+                page.sourceTotalLines == sourceTotalLines &&
+                page.snapshotTruncated == snapshotTruncated
+        ) {
+            "History snapshot metadata changed. Refresh history."
+        }
+        require(page.lines.isNotEmpty()) {
+            "History snapshot returned an empty continuation page. Refresh history."
+        }
+        history = history.withPage(page.asScrollbackPage())
+        oldestLine = page.nextBefore ?: page.rangeStart
+        canLoadOlder = page.hasOlder
     }
 
     fun copyRange(firstLine: Int, lastLine: Int): String = history.copyRange(firstLine, lastLine)
@@ -150,6 +175,83 @@ class ScrollbackReaderState(
     fun copyLast(count: Int): String = history.copyLast(count)
 
     fun copyAll(): String = history.copyAll()
+
+    private fun validatedPage(capture: ScrollbackCapture): SnapshotPage {
+        require(capture.ok) { capture.error?.message ?: "Scrollback capture failed" }
+        val page = SnapshotPage(
+            snapshotId = capture.snapshotId?.takeIf(String::isNotBlank)
+                ?: throw IllegalArgumentException("History snapshot response is missing its token. Refresh history."),
+            rangeStart = capture.rangeStart
+                ?: throw IllegalArgumentException("History snapshot response is missing its start. Refresh history."),
+            rangeEnd = capture.rangeEnd
+                ?: throw IllegalArgumentException("History snapshot response is missing its end. Refresh history."),
+            hasOlder = capture.hasOlder
+                ?: throw IllegalArgumentException("History snapshot response is missing its cursor state. Refresh history."),
+            lineCount = capture.lineCount
+                ?: throw IllegalArgumentException("History snapshot response is missing its line count. Refresh history."),
+            captureMode = capture.captureMode
+                ?: throw IllegalArgumentException("History snapshot response is missing its mode. Refresh history."),
+            totalLines = capture.totalLines
+                ?: throw IllegalArgumentException("History snapshot response is missing its total. Refresh history."),
+            sourceTotalLines = capture.sourceTotalLines
+                ?: throw IllegalArgumentException("History snapshot response is missing its source total. Refresh history."),
+            snapshotTruncated = capture.snapshotTruncated
+                ?: throw IllegalArgumentException("History snapshot response is missing its truncation state. Refresh history."),
+            nextBefore = capture.nextBefore,
+            lines = capture.lines,
+        )
+        require(page.captureMode == "snapshot") {
+            "History response is not an immutable snapshot. Refresh history."
+        }
+        require(
+            page.rangeStart >= 0 &&
+                page.rangeEnd >= page.rangeStart &&
+                page.rangeEnd <= page.totalLines
+        ) {
+            "History snapshot returned an invalid range. Refresh history."
+        }
+        require(
+            page.lineCount == page.lines.size &&
+                page.rangeEnd.toLong() - page.rangeStart.toLong() == page.lineCount.toLong()
+        ) {
+            "History snapshot range does not match its content. Refresh history."
+        }
+        require(page.lines.size <= ScrollbackRange.MAX_SCROLLBACK_LINES) {
+            "History snapshot page exceeds ${ScrollbackRange.MAX_SCROLLBACK_LINES} lines."
+        }
+        require(page.sourceTotalLines >= page.totalLines) {
+            "History snapshot source total is invalid. Refresh history."
+        }
+        require(page.hasOlder == (page.rangeStart > 0)) {
+            "History snapshot returned inconsistent older-page state. Refresh history."
+        }
+        require(!page.hasOlder || page.nextBefore == page.rangeStart) {
+            "History snapshot returned an invalid continuation cursor. Refresh history."
+        }
+        return page
+    }
+
+    private data class SnapshotPage(
+        val snapshotId: String,
+        val rangeStart: Int,
+        val rangeEnd: Int,
+        val hasOlder: Boolean,
+        val lineCount: Int,
+        val captureMode: String,
+        val totalLines: Int,
+        val sourceTotalLines: Int,
+        val snapshotTruncated: Boolean,
+        val nextBefore: Int?,
+        val lines: List<String>,
+    ) {
+        fun asHistory(): ScrollbackHistory =
+            if (lines.isEmpty()) ScrollbackHistory() else ScrollbackHistory().withPage(asScrollbackPage())
+
+        fun asScrollbackPage(): ScrollbackPage = ScrollbackPage(
+            range = ScrollbackRange(rangeStart, rangeEnd - 1),
+            contentLines = lines,
+        )
+    }
 }
 
 data class TranscriptEntry(

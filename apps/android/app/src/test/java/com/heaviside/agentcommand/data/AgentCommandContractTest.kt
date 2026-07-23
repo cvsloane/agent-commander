@@ -266,7 +266,7 @@ class AgentCommandContractTest {
     }
 
     @Test
-    fun `scrollback range requests are bounded and capture content remains typed`() {
+    fun `scrollback requests and immutable snapshot pages remain typed`() {
         val range = ScrollbackRequest.Range(startLine = -1_000, endLine = -501)
 
         assertEquals("range", range.toJson().getString("mode"))
@@ -275,6 +275,21 @@ class AgentCommandContractTest {
         assertThrows(IllegalArgumentException::class.java) {
             ScrollbackRequest.Range(startLine = -5_001, endLine = 0)
         }
+        val initialSnapshot = ScrollbackRequest.Full(pageSize = 5_000).toJson()
+        assertEquals("full", initialSnapshot.getString("mode"))
+        assertEquals(5_000, initialSnapshot.getInt("page_size"))
+        assertFalse(initialSnapshot.has("snapshot_id"))
+        assertFalse(initialSnapshot.has("before_line"))
+        val continuation = ScrollbackRequest.Full(
+            pageSize = 5_000,
+            snapshotId = "11111111-1111-4111-8111-111111111111",
+            beforeLine = 95_000,
+        ).toJson()
+        assertEquals(
+            "11111111-1111-4111-8111-111111111111",
+            continuation.getString("snapshot_id"),
+        )
+        assertEquals(95_000, continuation.getInt("before_line"))
 
         val capture = AgentCommandApi.parseScrollback(
             JSONObject(
@@ -282,7 +297,20 @@ class AgentCommandContractTest {
                 {
                   "cmd_id":"scrollback-cmd",
                   "ok":true,
-                  "result":{"content":"older\nnewer\n","truncated":true}
+                  "result":{
+                    "content":"older\nnewer\n",
+                    "truncated":false,
+                    "snapshot_id":"11111111-1111-4111-8111-111111111111",
+                    "range_start":94998,
+                    "range_end":95000,
+                    "has_older":true,
+                    "line_count":2,
+                    "capture_mode":"snapshot",
+                    "total_lines":100000,
+                    "source_total_lines":100000,
+                    "snapshot_truncated":false,
+                    "next_before":94998
+                  }
                 }
                 """.trimIndent(),
             ),
@@ -290,7 +318,14 @@ class AgentCommandContractTest {
 
         assertEquals("scrollback-cmd", capture.cmdId)
         assertEquals(listOf("older", "newer"), capture.lines)
-        assertTrue(capture.truncated)
+        assertEquals("11111111-1111-4111-8111-111111111111", capture.snapshotId)
+        assertEquals(94_998, capture.rangeStart)
+        assertEquals(95_000, capture.rangeEnd)
+        assertTrue(capture.hasOlder!!)
+        assertEquals(2, capture.lineCount)
+        assertEquals("snapshot", capture.captureMode)
+        assertEquals(100_000, capture.totalLines)
+        assertEquals(94_998, capture.nextBefore)
     }
 
     @Test

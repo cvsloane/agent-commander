@@ -70,7 +70,21 @@ sealed class ScrollbackRequest(
         override val mode = "range"
     }
 
-    data class Full(val strip: Boolean = true) : ScrollbackRequest(strip) {
+    data class Full(
+        val pageSize: Int = DEFAULT_SNAPSHOT_PAGE_SIZE,
+        val snapshotId: String? = null,
+        val beforeLine: Int? = null,
+        val strip: Boolean = true,
+    ) : ScrollbackRequest(strip) {
+        init {
+            require(pageSize in 1..MAX_LINES)
+            require((snapshotId == null) == (beforeLine == null)) {
+                "Snapshot ID and before-line cursor must be provided together"
+            }
+            require(snapshotId == null || snapshotId.isNotBlank())
+            require(beforeLine == null || beforeLine >= 0)
+        }
+
         override val mode = "full"
     }
 
@@ -84,11 +98,17 @@ sealed class ScrollbackRequest(
                     put("start_line", startLine)
                     put("end_line", endLine)
                 }
-                is Full, is Visible -> Unit
+                is Full -> {
+                    put("page_size", pageSize)
+                    snapshotId?.let { put("snapshot_id", it) }
+                    beforeLine?.let { put("before_line", it) }
+                }
+                is Visible -> Unit
             }
         }
 
     companion object {
+        const val DEFAULT_SNAPSHOT_PAGE_SIZE = 500
         const val MAX_LINES = 5_000
     }
 }
@@ -104,6 +124,16 @@ data class ScrollbackCapture(
     val lines: List<String>,
     val truncated: Boolean,
     val error: ApiError? = null,
+    val snapshotId: String? = null,
+    val rangeStart: Int? = null,
+    val rangeEnd: Int? = null,
+    val hasOlder: Boolean? = null,
+    val lineCount: Int? = null,
+    val captureMode: String? = null,
+    val totalLines: Int? = null,
+    val sourceTotalLines: Int? = null,
+    val snapshotTruncated: Boolean? = null,
+    val nextBefore: Int? = null,
 )
 
 data class TranscriptRequest(

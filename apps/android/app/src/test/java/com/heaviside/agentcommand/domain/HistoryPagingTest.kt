@@ -6,25 +6,27 @@ package com.heaviside.agentcommand.domain
 import com.heaviside.agentcommand.data.ScrollbackCapture
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HistoryPagingTest {
     @Test
     fun `scrollback pages remain ordered and support deterministic filter and contiguous copy`() {
-        val newestRange = ScrollbackRange.initial(pageLines = 3)
-        val olderRange = newestRange.older(pageLines = 3)
+        val newestRange = ScrollbackRange(3, 5)
+        val olderRange = ScrollbackRange(0, 2)
         val history = ScrollbackHistory()
             .withPage(ScrollbackPage(newestRange, listOf("new-1", "new-2", "new-3")))
             .withPage(ScrollbackPage(olderRange, listOf("old-1", "old-2", "old-3")))
 
-        assertEquals(-6, olderRange.startLine)
-        assertEquals(-4, olderRange.endLine)
+        assertEquals(0, olderRange.startLine)
+        assertEquals(2, olderRange.endLine)
         assertEquals(
             listOf("old-1", "old-2", "old-3", "new-1", "new-2", "new-3"),
             history.lines.map { it.text },
         )
         assertEquals(listOf("old-1", "old-2", "old-3"), history.filtered("OLD").map { it.text })
-        assertEquals("old-3\nnew-1\nnew-2", history.copyRange(-4, -2))
+        assertEquals("old-3\nnew-1\nnew-2", history.copyRange(2, 4))
         assertEquals("new-2\nnew-3", history.copyLast(2))
     }
 
@@ -61,18 +63,35 @@ class HistoryPagingTest {
     }
 
     @Test
-    fun `reader pages backward from live history and searches locally without reordering`() {
+    fun `reader accepts only contiguous pages from one immutable snapshot`() {
         val reader = ScrollbackReaderState(pageLines = 2)
 
-        assertEquals(ScrollbackRange(-2, -1), reader.nextRange)
-        reader.accept(
-            reader.nextRange!!,
-            ScrollbackCapture("new", true, listOf("compile passed", "release ready"), false),
+        reader.acceptInitial(
+            snapshotCapture(
+                cmdId = "new",
+                snapshotId = "snapshot-a",
+                start = 2,
+                end = 4,
+                lines = listOf("compile passed", "release ready"),
+                hasOlder = true,
+                totalLines = 4,
+            ),
         )
-        assertEquals(ScrollbackRange(-4, -3), reader.nextRange)
-        reader.accept(
-            reader.nextRange!!,
-            ScrollbackCapture("old", true, listOf("older note", "compile started"), false),
+        val cursor = reader.nextSnapshotPage!!
+        assertEquals("snapshot-a", cursor.snapshotId)
+        assertEquals(2, cursor.beforeLine)
+        assertEquals("Copy loaded", reader.copyAllLabel)
+        reader.acceptOlder(
+            cursor,
+            snapshotCapture(
+                cmdId = "old",
+                snapshotId = "snapshot-a",
+                start = 0,
+                end = 2,
+                lines = listOf("older note", "compile started"),
+                hasOlder = false,
+                totalLines = 4,
+            ),
         )
         reader.query = "compile"
 
@@ -80,30 +99,84 @@ class HistoryPagingTest {
             listOf("compile started", "compile passed"),
             reader.visibleLines.map { it.text },
         )
-
-        reader.accept(
-            reader.nextRange!!,
-            ScrollbackCapture("end", true, emptyList(), false),
+        assertEquals("release ready", reader.copyLast(1))
+        assertEquals(
+            "older note\ncompile started\ncompile passed\nrelease ready",
+            reader.copyAll(),
         )
         assertFalse(reader.canLoadOlder)
-        assertEquals(null, reader.nextRange)
+        assertEquals(null, reader.nextSnapshotPage)
+        assertEquals("Copy all", reader.copyAllLabel)
     }
 
     @Test
-    fun `reader accepts one stable full snapshot without offering moving-offset pagination`() {
+    fun `reader rejects token mismatches and gaps without mixing snapshot lines`() {
         val reader = ScrollbackReaderState(pageLines = 2)
-
-        reader.acceptSnapshot(
-            ScrollbackCapture(
-                cmdId = "snapshot",
-                ok = true,
-                lines = listOf("oldest available", "middle", "current"),
-                truncated = true,
+        reader.acceptInitial(
+            snapshotCapture(
+                cmdId = "initial",
+                snapshotId = "snapshot-a",
+                start = 2,
+                end = 3,
+                lines = listOf("stable"),
+                hasOlder = true,
+                totalLines = 3,
             ),
         )
+        val cursor = reader.nextSnapshotPage!!
 
-        assertEquals(listOf("oldest available", "middle", "current"), reader.allLines.map { it.text })
+        assertThrows(IllegalArgumentException::class.java) {
+            reader.acceptOlder(
+                cursor,
+                snapshotCapture("wrong-token", "snapshot-b", 0, 2, listOf("wrong", "page"), false, 3),
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            reader.acceptOlder(
+                cursor,
+                snapshotCapture("gap", "snapshot-a", 0, 1, listOf("gap"), false, 3),
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            reader.acceptOlder(
+                cursor,
+                snapshotCapture("overlap", "snapshot-a", 1, 3, listOf("overlap", "stable"), true, 3),
+            )
+        }
+
+        assertEquals(listOf("stable"), reader.allLines.map { it.text })
+        assertEquals(cursor, reader.nextSnapshotPage)
+        assertTrue(reader.canLoadOlder)
+
+        reader.acceptInitial(
+            snapshotCapture("refresh", "snapshot-b", 0, 1, listOf("refreshed"), false, 1),
+        )
+        assertEquals(listOf("refreshed"), reader.allLines.map { it.text })
         assertFalse(reader.canLoadOlder)
-        assertEquals(null, reader.nextRange)
     }
+
+    private fun snapshotCapture(
+        cmdId: String,
+        snapshotId: String,
+        start: Int,
+        end: Int,
+        lines: List<String>,
+        hasOlder: Boolean,
+        totalLines: Int,
+    ) = ScrollbackCapture(
+        cmdId = cmdId,
+        ok = true,
+        lines = lines,
+        truncated = false,
+        snapshotId = snapshotId,
+        rangeStart = start,
+        rangeEnd = end,
+        hasOlder = hasOlder,
+        lineCount = lines.size,
+        captureMode = "snapshot",
+        totalLines = totalLines,
+        sourceTotalLines = totalLines,
+        snapshotTruncated = false,
+        nextBefore = start.takeIf { hasOlder },
+    )
 }
