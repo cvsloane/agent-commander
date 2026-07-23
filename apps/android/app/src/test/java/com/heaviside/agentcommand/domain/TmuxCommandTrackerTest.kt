@@ -180,4 +180,22 @@ class TmuxCommandTrackerTest {
             ) is TmuxCommandState.Pending,
         )
     }
+
+    @Test
+    fun `command deadline fails and removes only its correlated pending command`() {
+        val tracker = TmuxCommandTracker()
+        tracker.register(CommandDispatchAcceptance("cmd-expired"), "host-a", "session-a")
+        tracker.register(CommandDispatchAcceptance("cmd-still-pending"), "host-a", "session-a")
+        val timeout = ApiError("COMMAND_RESULT_TIMEOUT", "No command result arrived")
+
+        assertEquals(
+            TmuxCommandState.Failed("cmd-expired", timeout),
+            tracker.timeout("cmd-expired", timeout),
+        )
+        assertEquals(null, tracker.timeout("cmd-expired", timeout))
+        assertEquals(
+            listOf(TmuxCommandState.Pending("cmd-still-pending", "host-a", "session-a")),
+            tracker.pendingCommands(),
+        )
+    }
 }

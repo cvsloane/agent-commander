@@ -114,6 +114,30 @@ class TmuxLifecycleActionsTest {
 
     @Test
     fun `confirmation and capability policy is exact and conservative`() {
+        val trackedPane = TmuxPaneNode(
+            paneId = "%7",
+            paneIndex = 0,
+            pane = TmuxPane(
+                sessionId = "session-a",
+                hostId = "host-a",
+                hostName = "Alpha",
+                title = "Tracked",
+                status = "RUNNING",
+                provider = "shell",
+                paneId = "%7",
+                target = "vault:0.0",
+                tmuxSessionName = "vault",
+                windowName = "main",
+                windowIndex = 0,
+                paneIndex = 0,
+            ),
+        )
+        val liveOnlyPane = TmuxPaneNode(paneId = "%8", paneIndex = 1)
+
+        assertTrue(TmuxLifecycleActions.canSplit(canSpawn = true, currentPane = trackedPane))
+        assertFalse(TmuxLifecycleActions.canSplit(canSpawn = true, currentPane = liveOnlyPane))
+        assertFalse(TmuxLifecycleActions.canSplit(canSpawn = false, currentPane = trackedPane))
+
         assertEquals(
             "Close window 2? This ends the whole tmux session.",
             TmuxLifecycleConfirmation.closeWindow(windowIndex = 2, liveWindowCount = 1),

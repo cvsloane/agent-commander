@@ -56,6 +56,17 @@ export function registerUIWebSocket(app: FastifyInstance): void {
                 for (const message of messages) {
                   socket.send(JSON.stringify(message));
                 }
+                const subscriptionId = parseResult.data.payload.subscription_id;
+                if (subscriptionId) {
+                  socket.send(
+                    JSON.stringify({
+                      v: 1,
+                      type: 'ui.subscribed',
+                      ts: new Date().toISOString(),
+                      payload: { subscription_id: subscriptionId },
+                    })
+                  );
+                }
               }
             }
           } catch (error) {

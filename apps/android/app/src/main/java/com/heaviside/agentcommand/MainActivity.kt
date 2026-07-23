@@ -44,6 +44,7 @@ import com.heaviside.agentcommand.data.TmuxTopologyEvent
 import com.heaviside.agentcommand.data.Topology
 import com.heaviside.agentcommand.data.TranscriptRequest
 import com.heaviside.agentcommand.data.UiStreamEvent
+import com.heaviside.agentcommand.data.UiStreamSubscribedEvent
 import com.heaviside.agentcommand.data.UiStreamSocket
 import com.heaviside.agentcommand.domain.AppPreferences
 import com.heaviside.agentcommand.domain.ClaudePaneVisibility
@@ -142,6 +143,7 @@ class MainActivity : Activity() {
     private var uiStreamFailure: String? = null
     private val commandTracker = TmuxCommandTracker()
     private val commandCallbacks = mutableMapOf<String, (TmuxCommandState) -> Unit>()
+    private val commandTimeouts = mutableMapOf<String, Runnable>()
     private val liveTopologies = mutableMapOf<String, TmuxTopologyEvent>()
     private var lifecycleDialog: Dialog? = null
     private var lifecycleStatus: TextView? = null
@@ -581,6 +583,7 @@ class MainActivity : Activity() {
             context.host.host.capabilities.terminal
         val trackedCurrent = context.pane.attachable
         val canSpawn = hostAvailable && context.host.host.capabilities.spawn
+        val canSplit = TmuxLifecycleActions.canSplit(canSpawn, context.pane)
         val canDestroy = hostAvailable && context.host.host.capabilities.kill && trackedCurrent
         val sections = verticalLayout()
         sections.addView(heading("Window").apply { textSize = 18f }, matchWrap())
@@ -621,7 +624,7 @@ class MainActivity : Activity() {
         }, matchWrap())
         val splitRow = horizontalLayout()
         splitRow.addView(
-            lifecycleButton("Split horizontal", canSpawn) {
+            lifecycleButton("Split horizontal", canSplit) {
                 executeLifecycleAction(
                     context,
                     LifecycleAction.SplitPane(
@@ -635,7 +638,7 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
         )
         splitRow.addView(
-            lifecycleButton("Split vertical", canSpawn) {
+            lifecycleButton("Split vertical", canSplit) {
                 executeLifecycleAction(
                     context,
                     LifecycleAction.SplitPane(
@@ -699,7 +702,10 @@ class MainActivity : Activity() {
         )
         if (!trackedCurrent) {
             sections.addView(
-                body("Destructive actions are disabled because this authoritative pane is live-only."),
+                body(
+                    "Pane splitting and destructive actions are disabled because " +
+                        "this authoritative pane is live-only.",
+                ),
                 matchWrap(),
             )
         }
@@ -1705,6 +1711,7 @@ class MainActivity : Activity() {
                                     commandTracker.observe(event)?.let(::deliverCommandState)
                                 is SessionsChangedEvent ->
                                     observeCreatedPanePersistence(event)
+                                is UiStreamSubscribedEvent -> Unit
                             }
                         }
 
@@ -1830,6 +1837,7 @@ class MainActivity : Activity() {
                     )
                     if (state is TmuxCommandState.Pending) {
                         commandCallbacks[state.cmdId] = callback
+                        scheduleCommandTimeout(state.cmdId)
                     }
                     callback(state)
                 } }
@@ -1848,7 +1856,25 @@ class MainActivity : Activity() {
     }
 
     private fun deliverCommandState(state: TmuxCommandState) {
+        commandTimeouts.remove(state.cmdId)?.let(mainHandler::removeCallbacks)
         commandCallbacks.remove(state.cmdId)?.invoke(state)
+    }
+
+    private fun scheduleCommandTimeout(cmdId: String) {
+        commandTimeouts.remove(cmdId)?.let(mainHandler::removeCallbacks)
+        commandTimeouts[cmdId] = Runnable {
+            commandTimeouts.remove(cmdId)
+            val failure = commandTracker.timeout(
+                cmdId,
+                com.heaviside.agentcommand.data.ApiError(
+                    "COMMAND_RESULT_TIMEOUT",
+                    "No correlated command result or topology confirmation arrived before the deadline.",
+                ),
+            ) ?: return@Runnable
+            deliverCommandState(failure)
+        }.also {
+            mainHandler.postDelayed(it, COMMAND_RESULT_TIMEOUT_MS)
+        }
     }
 
     private fun resetCommandTracking(code: String, message: String) {
@@ -1856,6 +1882,8 @@ class MainActivity : Activity() {
         val trackerFailures = commandTracker.failPending(error).associateBy { it.cmdId }
         val callbacks = commandCallbacks.toMap()
         commandCallbacks.clear()
+        commandTimeouts.values.forEach(mainHandler::removeCallbacks)
+        commandTimeouts.clear()
         callbacks.forEach { (cmdId, callback) ->
             callback(trackerFailures[cmdId] ?: TmuxCommandState.Failed(cmdId, error))
         }
@@ -2311,6 +2339,7 @@ class MainActivity : Activity() {
         const val RECONNECT_DELAY_MS = 1_500L
         const val UI_STREAM_RECONNECT_DELAY_MS = 1_500L
         const val CREATED_PANE_ADOPTION_TIMEOUT_MS = 10_000L
+        const val COMMAND_RESULT_TIMEOUT_MS = 15_000L
         const val FOCUS_TIMEOUT_MS = 5_000L
         const val ROSTER_STATUS_TAG = "roster-status"
         const val ROSTER_PROGRESS_TAG = "roster-progress"

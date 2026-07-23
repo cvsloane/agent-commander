@@ -162,6 +162,12 @@ class TmuxCommandTracker {
     fun pendingCommands(): List<TmuxCommandState.Pending> = pending.values.map { it.state }
 
     @Synchronized
+    fun timeout(cmdId: String, error: ApiError): TmuxCommandState.Failed? {
+        val command = pending.remove(cmdId) ?: return null
+        return TmuxCommandState.Failed(command.state.cmdId, error)
+    }
+
+    @Synchronized
     fun failPending(error: ApiError): List<TmuxCommandState.Failed> {
         val failed = pending.values.map { TmuxCommandState.Failed(it.state.cmdId, error) }
         pending.clear()

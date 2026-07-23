@@ -7,6 +7,11 @@ sealed interface UiStreamEvent {
     val timestamp: String
 }
 
+data class UiStreamSubscribedEvent(
+    override val timestamp: String,
+    val subscriptionId: String,
+) : UiStreamEvent
+
 data class CommandResultEvent(
     override val timestamp: String,
     val hostId: String,

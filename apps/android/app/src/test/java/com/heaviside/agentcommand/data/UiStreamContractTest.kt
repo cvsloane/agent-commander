@@ -3,6 +3,12 @@
  */
 package com.heaviside.agentcommand.data
 
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okio.ByteString
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -11,6 +17,56 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class UiStreamContractTest {
+    @Test
+    fun `socket becomes command-ready only after its correlated subscription acknowledgement`() {
+        var connected = 0
+        val failures = mutableListOf<String>()
+        val socket = UiStreamSocket(
+            client = OkHttpClient(),
+            url = "wss://agent-command.example.com/v1/ui/stream?ticket=one-time-ticket",
+            origin = "https://agent-command.example.com",
+            listener = object : UiStreamSocket.Listener {
+                override fun onConnected() {
+                    connected += 1
+                }
+
+                override fun onEvent(event: UiStreamEvent) = Unit
+
+                override fun onFailure(message: String) {
+                    failures += message
+                }
+
+                override fun onClosed() = Unit
+            },
+        )
+        val webSocket = RecordingWebSocket()
+        socket.onOpen(
+            webSocket,
+            Response.Builder()
+                .request(webSocket.request())
+                .protocol(Protocol.HTTP_1_1)
+                .code(101)
+                .message("Switching Protocols")
+                .build(),
+        )
+
+        assertEquals(0, connected)
+        val subscriptionId = JSONObject(webSocket.sent.single())
+            .getJSONObject("payload")
+            .getString("subscription_id")
+        val acknowledgement = JSONObject()
+            .put("v", 1)
+            .put("type", "ui.subscribed")
+            .put("ts", "2026-07-23T12:00:01Z")
+            .put("payload", JSONObject().put("subscription_id", subscriptionId))
+            .toString()
+        socket.onMessage(webSocket, acknowledgement)
+        socket.onMessage(webSocket, acknowledgement)
+
+        assertEquals(1, connected)
+        assertTrue(failures.isEmpty())
+    }
+
     @Test
     fun `sessions changed exposes only a bounded exact tmux pane signal`() {
         val sessions = JSONArray()
@@ -106,16 +162,24 @@ class UiStreamContractTest {
 
     @Test
     fun `UI stream uses a one-time ticket and subscribes to session persistence truth`() {
+        val subscriptionId = "11111111-1111-4111-8111-111111111111"
         val url = AgentCommandApi.buildUiStreamUrl(
             AgentCommandApi.requireEndpoint("https://agent-command.example.com"),
             "one-time-ticket",
         )
-        val subscription = UiStreamSocket.buildSubscription("2026-07-23T12:00:00Z")
+        val subscription = UiStreamSocket.buildSubscription(
+            "2026-07-23T12:00:00Z",
+            subscriptionId,
+        )
 
         assertTrue(url.startsWith("wss://agent-command.example.com/v1/ui/stream?"))
         assertTrue(url.contains("ticket=one-time-ticket"))
         assertFalse(url.contains("token="))
         assertEquals("ui.subscribe", subscription.getString("type"))
+        assertEquals(
+            subscriptionId,
+            subscription.getJSONObject("payload").getString("subscription_id"),
+        )
         assertEquals(
             listOf("commands.result", "tmux.topology", "sessions"),
             (0 until subscription.getJSONObject("payload").getJSONArray("topics").length()).map {
@@ -124,5 +188,41 @@ class UiStreamContractTest {
                     .getString("type")
             },
         )
+
+        assertEquals(
+            UiStreamSubscribedEvent("2026-07-23T12:00:01Z", subscriptionId),
+            UiStreamEventParser.parse(
+                """
+                {
+                  "v":1,
+                  "type":"ui.subscribed",
+                  "ts":"2026-07-23T12:00:01Z",
+                  "payload":{"subscription_id":"$subscriptionId"}
+                }
+                """.trimIndent(),
+            ),
+        )
+    }
+
+    private class RecordingWebSocket : WebSocket {
+        val sent = mutableListOf<String>()
+        private val request = Request.Builder()
+            .url("wss://agent-command.example.com/v1/ui/stream")
+            .build()
+
+        override fun request(): Request = request
+
+        override fun queueSize(): Long = 0
+
+        override fun send(text: String): Boolean {
+            sent += text
+            return true
+        }
+
+        override fun send(bytes: ByteString): Boolean = true
+
+        override fun close(code: Int, reason: String?): Boolean = true
+
+        override fun cancel() = Unit
     }
 }

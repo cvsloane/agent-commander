@@ -75,6 +75,9 @@ enum class PaneSplitDirection(val wireValue: String) {
 }
 
 object TmuxLifecycleActions {
+    fun canSplit(canSpawn: Boolean, currentPane: TmuxPaneNode): Boolean =
+        canSpawn && currentPane.attachable
+
     fun plan(action: LifecycleAction): LifecycleTransport = when (action) {
         is LifecycleAction.SelectWindow -> action.paneId?.let {
             LifecycleTransport.ViewerFocus(ViewerTarget(it, action.preserveZoom))

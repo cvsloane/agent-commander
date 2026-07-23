@@ -11,6 +11,7 @@ import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
+import java.util.UUID
 
 object UiStreamEventParser {
     fun parse(text: String): UiStreamEvent? {
@@ -18,6 +19,10 @@ object UiStreamEventParser {
         val timestamp = message.getString("ts")
         val payload = message.getJSONObject("payload")
         return when (message.getString("type")) {
+            "ui.subscribed" -> UiStreamSubscribedEvent(
+                timestamp = timestamp,
+                subscriptionId = payload.getString("subscription_id"),
+            )
             "commands.result" -> parseCommandResult(timestamp, payload)
             "sessions.changed" -> parseSessionsChanged(timestamp, payload)
             "tmux.topology" -> parseTopology(timestamp, payload)
@@ -120,6 +125,8 @@ class UiStreamSocket(
 
     private var socket: WebSocket? = null
     @Volatile private var intentionallyClosed = false
+    private val subscriptionId = UUID.randomUUID().toString()
+    private var subscriptionReady = false
 
     fun connect() {
         if (socket != null || intentionallyClosed) return
@@ -127,8 +134,7 @@ class UiStreamSocket(
     }
 
     override fun onOpen(webSocket: WebSocket, response: Response) {
-        webSocket.send(buildSubscription(Instant.now().toString()).toString())
-        listener.onConnected()
+        webSocket.send(buildSubscription(Instant.now().toString(), subscriptionId).toString())
     }
 
     override fun onMessage(webSocket: WebSocket, text: String) {
@@ -136,7 +142,18 @@ class UiStreamSocket(
             listener.onFailure("Invalid Agent Command event")
             return
         }
-        event?.let(listener::onEvent)
+        when (event) {
+            is UiStreamSubscribedEvent -> {
+                if (event.subscriptionId != subscriptionId) {
+                    listener.onFailure("Agent Command acknowledged the wrong event subscription")
+                } else if (!subscriptionReady) {
+                    subscriptionReady = true
+                    listener.onConnected()
+                }
+            }
+            null -> Unit
+            else -> listener.onEvent(event)
+        }
     }
 
     override fun onFailure(webSocket: WebSocket, throwable: Throwable, response: Response?) {
@@ -155,19 +172,21 @@ class UiStreamSocket(
     }
 
     internal companion object {
-        fun buildSubscription(timestamp: String): JSONObject = JSONObject()
+        fun buildSubscription(timestamp: String, subscriptionId: String): JSONObject = JSONObject()
             .put("v", 1)
             .put("type", "ui.subscribe")
             .put("ts", timestamp)
             .put(
                 "payload",
-                JSONObject().put(
-                    "topics",
-                    JSONArray()
-                        .put(JSONObject().put("type", "commands.result"))
-                        .put(JSONObject().put("type", "tmux.topology"))
-                        .put(JSONObject().put("type", "sessions")),
-                ),
+                JSONObject()
+                    .put("subscription_id", subscriptionId)
+                    .put(
+                        "topics",
+                        JSONArray()
+                            .put(JSONObject().put("type", "commands.result"))
+                            .put(JSONObject().put("type", "tmux.topology"))
+                            .put(JSONObject().put("type", "sessions")),
+                    ),
             )
     }
 }
