@@ -55,15 +55,16 @@ type Agent struct {
 	topologyMu       sync.Mutex
 
 	// Session state
-	sessions           map[string]*SessionState
-	sessionsMu         sync.RWMutex
-	transcriptPaths    map[string]string
-	claudeProjectsRoot string
-	snapshotHash       map[string]string
-	toolEventsMu       sync.Mutex
-	pendingToolEvents  map[string][]toolEventPending
-	bufferedHooksMu    sync.Mutex
-	bufferedHooks      []bufferedHook
+	sessions             map[string]*SessionState
+	sessionsMu           sync.RWMutex
+	transcriptPaths      map[string]string
+	claudeProjectsRoot   string
+	snapshotHash         map[string]string
+	toolEventsMu         sync.Mutex
+	pendingToolEvents    map[string][]toolEventPending
+	bufferedHooksMu      sync.Mutex
+	bufferedHooks        []bufferedHook
+	capturePaneSnapshots capturePaneSnapshotCache
 
 	// Approval lifecycle - TTL cache to prevent race conditions
 	recentDecisions   map[string]time.Time
@@ -1953,6 +1954,11 @@ func (a *Agent) executeCommand(cmd commands.Dispatch) (map[string]any, error) {
 	var session *SessionState
 	a.sessionsMu.RLock()
 	session, exists := a.sessions[cmd.SessionID]
+	if exists && cmd.Command.Type == "capture_pane" {
+		// Full capture can outlive a topology refresh. Keep its tmux target and
+		// cache binding on the same immutable session identity.
+		session = &SessionState{ID: session.ID, PaneID: session.PaneID}
+	}
 	a.sessionsMu.RUnlock()
 
 	// Execute command
@@ -2493,6 +2499,37 @@ func (a *Agent) executeCapturePaneCommand(session *SessionState, payload json.Ra
 	case "full":
 		mode = tmux.CaptureModeFull
 	}
+	if mode != tmux.CaptureModeFull && (p.SnapshotID != "" || p.BeforeLine != nil) {
+		return nil, fmt.Errorf("snapshot continuation requires full capture mode")
+	}
+	if mode == tmux.CaptureModeFull {
+		if p.PageSize == 0 {
+			p.PageSize = defaultCaptureSnapshotPageSize
+		}
+		if p.PageSize < 1 || p.PageSize > maxCaptureSnapshotPageSize {
+			return nil, fmt.Errorf("page_size must be between 1 and %d", maxCaptureSnapshotPageSize)
+		}
+		if p.SnapshotID != "" {
+			if p.BeforeLine == nil {
+				return nil, fmt.Errorf("before_line is required with snapshot_id")
+			}
+			page, err := a.capturePaneSnapshots.continuation(
+				p.SnapshotID,
+				session.ID,
+				session.PaneID,
+				p.StripANSI,
+				*p.BeforeLine,
+				p.PageSize,
+			)
+			if err != nil {
+				return nil, err
+			}
+			return page.result(), nil
+		}
+		if p.BeforeLine != nil {
+			return nil, fmt.Errorf("snapshot_id is required with before_line")
+		}
+	}
 
 	opts := tmux.CapturePaneOptions{
 		Mode:       mode,
@@ -2505,6 +2542,13 @@ func (a *Agent) executeCapturePaneCommand(session *SessionState, payload json.Ra
 	content, err := a.tmuxClient.CapturePaneRange(session.PaneID, opts)
 	if err != nil {
 		return nil, fmt.Errorf("capture failed: %w", err)
+	}
+	if mode == tmux.CaptureModeFull {
+		page, err := a.capturePaneSnapshots.create(session.ID, session.PaneID, p.StripANSI, content, p.PageSize)
+		if err != nil {
+			return nil, err
+		}
+		return page.result(), nil
 	}
 
 	lineCount := strings.Count(content, "\n")

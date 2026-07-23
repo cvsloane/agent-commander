@@ -145,6 +145,9 @@ type CapturePanePayload struct {
 	LineEnd    int    `json:"line_end,omitempty"`
 	LastNLines int    `json:"last_n_lines,omitempty"`
 	StripANSI  bool   `json:"strip_ansi"`
+	PageSize   int    `json:"page_size,omitempty"`
+	SnapshotID string `json:"snapshot_id,omitempty"`
+	BeforeLine *int   `json:"before_line,omitempty"`
 }
 
 type CaptureTranscriptPayload struct {
@@ -176,9 +179,17 @@ type ListDirectoryPayload struct {
 }
 
 type CapturePaneResult struct {
-	Content     string `json:"content"`
-	LineCount   int    `json:"line_count"`
-	CaptureMode string `json:"capture_mode"`
+	Content           string `json:"content"`
+	LineCount         int    `json:"line_count"`
+	CaptureMode       string `json:"capture_mode"`
+	SnapshotID        string `json:"snapshot_id,omitempty"`
+	RangeStart        int    `json:"range_start,omitempty"`
+	RangeEnd          int    `json:"range_end,omitempty"`
+	TotalLines        int    `json:"total_lines,omitempty"`
+	SourceTotalLines  int    `json:"source_total_lines,omitempty"`
+	SnapshotTruncated bool   `json:"snapshot_truncated,omitempty"`
+	HasOlder          bool   `json:"has_older,omitempty"`
+	NextBefore        *int   `json:"next_before,omitempty"`
 }
 
 type DirectoryEntry struct {
