@@ -1433,21 +1433,25 @@ class MainActivity : Activity() {
 
     private fun showHistory(pane: TmuxPane) {
         val reader = ScrollbackReaderState()
+        var snapshotError: String? = null
         val root = verticalLayout().apply { setPadding(dp(12), dp(8), dp(12), dp(8)) }
         val dialog = fullScreenDialog(root)
         val header = horizontalLayout().apply { gravity = Gravity.CENTER_VERTICAL }
         header.addView(heading("History · ${pane.target}").apply {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         })
+        val refresh = button("Refresh") {}.apply { visibility = View.GONE }
+        header.addView(refresh)
         header.addView(button("Return live") { dialog.dismiss() })
         root.addView(header, matchWrap())
-        val status = body("Loading recent server history…")
+        val status = body("Loading history snapshot…")
         root.addView(status, matchWrap())
         val search = EditText(this).apply {
             hint = "Search loaded history"
             setSingleLine()
             setTextColor(Color.WHITE)
             setHintTextColor(MUTED)
+            isEnabled = false
         }
         root.addView(search, matchWrap())
         val text = selectableMonospaceText()
@@ -1455,104 +1459,147 @@ class MainActivity : Activity() {
             ScrollView(this).apply { addView(text, matchWrap()) },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f),
         )
+        fun copySnapshot(value: String, successMessage: String) {
+            status.setTextColor(MUTED)
+            if (value.isEmpty()) {
+                status.text = "No loaded snapshot history to copy."
+            } else {
+                copyText("tmux history snapshot", value)
+                status.text = successMessage
+            }
+        }
         val actions = horizontalLayout()
-        val older = button("Load older") {}
+        val older = button("Load older") {}.apply { isEnabled = false }
+        val copyLast = button("Copy last 50") {
+            copySnapshot(reader.copyLast(50), "Last 50 loaded snapshot lines copied")
+        }.apply { isEnabled = false }
+        val copyAll = button("Copy loaded") {
+            copySnapshot(
+                reader.copyAll(),
+                if (reader.canLoadOlder) {
+                    "Loaded snapshot history copied"
+                } else {
+                    "All snapshot history copied"
+                },
+            )
+        }.apply { isEnabled = false }
         actions.addView(older)
-        actions.addView(button("Copy visible") {
-            copyScrollbackCapture(pane, ScrollbackRequest.Visible(), "Visible history copied", status)
-        })
-        actions.addView(button("Copy last 50") {
-            copyScrollbackCapture(pane, ScrollbackRequest.Last(50), "Last 50 lines copied", status)
-        })
-        actions.addView(button("Copy all") {
-            copyScrollbackCapture(pane, ScrollbackRequest.Full(), "All available history copied", status)
-        })
+        actions.addView(copyLast)
+        actions.addView(copyAll)
         root.addView(HorizontalScrollView(this).apply { addView(actions) }, matchWrap())
 
         fun render() {
             val lines = reader.visibleLines
             text.text = lines.joinToString("\n") { it.text }
-            status.setTextColor(MUTED)
-            status.text = buildString {
-                append("${reader.allLines.size} lines loaded")
-                if (search.text?.isNotBlank() == true) append(" · ${lines.size} matching")
-                append(" · selectable")
-                if (viewerAuthority.controllerOwnership == ControllerOwnership.READ_ONLY) {
-                    append(" · read-only safe")
+            older.isEnabled = reader.canLoadOlder && snapshotError == null
+            copyLast.isEnabled = reader.hasLoadedSnapshot
+            copyAll.isEnabled = reader.hasLoadedSnapshot
+            copyAll.text = reader.copyAllLabel
+            search.isEnabled = reader.hasLoadedSnapshot
+            snapshotError?.let { error ->
+                status.setTextColor(ERROR)
+                status.text = "$error Refresh to start a new immutable snapshot."
+                refresh.visibility = View.VISIBLE
+            } ?: run {
+                status.setTextColor(MUTED)
+                status.text = buildString {
+                    append("${reader.allLines.size}")
+                    reader.totalLines?.let { append(" of $it") }
+                    append(" snapshot lines loaded")
+                    if (search.text?.isNotBlank() == true) append(" · ${lines.size} matching")
+                    append(" · selectable")
+                    append(if (reader.canLoadOlder) " · older available" else " · complete")
+                    if (reader.snapshotTruncated) {
+                        reader.sourceTotalLines?.let { append(" · newest snapshot from $it source lines") }
+                    }
+                    if (viewerAuthority.controllerOwnership == ControllerOwnership.READ_ONLY) {
+                        append(" · read-only safe")
+                    }
                 }
             }
-            older.isEnabled = reader.canLoadOlder
         }
 
-        fun loadOlder() {
-            val range = reader.nextRange ?: return
+        fun showLoadFailure(message: String) {
+            snapshotError = message
+            refresh.isEnabled = true
+            render()
+        }
+
+        fun loadInitialSnapshot() {
+            snapshotError = null
+            refresh.visibility = View.GONE
+            refresh.isEnabled = false
             older.isEnabled = false
             status.setTextColor(MUTED)
-            status.text = "Loading lines ${range.startLine}…${range.endLine}…"
-            val currentApi = api ?: return
+            status.text = "Loading history snapshot…"
+            val currentApi = api ?: return showLoadFailure("Sign in again to load history.")
             io.execute {
                 runCatching {
                     currentApi.loadScrollback(
                         pane.sessionId,
-                        ScrollbackRequest.Range(range.startLine, range.endLine),
+                        ScrollbackRequest.Full(),
                     )
                 }.onSuccess { capture -> runOnUiThread {
                     if (!dialog.isShowing) return@runOnUiThread
-                    runCatching { reader.accept(range, capture) }
-                        .onSuccess { render() }
-                        .onFailure {
-                            status.setTextColor(ERROR)
-                            status.text = it.message ?: "Unable to load history"
-                            older.isEnabled = true
+                    runCatching { reader.acceptInitial(capture) }
+                        .onSuccess {
+                            snapshotError = null
+                            refresh.visibility = View.GONE
+                            refresh.isEnabled = true
+                            render()
+                        }
+                        .onFailure { failure ->
+                            refresh.isEnabled = true
+                            showLoadFailure(failure.message ?: "Unable to validate history snapshot.")
                         }
                 } }.onFailure { failure -> runOnUiThread {
                     if (!dialog.isShowing) return@runOnUiThread
-                    status.setTextColor(ERROR)
-                    status.text = failure.message ?: "Unable to load history"
-                    older.isEnabled = true
+                    refresh.isEnabled = true
+                    showLoadFailure(failure.message ?: "Unable to load history snapshot.")
+                } }
+            }
+        }
+
+        fun loadOlder() {
+            val cursor = reader.nextSnapshotPage ?: return
+            snapshotError = null
+            older.isEnabled = false
+            refresh.visibility = View.GONE
+            status.setTextColor(MUTED)
+            status.text = "Loading older snapshot lines…"
+            val currentApi = api ?: return showLoadFailure("Sign in again to load older history.")
+            io.execute {
+                runCatching {
+                    currentApi.loadScrollback(
+                        pane.sessionId,
+                        ScrollbackRequest.Full(
+                            pageSize = cursor.pageSize,
+                            snapshotId = cursor.snapshotId,
+                            beforeLine = cursor.beforeLine,
+                        ),
+                    )
+                }.onSuccess { capture -> runOnUiThread {
+                    if (!dialog.isShowing) return@runOnUiThread
+                    runCatching { reader.acceptOlder(cursor, capture) }
+                        .onSuccess { render() }
+                        .onFailure { failure ->
+                            showLoadFailure(failure.message ?: "History snapshot page was rejected.")
+                        }
+                } }.onFailure { failure -> runOnUiThread {
+                    if (!dialog.isShowing) return@runOnUiThread
+                    showLoadFailure(failure.message ?: "History snapshot expired or is unavailable.")
                 } }
             }
         }
 
         older.setOnClickListener { loadOlder() }
+        refresh.setOnClickListener { loadInitialSnapshot() }
         search.doAfterTextChanged {
             reader.query = it?.toString().orEmpty()
             render()
         }
         dialog.showFullScreen()
-        loadOlder()
-    }
-
-    private fun copyScrollbackCapture(
-        pane: TmuxPane,
-        request: ScrollbackRequest,
-        successMessage: String,
-        status: TextView,
-    ) {
-        val currentApi = api ?: return
-        status.setTextColor(MUTED)
-        status.text = "Capturing history…"
-        io.execute {
-            runCatching { currentApi.loadScrollback(pane.sessionId, request) }
-                .onSuccess { capture -> runOnUiThread {
-                    if (!capture.ok) {
-                        status.setTextColor(ERROR)
-                        status.text = capture.error?.message ?: "History capture failed"
-                    } else {
-                        val content = capture.lines.joinToString("\n")
-                        if (content.isEmpty()) {
-                            status.text = "No history was returned."
-                        } else {
-                            copyText("tmux history", content)
-                            status.text = successMessage
-                        }
-                    }
-                } }
-                .onFailure { failure -> runOnUiThread {
-                    status.setTextColor(ERROR)
-                    status.text = failure.message ?: "History capture failed"
-                } }
-        }
+        loadInitialSnapshot()
     }
 
     private fun showClaudeTranscript(pane: TmuxPane) {
@@ -1918,13 +1965,13 @@ class MainActivity : Activity() {
         if (terminalSocket != null) return
         val generation = ++connectionGeneration
         val tokenForPane = resumeToken.takeIf { resumeSessionId == pane.sessionId }
-        terminalStatus?.text = when {
+        val connectingStatus = when {
             reconnecting -> "Reconnecting…"
             tokenForPane == null -> "Connecting…"
             else -> "Resuming…"
         }
         viewerAuthority.connecting(ViewerTarget(pane.paneId, tmuxZoomed))
-        syncInteractionUi()
+        syncInteractionUi(connectingStatus)
         val columns = terminalView?.columns ?: 80
         val rows = terminalView?.rows ?: 24
         io.execute {

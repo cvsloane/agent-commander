@@ -1,40 +1,33 @@
 # Android Tmux Parity — Status
 
-- State: executing
+- State: release correction in progress after late automated review
 - Approval: approved at 2026-07-23T00:19:00-04:00
-- Baseline source/production: `da607024218325a264951d9f9a7f5a5ba5891e24`
-- Baseline APK: v0.1.2/code3, SHA-256 `9d78cd03457a4d26749530859fe495f1241472a2288523673a456238146b045c`
-- Owner-confirmed baseline: physical Samsung terminal renders and remote tmux scrolling works
+- Accepted source: `24dd76e685b96fdb007370999f415f47cda2db75`
+- Production merge: `b0280a766f10ed5ce266619dfbe8f5e41792cfcc`
+- Pull request: `#114`
+- Production APK: v0.2.0/code4, SHA-256 `cb4bafe6fb3fe887768ce7cf0a18bfc91bd6a268b70116fdd3bcbad8a4859735`
 
 ## Current Truth
 
-Read-only discovery is complete. The existing backend can support the planned native tmux workbench without a new transport or renderer. The first implementation slice must correct Android's conflation of authoritative pane state and controller ownership, add `viewer_state` reconciliation, and activate local read-only history before broader parity work.
+The first production candidate is deployed, but a CodeRabbit review completed after PR `#114` merged and raised concrete agentd concurrency, Android reconnect/history, and re-subscription concerns. W5 is held while fresh correction lanes verify and directly fix the valid findings. The owner test has not started.
 
-The plan and checklist are approved. W1 and W2 are ready to launch in isolated non-colliding lanes; no implementation has been integrated or released yet.
+The exact reviewed and signed APK is available from the authenticated production Settings page. Both hosts run agentd `0.2.0-24dd76e`; the production dashboard and control plane run merge `b0280a7`, report healthy, and see both agents. No phone Tailnet or SSH session is required.
+
+Do not treat the current APK as the final handoff until the correction source is integrated, re-reviewed, rebuilt, re-signed, and re-verified in production.
 
 ## Workstreams
 
-| Workstream | State | Owner | Next gate |
-|---|---|---|---|
-| W0 baseline/contract | accepted | AI Lead | Complete |
-| W1 interaction authority/scroll | accepted | Android Builder + fresh Reviewer | Complete |
-| W2 topology/API/domain | accepted after correction | Android Builder + fresh Reviewer | Complete |
-| W3 workbench UI | accepted after correction | Android Builder + fresh Reviewer | Complete |
-| W4 window/pane lifecycle | accepted after corrections | Android Builder + fresh Reviewer | Complete |
-| W5 release | running | AI Lead + release Builder + critical Reviewer | Versioned candidate, signing, PR, deploy |
+| Workstream | State | Result |
+|---|---|---|
+| W0 baseline/contract | accepted | Existing public transport and Termux renderer retained |
+| W1 interaction authority/scroll | accepted | Viewer/control truth, input fencing, scrolling, and physical keys |
+| W2 topology/API/domain | accepted | Authoritative multi-host live topology and persistence |
+| W3 workbench UI | accepted | Native roster, history/copy, zoom, Claude view, key rail, and web handoff |
+| W4 window/pane lifecycle | accepted | Acknowledged mutations, confirmations, and reconciliation |
+| W5 release | correcting | Late automated review findings are being validated before a replacement release |
 
-W1 owns the Android activity/terminal interaction seam in isolated worktree `android-tmux-parity-w1`. W2 owns Android data/domain/preferences in isolated worktree `android-tmux-parity-w2`; their declared paths do not overlap.
+## Final Gate
 
-Integrated source `ec5a271` passes the full Android test/lint/release gate. Fresh review passed W1 and passed W2 after `af01e43` made live topology authoritative for add/remove/live-only membership while preserving durable attach metadata. W3 is cleared to launch.
-
-W3 is running in isolated worktree `android-tmux-parity-w3` from accepted base `0168aee`; W4 remains gated behind its reviewed UI/navigation seam.
-
-Read-only W4 contract review found one real backend gap: bulk terminate archived a pane before `kill_session` completed. A non-colliding backend lane is correcting that path with existing `dispatchAndWait`; Android W4 UI still waits for W3.
-
-Backend correction `8c6accd` now dispatches kills concurrently with explicit 12-second waits, preserves input-order results, and archives once after all outcomes; fresh critical review passed. W3 candidate `14e2677` passed 35+35 tests/lint/release assembly but review found Claude provider visibility and UI-stream lifecycle/pending-state defects; bounded correction is running.
-
-W3 correction `8f125dd` recognizes canonical `claude_code`, re-establishes the UI stream only in the foreground, and clears callbacks plus tracker state on loss/teardown. The full 37+37 test/lint/release gate passed and fresh re-review returned PASS. W4 Android lifecycle UI is cleared to launch.
-
-W4 Android action UI is running in isolated worktree `android-tmux-parity-w4-ui` from accepted source `8076f23`. It is the final feature lane before release.
-
-W4 final source `fb457a4` passes 52/52 debug and 52/52 release tests, lint, and release assembly. Fresh review accepted acknowledged lifecycle actions after correcting durable-pane anchoring, persistence ordering, early-event correlation, focus timeout unlock, and teardown clearing. W5 release is active.
+- Technical gates: held for correction
+- Production verification: superseded after the replacement deploy
+- Owner physical-device verdict: pending

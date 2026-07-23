@@ -652,14 +652,17 @@ func (m *TerminalManager) Detach(channelID string) (string, bool) {
 		viewer.stale = false
 		viewer.staleAt = time.Time{}
 		bridge := viewer.bridge
-		if viewer.letterbox {
+		letterbox := viewer.letterbox
+		if letterbox {
 			viewer.bridge = nil
 		}
 		m.mu.Unlock()
 
-		bridge.DetachChannel(channelID)
-		if viewer.letterbox {
-			bridge.close(false)
+		if bridge != nil {
+			bridge.DetachChannel(channelID)
+			if letterbox {
+				bridge.close(false)
+			}
 		}
 		if m.onStatus != nil {
 			m.onStatus(channelID, "detached", "")
@@ -759,6 +762,12 @@ func (m *TerminalManager) SendInput(channelID string, data string) error {
 		return ErrReadOnly
 	}
 	if viewer != nil {
+		if viewer.bridge == nil {
+			m.mu.RUnlock()
+			return fmt.Errorf("channel %s has no active viewer bridge", channelID)
+		}
+		// Keep the authority snapshot stable through the write. Releasing the
+		// manager lock here would let FocusPane retarget this grouped PTY first.
 		err := viewer.bridge.Write([]byte(data))
 		m.mu.RUnlock()
 		return err
@@ -954,12 +963,20 @@ func (m *TerminalManager) moveViewerResumeTokenLocked(viewer *terminalViewer, pa
 		"-t", viewer.paneID,
 		resumeOptionName(viewer.resumeToken),
 	); err != nil {
-		_ = m.runner.Run(
+		if rollbackErr := m.runner.Run(
 			"set-option",
 			"-pu",
 			"-t", paneID,
 			resumeOptionName(viewer.resumeToken),
-		)
+		); rollbackErr != nil {
+			return fmt.Errorf(
+				"%w; resume token may exist on both panes",
+				errors.Join(
+					fmt.Errorf("remove terminal resume token from previous pane: %w", err),
+					fmt.Errorf("rollback resume token on focused pane: %w", rollbackErr),
+				),
+			)
+		}
 		return fmt.Errorf("remove terminal resume token from previous pane: %w", err)
 	}
 	return nil
@@ -1216,6 +1233,10 @@ func (m *TerminalManager) Resize(channelID string, cols, rows int) error {
 	paneID, exists := m.channelToPane[channelID]
 	isPTY := m.channelToPTY[channelID]
 	viewer := m.viewerByChannel[channelID]
+	var viewerBridge *viewerPTYBridge
+	if viewer != nil {
+		viewerBridge = viewer.bridge
+	}
 	var ptyBridge *ptyBridge
 	if isPTY {
 		ptyBridge = m.ptyBridges[paneID]
@@ -1226,7 +1247,10 @@ func (m *TerminalManager) Resize(channelID string, cols, rows int) error {
 		return fmt.Errorf("channel %s not found", channelID)
 	}
 	if viewer != nil {
-		return viewer.bridge.Resize(uint16(rows), uint16(cols))
+		if viewerBridge == nil {
+			return fmt.Errorf("channel %s has no active viewer bridge", channelID)
+		}
+		return viewerBridge.Resize(uint16(rows), uint16(cols))
 	}
 
 	// In PTY mode, resize the PTY (which propagates to tmux client)

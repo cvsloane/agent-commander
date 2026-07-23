@@ -369,7 +369,8 @@ class AgentCommandApi(credentials: SavedCredentials) {
             val pane = parseRoster(
                 JSONObject().put("sessions", JSONArray().put(payload.getJSONObject("session"))),
                 hostNames,
-            ).single()
+            ).singleOrNull()
+                ?: throw IOException("Opened tmux session response is missing a pane identifier")
             val terminal = payload.getJSONObject("terminal")
             return TmuxOpenResult(
                 sessionId = payload.getString("session_id"),
@@ -398,6 +399,16 @@ class AgentCommandApi(credentials: SavedCredentials) {
                 lines = lines,
                 truncated = result?.optBoolean("truncated", false) ?: false,
                 error = error,
+                snapshotId = result?.optNullableString("snapshot_id"),
+                rangeStart = result?.optNullableInt("range_start"),
+                rangeEnd = result?.optNullableInt("range_end"),
+                hasOlder = result?.optNullableBoolean("has_older"),
+                lineCount = result?.optNullableInt("line_count"),
+                captureMode = result?.optNullableString("capture_mode"),
+                totalLines = result?.optNullableInt("total_lines"),
+                sourceTotalLines = result?.optNullableInt("source_total_lines"),
+                snapshotTruncated = result?.optNullableBoolean("snapshot_truncated"),
+                nextBefore = result?.optNullableInt("next_before"),
             )
         }
 

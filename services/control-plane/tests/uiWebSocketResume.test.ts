@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const userId = '11111111-1111-4111-8111-111111111111';
 const sessionId = '22222222-2222-4222-8222-222222222222';
 const subscriptionId = '33333333-3333-4333-8333-333333333333';
+const secondSubscriptionId = '44444444-4444-4444-8444-444444444444';
 const now = '2026-07-19T16:00:00.000Z';
 
 function waitForMessages(socket: WebSocket, count: number): Promise<Record<string, unknown>[]> {
@@ -30,7 +31,7 @@ describe('UI WebSocket resume', () => {
     vi.resetModules();
   });
 
-  it('replays after since and emits initial state only on the first subscribe', async () => {
+  it('precedes every correlated subscription acknowledgement with its initial state', async () => {
     const replay = vi.fn(async () => [
       {
         v: 1,
@@ -96,30 +97,30 @@ describe('UI WebSocket resume', () => {
       payload: { subscription_id: subscriptionId },
     });
 
-    const keepaliveMessages = waitForMessages(socket, 2);
+    const secondMessages = waitForMessages(socket, 2);
     socket.send(
       JSON.stringify({
         v: 1,
         type: 'ui.subscribe',
         ts: now,
         payload: {
-          subscription_id: subscriptionId,
-          since: 41,
-          topics: [{ type: 'events' }, { type: 'sessions' }],
+          subscription_id: secondSubscriptionId,
+          topics: [{ type: 'hosts' }],
         },
       })
     );
-    const keepalive = await keepaliveMessages;
-    expect(keepalive.map((message) => message.type)).toEqual([
-      'events.appended',
+    const second = await secondMessages;
+    expect(second.map((message) => message.type)).toEqual([
+      'sessions.changed',
       'ui.subscribed',
     ]);
-    expect(keepalive[1]).toMatchObject({
-      payload: { subscription_id: subscriptionId },
+    expect(second[1]).toMatchObject({
+      payload: { subscription_id: secondSubscriptionId },
     });
-    expect(replay).toHaveBeenCalledTimes(2);
+    expect(replay).toHaveBeenCalledOnce();
     expect(replay).toHaveBeenCalledWith(userId, expect.any(Array), 41);
-    expect(initialSnapshot).toHaveBeenCalledOnce();
+    expect(initialSnapshot).toHaveBeenCalledTimes(2);
+    expect(initialSnapshot).toHaveBeenNthCalledWith(2, userId, [{ type: 'hosts' }]);
 
     socket.close();
     await app.close();

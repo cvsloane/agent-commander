@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import { CommandRequestSchema, CommandPayloadSchema, UpdateSessionRequestSchema, BulkOperationRequestSchema, CopyToSessionPayloadSchema, DashboardSpawnRequestSchema, SCROLLBACK_MAX_LINES, ScrollbackRequestSchema, ScrollbackResponseSchema, TranscriptRequestSchema, TranscriptResponseSchema } from '@agent-command/schema';
+import { CommandRequestSchema, CommandPayloadSchema, UpdateSessionRequestSchema, BulkOperationRequestSchema, CopyToSessionPayloadSchema, DashboardSpawnRequestSchema, SCROLLBACK_DEFAULT_PAGE_SIZE, SCROLLBACK_MAX_LINES, ScrollbackRequestSchema, ScrollbackResponseSchema, TranscriptRequestSchema, TranscriptResponseSchema } from '@agent-command/schema';
 import * as db from '../db/index.js';
 import { sessionGraph } from '../db/sessionGraph.js';
 import { agentTasks } from '../db/agentTasks.js';
@@ -41,6 +41,8 @@ const TMUX_COMMAND_TYPES = new Set([
 function capScrollbackResult(
   result: Awaited<ReturnType<typeof commandRouter.dispatchAndWait>>
 ): Awaited<ReturnType<typeof commandRouter.dispatchAndWait>> {
+  if (result.result?.capture_mode === 'snapshot') return result;
+
   const content = result.result?.content;
   if (typeof content !== 'string') return result;
 
@@ -54,6 +56,7 @@ function capScrollbackResult(
     result: {
       ...result.result,
       content: `${lines.slice(-SCROLLBACK_MAX_LINES).join('\n')}${hadTrailingNewline ? '\n' : ''}`,
+      line_count: SCROLLBACK_MAX_LINES,
       truncated: true,
     },
   };
@@ -441,6 +444,15 @@ export function registerSessionRoutes(app: FastifyInstance): void {
                 : {}),
               ...(body.data.end_line !== undefined
                 ? { line_end: body.data.end_line }
+                : {}),
+              ...(body.data.mode === 'full'
+                ? { page_size: body.data.page_size ?? SCROLLBACK_DEFAULT_PAGE_SIZE }
+                : {}),
+              ...(body.data.snapshot_id !== undefined
+                ? { snapshot_id: body.data.snapshot_id }
+                : {}),
+              ...(body.data.before_line !== undefined
+                ? { before_line: body.data.before_line }
                 : {}),
               strip_ansi: body.data.strip_ansi,
             },
