@@ -1017,6 +1017,80 @@ func TestTerminalManagerEnforcesReadOnlyAtPTYAndReattachesOnControlTransfer(t *t
 	}
 }
 
+type failNextViewerSessionRunner struct {
+	TmuxRunner
+	failNext bool
+}
+
+func (r *failNextViewerSessionRunner) Run(args ...string) error {
+	if r.failNext && len(args) > 0 && args[0] == "new-session" {
+		r.failNext = false
+		return errors.New("injected viewer replacement failure")
+	}
+	return r.TmuxRunner.Run(args...)
+}
+
+func managerWithFailedViewerReplacement(t *testing.T) *TerminalManager {
+	t.Helper()
+	baseRunner := newFakeTmuxRunner()
+	baseRunner.outputs["display-message -p -t %7 #{session_name}\t#{window_index}\t#{pane_index}"] =
+		[]byte("agents\t2\t1\n")
+	runner := &failNextViewerSessionRunner{TmuxRunner: baseRunner}
+	manager := newTerminalManagerWithRunner(nil, runner, t.TempDir())
+	t.Cleanup(manager.Close)
+	for _, channelID := range []string{"channel-1", "channel-2"} {
+		if _, err := manager.AttachWithOptions(channelID, "%7", AttachOptions{SessionID: "session-1"}); err != nil {
+			t.Fatalf("attach %s: %v", channelID, err)
+		}
+	}
+
+	runner.failNext = true
+	if err := manager.TakeControl("channel-2"); err == nil ||
+		!strings.Contains(err.Error(), "injected viewer replacement failure") {
+		t.Fatalf("control transfer error=%v, want injected replacement failure", err)
+	}
+	if viewer := manager.viewerByChannel["channel-1"]; viewer == nil || viewer.bridge != nil {
+		t.Fatalf("failed replacement viewer=%+v, want live viewer without bridge", viewer)
+	}
+	return manager
+}
+
+func TestTerminalResizeRejectsViewerAfterBridgeReplacementFails(t *testing.T) {
+	manager := managerWithFailedViewerReplacement(t)
+
+	if err := manager.Resize("channel-1", 120, 40); err == nil ||
+		err.Error() != "channel channel-1 has no active viewer bridge" {
+		t.Fatalf("resize error=%v, want missing active viewer bridge", err)
+	}
+}
+
+func TestTerminalDetachCleansViewerAfterBridgeReplacementFails(t *testing.T) {
+	manager := managerWithFailedViewerReplacement(t)
+
+	paneID, last := manager.Detach("channel-1")
+	if paneID != "%7" || !last {
+		t.Fatalf("detach result=(%q, %t), want (%%7, true)", paneID, last)
+	}
+
+	manager.mu.RLock()
+	_, viewerExists := manager.viewerByChannel["channel-1"]
+	_, paneExists := manager.channelToPane["channel-1"]
+	_, ptyExists := manager.channelToPTY["channel-1"]
+	_, perViewerExists := manager.channelPerViewer["channel-1"]
+	_, readOnlyExists := manager.channelReadOnly["channel-1"]
+	manager.mu.RUnlock()
+	if viewerExists || paneExists || ptyExists || perViewerExists || readOnlyExists {
+		t.Fatalf(
+			"detached failed viewer remains: viewer=%t pane=%t pty=%t per_viewer=%t readonly=%t",
+			viewerExists,
+			paneExists,
+			ptyExists,
+			perViewerExists,
+			readOnlyExists,
+		)
+	}
+}
+
 func TestViewerPTYBridgeCoalescesReadsBeforeFanout(t *testing.T) {
 	runner := newFakeTmuxRunner()
 	runner.outputs["display-message -p -t %7 #{session_name}\t#{window_index}\t#{pane_index}"] = []byte("agents\t2\t1\n")
