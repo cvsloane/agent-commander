@@ -4,7 +4,8 @@ branch: feat/android-tmux-parity-w4-ui
 base: 8076f235cdec5a0ed3e6ae3613c619bb9d445539
 implementation_sha: 3f3c823d1d604361745a88f58c15ea2ec541f089
 review_correction_sha: 1dd1bae3334524ea9e7ce896f0f7d3f4cd6f980d
-status: frozen after fresh-context review correction
+final_review_correction_sha: b3123b12c2fd3275438fc40357cc19ec0d802966
+status: frozen after final fresh-context review correction
 acceptance:
   - WIN-1
   - WIN-2
@@ -20,7 +21,7 @@ blockers: []
 - Added one phone-native `Window & pane actions` dialog for the current W1-authoritative viewer pane. It names the live host/session/window/pane, active/activity/bell state, tracked versus live-only authority, and explicit zoom state.
 - Window controls select a requested window through correlated W1 viewer focus of its active or first pane. A no-pane fallback uses `select_window` with an exact active-window topology expectation. New, rename, and close use the existing generic command API and W2 tracker.
 - Pane controls provide horizontal/vertical split, spatial left/up/down/right selection, explicit focus/zoom and unfocus/unzoom, and confirmed tracked-pane terminate/archive. Select, directional navigation, focus, and unfocus all use `{op:"focus_pane", pane_id, zoom}` through W1 authority and viewer-state reconciliation. Android never calls the raw toggle-style REST `zoom_pane`.
-- Rename and close register exact topology expectations. New and split require a correlated successful command result, retain `resultJson`, read the returned `pane_id`, resolve that ID through canonical `POST /v1/tmux/open` on the current host, and transactionally focus the returned durable `TmuxPane`. Android adopts the pane, title, and preferences only after exact focus succeeds; REST acceptance remains pending and no pane/index is fabricated.
+- Rename and close register exact topology expectations. New and split require a correlated successful command result and retain its exact `pane_id`, but do not open it immediately. Android waits for the exact persisted host/pane identity on `sessions.changed`, performs one canonical roster refresh, validates the durable session/host/pane/target, adopts an unmanaged pane through `POST /v1/tmux/open` only when needed, and then transactionally focuses it. The pane, title, and preferences change only after exact viewer focus succeeds; REST acceptance remains pending and no pane/index is fabricated.
 - Every close is confirmed. The stronger “ends the whole tmux session” copy appears only when a live topology session proves exactly one window. Pane termination separately confirms that it kills the pane and archives its tracked session.
 - Destructive close and terminate controls are disabled for a live-only authoritative pane. Capability/offline gating also prevents unsupported mutations.
 - Ported compact tmux layout parsing and directional selection: half-plane filtering, perpendicular-overlap preference, nearest primary center/gap, and deterministic tie-breaking. Incomplete layouts use pane-index previous/next with no wrap.
@@ -54,6 +55,15 @@ Fresh-context review correction:
 - RED receipt: the focused correction test failed on unresolved `CreatedPaneAnchor`; it passed after the exact durable-open anchor was implemented.
 - Both viewer-resolution timeout exits now use the same failure helper. The helper clears pending lifecycle viewer state, rejects the focus candidate, releases the mutation lock, and surfaces the failure. The same helper owns direct focus dispatch/resolution failures, preventing a timeout-specific stale-lock path. No instrumentation-only harness was added for private activity state.
 
+Final persistence-race correction:
+
+- Android now subscribes to the existing `sessions` UI-stream topic and parses only a bounded 128-item `sessions.changed` tmux-pane identity signal. Unrelated session changes have no Android roster side effect.
+- Created-pane state proves the path starts in `WaitForPersistence`, ignores unrelated changes, accepts only the exact host/pane event and persisted session ID, triggers one roster refresh, conditionally opens an unmanaged pane, and stays pending until correlated focus completes.
+- A 10-second persistence timeout fails the lifecycle operation and releases both the adoption state and lifecycle mutation lock. There is no polling, retry, backoff, fallback target, or second implementation.
+- `UiStreamContractTest` (+1, suite total 3): bounded exact signal parsing and the `sessions` subscription.
+- `TmuxLifecycleActionsTest` (+2, suite total 7): no immediate open, event-driven exact durable adoption, and timeout lock release.
+- RED receipts: unresolved `SessionsChangedEvent`/bounded signal symbols, then a missing `sessions` topic; unresolved `CreatedPaneAdoptionState`/actions. Each slice passed after its minimal implementation.
+
 Focused preservation command:
 
 ```bash
@@ -61,6 +71,7 @@ ANDROID_HOME=/home/cvsloane/android-sdk ./gradlew testDebugUnitTest \
   --tests com.heaviside.agentcommand.domain.TmuxLifecycleActionsTest \
   --tests com.heaviside.agentcommand.domain.SpatialPaneNavigationTest \
   --tests com.heaviside.agentcommand.data.AgentCommandContractTest \
+  --tests com.heaviside.agentcommand.data.UiStreamContractTest \
   --tests com.heaviside.agentcommand.domain.TmuxCommandTrackerTest \
   --tests com.heaviside.agentcommand.terminal.ViewerAuthorityTest
 ```
@@ -76,12 +87,12 @@ ANDROID_HOME=/home/cvsloane/android-sdk ./gradlew test lint assembleRelease
 Result:
 
 - `BUILD SUCCESSFUL`
-- 47/47 debug unit tests passed.
-- 47/47 release unit tests passed.
+- 50/50 debug unit tests passed.
+- 50/50 release unit tests passed.
 - Android lint passed with zero errors and 34 warnings.
 - Unsigned release assembly passed.
-- `app-release-unsigned.apk`: 2,335,438 bytes.
-- SHA-256: `3996538434f8bab02ce91268303119aa429ea065329b35e4b12473065296c544`.
+- `app-release-unsigned.apk`: 2,340,034 bytes.
+- SHA-256: `3bc29cde203091e3a5b251dbba2268cd9bb308a11941f79cc4c03c259269de25`.
 - `git diff --check`: passed before freeze.
 
 ## Changed paths
@@ -90,10 +101,13 @@ Result:
 - `apps/android/app/src/main/java/com/heaviside/agentcommand/data/AgentCommandApi.kt`
 - `apps/android/app/src/main/java/com/heaviside/agentcommand/data/Models.kt`
 - `apps/android/app/src/main/java/com/heaviside/agentcommand/data/TmuxApiModels.kt`
+- `apps/android/app/src/main/java/com/heaviside/agentcommand/data/UiStreamModels.kt`
+- `apps/android/app/src/main/java/com/heaviside/agentcommand/data/UiStreamSocket.kt`
 - `apps/android/app/src/main/java/com/heaviside/agentcommand/domain/SpatialPaneNavigation.kt`
 - `apps/android/app/src/main/java/com/heaviside/agentcommand/domain/TmuxCommandTracker.kt`
 - `apps/android/app/src/main/java/com/heaviside/agentcommand/domain/TmuxLifecycleActions.kt`
 - `apps/android/app/src/test/java/com/heaviside/agentcommand/data/AgentCommandContractTest.kt`
+- `apps/android/app/src/test/java/com/heaviside/agentcommand/data/UiStreamContractTest.kt`
 - `apps/android/app/src/test/java/com/heaviside/agentcommand/domain/SpatialPaneNavigationTest.kt`
 - `apps/android/app/src/test/java/com/heaviside/agentcommand/domain/TmuxCommandTrackerTest.kt`
 - `apps/android/app/src/test/java/com/heaviside/agentcommand/domain/TmuxLifecycleActionsTest.kt`
@@ -105,7 +119,7 @@ No backend, shared schema, renderer, transport, native launch, retry, harness, s
 - **WIN-1:** The authoritative action dialog exposes active/activity/bell window state and acknowledged selection through the existing correlated viewer focus path, with exact fallback topology truth only when no pane exists.
 - **WIN-2:** New/rename/close are available, every close is confirmed, the live single-window case warns that the whole tmux session ends, exact completion is shown, and the roster reconciles after success or failure.
 - **PANE-1:** Both split directions, spatial direction controls, explicit focus/unfocus, and confirmed tracked-pane terminate/archive are present. Live-only destructive controls are disabled.
-- **PANE-2:** Generic REST acceptance remains pending in `TmuxCommandTracker`; exact agent errors are retained; new/split canonically open the returned pane ID on the current host before exact focus and adoption; dedicated terminate trusts only the reviewed completion response; duplicate mutation is disabled until reconciliation finishes, including every viewer-resolution timeout and failure exit.
+- **PANE-2:** Generic REST acceptance remains pending in `TmuxCommandTracker`; exact agent errors are retained; new/split wait for exact persisted identity before a single canonical refresh and conditional adoption; dedicated terminate trusts only the reviewed completion response; duplicate mutation is disabled until reconciliation finishes, including persistence and viewer-resolution timeout/failure exits.
 - **REG-1 / REG-2:** Focused and full Android gates pass. No adjacent platform, release, renderer, backend, or schema scope was added.
 
 Integration, signed artifact, live public-path proof, and final Samsung interaction proof remain AI Lead/W5-owned. No true wall was encountered.
