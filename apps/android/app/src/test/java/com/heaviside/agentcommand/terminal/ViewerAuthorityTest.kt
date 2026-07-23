@@ -36,7 +36,7 @@ class ViewerAuthorityTest {
         assertEquals(expected, authority.authoritativeTarget)
         assertFalse(authority.canSendInput)
 
-        authority.controllerChanged(hasControl = true)
+        assertTrue(authority.controllerChanged(paneId = "%7", hasControl = true))
         assertTrue(authority.canSendInput)
     }
 
@@ -65,5 +65,34 @@ class ViewerAuthorityTest {
         )
         assertEquals(ViewerTarget("%8", zoomed = false), authority.authoritativeTarget)
         assertFalse(authority.canSendInput)
+    }
+
+    @Test
+    fun `control status only unlocks input for the authoritative pane`() {
+        val authority = ViewerAuthority()
+
+        authority.connecting(ViewerTarget("%7", zoomed = false))
+        authority.attached(readOnly = false)
+        authority.beginFocus("focus-1", ViewerTarget("%8", zoomed = false))
+
+        assertFalse(authority.controllerChanged(paneId = "%7", hasControl = true))
+        assertTrue(authority.controllerChanged(paneId = "%8", hasControl = true))
+        assertFalse(authority.canSendInput)
+        assertEquals(
+            ViewerResolution.Converged(ViewerTarget("%8", zoomed = false)),
+            authority.resolve(
+                NavigationResult(
+                    requestId = "focus-1",
+                    ok = true,
+                    paneId = "%8",
+                    windowIndex = 2,
+                    zoomed = false,
+                    message = null,
+                ),
+            ),
+        )
+        assertTrue(authority.canSendInput)
+        assertFalse(authority.controllerChanged(paneId = "%7", hasControl = false))
+        assertTrue(authority.canSendInput)
     }
 }

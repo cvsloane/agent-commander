@@ -749,17 +749,21 @@ func (m *TerminalManager) SendInput(channelID string, data string) error {
 	if isPTY {
 		ptyBridge = m.ptyBridges[paneID]
 	}
-	m.mu.RUnlock()
 
 	if !exists {
+		m.mu.RUnlock()
 		return fmt.Errorf("channel %s not found", channelID)
 	}
 	if readOnly {
+		m.mu.RUnlock()
 		return ErrReadOnly
 	}
 	if viewer != nil {
-		return viewer.bridge.Write([]byte(data))
+		err := viewer.bridge.Write([]byte(data))
+		m.mu.RUnlock()
+		return err
 	}
+	m.mu.RUnlock()
 
 	// In PTY mode, write directly to the PTY
 	if isPTY && ptyBridge != nil {
@@ -822,9 +826,16 @@ func (m *TerminalManager) Navigate(channelID string, navigation TerminalNavigati
 }
 
 // ViewerState returns the current grouped-viewer state read directly from tmux.
-func (m *TerminalManager) ViewerState(channelID string) (TerminalViewerState, error) {
+func (m *TerminalManager) ViewerState(channelID string) (state TerminalViewerState, err error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	notifyAuthority := false
+	readOnly := false
+	defer func() {
+		m.mu.Unlock()
+		if notifyAuthority {
+			m.emitViewerAuthorityStatus(channelID, readOnly)
+		}
+	}()
 	_, exists := m.channelToPane[channelID]
 	viewer := m.viewerByChannel[channelID]
 	if !exists {
@@ -833,15 +844,27 @@ func (m *TerminalManager) ViewerState(channelID string) (TerminalViewerState, er
 	if viewer == nil || viewer.bridge == nil {
 		return TerminalViewerState{}, fmt.Errorf("channel %s does not use a grouped viewer session", channelID)
 	}
-	return viewer.bridge.State()
+	state, err = viewer.bridge.State()
+	if err == nil {
+		readOnly = m.channelReadOnly[channelID]
+		notifyAuthority = true
+	}
+	return state, err
 }
 
 // FocusPane applies pane selection and zoom as one serialized viewer intent,
 // then returns the state read back from tmux. Callers should not treat the
 // request as successful until this method returns the requested state.
-func (m *TerminalManager) FocusPane(channelID, paneID string, zoom bool) (TerminalViewerState, error) {
+func (m *TerminalManager) FocusPane(channelID, paneID string, zoom bool) (state TerminalViewerState, err error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	notifyAuthority := false
+	readOnly := false
+	defer func() {
+		m.mu.Unlock()
+		if notifyAuthority {
+			m.emitViewerAuthorityStatus(channelID, readOnly)
+		}
+	}()
 	_, exists := m.channelToPane[channelID]
 	viewer := m.viewerByChannel[channelID]
 	if !exists {
@@ -870,7 +893,7 @@ func (m *TerminalManager) FocusPane(channelID, paneID string, zoom bool) (Termin
 		return m.restoreViewerFocusLocked(viewer, previous, err)
 	}
 	viewer.zoomApplied = zoom
-	state, err := viewer.bridge.State()
+	state, err = viewer.bridge.State()
 	if err != nil {
 		return m.restoreViewerFocusLocked(viewer, previous, err)
 	}
@@ -883,7 +906,87 @@ func (m *TerminalManager) FocusPane(channelID, paneID string, zoom bool) (Termin
 			zoom,
 		))
 	}
+	previousPaneID := viewer.paneID
+	if err := m.moveViewerResumeTokenLocked(viewer, paneID); err != nil {
+		return m.restoreViewerFocusLocked(viewer, previous, err)
+	}
+	m.moveViewerAuthorityLocked(viewer, previousPaneID, paneID)
+	readOnly = m.channelReadOnly[channelID]
+	notifyAuthority = true
 	return state, nil
+}
+
+func (m *TerminalManager) emitViewerAuthorityStatus(channelID string, readOnly bool) {
+	if m.onStatus == nil {
+		return
+	}
+	if readOnly {
+		m.onStatus(channelID, "readonly", "Read-only: another viewer has control")
+		return
+	}
+	m.onStatus(channelID, "control", "Control granted")
+}
+
+// PaneForChannel returns the pane currently authorized for a terminal channel.
+func (m *TerminalManager) PaneForChannel(channelID string) (string, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	paneID, exists := m.channelToPane[channelID]
+	return paneID, exists
+}
+
+func (m *TerminalManager) moveViewerResumeTokenLocked(viewer *terminalViewer, paneID string) error {
+	if viewer.paneID == paneID {
+		return nil
+	}
+	if err := m.runner.Run(
+		"set-option",
+		"-p",
+		"-t", paneID,
+		resumeOptionName(viewer.resumeToken),
+		viewer.resumeToken,
+	); err != nil {
+		return fmt.Errorf("persist terminal resume token on focused pane: %w", err)
+	}
+	if err := m.runner.Run(
+		"set-option",
+		"-pu",
+		"-t", viewer.paneID,
+		resumeOptionName(viewer.resumeToken),
+	); err != nil {
+		_ = m.runner.Run(
+			"set-option",
+			"-pu",
+			"-t", paneID,
+			resumeOptionName(viewer.resumeToken),
+		)
+		return fmt.Errorf("remove terminal resume token from previous pane: %w", err)
+	}
+	return nil
+}
+
+func (m *TerminalManager) moveViewerAuthorityLocked(
+	viewer *terminalViewer,
+	previousPaneID string,
+	paneID string,
+) {
+	channelID := viewer.channelID
+	wasController := m.paneController[previousPaneID] == channelID
+	if previousPaneID != paneID && wasController {
+		delete(m.paneController, previousPaneID)
+	}
+
+	targetController := m.paneController[paneID]
+	hasControl := targetController == channelID || (targetController == "" && wasController)
+	if hasControl {
+		m.paneController[paneID] = channelID
+	}
+
+	viewer.paneID = paneID
+	viewer.readOnly = !hasControl
+	viewer.bridge.setPaneID(paneID)
+	m.channelToPane[channelID] = paneID
+	m.channelReadOnly[channelID] = !hasControl
 }
 
 func (m *TerminalManager) restoreViewerFocusLocked(

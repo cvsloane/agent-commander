@@ -148,12 +148,17 @@ describe('terminal protocol', () => {
       ts: '2026-07-19T16:00:00.000Z',
       payload: {
         channel_id: '11111111-1111-4111-8111-111111111111',
+        pane_id: '%1',
         resume_token: 'resume-token',
         resumed: true,
         readonly: false,
       },
     });
-    expect(status.payload).toMatchObject({ resume_token: 'resume-token', resumed: true });
+    expect(status.payload).toMatchObject({
+      pane_id: '%1',
+      resume_token: 'resume-token',
+      resumed: true,
+    });
     expect(status).not.toHaveProperty('seq');
   });
 

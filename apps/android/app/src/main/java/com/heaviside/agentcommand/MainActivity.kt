@@ -1977,17 +1977,25 @@ class MainActivity : Activity() {
             terminalView?.append(data)
         }
 
-        override fun onStatus(type: String, message: String?) = runOnUiThread {
+        override fun onStatus(type: String, message: String?, paneId: String?) = runOnUiThread {
             if (!isCurrentConnection(generation, sessionId)) return@runOnUiThread
             when (type) {
                 "control" -> {
-                    viewerAuthority.controllerChanged(hasControl = true)
-                    syncInteractionUi(message ?: statusPrefix())
+                    if (paneId != null && viewerAuthority.controllerChanged(paneId, hasControl = true)) {
+                        syncInteractionUi(
+                            if (viewerAuthority.hasPendingNavigation) statusPrefix()
+                            else message ?: statusPrefix(),
+                        )
+                    }
                     return@runOnUiThread
                 }
                 "readonly" -> {
-                    viewerAuthority.controllerChanged(hasControl = false)
-                    syncInteractionUi(message ?: statusPrefix())
+                    if (paneId != null && viewerAuthority.controllerChanged(paneId, hasControl = false)) {
+                        syncInteractionUi(
+                            if (viewerAuthority.hasPendingNavigation) statusPrefix()
+                            else message ?: statusPrefix(),
+                        )
+                    }
                     return@runOnUiThread
                 }
                 "error" -> {

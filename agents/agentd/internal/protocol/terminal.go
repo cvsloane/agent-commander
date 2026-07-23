@@ -54,6 +54,7 @@ type TerminalOutputPayload struct {
 
 type TerminalStatusPayload struct {
 	ChannelID   string `json:"channel_id"`
+	PaneID      string `json:"pane_id,omitempty"`
 	Message     string `json:"message,omitempty"`
 	ReadOnly    *bool  `json:"readonly,omitempty"`
 	ResumeToken string `json:"resume_token,omitempty"`

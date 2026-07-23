@@ -42,6 +42,7 @@ class ViewerAuthority {
         private set
 
     private var pendingNavigation: PendingNavigation? = null
+    private var pendingControllerConfirmation: ControllerConfirmation? = null
     private var viewerConverged = false
 
     val hasPendingNavigation: Boolean
@@ -61,22 +62,48 @@ class ViewerAuthority {
         desiredTarget = target
         authoritativeTarget = null
         pendingNavigation = null
+        pendingControllerConfirmation = null
         viewerConverged = false
         failureMessage = null
     }
 
     fun attached(readOnly: Boolean) {
         connectionState = TerminalConnectionState.ATTACHED
-        controllerChanged(!readOnly)
+        desiredTarget?.let { target ->
+            controllerChanged(target.paneId, !readOnly)
+        }
     }
 
-    fun controllerChanged(hasControl: Boolean) {
-        controllerOwnership = if (hasControl) ControllerOwnership.CONTROL else ControllerOwnership.READ_ONLY
+    fun controllerChanged(paneId: String, hasControl: Boolean): Boolean {
+        if (paneId.isBlank()) return false
+        val confirmation = ControllerConfirmation(
+            paneId = paneId,
+            ownership = if (hasControl) ControllerOwnership.CONTROL else ControllerOwnership.READ_ONLY,
+        )
+        if (pendingNavigation != null && desiredTarget?.paneId == paneId) {
+            pendingControllerConfirmation = confirmation
+            return true
+        }
+        if (viewerConverged && authoritativeTarget?.paneId == paneId) {
+            controllerOwnership = confirmation.ownership
+            return true
+        }
+        if (
+            pendingNavigation == null &&
+            authoritativeTarget == null &&
+            desiredTarget?.paneId == paneId
+        ) {
+            controllerOwnership = confirmation.ownership
+            return true
+        }
+        return false
     }
 
     fun beginFocus(requestId: String, target: ViewerTarget = requireNotNull(desiredTarget)) {
         desiredTarget = target
         pendingNavigation = PendingNavigation(requestId, reconcilingTimedOutFocus = false)
+        pendingControllerConfirmation = null
+        controllerOwnership = ControllerOwnership.UNKNOWN
         authoritativeTarget = null
         viewerConverged = false
         failureMessage = null
@@ -99,8 +126,14 @@ class ViewerAuthority {
         val expected = desiredTarget
         viewerConverged = result.ok && expected != null && reportedTarget == expected
         val resolution = if (viewerConverged) {
-            ViewerResolution.Converged(requireNotNull(expected))
+            val convergedTarget = requireNotNull(expected)
+            controllerOwnership = pendingControllerConfirmation
+                ?.takeIf { it.paneId == convergedTarget.paneId }
+                ?.ownership
+                ?: ControllerOwnership.UNKNOWN
+            ViewerResolution.Converged(convergedTarget)
         } else {
+            controllerOwnership = ControllerOwnership.UNKNOWN
             ViewerResolution.Failed(
                 when {
                     pending.reconcilingTimedOutFocus && !result.message.isNullOrBlank() ->
@@ -113,6 +146,7 @@ class ViewerAuthority {
                 },
             )
         }
+        pendingControllerConfirmation = null
         failureMessage = (resolution as? ViewerResolution.Failed)?.message
         return resolution
     }
@@ -120,6 +154,8 @@ class ViewerAuthority {
     fun failPending(requestId: String, message: String): ViewerResolution {
         if (pendingNavigation?.requestId != requestId) return ViewerResolution.Ignored
         pendingNavigation = null
+        pendingControllerConfirmation = null
+        controllerOwnership = ControllerOwnership.UNKNOWN
         failureMessage = message
         return ViewerResolution.Failed(message)
     }
@@ -129,6 +165,7 @@ class ViewerAuthority {
         controllerOwnership = ControllerOwnership.UNKNOWN
         authoritativeTarget = null
         pendingNavigation = null
+        pendingControllerConfirmation = null
         viewerConverged = false
         failureMessage = null
     }
@@ -138,6 +175,7 @@ class ViewerAuthority {
         controllerOwnership = ControllerOwnership.UNKNOWN
         authoritativeTarget = null
         pendingNavigation = null
+        pendingControllerConfirmation = null
         viewerConverged = false
         failureMessage = null
     }
@@ -145,5 +183,10 @@ class ViewerAuthority {
     private data class PendingNavigation(
         val requestId: String,
         val reconcilingTimedOutFocus: Boolean,
+    )
+
+    private data class ControllerConfirmation(
+        val paneId: String,
+        val ownership: ControllerOwnership,
     )
 }

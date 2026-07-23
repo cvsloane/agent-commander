@@ -80,6 +80,7 @@ export const BrowserTerminalOutputMessageSchema = z.object({
 
 export const BrowserTerminalAttachedMessageSchema = z.object({
   type: z.literal('attached'),
+  pane_id: z.string().min(1).optional(),
   message: z.string().optional(),
   readonly: z.boolean().optional(),
   resumed: z.boolean().optional(),
@@ -88,6 +89,7 @@ export const BrowserTerminalAttachedMessageSchema = z.object({
 
 const BrowserTerminalSimpleStatusMessageSchema = z.object({
   type: z.enum(['detached', 'error', 'readonly', 'control']),
+  pane_id: z.string().min(1).optional(),
   message: z.string().optional(),
 });
 

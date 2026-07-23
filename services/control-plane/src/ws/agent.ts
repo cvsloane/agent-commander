@@ -477,6 +477,7 @@ function deliverTerminalStatus(message: TerminalStatusMessage): void {
     : message.type === 'terminal.lag' ? 'lag'
     : 'error';
   handleTerminalStatus(payload.channel_id, status, payload.message, {
+    ...(payload.pane_id ? { pane_id: payload.pane_id } : {}),
     ...(payload.readonly !== undefined ? { readonly: payload.readonly } : {}),
     ...(payload.resumed !== undefined ? { resumed: payload.resumed } : {}),
     ...(payload.resume_token ? { resume_token: payload.resume_token } : {}),

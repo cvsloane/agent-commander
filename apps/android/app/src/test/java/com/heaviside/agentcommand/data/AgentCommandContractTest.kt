@@ -147,7 +147,7 @@ class AgentCommandContractTest {
             object : TerminalSocket.Listener {
                 override fun onAttached(readOnly: Boolean, resumed: Boolean, resumeToken: String?) = Unit
                 override fun onOutput(data: ByteArray) = Unit
-                override fun onStatus(type: String, message: String?) = Unit
+                override fun onStatus(type: String, message: String?, paneId: String?) = Unit
                 override fun onNavigationResult(result: NavigationResult) = Unit
                 override fun onFailure(message: String) = Unit
             },

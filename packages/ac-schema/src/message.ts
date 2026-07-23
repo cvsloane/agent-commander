@@ -135,6 +135,7 @@ export const TerminalStatusMessageSchema = ServerMessageEnvelopeSchema.extend({
   ]),
   payload: z.object({
     channel_id: z.string().uuid(),
+    pane_id: z.string().min(1).optional(),
     message: z.string().optional(),
     readonly: z.boolean().optional(),
     resumed: z.boolean().optional(),

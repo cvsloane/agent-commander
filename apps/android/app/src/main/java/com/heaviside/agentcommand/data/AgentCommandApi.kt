@@ -496,7 +496,7 @@ class TerminalSocket(
     interface Listener {
         fun onAttached(readOnly: Boolean, resumed: Boolean, resumeToken: String?)
         fun onOutput(data: ByteArray)
-        fun onStatus(type: String, message: String?)
+        fun onStatus(type: String, message: String?, paneId: String?)
         fun onNavigationResult(result: NavigationResult)
         fun onFailure(message: String)
     }
@@ -549,8 +549,12 @@ class TerminalSocket(
                 ),
             )
             "control", "readonly", "detached", "error", "idle_timeout", "lag" ->
-                listener.onStatus(type, message.optString("message").takeIf { it.isNotBlank() })
-            else -> listener.onStatus(type.ifBlank { "unknown" }, null)
+                listener.onStatus(
+                    type,
+                    message.optString("message").takeIf { it.isNotBlank() },
+                    message.optString("pane_id").takeIf { it.isNotBlank() },
+                )
+            else -> listener.onStatus(type.ifBlank { "unknown" }, null, null)
         }
     }
 

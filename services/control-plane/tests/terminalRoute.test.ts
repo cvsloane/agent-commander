@@ -468,7 +468,14 @@ describe('terminal websocket route', () => {
     const attach = agentSend.mock.calls
       .map(([raw]) => JSON.parse(String(raw)) as { type: string; payload: { channel_id: string } })
       .find((message) => message.type === 'terminal.attach');
-    handleTerminalStatus(String(attach?.payload.channel_id), 'control');
+    const controlMessage = waitForMessage(socket);
+    handleTerminalStatus(String(attach?.payload.channel_id), 'control', undefined, {
+      pane_id: '%1',
+    });
+    expect(JSON.parse((await controlMessage).data.toString())).toEqual({
+      type: 'control',
+      pane_id: '%1',
+    });
     socket.send(JSON.stringify({ type: 'detach' }));
     await eventually(() => {
       const messageTypes = agentSend.mock.calls.map(([raw]) => JSON.parse(String(raw)).type);

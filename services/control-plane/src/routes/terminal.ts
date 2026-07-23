@@ -157,6 +157,7 @@ export function handleTerminalStatus(
   status: 'attached' | 'detached' | 'error' | 'readonly' | 'control' | 'lag',
   message?: string,
   details: {
+    pane_id?: string;
     readonly?: boolean;
     resumed?: boolean;
     resume_token?: string;
