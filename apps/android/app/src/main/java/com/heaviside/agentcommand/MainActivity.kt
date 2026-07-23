@@ -49,13 +49,27 @@ import com.heaviside.agentcommand.domain.ClaudePaneVisibility
 import com.heaviside.agentcommand.domain.ClaudeTranscriptFormatter
 import com.heaviside.agentcommand.domain.KeyRailMode
 import com.heaviside.agentcommand.domain.LastTargetPreference
+import com.heaviside.agentcommand.domain.LifecycleAction
+import com.heaviside.agentcommand.domain.LifecycleCompletion
+import com.heaviside.agentcommand.domain.LifecycleTransport
+import com.heaviside.agentcommand.domain.PaneDirection
+import com.heaviside.agentcommand.domain.PaneSplitDirection
 import com.heaviside.agentcommand.domain.ScrollbackReaderState
+import com.heaviside.agentcommand.domain.TmuxHostNode
 import com.heaviside.agentcommand.domain.TmuxCommandState
 import com.heaviside.agentcommand.domain.TmuxCommandTracker
+import com.heaviside.agentcommand.domain.TmuxLifecycleActions
+import com.heaviside.agentcommand.domain.TmuxLifecycleConfirmation
+import com.heaviside.agentcommand.domain.TmuxPaneNode
 import com.heaviside.agentcommand.domain.TmuxRoster
+import com.heaviside.agentcommand.domain.TmuxSessionNode
+import com.heaviside.agentcommand.domain.TmuxWindowNode
+import com.heaviside.agentcommand.domain.TopologyExpectation
 import com.heaviside.agentcommand.domain.TranscriptHistory
 import com.heaviside.agentcommand.domain.WorkbenchNavigation
 import com.heaviside.agentcommand.domain.WorkbenchNavigationAction
+import com.heaviside.agentcommand.domain.hostSupportsPercentSplits
+import com.heaviside.agentcommand.domain.resolveDirectionalPaneTargets
 import com.heaviside.agentcommand.security.AppPreferenceStore
 import com.heaviside.agentcommand.security.SecureStore
 import com.heaviside.agentcommand.terminal.ControllerOwnership
@@ -73,6 +87,15 @@ import kotlin.math.roundToInt
 
 class MainActivity : Activity() {
     private enum class Screen { SIGN_IN, ROSTER, TERMINAL }
+
+    private data class LifecycleContext(
+        val host: TmuxHostNode,
+        val session: TmuxSessionNode,
+        val window: TmuxWindowNode,
+        val pane: TmuxPaneNode,
+        val commandPane: TmuxPane,
+        val zoomed: Boolean,
+    )
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
@@ -116,6 +139,13 @@ class MainActivity : Activity() {
     private var uiStreamFailure: String? = null
     private val commandTracker = TmuxCommandTracker()
     private val commandCallbacks = mutableMapOf<String, (TmuxCommandState) -> Unit>()
+    private val liveTopologies = mutableMapOf<String, TmuxTopologyEvent>()
+    private var lifecycleDialog: Dialog? = null
+    private var lifecycleStatus: TextView? = null
+    private val lifecycleButtons = mutableMapOf<Button, Boolean>()
+    private var lifecycleMutationPending = false
+    private var pendingLifecycleViewerTarget: ViewerTarget? = null
+    private var pendingLifecycleSuccess: String? = null
 
     private val reconnect = Runnable {
         if (started && screen == Screen.TERMINAL && terminalSocket == null) connectTerminal()
@@ -166,6 +196,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         navigatorDialog?.dismiss()
+        lifecycleDialog?.dismiss()
         io.shutdownNow()
         super.onDestroy()
     }
@@ -252,6 +283,7 @@ class MainActivity : Activity() {
         activePane = null
         workbenchNavigation.clear()
         navigatorDialog?.dismiss()
+        lifecycleDialog?.dismiss()
 
         val root = verticalLayout()
         val header = horizontalLayout().apply {
@@ -270,6 +302,7 @@ class MainActivity : Activity() {
             api = null
             topology = null
             roster = TmuxRoster(emptyList())
+            liveTopologies.clear()
             showSignIn()
         })
         root.addView(header, matchWrap())
@@ -301,8 +334,7 @@ class MainActivity : Activity() {
             runCatching { currentApi.loadTopology() }
                 .onSuccess { loaded -> runOnUiThread {
                     if (screen != Screen.ROSTER) return@runOnUiThread
-                    topology = loaded
-                    roster = TmuxRoster.from(loaded)
+                    acceptLoadedTopology(loaded)
                     pendingCredentials?.let(secureStore::save)
                     pendingCredentials = null
                     connectUiStream()
@@ -358,6 +390,7 @@ class MainActivity : Activity() {
         activePane = pane
         workbenchNavigation.attach(pane)
         disconnectTerminal()
+        lifecycleDialog?.dismiss()
 
         val root = verticalLayout()
         val titleRow = horizontalLayout().apply {
@@ -399,6 +432,7 @@ class MainActivity : Activity() {
 
         val workbenchTools = horizontalLayout().apply { gravity = Gravity.CENTER_VERTICAL }
         workbenchTools.addView(button("History") { activePane?.let(::showHistory) })
+        workbenchTools.addView(button("Actions") { showTmuxActions() })
         claudeButton = button("Claude") { activePane?.let(::showClaudeTranscript) }.apply {
             visibility = if (ClaudePaneVisibility.isVisible(pane)) View.VISIBLE else View.GONE
         }.also(workbenchTools::addView)
@@ -484,6 +518,537 @@ class MainActivity : Activity() {
         }
         navigatorDialog = dialog
         dialog.showFullScreen()
+    }
+
+    private fun showTmuxActions() {
+        if (screen != Screen.TERMINAL) return
+        val context = lifecycleContext()
+        if (context == null) {
+            toast("Wait for the current tmux pane to become authoritative.")
+            return
+        }
+        lifecycleDialog?.dismiss()
+        lifecycleButtons.clear()
+        val root = verticalLayout().apply { setPadding(dp(12), dp(8), dp(12), dp(12)) }
+        val dialog = fullScreenDialog(root)
+        val header = horizontalLayout().apply { gravity = Gravity.CENTER_VERTICAL }
+        header.addView(heading("Window & pane actions").apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        header.addView(button("Close") { dialog.dismiss() })
+        root.addView(header, matchWrap())
+        root.addView(
+            body(
+                buildString {
+                    append("${context.host.host.name} · ${context.session.name}")
+                    append("\nWindow ${context.window.index}: ${context.window.name}")
+                    if (context.window.active == true) append(" · active")
+                    if (context.window.activity == true) append(" · activity")
+                    if (context.window.bell == true) append(" · bell")
+                    append("\nPane ${context.pane.paneId} · index ${context.pane.paneIndex}")
+                    append(if (context.pane.attachable) " · tracked" else " · live-only")
+                    append(if (context.zoomed) " · focused/zoomed" else " · unzoomed")
+                },
+                Color.WHITE,
+            ),
+            matchWrap(),
+        )
+        lifecycleStatus = body(
+            if (lifecycleMutationPending) {
+                "Pending · waiting for authoritative completion…"
+            } else {
+                "Ready · REST acceptance is not command success."
+            },
+        ).also { root.addView(it, matchWrap()) }
+
+        val hostAvailable = context.host.host.online &&
+            context.host.host.capabilities.tmux &&
+            context.host.host.capabilities.terminal
+        val trackedCurrent = context.pane.attachable
+        val canSpawn = hostAvailable && context.host.host.capabilities.spawn
+        val canDestroy = hostAvailable && context.host.host.capabilities.kill && trackedCurrent
+        val sections = verticalLayout()
+        sections.addView(heading("Window").apply { textSize = 18f }, matchWrap())
+        sections.addView(
+            lifecycleButton("Select window…", hostAvailable) {
+                showWindowSelection(context)
+            },
+            matchWrap(),
+        )
+        sections.addView(
+            lifecycleButton("New window", canSpawn) {
+                executeLifecycleAction(
+                    context,
+                    LifecycleAction.NewWindow(
+                        context.pane.currentPath ?: context.commandPane.cwd,
+                    ),
+                    "create a new window",
+                )
+            },
+            matchWrap(),
+        )
+        sections.addView(
+            lifecycleButton("Rename current window", hostAvailable) {
+                showRenameWindow(context)
+            },
+            matchWrap(),
+        )
+        sections.addView(
+            lifecycleButton("Close current window", canDestroy) {
+                confirmCloseWindow(context)
+            },
+            matchWrap(),
+        )
+
+        sections.addView(heading("Pane").apply {
+            textSize = 18f
+            setPadding(0, dp(16), 0, dp(4))
+        }, matchWrap())
+        val splitRow = horizontalLayout()
+        splitRow.addView(
+            lifecycleButton("Split horizontal", canSpawn) {
+                executeLifecycleAction(
+                    context,
+                    LifecycleAction.SplitPane(
+                        direction = PaneSplitDirection.HORIZONTAL,
+                        cwd = context.pane.currentPath ?: context.commandPane.cwd,
+                        supportsPercent = hostSupportsPercentSplits(context.host.host),
+                    ),
+                    "split the pane horizontally",
+                )
+            },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+        )
+        splitRow.addView(
+            lifecycleButton("Split vertical", canSpawn) {
+                executeLifecycleAction(
+                    context,
+                    LifecycleAction.SplitPane(
+                        direction = PaneSplitDirection.VERTICAL,
+                        cwd = context.pane.currentPath ?: context.commandPane.cwd,
+                        supportsPercent = hostSupportsPercentSplits(context.host.host),
+                    ),
+                    "split the pane vertically",
+                )
+            },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+        )
+        sections.addView(splitRow, matchWrap())
+
+        val directional = resolveDirectionalPaneTargets(
+            context.window.panes,
+            context.pane.paneId,
+            context.window.layout.orEmpty(),
+        )
+        val directionRow = horizontalLayout()
+        listOf(
+            "←" to PaneDirection.LEFT,
+            "↑" to PaneDirection.UP,
+            "↓" to PaneDirection.DOWN,
+            "→" to PaneDirection.RIGHT,
+        ).forEach { (label, direction) ->
+            val target = directional.getValue(direction)
+            directionRow.addView(
+                lifecycleButton(label, target != null) {
+                    target?.let {
+                        executeLifecycleAction(
+                            context,
+                            LifecycleAction.SelectPane(it.paneId, preserveZoom = context.zoomed),
+                            "select pane ${direction.name.lowercase()}",
+                        )
+                    }
+                },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+            )
+        }
+        sections.addView(directionRow, matchWrap())
+
+        sections.addView(
+            lifecycleButton(
+                if (context.zoomed) "Unfocus / unzoom pane" else "Focus / zoom pane",
+                hostAvailable,
+            ) {
+                executeLifecycleAction(
+                    context,
+                    LifecycleAction.SetPaneFocus(context.pane.paneId, focused = !context.zoomed),
+                    if (context.zoomed) "unfocus the pane" else "focus the pane",
+                )
+            },
+            matchWrap(),
+        )
+        sections.addView(
+            lifecycleButton("Terminate & archive tracked pane", canDestroy) {
+                confirmTerminatePane(context)
+            },
+            matchWrap(),
+        )
+        if (!trackedCurrent) {
+            sections.addView(
+                body("Destructive actions are disabled because this authoritative pane is live-only."),
+                matchWrap(),
+            )
+        }
+        root.addView(
+            ScrollView(this).apply { addView(sections, matchWrap()) },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f),
+        )
+        dialog.setOnDismissListener {
+            if (lifecycleDialog === dialog) {
+                lifecycleDialog = null
+                lifecycleStatus = null
+                lifecycleButtons.clear()
+            }
+        }
+        lifecycleDialog = dialog
+        setLifecyclePending(lifecycleMutationPending)
+        dialog.showFullScreen()
+    }
+
+    private fun lifecycleContext(): LifecycleContext? {
+        val commandPane = activePane ?: return null
+        val target = viewerAuthority.authoritativeTarget ?: return null
+        val host = roster.hosts.firstOrNull { it.host.id == commandPane.hostId } ?: return null
+        host.sessions.forEach { session ->
+            session.windows.forEach { window ->
+                val pane = window.panes.firstOrNull { it.paneId == target.paneId }
+                if (pane != null && session.name == commandPane.tmuxSessionName) {
+                    return LifecycleContext(host, session, window, pane, commandPane, target.zoomed)
+                }
+            }
+        }
+        return null
+    }
+
+    private fun lifecycleButton(label: String, enabled: Boolean, action: () -> Unit): Button =
+        button(label, action).also {
+            lifecycleButtons[it] = enabled
+            it.isEnabled = enabled && !lifecycleMutationPending
+        }
+
+    private fun showWindowSelection(context: LifecycleContext) {
+        val windows = context.session.windows.sortedBy { it.index }
+        val labels = windows.map { window ->
+            buildString {
+                append("${window.index}: ${window.name}")
+                if (window.active == true) append(" · active")
+                if (window.activity == true) append(" · activity")
+                if (window.bell == true) append(" · bell")
+            }
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Select window")
+            .setItems(labels) { _, index ->
+                val window = windows[index]
+                val target = window.panes.firstOrNull { it.active == true } ?: window.panes.firstOrNull()
+                executeLifecycleAction(
+                    context,
+                    LifecycleAction.SelectWindow(
+                        sessionName = context.session.name,
+                        windowIndex = window.index,
+                        paneId = target?.paneId,
+                        preserveZoom = context.zoomed,
+                    ),
+                    "select window ${window.index}",
+                )
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showRenameWindow(context: LifecycleContext) {
+        val input = EditText(this).apply {
+            setText(context.window.name)
+            setSelection(text.length)
+            setSingleLine()
+            setTextColor(Color.WHITE)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Rename window ${context.window.index}")
+            .setView(input)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Rename") { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isBlank()) {
+                    setLifecycleStatus("Failed · window name is required.", ERROR)
+                } else {
+                    executeLifecycleAction(
+                        context,
+                        LifecycleAction.RenameWindow(
+                            context.session.name,
+                            context.window.index,
+                            name,
+                        ),
+                        "rename window ${context.window.index}",
+                    )
+                }
+            }
+            .show()
+    }
+
+    private fun confirmCloseWindow(context: LifecycleContext) {
+        AlertDialog.Builder(this)
+            .setTitle("Confirm window close")
+            .setMessage(
+                TmuxLifecycleConfirmation.closeWindow(
+                    context.window.index,
+                    context.session.windows.size.takeIf { context.session.attached != null },
+                ),
+            )
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Close window") { _, _ ->
+                executeLifecycleAction(
+                    context,
+                    LifecycleAction.CloseWindow(context.session.name, context.window.index),
+                    "close window ${context.window.index}",
+                )
+            }
+            .show()
+    }
+
+    private fun confirmTerminatePane(context: LifecycleContext) {
+        val tracked = context.pane.pane ?: return
+        AlertDialog.Builder(this)
+            .setTitle("Confirm pane termination")
+            .setMessage(TmuxLifecycleConfirmation.terminatePane(context.pane.paneId))
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Terminate & archive") { _, _ ->
+                executeLifecycleAction(
+                    context,
+                    LifecycleAction.TerminatePane(tracked.sessionId),
+                    "terminate pane ${context.pane.paneId}",
+                )
+            }
+            .show()
+    }
+
+    private fun executeLifecycleAction(
+        context: LifecycleContext,
+        action: LifecycleAction,
+        label: String,
+    ) {
+        if (lifecycleMutationPending || viewerAuthority.hasPendingNavigation) {
+            setLifecycleStatus("Pending · wait for the current tmux action to finish.", MUTED)
+            return
+        }
+        val current = lifecycleContext()
+        if (
+            current == null ||
+            current.host.host.id != context.host.host.id ||
+            current.session.name != context.session.name ||
+            current.window.index != context.window.index ||
+            current.pane.paneId != context.pane.paneId
+        ) {
+            setLifecycleStatus("Failed · authoritative pane changed; reopen Actions.", ERROR)
+            return
+        }
+        when (val transport = TmuxLifecycleActions.plan(action)) {
+            is LifecycleTransport.ViewerFocus ->
+                executeLifecycleViewerAction(action, transport.target, label)
+            is LifecycleTransport.RestCommand ->
+                executeLifecycleRestAction(current, transport, label)
+            is LifecycleTransport.BulkTerminate ->
+                executeLifecycleTerminate(current, transport.sessionId, label)
+        }
+    }
+
+    private fun executeLifecycleViewerAction(
+        action: LifecycleAction,
+        target: ViewerTarget,
+        label: String,
+    ) {
+        if (
+            terminalSocket == null ||
+            viewerAuthority.connectionState != TerminalConnectionState.ATTACHED
+        ) {
+            setLifecycleStatus("Failed · terminal viewer is not attached.", ERROR)
+            return
+        }
+        if (viewerAuthority.authoritativeTarget == target && !viewerAuthority.hasPendingNavigation) {
+            setLifecycleStatus("Succeeded · ${target.paneId} is already authoritative.", ONLINE)
+            return
+        }
+        if (action is LifecycleAction.SelectWindow || action is LifecycleAction.SelectPane) {
+            val pane = activePane?.hostId?.let { roster.findPane(it, target.paneId) }
+            if (pane != null) {
+                workbenchNavigation.select(
+                    pane = pane,
+                    viewerAvailable = true,
+                    zoomed = target.zoomed,
+                )
+            }
+        }
+        setLifecyclePending(true)
+        pendingLifecycleViewerTarget = target
+        pendingLifecycleSuccess = "Succeeded · $label."
+        setLifecycleStatus("Pending · confirming $label through the terminal viewer…", MUTED)
+        if (!requestViewerFocus(target)) {
+            pendingLifecycleViewerTarget = null
+            pendingLifecycleSuccess = null
+            workbenchNavigation.rejectCandidate()
+            setLifecyclePending(false)
+            setLifecycleStatus("Failed · pane focus request could not be sent.", ERROR)
+        }
+    }
+
+    private fun executeLifecycleRestAction(
+        context: LifecycleContext,
+        transport: LifecycleTransport.RestCommand,
+        label: String,
+    ) {
+        setLifecyclePending(true)
+        setLifecycleStatus("Pending · dispatching $label…", MUTED)
+        dispatchTrackedCommand(
+            context.commandPane,
+            transport.command,
+            transport.expectation,
+        ) { state ->
+            when (state) {
+                is TmuxCommandState.Pending ->
+                    setLifecycleStatus(
+                        "Pending · $label accepted; waiting for command/topology completion…",
+                        MUTED,
+                    )
+                is TmuxCommandState.Failed ->
+                    reconcileRosterAfterMutation(
+                        "Failed · ${state.error.code}: ${state.error.message}",
+                        ERROR,
+                    )
+                is TmuxCommandState.Succeeded -> {
+                    if (transport.completion == LifecycleCompletion.EXACT_RESULT) {
+                        val createdPaneId = state.createdPaneId()
+                        if (createdPaneId == null) {
+                            reconcileRosterAfterMutation(
+                                "Failed · command completed without the required created pane ID.",
+                                ERROR,
+                            )
+                            return@dispatchTrackedCommand
+                        }
+                        pendingLifecycleViewerTarget = ViewerTarget(createdPaneId, zoomed = false)
+                        pendingLifecycleSuccess = "Succeeded · $label; selected $createdPaneId."
+                        setLifecycleStatus(
+                            "Completed · created $createdPaneId · confirming viewer focus…",
+                            MUTED,
+                        )
+                        if (!requestViewerFocus(requireNotNull(pendingLifecycleViewerTarget))) {
+                            pendingLifecycleViewerTarget = null
+                            pendingLifecycleSuccess = null
+                            workbenchNavigation.rejectCandidate()
+                            reconcileRosterAfterMutation(
+                                "Command succeeded · created $createdPaneId · viewer focus failed to send.",
+                                ERROR,
+                            )
+                        }
+                    } else {
+                        val closesCurrentWindow = transport.command.type == "kill_window"
+                        reconcileRosterAfterMutation(
+                            "Succeeded · $label.",
+                            ONLINE,
+                        ) {
+                            if (closesCurrentWindow) {
+                                lifecycleDialog?.dismiss()
+                                showRoster()
+                                refreshRoster()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun executeLifecycleTerminate(
+        context: LifecycleContext,
+        sessionId: String,
+        label: String,
+    ) {
+        if (context.pane.pane?.sessionId != sessionId) {
+            setLifecycleStatus("Failed · pane is no longer tracked by that session.", ERROR)
+            return
+        }
+        val currentApi = api ?: run {
+            setLifecycleStatus("Failed · sign in again.", ERROR)
+            return
+        }
+        setLifecyclePending(true)
+        setLifecycleStatus("Pending · waiting for terminate and archive completion…", MUTED)
+        io.execute {
+            runCatching { currentApi.terminateTrackedPane(sessionId) }
+                .onSuccess { result -> runOnUiThread {
+                    if (!result.completed) {
+                        reconcileRosterAfterMutation(
+                            "Failed · ${result.error ?: "tracked pane termination failed"}",
+                            ERROR,
+                        )
+                    } else {
+                        reconcileRosterAfterMutation(
+                            "Succeeded · $label and archive completed.",
+                            ONLINE,
+                        ) {
+                            lifecycleDialog?.dismiss()
+                            showRoster()
+                            refreshRoster()
+                        }
+                    }
+                } }
+                .onFailure { failure -> runOnUiThread {
+                    reconcileRosterAfterMutation(
+                        "Failed · ${failure.message ?: "tracked pane termination failed"}",
+                        ERROR,
+                    )
+                } }
+        }
+    }
+
+    private fun reconcileRosterAfterMutation(
+        finalStatus: String,
+        color: Int,
+        after: () -> Unit = {},
+    ) {
+        val currentApi = api
+        if (currentApi == null) {
+            setLifecyclePending(false)
+            setLifecycleStatus("$finalStatus\nRoster reconciliation failed: sign in again.", color)
+            after()
+            return
+        }
+        setLifecycleStatus("Reconciling authoritative roster…", MUTED)
+        io.execute {
+            runCatching { currentApi.loadTopology() }
+                .onSuccess { loaded -> runOnUiThread {
+                    acceptLoadedTopology(loaded)
+                    updateRosterViews()
+                    setLifecyclePending(false)
+                    setLifecycleStatus(finalStatus, color)
+                    after()
+                } }
+                .onFailure { failure -> runOnUiThread {
+                    setLifecyclePending(false)
+                    setLifecycleStatus(
+                        "$finalStatus\nRoster reconciliation failed: " +
+                            (failure.message ?: "unable to load topology"),
+                        color,
+                    )
+                    after()
+                } }
+        }
+    }
+
+    private fun TmuxCommandState.Succeeded.createdPaneId(): String? =
+        resultJson?.let { raw ->
+            runCatching { JSONObject(raw).optString("pane_id").takeIf(String::isNotBlank) }
+                .getOrNull()
+        }
+
+    private fun setLifecyclePending(pending: Boolean) {
+        lifecycleMutationPending = pending
+        lifecycleButtons.forEach { (button, allowed) ->
+            button.isEnabled = allowed && !pending
+        }
+    }
+
+    private fun setLifecycleStatus(message: String, color: Int) {
+        lifecycleStatus?.setTextColor(color)
+        lifecycleStatus?.text = message
     }
 
     private fun selectWorkbenchPane(pane: TmuxPane) {
@@ -956,6 +1521,7 @@ class MainActivity : Activity() {
                             if (generation != uiStreamGeneration) return@runOnUiThread
                             when (event) {
                                 is TmuxTopologyEvent -> {
+                                    liveTopologies[event.hostId] = event
                                     roster = roster.withTopology(event)
                                     commandTracker.observe(event).forEach(::deliverCommandState)
                                     updateRosterViews()
@@ -1038,6 +1604,7 @@ class MainActivity : Activity() {
     private fun dispatchTrackedCommand(
         pane: TmuxPane,
         command: TmuxCommand,
+        expectation: TopologyExpectation? = null,
         callback: (TmuxCommandState) -> Unit,
     ) {
         if (!started || !uiStreamConnected) {
@@ -1078,7 +1645,12 @@ class MainActivity : Activity() {
                         )
                         return@runOnUiThread
                     }
-                    val state = commandTracker.register(acceptance, pane.hostId, pane.sessionId)
+                    val state = commandTracker.register(
+                        acceptance,
+                        pane.hostId,
+                        pane.sessionId,
+                        expectation,
+                    )
                     if (state is TmuxCommandState.Pending) {
                         commandCallbacks[state.cmdId] = callback
                     }
@@ -1118,8 +1690,7 @@ class MainActivity : Activity() {
         io.execute {
             runCatching { currentApi.loadTopology() }
                 .onSuccess { loaded -> runOnUiThread {
-                    topology = loaded
-                    roster = TmuxRoster.from(loaded)
+                    acceptLoadedTopology(loaded)
                     updateRosterViews()
                 } }
                 .onFailure { failure -> runOnUiThread {
@@ -1127,6 +1698,13 @@ class MainActivity : Activity() {
                     updateRosterViews()
                 } }
         }
+    }
+
+    private fun acceptLoadedTopology(loaded: Topology) {
+        topology = loaded
+        roster = liveTopologies.values
+            .sortedBy { it.hostId }
+            .fold(TmuxRoster.from(loaded)) { current, event -> current.withTopology(event) }
     }
 
     private fun connectTerminal() {
@@ -1251,11 +1829,25 @@ class MainActivity : Activity() {
                     zoomButton?.text = if (tmuxZoomed) "Unzoom pane" else "Zoom pane"
                     syncInteractionUi()
                     terminalView?.requestFocus()
+                    if (pendingLifecycleViewerTarget == resolution.target) {
+                        val success = pendingLifecycleSuccess ?: "Succeeded · tmux viewer updated."
+                        pendingLifecycleViewerTarget = null
+                        pendingLifecycleSuccess = null
+                        reconcileRosterAfterMutation(success, ONLINE)
+                    }
                 }
                 is ViewerResolution.Failed -> {
                     cancelNavigationTimeout()
                     workbenchNavigation.rejectCandidate()
                     syncInteractionUi(resolution.message)
+                    if (pendingLifecycleViewerTarget != null) {
+                        pendingLifecycleViewerTarget = null
+                        pendingLifecycleSuccess = null
+                        reconcileRosterAfterMutation(
+                            "Failed · ${resolution.message}",
+                            ERROR,
+                        )
+                    }
                 }
             }
         }
@@ -1273,13 +1865,13 @@ class MainActivity : Activity() {
         requestViewerFocus(ViewerTarget(pane.paneId, zoom))
     }
 
-    private fun requestViewerFocus(expected: ViewerTarget) {
-        val socket = terminalSocket ?: return
-        if (viewerAuthority.hasPendingNavigation) return
+    private fun requestViewerFocus(expected: ViewerTarget): Boolean {
+        val socket = terminalSocket ?: return false
+        if (viewerAuthority.hasPendingNavigation) return false
         val requestId = socket.focusPane(expected.paneId, expected.zoomed)
         if (requestId == null) {
             handleTerminalFailure("Pane focus request could not be sent")
-            return
+            return false
         }
         viewerAuthority.beginFocus(requestId, expected)
         syncInteractionUi(
@@ -1292,6 +1884,7 @@ class MainActivity : Activity() {
             },
         )
         scheduleNavigationTimeout { reconcileTimedOutFocus(requestId) }
+        return true
     }
 
     private fun reconcileTimedOutFocus(focusRequestId: String) {
@@ -1331,6 +1924,12 @@ class MainActivity : Activity() {
 
     private fun handleTerminalFailure(message: String) {
         workbenchNavigation.rejectCandidate()
+        if (pendingLifecycleViewerTarget != null) {
+            pendingLifecycleViewerTarget = null
+            pendingLifecycleSuccess = null
+            setLifecyclePending(false)
+            setLifecycleStatus("Failed · $message", ERROR)
+        }
         disconnectTerminal()
         viewerAuthority.failed()
         reconnecting = true

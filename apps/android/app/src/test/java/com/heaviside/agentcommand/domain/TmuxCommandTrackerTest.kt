@@ -67,6 +67,25 @@ class TmuxCommandTrackerTest {
     }
 
     @Test
+    fun `successful exact results retain the created pane identity`() {
+        val tracker = TmuxCommandTracker()
+        tracker.register(CommandDispatchAcceptance("cmd-split"), "host-a", "session-a")
+
+        val result = tracker.observe(
+            CommandResultEvent(
+                timestamp = "2026-07-23T12:00:00Z",
+                hostId = "host-a",
+                cmdId = "cmd-split",
+                sessionId = "session-a",
+                ok = true,
+                resultJson = """{"pane_id":"%42","tmux_target":"vault:2.1"}""",
+            ),
+        ) as TmuxCommandState.Succeeded
+
+        assertEquals("""{"pane_id":"%42","tmux_target":"vault:2.1"}""", result.resultJson)
+    }
+
+    @Test
     fun `a result that beats REST registration is still correlated`() {
         val tracker = TmuxCommandTracker()
         tracker.observe(

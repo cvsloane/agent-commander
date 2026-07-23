@@ -78,6 +78,16 @@ class AgentCommandApi(credentials: SavedCredentials) {
             ),
         )
 
+    fun terminateTrackedPane(sessionId: String): BulkTerminateResult =
+        parseBulkTerminate(
+            executeControlJson(
+                "v1/sessions/bulk",
+                method = "POST",
+                body = BulkTerminateRequest(sessionId).toJson(),
+            ),
+            sessionId,
+        )
+
     fun createTerminalSocket(
         session: TmuxPane,
         columns: Int,
@@ -277,6 +287,9 @@ class AgentCommandApi(credentials: SavedCredentials) {
                             terminal = capabilities?.optBoolean("terminal", false) ?: false,
                             spawn = capabilities?.optBoolean("spawn", false) ?: false,
                             kill = capabilities?.optBoolean("kill", false) ?: false,
+                            tmuxVersion = capabilities?.optNullableString("tmux_version")
+                                ?: capabilities?.optNullableString("tmuxVersion")
+                                ?: item.optNullableString("tmux_version"),
                         ),
                     ),
                 )
@@ -420,6 +433,24 @@ class AgentCommandApi(credentials: SavedCredentials) {
 
         fun parseCommandAcceptance(payload: JSONObject): CommandDispatchAcceptance =
             CommandDispatchAcceptance(payload.getString("cmd_id"))
+
+        fun parseBulkTerminate(payload: JSONObject, sessionId: String): BulkTerminateResult {
+            val errors = payload.optJSONArray("errors") ?: JSONArray()
+            val exactError = (0 until errors.length())
+                .map(errors::getJSONObject)
+                .firstOrNull { it.optString("session_id") == sessionId }
+                ?.optString("error")
+                ?.takeIf { it.isNotBlank() }
+            val completed = payload.optString("operation") == "terminate" &&
+                payload.optInt("success_count", 0) == 1 &&
+                payload.optInt("error_count", 0) == 0 &&
+                exactError == null
+            return BulkTerminateResult(
+                sessionId = sessionId,
+                completed = completed,
+                error = exactError ?: if (completed) null else "Failed to terminate tracked pane",
+            )
+        }
 
         private val TARGET_INDEXES = Regex(":(\\d+)(?:\\.(\\d+))?$")
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()

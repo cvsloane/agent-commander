@@ -26,6 +26,7 @@ data class HostCapabilities(
     val terminal: Boolean = false,
     val spawn: Boolean = false,
     val kill: Boolean = false,
+    val tmuxVersion: String? = null,
 )
 
 data class TmuxSnapshot(

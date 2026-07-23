@@ -301,4 +301,44 @@ class AgentCommandContractTest {
         assertEquals("cmd-rename-window", acceptance.cmdId)
         assertFalse(acceptance.isComplete)
     }
+
+    @Test
+    fun `single tracked pane termination uses the reviewed bulk completion contract`() {
+        val request = BulkTerminateRequest("session-a").toJson()
+        assertEquals("terminate", request.getString("operation"))
+        assertEquals(listOf("session-a"), request.getJSONArray("session_ids").let { ids ->
+            (0 until ids.length()).map(ids::getString)
+        })
+
+        val success = AgentCommandApi.parseBulkTerminate(
+            JSONObject(
+                """
+                {
+                  "operation":"terminate",
+                  "success_count":1,
+                  "error_count":0
+                }
+                """.trimIndent(),
+            ),
+            "session-a",
+        )
+        assertTrue(success.completed)
+        assertNull(success.error)
+
+        val failure = AgentCommandApi.parseBulkTerminate(
+            JSONObject(
+                """
+                {
+                  "operation":"terminate",
+                  "success_count":0,
+                  "error_count":1,
+                  "errors":[{"session_id":"session-a","error":"Agent command timed out"}]
+                }
+                """.trimIndent(),
+            ),
+            "session-a",
+        )
+        assertFalse(failure.completed)
+        assertEquals("Agent command timed out", failure.error)
+    }
 }

@@ -3,6 +3,7 @@
  */
 package com.heaviside.agentcommand.data
 
+import org.json.JSONArray
 import org.json.JSONObject
 
 data class TmuxOpenRequest(
@@ -170,3 +171,19 @@ data class CommandDispatchAcceptance(
 ) {
     val isComplete: Boolean = false
 }
+
+data class BulkTerminateRequest(val sessionId: String) {
+    init {
+        require(sessionId.isNotBlank()) { "A tracked session ID is required" }
+    }
+
+    fun toJson(): JSONObject = JSONObject()
+        .put("operation", "terminate")
+        .put("session_ids", JSONArray().put(sessionId))
+}
+
+data class BulkTerminateResult(
+    val sessionId: String,
+    val completed: Boolean,
+    val error: String? = null,
+)

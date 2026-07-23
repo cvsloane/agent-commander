@@ -25,6 +25,7 @@ sealed interface TmuxCommandState {
     data class Succeeded(
         override val cmdId: String,
         val source: TmuxCommandTruth,
+        val resultJson: String? = null,
     ) : TmuxCommandState
 
     data class Failed(
@@ -176,7 +177,11 @@ class TmuxCommandTracker {
         command: PendingCommand,
         event: CommandResultEvent,
     ): TmuxCommandState = if (event.ok) {
-        TmuxCommandState.Succeeded(command.state.cmdId, TmuxCommandTruth.COMMAND_RESULT)
+        TmuxCommandState.Succeeded(
+            command.state.cmdId,
+            TmuxCommandTruth.COMMAND_RESULT,
+            event.resultJson,
+        )
     } else {
         TmuxCommandState.Failed(
             command.state.cmdId,
