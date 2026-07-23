@@ -200,12 +200,18 @@ export type ForkPayload = z.infer<typeof ForkPayloadSchema>;
 export const CaptureModeSchema = z.enum(['visible', 'last_n', 'range', 'full']);
 export type CaptureMode = z.infer<typeof CaptureModeSchema>;
 
+export const SCROLLBACK_MAX_LINES = 5000;
+export const SCROLLBACK_DEFAULT_PAGE_SIZE = 500;
+
 // Capture pane command payload (used for cross-host copy)
 export const CapturePanePayloadSchema = z.object({
   mode: CaptureModeSchema.default('visible'),
   line_start: z.number().int().optional(),
   line_end: z.number().int().optional(),
   last_n_lines: z.number().int().optional(),
+  page_size: z.number().int().positive().max(SCROLLBACK_MAX_LINES).optional(),
+  snapshot_id: z.string().uuid().optional(),
+  before_line: z.number().int().nonnegative().optional(),
   strip_ansi: z.boolean().default(true),
 });
 export type CapturePanePayload = z.infer<typeof CapturePanePayloadSchema>;
@@ -224,17 +230,39 @@ export const CaptureTranscriptPayloadSchema = z.object({
 });
 export type CaptureTranscriptPayload = z.infer<typeof CaptureTranscriptPayloadSchema>;
 
-export const SCROLLBACK_MAX_LINES = 5000;
-
 export const ScrollbackRequestSchema = z
   .object({
     mode: CaptureModeSchema,
     last_n_lines: z.number().int().positive().max(SCROLLBACK_MAX_LINES).optional(),
     start_line: z.number().int().optional(),
     end_line: z.number().int().optional(),
+    page_size: z.number().int().positive().max(SCROLLBACK_MAX_LINES).optional(),
+    snapshot_id: z.string().uuid().optional(),
+    before_line: z.number().int().nonnegative().optional(),
     strip_ansi: z.boolean().default(true),
   })
   .superRefine((request, context) => {
+    if ((request.snapshot_id === undefined) !== (request.before_line === undefined)) {
+      context.addIssue({
+        code: 'custom',
+        path: request.snapshot_id === undefined ? ['snapshot_id'] : ['before_line'],
+        message: 'snapshot_id and before_line must be provided together',
+      });
+    }
+    if (
+      request.mode !== 'full'
+      && (
+        request.page_size !== undefined
+        || request.snapshot_id !== undefined
+        || request.before_line !== undefined
+      )
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['mode'],
+        message: 'anchored pagination is only available in full mode',
+      });
+    }
     if (request.mode === 'last_n' && request.last_n_lines === undefined) {
       context.addIssue({
         code: 'custom',
@@ -276,10 +304,75 @@ export const ScrollbackRequestSchema = z
   });
 export type ScrollbackRequest = z.infer<typeof ScrollbackRequestSchema>;
 
+const LegacyScrollbackResultSchema = z
+  .object({
+    content: z.string(),
+    line_count: z.number().int().nonnegative().optional(),
+    capture_mode: z.enum(['visible', 'last_n', 'range', 'full']).optional(),
+    truncated: z.boolean().optional(),
+  })
+  .passthrough();
+
+export const AnchoredScrollbackResultSchema = z
+  .object({
+    content: z.string(),
+    line_count: z.number().int().nonnegative().max(SCROLLBACK_MAX_LINES),
+    capture_mode: z.literal('snapshot'),
+    snapshot_id: z.string().uuid(),
+    range_start: z.number().int().nonnegative(),
+    range_end: z.number().int().nonnegative(),
+    total_lines: z.number().int().nonnegative(),
+    source_total_lines: z.number().int().nonnegative(),
+    snapshot_truncated: z.boolean(),
+    has_older: z.boolean(),
+    next_before: z.number().int().nonnegative().optional(),
+  })
+  .passthrough()
+  .superRefine((result, context) => {
+    if (result.range_end < result.range_start || result.range_end > result.total_lines) {
+      context.addIssue({
+        code: 'custom',
+        path: ['range_end'],
+        message: 'range_end must fall between range_start and total_lines',
+      });
+    }
+    if (result.line_count !== result.range_end - result.range_start) {
+      context.addIssue({
+        code: 'custom',
+        path: ['line_count'],
+        message: 'line_count must match the returned range',
+      });
+    }
+    if (result.source_total_lines < result.total_lines) {
+      context.addIssue({
+        code: 'custom',
+        path: ['source_total_lines'],
+        message: 'source_total_lines cannot be less than total_lines',
+      });
+    }
+    if (
+      result.has_older
+      && (result.range_start === 0 || result.next_before !== result.range_start)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['next_before'],
+        message: 'next_before must equal range_start when older lines are available',
+      });
+    }
+  });
+export type AnchoredScrollbackResult = z.infer<typeof AnchoredScrollbackResultSchema>;
+
+export const ScrollbackResultSchema = z.union([
+  AnchoredScrollbackResultSchema,
+  LegacyScrollbackResultSchema,
+]);
+export type ScrollbackResult = z.infer<typeof ScrollbackResultSchema>;
+
 export const ScrollbackResponseSchema = z.object({
   cmd_id: z.string().uuid(),
   ok: z.boolean(),
-  result: z.record(z.string(), z.unknown()).optional(),
+  result: ScrollbackResultSchema.optional(),
   error: z
     .object({
       code: z.string(),

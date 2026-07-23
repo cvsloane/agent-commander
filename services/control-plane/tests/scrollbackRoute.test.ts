@@ -85,6 +85,69 @@ describe('session scrollback route', () => {
     await app.close();
   });
 
+  it('forwards an anchored continuation cursor and preserves its immutable page metadata', async () => {
+    const app = await buildServer();
+    dispatchAndWait.mockResolvedValueOnce({
+      ok: true,
+      result: {
+        content: 'older\nnewer',
+        line_count: 2,
+        capture_mode: 'snapshot',
+        snapshot_id: userId,
+        range_start: 7_498,
+        range_end: 7_500,
+        total_lines: 8_000,
+        source_total_lines: 8_000,
+        snapshot_truncated: false,
+        has_older: true,
+        next_before: 7_498,
+      },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/sessions/${sessionId}/scrollback`,
+      payload: {
+        mode: 'full',
+        page_size: 500,
+        snapshot_id: userId,
+        before_line: 7_500,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().result).toEqual({
+      content: 'older\nnewer',
+      line_count: 2,
+      capture_mode: 'snapshot',
+      snapshot_id: userId,
+      range_start: 7_498,
+      range_end: 7_500,
+      total_lines: 8_000,
+      source_total_lines: 8_000,
+      snapshot_truncated: false,
+      has_older: true,
+      next_before: 7_498,
+    });
+    expect(dispatchAndWait).toHaveBeenCalledWith(
+      hostId,
+      sessionId,
+      expect.any(String),
+      {
+        type: 'capture_pane',
+        payload: {
+          mode: 'full',
+          page_size: 500,
+          snapshot_id: userId,
+          before_line: 7_500,
+          strip_ansi: true,
+        },
+      },
+    );
+
+    await app.close();
+  });
+
   it.each([
     [{ mode: 'last_n' }, 'last_n_lines'],
     [{ mode: 'range', start_line: -5000, end_line: 0 }, 'end_line'],
@@ -104,10 +167,24 @@ describe('session scrollback route', () => {
     await app.close();
   });
 
-  it('caps full-mode results to the latest 5000 lines', async () => {
+  it('requests a bounded initial snapshot page instead of transporting full live history', async () => {
     const app = await buildServer();
-    const content = Array.from({ length: 5002 }, (_, index) => `line-${index}`).join('\n');
-    dispatchAndWait.mockResolvedValueOnce({ ok: true, result: { content } });
+    dispatchAndWait.mockResolvedValueOnce({
+      ok: true,
+      result: {
+        content: 'line-7997\nline-7998\nline-7999',
+        line_count: 3,
+        capture_mode: 'snapshot',
+        snapshot_id: userId,
+        range_start: 7_997,
+        range_end: 8_000,
+        total_lines: 8_000,
+        source_total_lines: 8_000,
+        snapshot_truncated: false,
+        has_older: true,
+        next_before: 7_997,
+      },
+    });
 
     const response = await app.inject({
       method: 'POST',
@@ -116,17 +193,48 @@ describe('session scrollback route', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const body = response.json<{ result: { content: string; truncated: boolean } }>();
-    const lines = body.result.content.split('\n');
-    expect(lines).toHaveLength(5000);
-    expect(lines[0]).toBe('line-2');
-    expect(body.result.truncated).toBe(true);
+    expect(response.json().result).toMatchObject({
+      content: 'line-7997\nline-7998\nline-7999',
+      snapshot_id: userId,
+      range_start: 7_997,
+      range_end: 8_000,
+      next_before: 7_997,
+    });
     expect(dispatchAndWait).toHaveBeenCalledWith(
       hostId,
       sessionId,
       expect.any(String),
-      { type: 'capture_pane', payload: { mode: 'full', strip_ansi: false } }
+      { type: 'capture_pane', payload: { mode: 'full', page_size: 500, strip_ansi: false } }
     );
+    await app.close();
+  });
+
+  it.each([
+    ['last_n', { mode: 'last_n', last_n_lines: 5_000 }],
+    ['range', { mode: 'range', start_line: -5_000, end_line: -1 }],
+  ])('retains the response cap for legacy %s captures', async (captureMode, payload) => {
+    const app = await buildServer();
+    const content = Array.from({ length: 5_002 }, (_, index) => `line-${index}`).join('\n');
+    dispatchAndWait.mockResolvedValueOnce({
+      ok: true,
+      result: { content, line_count: 5_002, capture_mode: captureMode },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/sessions/${sessionId}/scrollback`,
+      payload,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const result = response.json<{
+      result: { content: string; line_count: number; truncated: boolean };
+    }>().result;
+    const lines = result.content.split('\n');
+    expect(lines).toHaveLength(5_000);
+    expect(lines[0]).toBe('line-2');
+    expect(result.line_count).toBe(5_000);
+    expect(result.truncated).toBe(true);
     await app.close();
   });
 

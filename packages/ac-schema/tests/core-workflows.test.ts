@@ -8,6 +8,8 @@ import {
   CommandPayloadSchema,
   CreateWorkItemSchema,
   MemorySearchQuerySchema,
+  ScrollbackRequestSchema,
+  ScrollbackResultSchema,
   ServerToUIMessageSchema,
   TmuxPaneIdentitySchema,
   UpsertAutomationAgentSchema,
@@ -133,6 +135,81 @@ describe('memory schemas', () => {
 });
 
 describe('tmux schemas', () => {
+  it('requires an anchored scrollback cursor to be wholly absent or wholly present', () => {
+    expect(ScrollbackRequestSchema.parse({ mode: 'full' })).toEqual({
+      mode: 'full',
+      strip_ansi: true,
+    });
+    expect(
+      ScrollbackRequestSchema.parse({
+        mode: 'full',
+        page_size: 500,
+        snapshot_id: uuid,
+        before_line: 7_500,
+      }),
+    ).toEqual({
+      mode: 'full',
+      page_size: 500,
+      snapshot_id: uuid,
+      before_line: 7_500,
+      strip_ansi: true,
+    });
+
+    expect(
+      ScrollbackRequestSchema.safeParse({ mode: 'full', snapshot_id: uuid }).success,
+    ).toBe(false);
+    expect(
+      ScrollbackRequestSchema.safeParse({ mode: 'full', before_line: 7_500 }).success,
+    ).toBe(false);
+    expect(
+      ScrollbackRequestSchema.safeParse({ mode: 'full', page_size: 5_001 }).success,
+    ).toBe(false);
+
+    const command = CommandPayloadSchema.parse({
+      type: 'capture_pane',
+      payload: {
+        mode: 'full',
+        page_size: 500,
+        snapshot_id: uuid,
+        before_line: 7_500,
+      },
+    });
+    expect(command.payload).toMatchObject({
+      page_size: 500,
+      snapshot_id: uuid,
+      before_line: 7_500,
+    });
+  });
+
+  it('types bounded immutable scrollback page metadata', () => {
+    const page = ScrollbackResultSchema.parse({
+      content: 'older\nnewer',
+      line_count: 2,
+      capture_mode: 'snapshot',
+      snapshot_id: uuid,
+      range_start: 7_498,
+      range_end: 7_500,
+      total_lines: 8_000,
+      source_total_lines: 8_000,
+      snapshot_truncated: false,
+      has_older: true,
+      next_before: 7_498,
+    });
+
+    expect(page).toMatchObject({
+      snapshot_id: uuid,
+      range_start: 7_498,
+      range_end: 7_500,
+      next_before: 7_498,
+    });
+    expect(
+      ScrollbackResultSchema.safeParse({
+        ...page,
+        line_count: 5_001,
+      }).success,
+    ).toBe(false);
+  });
+
   it('defaults and bounds transcript capture pages', () => {
     expect(CaptureTranscriptPayloadSchema.parse({})).toEqual({ page_size: 200 });
     expect(CaptureTranscriptPayloadSchema.parse({ page_size: 500, before_entry: 42 })).toEqual({
