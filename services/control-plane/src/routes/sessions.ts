@@ -830,12 +830,28 @@ export function registerSessionRoutes(app: FastifyInstance): void {
         }
 
         const cmdId = randomUUID();
-        const sent = await commandRouter.dispatch(session.host_id, id, cmdId, {
-          type: 'kill_session',
-          payload: {},
-        });
-        if (!sent) {
-          errors.push({ session_id: id, error: 'Agent not connected' });
+        try {
+          const terminateResult = await commandRouter.dispatchAndWait(
+            session.host_id,
+            id,
+            cmdId,
+            {
+              type: 'kill_session',
+              payload: {},
+            }
+          );
+          if (!terminateResult.ok) {
+            errors.push({
+              session_id: id,
+              error: terminateResult.error?.message ?? 'Agent command failed',
+            });
+            continue;
+          }
+        } catch (error) {
+          errors.push({
+            session_id: id,
+            error: error instanceof Error ? error.message : String(error),
+          });
           continue;
         }
 
