@@ -160,6 +160,14 @@ class TmuxCommandTracker {
     @Synchronized
     fun pendingCommands(): List<TmuxCommandState.Pending> = pending.values.map { it.state }
 
+    @Synchronized
+    fun failPending(error: ApiError): List<TmuxCommandState.Failed> {
+        val failed = pending.values.map { TmuxCommandState.Failed(it.state.cmdId, error) }
+        pending.clear()
+        earlyResults.clear()
+        return failed
+    }
+
     private fun correlates(command: PendingCommand, event: CommandResultEvent): Boolean =
         command.state.hostId == event.hostId &&
             (event.sessionId == null || command.state.sessionId == event.sessionId)

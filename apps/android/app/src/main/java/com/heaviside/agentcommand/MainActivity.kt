@@ -45,6 +45,7 @@ import com.heaviside.agentcommand.data.TranscriptRequest
 import com.heaviside.agentcommand.data.UiStreamEvent
 import com.heaviside.agentcommand.data.UiStreamSocket
 import com.heaviside.agentcommand.domain.AppPreferences
+import com.heaviside.agentcommand.domain.ClaudePaneVisibility
 import com.heaviside.agentcommand.domain.ClaudeTranscriptFormatter
 import com.heaviside.agentcommand.domain.KeyRailMode
 import com.heaviside.agentcommand.domain.LastTargetPreference
@@ -119,6 +120,11 @@ class MainActivity : Activity() {
     private val reconnect = Runnable {
         if (started && screen == Screen.TERMINAL && terminalSocket == null) connectTerminal()
     }
+    private val reconnectUiStream = Runnable {
+        if (started && api != null && uiStreamSocket == null && !uiStreamConnecting) {
+            connectUiStream()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -144,6 +150,7 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         started = true
+        mainHandler.removeCallbacks(reconnectUiStream)
         connectUiStream()
         if (screen == Screen.TERMINAL && terminalSocket == null) connectTerminal()
     }
@@ -151,6 +158,7 @@ class MainActivity : Activity() {
     override fun onStop() {
         started = false
         mainHandler.removeCallbacks(reconnect)
+        mainHandler.removeCallbacks(reconnectUiStream)
         disconnectUiStream()
         disconnectTerminal()
         super.onStop()
@@ -392,7 +400,7 @@ class MainActivity : Activity() {
         val workbenchTools = horizontalLayout().apply { gravity = Gravity.CENTER_VERTICAL }
         workbenchTools.addView(button("History") { activePane?.let(::showHistory) })
         claudeButton = button("Claude") { activePane?.let(::showClaudeTranscript) }.apply {
-            visibility = if (isClaudePane(pane)) View.VISIBLE else View.GONE
+            visibility = if (ClaudePaneVisibility.isVisible(pane)) View.VISIBLE else View.GONE
         }.also(workbenchTools::addView)
         workbenchTools.addView(button("Copy live") {
             val copied = terminalView?.copyVisibleText().orEmpty()
@@ -928,6 +936,7 @@ class MainActivity : Activity() {
     private fun connectUiStream() {
         val currentApi = api ?: return
         if (!started || uiStreamSocket != null || uiStreamConnecting) return
+        mainHandler.removeCallbacks(reconnectUiStream)
         val generation = ++uiStreamGeneration
         uiStreamConnecting = true
         uiStreamFailure = null
@@ -939,6 +948,7 @@ class MainActivity : Activity() {
                             if (generation != uiStreamGeneration) return@runOnUiThread
                             uiStreamConnecting = false
                             uiStreamConnected = true
+                            mainHandler.removeCallbacks(reconnectUiStream)
                             updateRosterViews()
                         }
 
@@ -956,24 +966,15 @@ class MainActivity : Activity() {
                         }
 
                         override fun onFailure(message: String) = runOnUiThread {
-                            if (generation != uiStreamGeneration) return@runOnUiThread
-                            uiStreamConnecting = false
-                            uiStreamConnected = false
-                            uiStreamFailure = message
-                            uiStreamSocket?.close()
-                            uiStreamSocket = null
-                            failCommandCallbacks("COMMAND_STREAM_FAILED", message)
-                            updateRosterViews()
+                            handleUiStreamLoss(generation, "COMMAND_STREAM_FAILED", message)
                         }
 
                         override fun onClosed() = runOnUiThread {
-                            if (generation != uiStreamGeneration) return@runOnUiThread
-                            uiStreamConnecting = false
-                            uiStreamConnected = false
-                            uiStreamFailure = "event stream closed"
-                            uiStreamSocket = null
-                            failCommandCallbacks("COMMAND_STREAM_CLOSED", "Command-result stream closed.")
-                            updateRosterViews()
+                            handleUiStreamLoss(
+                                generation,
+                                "COMMAND_STREAM_CLOSED",
+                                "Command-result stream closed.",
+                            )
                         }
                     },
                 )
@@ -985,21 +986,47 @@ class MainActivity : Activity() {
                     created.connect()
                 }
             } }.onFailure { failure -> runOnUiThread {
-                if (generation != uiStreamGeneration) return@runOnUiThread
-                uiStreamConnecting = false
-                uiStreamConnected = false
-                uiStreamFailure = failure.message ?: "Unable to connect live topology"
-                updateRosterViews()
+                handleUiStreamLoss(
+                    generation,
+                    "COMMAND_STREAM_CONNECT_FAILED",
+                    failure.message ?: "Unable to connect live topology",
+                )
             } }
         }
     }
 
     private fun disconnectUiStream() {
+        mainHandler.removeCallbacks(reconnectUiStream)
         uiStreamGeneration += 1
         uiStreamConnecting = false
         uiStreamConnected = false
         uiStreamSocket?.close()
         uiStreamSocket = null
+        resetCommandTracking(
+            "COMMAND_STREAM_STOPPED",
+            "Command-result stream stopped while the app is not in the foreground.",
+        )
+    }
+
+    private fun handleUiStreamLoss(generation: Long, code: String, message: String) {
+        if (generation != uiStreamGeneration) return
+        uiStreamGeneration += 1
+        uiStreamConnecting = false
+        uiStreamConnected = false
+        uiStreamFailure = message
+        val failedSocket = uiStreamSocket
+        uiStreamSocket = null
+        failedSocket?.close()
+        resetCommandTracking(code, message)
+        updateRosterViews()
+        scheduleUiStreamReconnect()
+    }
+
+    private fun scheduleUiStreamReconnect() {
+        mainHandler.removeCallbacks(reconnectUiStream)
+        if (started && api != null) {
+            mainHandler.postDelayed(reconnectUiStream, UI_STREAM_RECONNECT_DELAY_MS)
+        }
     }
 
     private fun updateRosterViews() {
@@ -1013,6 +1040,19 @@ class MainActivity : Activity() {
         command: TmuxCommand,
         callback: (TmuxCommandState) -> Unit,
     ) {
+        if (!started || !uiStreamConnected) {
+            callback(
+                TmuxCommandState.Failed(
+                    "not-dispatched",
+                    com.heaviside.agentcommand.data.ApiError(
+                        "COMMAND_STREAM_UNAVAILABLE",
+                        "Command-result stream is not connected.",
+                    ),
+                ),
+            )
+            return
+        }
+        val commandStreamGeneration = uiStreamGeneration
         val currentApi = api ?: return callback(
             TmuxCommandState.Failed(
                 cmdId = "not-dispatched",
@@ -1022,6 +1062,22 @@ class MainActivity : Activity() {
         io.execute {
             runCatching { currentApi.dispatchTmuxCommand(pane.sessionId, command) }
                 .onSuccess { acceptance -> runOnUiThread {
+                    if (
+                        !started ||
+                        !uiStreamConnected ||
+                        commandStreamGeneration != uiStreamGeneration
+                    ) {
+                        callback(
+                            TmuxCommandState.Failed(
+                                acceptance.cmdId,
+                                com.heaviside.agentcommand.data.ApiError(
+                                    "COMMAND_STREAM_UNAVAILABLE",
+                                    "Command was accepted after its result stream stopped.",
+                                ),
+                            ),
+                        )
+                        return@runOnUiThread
+                    }
                     val state = commandTracker.register(acceptance, pane.hostId, pane.sessionId)
                     if (state is TmuxCommandState.Pending) {
                         commandCallbacks[state.cmdId] = callback
@@ -1046,16 +1102,13 @@ class MainActivity : Activity() {
         commandCallbacks.remove(state.cmdId)?.invoke(state)
     }
 
-    private fun failCommandCallbacks(code: String, message: String) {
+    private fun resetCommandTracking(code: String, message: String) {
+        val error = com.heaviside.agentcommand.data.ApiError(code, message)
+        val trackerFailures = commandTracker.failPending(error).associateBy { it.cmdId }
         val callbacks = commandCallbacks.toMap()
         commandCallbacks.clear()
         callbacks.forEach { (cmdId, callback) ->
-            callback(
-                TmuxCommandState.Failed(
-                    cmdId,
-                    com.heaviside.agentcommand.data.ApiError(code, message),
-                ),
-            )
+            callback(trackerFailures[cmdId] ?: TmuxCommandState.Failed(cmdId, error))
         }
     }
 
@@ -1190,7 +1243,8 @@ class MainActivity : Activity() {
                         resumeToken = null
                         resumeSessionId = null
                         terminalTitle?.text = terminalTitle(adopted)
-                        claudeButton?.visibility = if (isClaudePane(adopted)) View.VISIBLE else View.GONE
+                        claudeButton?.visibility =
+                            if (ClaudePaneVisibility.isVisible(adopted)) View.VISIBLE else View.GONE
                         navigatorView?.update(roster, adopted.paneId)
                     }
                     activePane?.takeIf { it.paneId == resolution.target.paneId }?.let(::rememberValidatedTarget)
@@ -1337,10 +1391,6 @@ class MainActivity : Activity() {
     private fun terminalTitle(pane: TmuxPane): String =
         "${pane.hostName} · ${pane.target.ifBlank { pane.paneId }}"
 
-    private fun isClaudePane(pane: TmuxPane): Boolean =
-        pane.provider.equals("claude", ignoreCase = true) ||
-            pane.currentCommand?.contains("claude", ignoreCase = true) == true
-
     private fun selectableMonospaceText() = TextView(this).apply {
         setTextColor(Color.WHITE)
         textSize = 14f
@@ -1460,6 +1510,7 @@ class MainActivity : Activity() {
 
     private companion object {
         const val RECONNECT_DELAY_MS = 1_500L
+        const val UI_STREAM_RECONNECT_DELAY_MS = 1_500L
         const val FOCUS_TIMEOUT_MS = 5_000L
         const val ROSTER_STATUS_TAG = "roster-status"
         const val ROSTER_PROGRESS_TAG = "roster-progress"

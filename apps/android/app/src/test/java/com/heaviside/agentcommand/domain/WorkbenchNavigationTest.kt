@@ -89,7 +89,7 @@ class WorkbenchNavigationTest {
         hostName = hostId,
         title = paneId,
         status = "RUNNING",
-        provider = "claude",
+        provider = "claude_code",
         paneId = paneId,
         target = target,
         tmuxSessionName = tmuxSession,

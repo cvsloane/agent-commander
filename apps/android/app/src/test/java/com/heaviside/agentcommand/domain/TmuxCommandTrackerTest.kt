@@ -132,4 +132,33 @@ class TmuxCommandTrackerTest {
         )
         assertTrue(tracker.pendingCommands().isEmpty())
     }
+
+    @Test
+    fun `stream loss fails pending commands and clears pending plus early result state`() {
+        val tracker = TmuxCommandTracker()
+        tracker.register(CommandDispatchAcceptance("cmd-pending"), "host-a", "session-a")
+        tracker.observe(
+            CommandResultEvent(
+                timestamp = "2026-07-23T12:00:00Z",
+                hostId = "host-a",
+                cmdId = "cmd-early",
+                sessionId = "session-a",
+                ok = true,
+            ),
+        )
+        val streamError = ApiError("COMMAND_STREAM_FAILED", "event stream failed")
+
+        assertEquals(
+            listOf(TmuxCommandState.Failed("cmd-pending", streamError)),
+            tracker.failPending(streamError),
+        )
+        assertTrue(tracker.pendingCommands().isEmpty())
+        assertTrue(
+            tracker.register(
+                CommandDispatchAcceptance("cmd-early"),
+                "host-a",
+                "session-a",
+            ) is TmuxCommandState.Pending,
+        )
+    }
 }

@@ -3,8 +3,16 @@
  */
 package com.heaviside.agentcommand.domain
 
+import com.heaviside.agentcommand.data.TmuxPane
 import org.json.JSONArray
 import org.json.JSONObject
+
+object ClaudePaneVisibility {
+    fun isVisible(pane: TmuxPane): Boolean =
+        pane.provider.equals("claude_code", ignoreCase = true) ||
+            pane.provider.equals("claude", ignoreCase = true) ||
+            pane.currentCommand?.contains("claude", ignoreCase = true) == true
+}
 
 object ClaudeTranscriptFormatter {
     private val skippedEntries = setOf(
