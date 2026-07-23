@@ -3,8 +3,9 @@ lane: W3-WORKBENCH
 branch: feat/android-tmux-parity-w3
 base: 0168aee
 implementation_sha: 8741a15bbd9d3f8fc207499305088c427f3cb4f1
-status: frozen
-review: pending fresh-context review
+review_correction_sha: 3ed3f29645ddacf2e4e5de39fd6f841e6b44c6db
+status: frozen after review correction
+review: correction pending fresh-context re-review
 ---
 
 # W3 Android native workbench handoff
@@ -105,3 +106,57 @@ Result:
 - W4 still owns window/pane create, rename, close, split, directional focus, and kill/archive mutations.
 - No backend/schema, renderer, transport, Compose, notification, native general-launch, retry layer, instrumentation harness, signing, distribution, or production file changed.
 - Final interaction/visual proof remains the planned Samsung acceptance after W4/W5 integration.
+
+## Fresh-review correction
+
+Fresh review returned two HIGH findings. Both are corrected in
+`3ed3f29645ddacf2e4e5de39fd6f841e6b44c6db` without adjacent scope:
+
+1. **Canonical Claude provider visibility:** `ClaudePaneVisibility` recognizes canonical
+   `claude_code`, retains legacy `claude`, and accepts a live command containing `claude`.
+   Initial and transactionally adopted panes now use this pure visibility seam. The generic
+   W3 pane fixture was corrected from legacy `claude` to canonical `claude_code`.
+2. **Foreground UI-stream lifecycle and command reset:** unexpected ticket/socket failure or
+   close invalidates the stream generation, closes the failed socket, fails current command
+   callbacks, clears tracker pending and early-result state, and schedules one existing-style
+   1,500 ms reconnect while the Activity remains foregrounded. Intentional `onStop` teardown
+   cancels the scheduled reconnect and resets callbacks/tracker; `onStart` always establishes
+   a fresh stream. A command acceptance that returns after teardown is rejected instead of
+   becoming an unobservable pending command.
+
+Correction test delta:
+
+- New `ClaudePaneVisibilityTest` (1): canonical `claude_code`, retained legacy/current-command
+  recognition, and non-Claude exclusion.
+- `TmuxCommandTrackerTest` (+1, suite total 5): stream loss returns exact failures, clears
+  pending commands, and proves early results cannot replay after reset.
+- `WorkbenchNavigationTest`: fixture provider corrected to canonical `claude_code`; behavior
+  assertions unchanged.
+- No lifecycle instrumentation or new harness was added; the Activity uses its existing
+  generation/Handler lifecycle seam.
+
+Correction red/green receipts:
+
+- `ClaudePaneVisibilityTest`: RED on unresolved `ClaudePaneVisibility`; GREEN after canonical
+  provider visibility was centralized.
+- `TmuxCommandTrackerTest`: RED on unresolved `failPending`; GREEN after deterministic
+  pending/early-state reset.
+- Focused correction/preservation command passed for Claude visibility, command tracking,
+  UI-stream contract, navigation, history, and W1 viewer authority.
+
+Correction frozen gate, run once:
+
+```bash
+ANDROID_HOME=/home/cvsloane/android-sdk ./gradlew test lint assembleRelease
+```
+
+Result:
+
+- `BUILD SUCCESSFUL`
+- 37/37 debug unit tests passed.
+- 37/37 release unit tests passed.
+- Android lint passed with zero errors and 34 warnings.
+- Unsigned release assembly passed.
+- `app-release-unsigned.apk`: 2,310,450 bytes.
+- SHA-256: `b44e163e4d5ed8079ee0a92d86b6d7ada6d101b4becaed673f10df78da4227df`.
+- `git diff --check`: passed before correction freeze.
