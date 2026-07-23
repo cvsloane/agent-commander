@@ -950,16 +950,22 @@ class MainActivity : Activity() {
     ) {
         val successMessage = "Succeeded · $label; selected $createdPaneId."
         pendingLifecycleSuccess = successMessage
-        createdPaneAdoption.begin(
+        val adoption = createdPaneAdoption.begin(
             hostId = context.host.host.id,
             paneId = createdPaneId,
             tmuxSessionName = context.session.name,
         )
-        setLifecycleStatus(
-            "Completed · created $createdPaneId · waiting for its durable session event…",
-            MUTED,
-        )
         scheduleCreatedPaneAdoptionTimeout()
+        when (adoption) {
+            is CreatedPaneAdoptionAction.RefreshRoster ->
+                refreshCreatedPaneAdoption(adoption)
+            is CreatedPaneAdoptionAction.WaitForPersistence ->
+                setLifecycleStatus(
+                    "Completed · created $createdPaneId · waiting for its durable session event…",
+                    MUTED,
+                )
+            else -> Unit
+        }
     }
 
     private fun observeCreatedPanePersistence(event: SessionsChangedEvent) {
@@ -1971,7 +1977,7 @@ class MainActivity : Activity() {
                     if (pendingLifecycleViewerTarget == resolution.target) {
                         val success = pendingLifecycleSuccess ?: "Succeeded · tmux viewer updated."
                         cancelCreatedPaneAdoptionTimeout()
-                        createdPaneAdoption.complete()
+                        createdPaneAdoption.clear()
                         pendingLifecycleViewerTarget = null
                         pendingLifecycleSuccess = null
                         reconcileRosterAfterMutation(success, ONLINE)
@@ -2087,7 +2093,7 @@ class MainActivity : Activity() {
             pendingLifecycleViewerTarget != null ||
                 pendingLifecycleSuccess != null
         cancelCreatedPaneAdoptionTimeout()
-        createdPaneAdoption.complete()
+        createdPaneAdoption.clear()
         pendingLifecycleViewerTarget = null
         pendingLifecycleSuccess = null
         workbenchNavigation.rejectCandidate()

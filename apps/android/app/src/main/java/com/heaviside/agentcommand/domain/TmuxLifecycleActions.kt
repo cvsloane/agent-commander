@@ -3,6 +3,7 @@
  */
 package com.heaviside.agentcommand.domain
 
+import com.heaviside.agentcommand.data.ChangedTmuxPane
 import com.heaviside.agentcommand.data.Host
 import com.heaviside.agentcommand.data.SessionsChangedEvent
 import com.heaviside.agentcommand.data.TmuxCommand
@@ -193,6 +194,7 @@ class CreatedPaneAdoptionState {
     )
 
     private var pending: Pending? = null
+    private val recentPersistence = ArrayDeque<ChangedTmuxPane>()
 
     val isPending: Boolean
         get() = pending != null
@@ -203,17 +205,31 @@ class CreatedPaneAdoptionState {
         tmuxSessionName: String,
     ): CreatedPaneAdoptionAction {
         check(pending == null) { "A created pane adoption is already pending" }
+        val persisted = consumeRecent(hostId, paneId)
         pending = Pending(
             hostId = hostId,
             paneId = paneId,
             tmuxSessionName = tmuxSessionName,
-            phase = Phase.WAITING_FOR_PERSISTENCE,
+            phase = if (persisted == null) {
+                Phase.WAITING_FOR_PERSISTENCE
+            } else {
+                Phase.REFRESHING_ROSTER
+            },
+            persistedSessionId = persisted?.sessionId,
         )
-        return CreatedPaneAdoptionAction.WaitForPersistence(hostId, paneId)
+        return if (persisted == null) {
+            CreatedPaneAdoptionAction.WaitForPersistence(hostId, paneId)
+        } else {
+            CreatedPaneAdoptionAction.RefreshRoster(hostId, paneId)
+        }
     }
 
     fun observe(event: SessionsChangedEvent): CreatedPaneAdoptionAction {
-        val current = pending ?: return CreatedPaneAdoptionAction.Ignore
+        val current = pending
+        if (current == null) {
+            rememberRecent(event.tmuxPanes)
+            return CreatedPaneAdoptionAction.Ignore
+        }
         if (current.phase != Phase.WAITING_FOR_PERSISTENCE) {
             return CreatedPaneAdoptionAction.Ignore
         }
@@ -224,6 +240,30 @@ class CreatedPaneAdoptionState {
             persistedSessionId = changedPane.sessionId,
         )
         return CreatedPaneAdoptionAction.RefreshRoster(current.hostId, current.paneId)
+    }
+
+    private fun rememberRecent(changedPanes: List<ChangedTmuxPane>) {
+        for (changedPane in changedPanes) {
+            recentPersistence.removeAll {
+                it.hostId == changedPane.hostId && it.paneId == changedPane.paneId
+            }
+            if (recentPersistence.size >= MAX_RECENT_PERSISTENCE) {
+                recentPersistence.removeFirst()
+            }
+            recentPersistence.addLast(changedPane)
+        }
+    }
+
+    private fun consumeRecent(hostId: String, paneId: String): ChangedTmuxPane? {
+        val iterator = recentPersistence.iterator()
+        while (iterator.hasNext()) {
+            val candidate = iterator.next()
+            if (candidate.hostId == hostId && candidate.paneId == paneId) {
+                iterator.remove()
+                return candidate
+            }
+        }
+        return null
     }
 
     fun resolveRoster(roster: TmuxRoster): CreatedPaneAdoptionAction {
@@ -276,12 +316,21 @@ class CreatedPaneAdoptionState {
     }
 
     private fun fail(message: String): CreatedPaneAdoptionAction.Failed {
-        pending = null
+        clear()
         return CreatedPaneAdoptionAction.Failed(message)
     }
 
     fun complete() {
+        clear()
+    }
+
+    fun clear() {
         pending = null
+        recentPersistence.clear()
+    }
+
+    private companion object {
+        const val MAX_RECENT_PERSISTENCE = 128
     }
 }
 

@@ -252,6 +252,66 @@ class TmuxLifecycleActionsTest {
     }
 
     @Test
+    fun `created pane consumes an exact persistence event that arrived before command result`() {
+        val adoption = CreatedPaneAdoptionState()
+        assertEquals(
+            CreatedPaneAdoptionAction.Ignore,
+            adoption.observe(
+                SessionsChangedEvent(
+                    timestamp = "2026-07-23T12:00:00Z",
+                    tmuxPanes = listOf(
+                        ChangedTmuxPane("created-session", "host-a", "%42"),
+                    ),
+                    truncated = false,
+                ),
+            ),
+        )
+
+        assertEquals(
+            CreatedPaneAdoptionAction.RefreshRoster("host-a", "%42"),
+            adoption.begin("host-a", "%42", "vault"),
+        )
+        assertTrue(adoption.isPending)
+    }
+
+    @Test
+    fun `created pane early persistence retention is bounded and cleared on teardown`() {
+        fun remember(state: CreatedPaneAdoptionState, index: Int) {
+            state.observe(
+                SessionsChangedEvent(
+                    timestamp = "2026-07-23T12:00:${index.toString().padStart(2, '0')}Z",
+                    tmuxPanes = listOf(
+                        ChangedTmuxPane("session-$index", "host-$index", "%$index"),
+                    ),
+                    truncated = false,
+                ),
+            )
+        }
+
+        val evicted = CreatedPaneAdoptionState()
+        repeat(129) { remember(evicted, it) }
+        assertEquals(
+            CreatedPaneAdoptionAction.WaitForPersistence("host-0", "%0"),
+            evicted.begin("host-0", "%0", "vault"),
+        )
+
+        val retained = CreatedPaneAdoptionState()
+        repeat(129) { remember(retained, it) }
+        assertEquals(
+            CreatedPaneAdoptionAction.RefreshRoster("host-128", "%128"),
+            retained.begin("host-128", "%128", "vault"),
+        )
+
+        val cleared = CreatedPaneAdoptionState()
+        remember(cleared, 42)
+        cleared.clear()
+        assertEquals(
+            CreatedPaneAdoptionAction.WaitForPersistence("host-42", "%42"),
+            cleared.begin("host-42", "%42", "vault"),
+        )
+    }
+
+    @Test
     fun `created pane persistence timeout fails and releases its adoption lock`() {
         val adoption = CreatedPaneAdoptionState()
         adoption.begin("host-a", "%42", "vault")
