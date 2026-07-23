@@ -14,6 +14,24 @@ data class SavedCredentials(
 data class Host(
     val id: String,
     val name: String,
+    val online: Boolean = false,
+    val lastHeartbeatAt: String? = null,
+    val lastSeenAt: String? = null,
+    val agentVersion: String? = null,
+    val capabilities: HostCapabilities = HostCapabilities(),
+)
+
+data class HostCapabilities(
+    val tmux: Boolean = false,
+    val terminal: Boolean = false,
+    val spawn: Boolean = false,
+    val kill: Boolean = false,
+)
+
+data class TmuxSnapshot(
+    val createdAt: String,
+    val captureText: String,
+    val captureHash: String,
 )
 
 data class TmuxPane(
@@ -29,6 +47,17 @@ data class TmuxPane(
     val windowName: String,
     val windowIndex: Int,
     val paneIndex: Int,
+    val cwd: String? = null,
+    val repoRoot: String? = null,
+    val gitBranch: String? = null,
+    val attentionReason: String? = null,
+    val statusDetail: String? = null,
+    val lastActivityAt: String? = null,
+    val updatedAt: String? = null,
+    val unmanaged: Boolean? = null,
+    val currentCommand: String? = null,
+    val panePid: Long? = null,
+    val latestSnapshot: TmuxSnapshot? = null,
 ) {
     fun rosterLabel(): String = buildString {
         append(hostName)

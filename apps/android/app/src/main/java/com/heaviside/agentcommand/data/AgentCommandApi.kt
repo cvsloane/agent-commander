@@ -11,6 +11,7 @@ import okhttp3.CookieJar
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
@@ -38,11 +39,44 @@ class AgentCommandApi(credentials: SavedCredentials) {
     fun loadTopology(): Topology {
         val hosts = executeControlJson("v1/hosts").getJSONArray("hosts").let(::parseHosts)
         val hostNames = hosts.associate { it.id to it.name }
-        val panes = hosts.flatMap { host ->
-            parseRoster(executeControlJson("v1/tmux/roster?host_id=${host.id}"), hostNames)
-        }.distinctBy { it.sessionId }
+        val panes = parseRoster(executeControlJson("v1/tmux/roster"), hostNames)
+            .distinctBy { it.sessionId }
         return Topology(hosts, panes)
     }
+
+    fun openTmuxTarget(request: TmuxOpenRequest): TmuxOpenResult {
+        val payload = executeControlJson("v1/tmux/open", method = "POST", body = request.toJson())
+        val session = payload.getJSONObject("session")
+        val hostId = session.getString("host_id")
+        return parseTmuxOpen(payload, mapOf(hostId to (request.hostAlias ?: hostId.take(8))))
+    }
+
+    fun loadScrollback(sessionId: String, request: ScrollbackRequest): ScrollbackCapture =
+        parseScrollback(
+            executeControlJson(
+                "v1/sessions/$sessionId/scrollback",
+                method = "POST",
+                body = request.toJson(),
+            ),
+        )
+
+    fun loadTranscript(sessionId: String, request: TranscriptRequest): TranscriptCapture =
+        parseTranscript(
+            executeControlJson(
+                "v1/sessions/$sessionId/transcript",
+                method = "POST",
+                body = request.toJson(),
+            ),
+        )
+
+    fun dispatchTmuxCommand(sessionId: String, command: TmuxCommand): CommandDispatchAcceptance =
+        parseCommandAcceptance(
+            executeControlJson(
+                "v1/sessions/$sessionId/commands",
+                method = "POST",
+                body = command.toJson(),
+            ),
+        )
 
     fun createTerminalSocket(
         session: TmuxPane,
@@ -57,9 +91,30 @@ class AgentCommandApi(credentials: SavedCredentials) {
         return TerminalSocket(webSockets, url, publicOrigin(baseUrl), listener)
     }
 
-    private fun executeControlJson(path: String, method: String = "GET"): JSONObject {
+    fun createUiStreamSocket(listener: UiStreamSocket.Listener): UiStreamSocket {
+        val ticket = executeControlJson("v1/auth/ws-ticket", method = "POST").optString("ticket")
+        if (ticket.isBlank()) throw IOException("Agent Command did not issue an event ticket")
+        return UiStreamSocket(
+            webSockets,
+            buildUiStreamUrl(baseUrl, ticket),
+            publicOrigin(baseUrl),
+            listener,
+        )
+    }
+
+    private fun executeControlJson(
+        path: String,
+        method: String = "GET",
+        body: JSONObject? = null,
+    ): JSONObject {
         val token = getControlPlaneToken()
-        http.newCall(buildControlRequest(baseUrl, path, method, token)).execute().use { response ->
+        val request = if (body == null) {
+            buildControlRequest(baseUrl, path, method, token)
+        } else {
+            require(method == "POST") { "JSON control requests must use POST" }
+            buildJsonControlRequest(baseUrl, path, body, token)
+        }
+        http.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw response.toApiException()
             val body = response.body?.string().orEmpty()
             return JSONObject(body)
@@ -143,6 +198,21 @@ class AgentCommandApi(credentials: SavedCredentials) {
             return builder.build()
         }
 
+        fun buildJsonControlRequest(
+            baseUrl: HttpUrl,
+            path: String,
+            body: JSONObject,
+            token: String,
+        ): Request {
+            val url = baseUrl.resolve(path) ?: throw IOException("Invalid Agent Command API path")
+            return Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer $token")
+                .header("Accept", "application/json")
+                .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+        }
+
         fun requireEndpoint(raw: String): HttpUrl {
             val normalized = raw.trim().trimEnd('/') + "/"
             val url = normalized.toHttpUrlOrNull()
@@ -172,6 +242,16 @@ class AgentCommandApi(credentials: SavedCredentials) {
             return secureHttpUrl.toString().replaceFirst("https://", "wss://")
         }
 
+        fun buildUiStreamUrl(baseUrl: HttpUrl, ticket: String): String {
+            val stream = baseUrl.resolve("v1/ui/stream")
+                ?: throw IllegalArgumentException("Unable to build event stream URL")
+            return stream.newBuilder()
+                .addQueryParameter("ticket", ticket)
+                .build()
+                .toString()
+                .replaceFirst("https://", "wss://")
+        }
+
         fun publicOrigin(baseUrl: HttpUrl): String = baseUrl.newBuilder()
             .encodedPath("/")
             .query(null)
@@ -183,7 +263,23 @@ class AgentCommandApi(credentials: SavedCredentials) {
         fun parseHosts(hosts: JSONArray): List<Host> = buildList {
             for (index in 0 until hosts.length()) {
                 val item = hosts.getJSONObject(index)
-                add(Host(item.getString("id"), item.optString("name", item.getString("id"))))
+                val capabilities = item.optJSONObject("capabilities")
+                add(
+                    Host(
+                        id = item.getString("id"),
+                        name = item.optString("name", item.getString("id")),
+                        online = item.optBoolean("online", false),
+                        lastHeartbeatAt = item.optNullableString("last_heartbeat_at"),
+                        lastSeenAt = item.optNullableString("last_seen_at"),
+                        agentVersion = item.optNullableString("agent_version"),
+                        capabilities = HostCapabilities(
+                            tmux = capabilities?.optBoolean("tmux", false) ?: false,
+                            terminal = capabilities?.optBoolean("terminal", false) ?: false,
+                            spawn = capabilities?.optBoolean("spawn", false) ?: false,
+                            kill = capabilities?.optBoolean("kill", false) ?: false,
+                        ),
+                    ),
+                )
             }
         }
 
@@ -192,10 +288,25 @@ class AgentCommandApi(credentials: SavedCredentials) {
             return buildList {
                 for (index in 0 until sessions.length()) {
                     val item = sessions.getJSONObject(index)
-                    val paneId = item.optNullableString("tmux_pane_id") ?: continue
+                    val sessionMetadata = item.optJSONObject("metadata")
+                    val metadata = sessionMetadata?.optJSONObject("tmux")
+                    val paneId = item.optNullableString("tmux_pane_id")
+                        ?: metadata?.optNullableString("pane_id")
+                        ?: continue
                     val hostId = item.getString("host_id")
-                    val metadata = item.optJSONObject("metadata")?.optJSONObject("tmux")
-                    val target = item.optNullableString("tmux_target").orEmpty()
+                    val snapshot = item.optJSONObject("latest_snapshot")?.let { latest ->
+                        val createdAt = latest.optNullableString("created_at")
+                        val captureText = latest.optNullableString("capture_text")
+                        val captureHash = latest.optNullableString("capture_hash")
+                        if (createdAt != null && captureText != null && captureHash != null) {
+                            TmuxSnapshot(createdAt, captureText, captureHash)
+                        } else {
+                            null
+                        }
+                    }
+                    val target = item.optNullableString("tmux_target")
+                        ?: metadata?.optNullableString("target")
+                        ?: ""
                     val parsedIndexes = TARGET_INDEXES.find(target)
                     val sessionName = item.optNullableString("tmux_session_name")
                         ?: metadata?.optNullableString("session_name")
@@ -222,6 +333,17 @@ class AgentCommandApi(credentials: SavedCredentials) {
                             windowName = metadata?.optNullableString("window_name") ?: windowIndex.toString(),
                             windowIndex = windowIndex,
                             paneIndex = paneIndex,
+                            cwd = item.optNullableString("cwd"),
+                            repoRoot = item.optNullableString("repo_root"),
+                            gitBranch = item.optNullableString("git_branch"),
+                            attentionReason = item.optNullableString("attention_reason"),
+                            statusDetail = sessionMetadata?.optNullableString("status_detail"),
+                            lastActivityAt = item.optNullableString("last_activity_at"),
+                            updatedAt = item.optNullableString("updated_at"),
+                            unmanaged = sessionMetadata?.optNullableBoolean("unmanaged"),
+                            currentCommand = metadata?.optNullableString("current_command"),
+                            panePid = metadata?.optNullableLong("pane_pid"),
+                            latestSnapshot = snapshot,
                         ),
                     )
                 }
@@ -230,13 +352,89 @@ class AgentCommandApi(credentials: SavedCredentials) {
             )
         }
 
+        fun parseTmuxOpen(payload: JSONObject, hostNames: Map<String, String>): TmuxOpenResult {
+            val pane = parseRoster(
+                JSONObject().put("sessions", JSONArray().put(payload.getJSONObject("session"))),
+                hostNames,
+            ).single()
+            val terminal = payload.getJSONObject("terminal")
+            return TmuxOpenResult(
+                sessionId = payload.getString("session_id"),
+                href = payload.getString("href"),
+                pane = pane,
+                adopted = payload.optBoolean("adopted", false),
+                terminalOpenable = terminal.optBoolean("openable", false),
+                terminalPaneId = terminal.optNullableString("pane_id"),
+            )
+        }
+
+        fun parseScrollback(payload: JSONObject): ScrollbackCapture {
+            val result = payload.optJSONObject("result")
+            val content = result?.optString("content").orEmpty()
+            val lines = if (content.isEmpty()) {
+                emptyList()
+            } else {
+                content.split('\n').let { if (content.endsWith('\n')) it.dropLast(1) else it }
+            }
+            val error = payload.optJSONObject("error")?.let {
+                ApiError(it.optString("code", "scrollback_failed"), it.optString("message", "Scrollback failed"))
+            }
+            return ScrollbackCapture(
+                cmdId = payload.getString("cmd_id"),
+                ok = payload.optBoolean("ok", false),
+                lines = lines,
+                truncated = result?.optBoolean("truncated", false) ?: false,
+                error = error,
+            )
+        }
+
+        fun parseTranscript(payload: JSONObject): TranscriptCapture {
+            val result = payload.optJSONObject("result")
+            val firstEntry = result?.optInt("first_entry", 0) ?: 0
+            val rawEntries = result?.optJSONArray("entries") ?: JSONArray()
+            val entries = buildList {
+                for (index in 0 until rawEntries.length()) {
+                    val entry = rawEntries.getJSONObject(index)
+                    add(
+                        TranscriptRecord(
+                            index = firstEntry + index,
+                            type = entry.optNullableString("type"),
+                            rawJson = entry.toString(),
+                        ),
+                    )
+                }
+            }
+            val error = payload.optJSONObject("error")?.let {
+                ApiError(it.optString("code", "transcript_failed"), it.optString("message", "Transcript failed"))
+            }
+            return TranscriptCapture(
+                cmdId = payload.getString("cmd_id"),
+                ok = payload.optBoolean("ok", false),
+                entries = entries,
+                firstEntry = firstEntry,
+                totalEntries = result?.optInt("total_entries", 0) ?: 0,
+                source = result?.optNullableString("source"),
+                error = error,
+            )
+        }
+
+        fun parseCommandAcceptance(payload: JSONObject): CommandDispatchAcceptance =
+            CommandDispatchAcceptance(payload.getString("cmd_id"))
+
         private val TARGET_INDEXES = Regex(":(\\d+)(?:\\.(\\d+))?$")
+        private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
         private fun JSONObject.optNullableString(name: String): String? =
             if (isNull(name)) null else optString(name).takeIf { it.isNotBlank() }
 
         private fun JSONObject.optNullableInt(name: String): Int? =
             if (has(name) && !isNull(name)) optInt(name) else null
+
+        private fun JSONObject.optNullableLong(name: String): Long? =
+            if (has(name) && !isNull(name)) optLong(name) else null
+
+        private fun JSONObject.optNullableBoolean(name: String): Boolean? =
+            if (has(name) && !isNull(name)) optBoolean(name) else null
     }
 }
 
@@ -359,6 +557,11 @@ class TerminalSocket(
         return requestId.takeIf { sent }
     }
 
+    fun viewerState(): String? {
+        val requestId = UUID.randomUUID().toString()
+        return requestId.takeIf { send(buildViewerStateMessage(requestId)) }
+    }
+
     fun scroll(lines: Int): Boolean {
         val message = buildScrollMessage(lines) ?: return false
         return send(message)
@@ -382,6 +585,11 @@ class TerminalSocket(
                 .put("op", "scroll")
                 .put("lines", normalized)
         }
+
+        fun buildViewerStateMessage(requestId: String): JSONObject = JSONObject()
+            .put("type", "navigate")
+            .put("op", "viewer_state")
+            .put("request_id", requestId)
 
         private const val MAX_SCROLL_LINES = 120
     }
