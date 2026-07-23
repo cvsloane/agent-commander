@@ -7,8 +7,36 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.json.JSONArray
+import org.json.JSONObject
 
 class UiStreamContractTest {
+    @Test
+    fun `sessions changed exposes only a bounded exact tmux pane signal`() {
+        val sessions = JSONArray()
+        repeat(130) { index ->
+            sessions.put(
+                JSONObject()
+                    .put("id", "session-$index")
+                    .put("host_id", "host-$index")
+                    .put("tmux_pane_id", "%$index"),
+            )
+        }
+        val event = UiStreamEventParser.parse(
+            JSONObject()
+                .put("v", 1)
+                .put("type", "sessions.changed")
+                .put("ts", "2026-07-23T12:00:00Z")
+                .put("payload", JSONObject().put("sessions", sessions))
+                .toString(),
+        ) as SessionsChangedEvent
+
+        assertEquals(128, event.tmuxPanes.size)
+        assertTrue(event.truncated)
+        assertTrue(event.includes("host-42", "%42"))
+        assertFalse(event.includes("host-129", "%129"))
+    }
+
     @Test
     fun `parses correlated command results and live tmux topology metadata`() {
         val command = UiStreamEventParser.parse(
@@ -77,7 +105,7 @@ class UiStreamContractTest {
     }
 
     @Test
-    fun `UI stream uses a one-time ticket and subscribes only to command and topology truth`() {
+    fun `UI stream uses a one-time ticket and subscribes to session persistence truth`() {
         val url = AgentCommandApi.buildUiStreamUrl(
             AgentCommandApi.requireEndpoint("https://agent-command.example.com"),
             "one-time-ticket",
@@ -89,7 +117,7 @@ class UiStreamContractTest {
         assertFalse(url.contains("token="))
         assertEquals("ui.subscribe", subscription.getString("type"))
         assertEquals(
-            listOf("commands.result", "tmux.topology"),
+            listOf("commands.result", "tmux.topology", "sessions"),
             (0 until subscription.getJSONObject("payload").getJSONArray("topics").length()).map {
                 subscription.getJSONObject("payload").getJSONArray("topics")
                     .getJSONObject(it)

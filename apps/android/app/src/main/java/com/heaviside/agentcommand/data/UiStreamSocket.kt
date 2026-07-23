@@ -19,6 +19,7 @@ object UiStreamEventParser {
         val payload = message.getJSONObject("payload")
         return when (message.getString("type")) {
             "commands.result" -> parseCommandResult(timestamp, payload)
+            "sessions.changed" -> parseSessionsChanged(timestamp, payload)
             "tmux.topology" -> parseTopology(timestamp, payload)
             else -> null
         }
@@ -36,6 +37,25 @@ object UiStreamEventParser {
                 ApiError(it.getString("code"), it.getString("message"))
             },
         )
+
+    private fun parseSessionsChanged(timestamp: String, payload: JSONObject): SessionsChangedEvent {
+        val sessions = payload.optJSONArray("sessions") ?: JSONArray()
+        val limit = minOf(sessions.length(), MAX_CHANGED_SESSION_SIGNALS)
+        val tmuxPanes = buildList {
+            for (index in 0 until limit) {
+                val session = sessions.optJSONObject(index) ?: continue
+                val sessionId = session.optString("id").takeIf(String::isNotBlank) ?: continue
+                val hostId = session.optString("host_id").takeIf(String::isNotBlank) ?: continue
+                val paneId = session.optString("tmux_pane_id").takeIf(String::isNotBlank) ?: continue
+                add(ChangedTmuxPane(sessionId, hostId, paneId))
+            }
+        }
+        return SessionsChangedEvent(
+            timestamp = timestamp,
+            tmuxPanes = tmuxPanes,
+            truncated = sessions.length() > limit,
+        )
+    }
 
     private fun parseTopology(timestamp: String, payload: JSONObject): TmuxTopologyEvent =
         TmuxTopologyEvent(
@@ -81,6 +101,8 @@ object UiStreamEventParser {
         buildList {
             for (index in 0 until length()) add(transform(getJSONObject(index)))
         }
+
+    private const val MAX_CHANGED_SESSION_SIGNALS = 128
 }
 
 class UiStreamSocket(
@@ -143,7 +165,8 @@ class UiStreamSocket(
                     "topics",
                     JSONArray()
                         .put(JSONObject().put("type", "commands.result"))
-                        .put(JSONObject().put("type", "tmux.topology")),
+                        .put(JSONObject().put("type", "tmux.topology"))
+                        .put(JSONObject().put("type", "sessions")),
                 ),
             )
     }

@@ -17,6 +17,24 @@ data class CommandResultEvent(
     val error: ApiError? = null,
 ) : UiStreamEvent
 
+data class SessionsChangedEvent(
+    override val timestamp: String,
+    val tmuxPanes: List<ChangedTmuxPane>,
+    val truncated: Boolean,
+) : UiStreamEvent {
+    fun includes(hostId: String, paneId: String): Boolean =
+        find(hostId, paneId) != null
+
+    fun find(hostId: String, paneId: String): ChangedTmuxPane? =
+        tmuxPanes.firstOrNull { it.hostId == hostId && it.paneId == paneId }
+}
+
+data class ChangedTmuxPane(
+    val sessionId: String,
+    val hostId: String,
+    val paneId: String,
+)
+
 data class TmuxTopologyEvent(
     override val timestamp: String,
     val hostId: String,

@@ -5,8 +5,11 @@ package com.heaviside.agentcommand.domain
 
 import com.heaviside.agentcommand.data.Host
 import com.heaviside.agentcommand.data.HostCapabilities
+import com.heaviside.agentcommand.data.ChangedTmuxPane
+import com.heaviside.agentcommand.data.SessionsChangedEvent
 import com.heaviside.agentcommand.data.TmuxOpenResult
 import com.heaviside.agentcommand.data.TmuxPane
+import com.heaviside.agentcommand.data.Topology
 import com.heaviside.agentcommand.terminal.ViewerTarget
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -174,5 +177,92 @@ class TmuxLifecycleActionsTest {
                 opened.copy(terminalPaneId = "%41"),
             ),
         )
+    }
+
+    @Test
+    fun `created pane waits for its exact persistence event before durable adoption`() {
+        val adoption = CreatedPaneAdoptionState()
+        assertEquals(
+            CreatedPaneAdoptionAction.WaitForPersistence("host-a", "%42"),
+            adoption.begin("host-a", "%42", "vault"),
+        )
+        assertTrue(adoption.isPending)
+
+        assertEquals(
+            CreatedPaneAdoptionAction.Ignore,
+            adoption.observe(
+                SessionsChangedEvent(
+                    timestamp = "2026-07-23T12:00:00Z",
+                    tmuxPanes = listOf(ChangedTmuxPane("other", "host-a", "%41")),
+                    truncated = false,
+                ),
+            ),
+        )
+        assertEquals(
+            CreatedPaneAdoptionAction.RefreshRoster("host-a", "%42"),
+            adoption.observe(
+                SessionsChangedEvent(
+                    timestamp = "2026-07-23T12:00:01Z",
+                    tmuxPanes = listOf(ChangedTmuxPane("created-session", "host-a", "%42")),
+                    truncated = false,
+                ),
+            ),
+        )
+
+        val unmanaged = TmuxPane(
+            sessionId = "created-session",
+            hostId = "host-a",
+            hostName = "Alpha",
+            title = "Created",
+            status = "RUNNING",
+            provider = "shell",
+            paneId = "%42",
+            target = "vault:2.1",
+            tmuxSessionName = "vault",
+            windowName = "new",
+            windowIndex = 2,
+            paneIndex = 1,
+            unmanaged = true,
+        )
+        val roster = TmuxRoster.from(
+            Topology(listOf(Host("host-a", "Alpha")), listOf(unmanaged)),
+        )
+        assertEquals(
+            CreatedPaneAdoptionAction.OpenPane(unmanaged),
+            adoption.resolveRoster(roster),
+        )
+
+        val adopted = unmanaged.copy(unmanaged = false)
+        assertEquals(
+            CreatedPaneAdoptionAction.FocusPane(adopted),
+            adoption.resolveOpen(
+                TmuxOpenResult(
+                    sessionId = adopted.sessionId,
+                    href = "/?session_id=created-session",
+                    pane = adopted,
+                    adopted = true,
+                    terminalOpenable = true,
+                    terminalPaneId = adopted.paneId,
+                ),
+            ),
+        )
+        assertTrue(adoption.isPending)
+        adoption.complete()
+        assertFalse(adoption.isPending)
+    }
+
+    @Test
+    fun `created pane persistence timeout fails and releases its adoption lock`() {
+        val adoption = CreatedPaneAdoptionState()
+        adoption.begin("host-a", "%42", "vault")
+
+        assertEquals(
+            CreatedPaneAdoptionAction.Failed(
+                "Created pane %42 was not durably available before the adoption timeout.",
+            ),
+            adoption.timeout(),
+        )
+        assertFalse(adoption.isPending)
+        assertEquals(CreatedPaneAdoptionAction.Ignore, adoption.timeout())
     }
 }

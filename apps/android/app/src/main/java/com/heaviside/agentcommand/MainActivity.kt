@@ -35,6 +35,7 @@ import com.heaviside.agentcommand.data.CommandResultEvent
 import com.heaviside.agentcommand.data.NavigationResult
 import com.heaviside.agentcommand.data.SavedCredentials
 import com.heaviside.agentcommand.data.ScrollbackRequest
+import com.heaviside.agentcommand.data.SessionsChangedEvent
 import com.heaviside.agentcommand.data.TerminalSocket
 import com.heaviside.agentcommand.data.TmuxCommand
 import com.heaviside.agentcommand.data.TmuxOpenRequest
@@ -47,7 +48,8 @@ import com.heaviside.agentcommand.data.UiStreamSocket
 import com.heaviside.agentcommand.domain.AppPreferences
 import com.heaviside.agentcommand.domain.ClaudePaneVisibility
 import com.heaviside.agentcommand.domain.ClaudeTranscriptFormatter
-import com.heaviside.agentcommand.domain.CreatedPaneAnchor
+import com.heaviside.agentcommand.domain.CreatedPaneAdoptionAction
+import com.heaviside.agentcommand.domain.CreatedPaneAdoptionState
 import com.heaviside.agentcommand.domain.KeyRailMode
 import com.heaviside.agentcommand.domain.LastTargetPreference
 import com.heaviside.agentcommand.domain.LifecycleAction
@@ -147,6 +149,8 @@ class MainActivity : Activity() {
     private var lifecycleMutationPending = false
     private var pendingLifecycleViewerTarget: ViewerTarget? = null
     private var pendingLifecycleSuccess: String? = null
+    private val createdPaneAdoption = CreatedPaneAdoptionState()
+    private var createdPaneAdoptionTimeout: Runnable? = null
 
     private val reconnect = Runnable {
         if (started && screen == Screen.TERMINAL && terminalSocket == null) connectTerminal()
@@ -946,81 +950,147 @@ class MainActivity : Activity() {
     ) {
         val successMessage = "Succeeded · $label; selected $createdPaneId."
         pendingLifecycleSuccess = successMessage
+        createdPaneAdoption.begin(
+            hostId = context.host.host.id,
+            paneId = createdPaneId,
+            tmuxSessionName = context.session.name,
+        )
+        setLifecycleStatus(
+            "Completed · created $createdPaneId · waiting for its durable session event…",
+            MUTED,
+        )
+        scheduleCreatedPaneAdoptionTimeout()
+    }
+
+    private fun observeCreatedPanePersistence(event: SessionsChangedEvent) {
+        when (val action = createdPaneAdoption.observe(event)) {
+            CreatedPaneAdoptionAction.Ignore -> Unit
+            is CreatedPaneAdoptionAction.RefreshRoster -> refreshCreatedPaneAdoption(action)
+            else -> Unit
+        }
+    }
+
+    private fun refreshCreatedPaneAdoption(
+        action: CreatedPaneAdoptionAction.RefreshRoster,
+    ) {
         val currentApi = api
         if (currentApi == null) {
-            failLifecycleViewerOperation("Sign in again to adopt created pane $createdPaneId.")
+            failLifecycleViewerOperation("Sign in again to adopt created pane ${action.paneId}.")
             return
         }
         setLifecycleStatus(
-            "Completed · created $createdPaneId · opening its durable command anchor…",
+            "Persisted ${action.paneId} · resolving its authoritative roster anchor…",
+            MUTED,
+        )
+        io.execute {
+            runCatching { currentApi.loadTopology() }
+                .onSuccess { loaded -> runOnUiThread {
+                    if (!createdPaneAdoption.isPending) return@runOnUiThread
+                    val durableRoster = TmuxRoster.from(loaded)
+                    acceptLoadedTopology(loaded)
+                    updateRosterViews()
+                    when (val resolved = createdPaneAdoption.resolveRoster(durableRoster)) {
+                        CreatedPaneAdoptionAction.Ignore -> Unit
+                        is CreatedPaneAdoptionAction.OpenPane -> {
+                            cancelCreatedPaneAdoptionTimeout()
+                            openCreatedPaneForAdoption(resolved.pane)
+                        }
+                        is CreatedPaneAdoptionAction.FocusPane -> {
+                            cancelCreatedPaneAdoptionTimeout()
+                            focusCreatedPane(resolved.pane)
+                        }
+                        is CreatedPaneAdoptionAction.Failed ->
+                            failLifecycleViewerOperation(resolved.message)
+                        else -> Unit
+                    }
+                } }
+                .onFailure { failure -> runOnUiThread {
+                    if (!createdPaneAdoption.isPending) return@runOnUiThread
+                    failLifecycleViewerOperation(
+                        failure.message
+                            ?: "Unable to resolve created pane ${action.paneId} from the roster.",
+                    )
+                } }
+        }
+    }
+
+    private fun openCreatedPaneForAdoption(pane: TmuxPane) {
+        val currentApi = api
+        if (currentApi == null) {
+            failLifecycleViewerOperation("Sign in again to adopt created pane ${pane.paneId}.")
+            return
+        }
+        setLifecycleStatus(
+            "Resolved ${pane.paneId} · adopting its durable command anchor…",
             MUTED,
         )
         io.execute {
             runCatching {
                 currentApi.openTmuxTarget(
                     TmuxOpenRequest(
-                        hostId = context.host.host.id,
-                        paneId = createdPaneId,
+                        hostId = pane.hostId,
+                        paneId = pane.paneId,
                     ),
                 )
             }.onSuccess { opened -> runOnUiThread {
-                if (!lifecycleMutationPending || pendingLifecycleSuccess != successMessage) {
-                    return@runOnUiThread
-                }
-                when (
-                    val anchor = CreatedPaneAnchor.resolve(
-                        context.host.host.id,
-                        createdPaneId,
-                        opened,
-                    )
-                ) {
-                    is CreatedPaneAnchor.Failed ->
-                        failLifecycleViewerOperation(anchor.message, reconcileRoster = true)
-                    is CreatedPaneAnchor.Ready -> {
-                        if (anchor.pane.tmuxSessionName != context.session.name) {
-                            failLifecycleViewerOperation(
-                                "Created pane $createdPaneId opened in the wrong tmux session.",
-                                reconcileRoster = true,
-                            )
-                            return@runOnUiThread
-                        }
-                        val target = ViewerTarget(createdPaneId, zoomed = false)
-                        val navigation = workbenchNavigation.select(
-                            pane = anchor.pane,
-                            viewerAvailable = terminalSocket != null &&
-                                viewerAuthority.connectionState == TerminalConnectionState.ATTACHED,
-                            zoomed = false,
-                        )
-                        if (navigation !is WorkbenchNavigationAction.FocusCandidate) {
-                            failLifecycleViewerOperation(
-                                "Created pane $createdPaneId could not use the current viewer.",
-                                reconcileRoster = true,
-                            )
-                            return@runOnUiThread
-                        }
-                        pendingLifecycleViewerTarget = target
-                        setLifecycleStatus(
-                            "Adopted $createdPaneId · confirming authoritative viewer focus…",
-                            MUTED,
-                        )
-                        if (!requestViewerFocus(target) && pendingLifecycleViewerTarget != null) {
-                            failLifecycleViewerOperation(
-                                "Pane focus request for created pane $createdPaneId could not be sent.",
-                                reconcileRoster = true,
-                            )
-                        }
-                    }
+                if (!createdPaneAdoption.isPending) return@runOnUiThread
+                when (val resolved = createdPaneAdoption.resolveOpen(opened)) {
+                    is CreatedPaneAdoptionAction.FocusPane -> focusCreatedPane(resolved.pane)
+                    is CreatedPaneAdoptionAction.Failed ->
+                        failLifecycleViewerOperation(resolved.message)
+                    else -> Unit
                 }
             } }.onFailure { failure -> runOnUiThread {
-                if (!lifecycleMutationPending || pendingLifecycleSuccess != successMessage) {
-                    return@runOnUiThread
-                }
+                if (!createdPaneAdoption.isPending) return@runOnUiThread
                 failLifecycleViewerOperation(
-                    failure.message ?: "Unable to adopt created pane $createdPaneId.",
-                    reconcileRoster = true,
+                    failure.message ?: "Unable to adopt created pane ${pane.paneId}.",
                 )
             } }
         }
+    }
+
+    private fun focusCreatedPane(pane: TmuxPane) {
+        val target = ViewerTarget(pane.paneId, zoomed = false)
+        val navigation = workbenchNavigation.select(
+            pane = pane,
+            viewerAvailable = terminalSocket != null &&
+                viewerAuthority.connectionState == TerminalConnectionState.ATTACHED,
+            zoomed = false,
+        )
+        if (navigation !is WorkbenchNavigationAction.FocusCandidate) {
+            failLifecycleViewerOperation(
+                "Created pane ${pane.paneId} could not use the current viewer.",
+            )
+            return
+        }
+        pendingLifecycleViewerTarget = target
+        setLifecycleStatus(
+            "Adopted ${pane.paneId} · confirming authoritative viewer focus…",
+            MUTED,
+        )
+        if (!requestViewerFocus(target) && pendingLifecycleViewerTarget != null) {
+            failLifecycleViewerOperation(
+                "Pane focus request for created pane ${pane.paneId} could not be sent.",
+            )
+        }
+    }
+
+    private fun scheduleCreatedPaneAdoptionTimeout() {
+        cancelCreatedPaneAdoptionTimeout()
+        createdPaneAdoptionTimeout = Runnable {
+            createdPaneAdoptionTimeout = null
+            val timedOut = createdPaneAdoption.timeout()
+            if (timedOut is CreatedPaneAdoptionAction.Failed) {
+                failLifecycleViewerOperation(timedOut.message)
+            }
+        }.also {
+            mainHandler.postDelayed(it, CREATED_PANE_ADOPTION_TIMEOUT_MS)
+        }
+    }
+
+    private fun cancelCreatedPaneAdoptionTimeout() {
+        createdPaneAdoptionTimeout?.let(mainHandler::removeCallbacks)
+        createdPaneAdoptionTimeout = null
     }
 
     private fun executeLifecycleTerminate(
@@ -1595,6 +1665,8 @@ class MainActivity : Activity() {
                                 }
                                 is CommandResultEvent ->
                                     commandTracker.observe(event)?.let(::deliverCommandState)
+                                is SessionsChangedEvent ->
+                                    observeCreatedPanePersistence(event)
                             }
                         }
 
@@ -1898,6 +1970,8 @@ class MainActivity : Activity() {
                     terminalView?.requestFocus()
                     if (pendingLifecycleViewerTarget == resolution.target) {
                         val success = pendingLifecycleSuccess ?: "Succeeded · tmux viewer updated."
+                        cancelCreatedPaneAdoptionTimeout()
+                        createdPaneAdoption.complete()
                         pendingLifecycleViewerTarget = null
                         pendingLifecycleSuccess = null
                         reconcileRosterAfterMutation(success, ONLINE)
@@ -2012,6 +2086,8 @@ class MainActivity : Activity() {
         val hadLifecycleOperation =
             pendingLifecycleViewerTarget != null ||
                 pendingLifecycleSuccess != null
+        cancelCreatedPaneAdoptionTimeout()
+        createdPaneAdoption.complete()
         pendingLifecycleViewerTarget = null
         pendingLifecycleSuccess = null
         workbenchNavigation.rejectCandidate()
@@ -2198,6 +2274,7 @@ class MainActivity : Activity() {
     private companion object {
         const val RECONNECT_DELAY_MS = 1_500L
         const val UI_STREAM_RECONNECT_DELAY_MS = 1_500L
+        const val CREATED_PANE_ADOPTION_TIMEOUT_MS = 10_000L
         const val FOCUS_TIMEOUT_MS = 5_000L
         const val ROSTER_STATUS_TAG = "roster-status"
         const val ROSTER_PROGRESS_TAG = "roster-progress"
