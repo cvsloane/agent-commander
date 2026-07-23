@@ -1,11 +1,11 @@
 # Android Terminal Daily Driver — Status
 
 - Plan status/version: approved `1719c8c` scope, approval recorded 2026-07-22T12:04:25-04:00
-- Current phase: W2 distinguishable Android upgrade; W1 visual repair held at its verification wall
+- Current phase: W2 native Android interaction repair; W1 visual repair held at its verification wall
 - Overall state: running
-- Last updated: 2026-07-22T23:16:04-04:00
-- Current accepted baseline: PR #110 merge `b5f01331019e105b8aea1a1c9a72c93c1b74c32a` is live, with the remaining web renderer artefact rejected and held separately
-- Current candidate: Reviewed source `e38e4c4` produces visible `v0.1.1 (2)` identity without changing auth or transport. The signed candidate is 2,241,573 bytes with SHA-256 `a1786e5dc9ebe17fee17119a02b75b80c560a54bc6ff87468ee98faf780a612e`, retains signer `bedae11d...`, and its DEX confirms the ticket POST still uses a zero-byte body with null media type. The web download advertises the version and serves `agent-command-android-0.1.1.apk`.
+- Last updated: 2026-07-22T23:50:00-04:00
+- Current accepted baseline: PR #112 merge `3c537eb117d873b17678d319a50955c216cbc40d` is live through Coolify `n7gfwxqs690h92okqwkvv8a9`; `v0.1.1 (2)` authenticates, attaches, focuses, and renders real panes, while the remaining web renderer artefact is held separately
+- Current candidate: Independently reviewed source `2a568c5` emits swipe rows through the existing bounded tmux `navigate → scroll` contract and aligns committed text with Termux's Samsung-safe input connection. Android test/lint/release assembly pass with 7 debug and 7 release tests. Signed `v0.1.2 (3)` is 2,241,573 bytes with SHA-256 `9d78cd03457a4d26749530859fe495f1241472a2288523673a456238146b045c` and retains signer `bedae11d...`; the web download is prepared as `agent-command-android-0.1.2.apk`.
 - Budget used/remaining: setup complete; 7-day project ceiling remains
 - Next Human Owner checkpoint: corrected APK install and Samsung pane attach/render/input verdict
 
@@ -14,8 +14,8 @@
 | Lane | Current role | State | Deliverable/ref | Last proof | Blocked on | Next action |
 |---|---|---|---|---|---|---|
 | W1 — Shared terminal repair | AI Lead/integrator plus Human Owner | deployed | PR #107 merge `12889bf`; Coolify `z4ig8vlvpgvcncvzhiahnl2d`; identical agentd on both hosts | Full CI, fresh review, exact-source containers, one process per host, and public health `ok` with two agents | Live laptop interaction | Chris verifies connect/focus/switch responsiveness on the real laptop path |
-| W2 — Android vertical slice | Android Builder plus fresh Reviewer | release ready | Reviewed source `e38e4c4`; integrated at `078d789`; signed `v0.1.1 (2)` SHA-256 `a1786e5d...` | Android test/lint/release build, aapt identity, v2/v3 signer continuity, in-app marker, DEX request inspection, fresh review PASS | PR/CI/deploy and Samsung install | Publish the versioned update without transport or retry changes |
-| W3 — Integration and rollout | AI Lead plus fresh Reviewer | deployed | PR #110 merge `b5f0133`; Coolify release `mym0vn6whe76tovzighnre8e`; secret-rotation redeploy `ddodmvrvv715n7in7cqd5sb9` | Exact-source containers, health `ok` with two agents, deployed NextAuth secret matches Bitwarden, authenticated APK status/headers/bytes/hash pass | Physical Samsung use | Preserve the Android-only release; keep the unproven web renderer change out |
+| W2 — Android vertical slice | Android Builder plus fresh Reviewer | release ready | Reviewed source `2a568c5`; integrated at `fa0981c`; signed `v0.1.2 (3)` SHA-256 `9d78cd03...` | Focused scroll contract, 7 debug + 7 release tests, lint/release build, aapt identity, v2/v3 signer continuity, fresh review PASS | PR/CI/deploy and Samsung gesture/IME proof | Publish the interaction update without fling, UI, retry, or transport expansion |
+| W3 — Integration and rollout | AI Lead plus fresh Reviewer | deployed | PR #112 merge `3c537eb`; Coolify `n7gfwxqs690h92okqwkvv8a9` | Exact-source containers, health `ok` with two agents, authenticated v0.1.1 APK headers/bytes/hash pass | Physical Samsung interaction | Release v0.1.2; keep the unproven web renderer change out |
 
 ## Open Gates
 
@@ -32,8 +32,10 @@
 | W1 live laptop | waiting | W1-R7 is live on the actual Claude transcript overlay; automated painted-surface proof passes, human verdict pending | Human Owner | Hard refresh, then repeat Claude chat scrollback check |
 | W2 build/review | pass | Corrected Android foundation through `f464360` is integrated; Gradle test/lint/release and final fresh review pass | AI Lead | Preserve through CI; complete Samsung/live-endpoint gates after rollout |
 | W3 PR #108 rollout | pass | PR #108 merged as `a1b4f41`; Coolify `kcq6gn6w98c3c20m1ujtqm4d` finished at that exact source; the source-aligned replacement APK is prepared locally but not yet deployed | AI Lead | Follow-up PR/deploy and authenticated production hash check |
-| W2 Android pane attach | fail | At 03:05:55–03:06:11 UTC requests `req-v` through `req-14` all returned `400 FST_ERR_CTP_EMPTY_JSON_BODY`; roster requests immediately before were 200 and independent bodyless ticket probes were 201 | AI Lead + Android Builder | Deploy a strictly higher, visible APK version and verify installed identity before retrying |
-| W2 versioned release | pass | `v0.1.1 (2)` is visible on sign-in/roster; Android gates and fresh review pass; signed APK retains v2/v3 signer and DEX null media type; versioned download name is wired | AI Lead | Push, merge, deploy, and verify production bytes |
+| W2 Android pane attach | pass | On v0.1.1, four production tickets returned 201, four PTY attaches rendered panes `%7`/`%3`, and all four focus acknowledgements succeeded in under 100 ms with no socket/host errors | AI Lead + Android Builder | Preserve through interaction release |
+| W2 Android interaction | fail → corrected | Physical Samsung rendered content but could not scroll it; Android only changed an empty local alternate-screen transcript and never sent the existing tmux scroll operation. Reviewed `2a568c5` now binds Termux-sign swipe rows to that protocol and aligns Samsung committed input. | Android Builder + Fresh Reviewer | Deploy v0.1.2 and repeat swipe/type proof |
+| W2 versioned release | pass | PR #112 merge `3c537eb` deployed through `n7gfwxqs690h92okqwkvv8a9`; production served the exact signed v0.1.1/code2 artifact under its versioned filename | AI Lead | Preserve strict version increments |
+| W2 interaction release | pass | `v0.1.2 (3)` passes focused scroll regression, full Android gates, aapt identity, signer continuity, and fresh source review; signed hash is `9d78cd03...` | AI Lead | PR, CI, deploy, authenticated production artifact check |
 | W3 PR #110 rollout | pass | Full CI and review passed; merge `b5f0133` is live in both containers; health is `ok` with two agents; authenticated APK headers, length, and SHA-256 match | AI Lead | Samsung real-path check |
 | Credential rotation | pass | Exposed NextAuth signing value was replaced in production and preview configuration, stored as Bitwarden `Agent Command / AGENT_COMMAND_NEXTAUTH_SECRET`, redeployed, and compared against the running dashboard without printing it | AI Lead | Existing web sessions reauthenticate once |
 | W1 exact painted screenshot | held | Authenticated production SloaneVault terminal screenshots show unselectable left-edge line fragments; three direct test-trigger attempts could not select the populated one of two mounted xterm instances, so no renderer patch was retained | Visual diagnosis lane | Human chooses another direct active-instance pass, renderer-level proof, or manual-only verification |
@@ -45,7 +47,7 @@
 
 ## Immediate Next Sequence
 
-1. Build and review `v0.1.1 (2)` with an in-app version marker.
-2. Sign with the existing certificate and publish it under a versioned download filename.
-3. Verify production bytes, headers, signature, and version identity.
-4. Chris confirms `v0.1.1 (2)` in the app, then opens `heavisidelinux` → `SloaneVault`.
+1. Publish reviewed `v0.1.2 (3)` through PR/CI and Coolify.
+2. Verify production bytes, headers, signature, and version identity.
+3. Chris confirms `v0.1.2 (3)` in the app, then opens `heavisidelinux` → `SloaneVault`.
+4. Prove downward swipe reaches tmux history and Samsung committed input appears in the pane.

@@ -122,4 +122,15 @@ class AgentCommandContractTest {
 
         assertNull(socket.focusPane("%7", zoom = false))
     }
+
+    @Test
+    fun `terminal scroll message uses the bounded tmux navigation contract`() {
+        val scrollUp = requireNotNull(TerminalSocket.buildScrollMessage(-7))
+        assertEquals("navigate", scrollUp.getString("type"))
+        assertEquals("scroll", scrollUp.getString("op"))
+        assertEquals(-7, scrollUp.getInt("lines"))
+        assertEquals(-120, requireNotNull(TerminalSocket.buildScrollMessage(-999)).getInt("lines"))
+        assertEquals(120, requireNotNull(TerminalSocket.buildScrollMessage(999)).getInt("lines"))
+        assertNull(TerminalSocket.buildScrollMessage(0))
+    }
 }
