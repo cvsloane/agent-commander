@@ -7,7 +7,7 @@ import { authOptions } from '@/lib/auth';
 export const dynamic = 'force-dynamic';
 
 const APK_FILENAME = 'agent-command-android.apk';
-const APK_DOWNLOAD_FILENAME = 'agent-command-android-0.1.1.apk';
+const APK_DOWNLOAD_FILENAME = 'agent-command-android-0.1.2.apk';
 const APK_PATH = path.resolve(process.cwd(), '..', '..', 'android-distribution', APK_FILENAME);
 
 export async function GET() {
