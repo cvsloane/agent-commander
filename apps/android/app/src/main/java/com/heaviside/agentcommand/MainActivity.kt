@@ -125,6 +125,7 @@ class MainActivity : Activity() {
         val content = verticalLayout().apply {
             setPadding(dp(24), dp(32), dp(24), dp(24))
             addView(heading("Agent Command"))
+            addView(body(appVersionLabel()))
             addView(body("Connect through the public Agent Command dashboard. The access code is encrypted with Android Keystore."))
         }
         val endpoint = EditText(this).apply {
@@ -193,6 +194,9 @@ class MainActivity : Activity() {
             showSignIn()
         })
         root.addView(header, matchWrap())
+        root.addView(body(appVersionLabel()).apply {
+            setPadding(dp(16), 0, dp(16), dp(4))
+        }, matchWrap())
 
         val status = body("Loading hosts and panes…").apply {
             tag = ROSTER_STATUS_TAG
@@ -493,6 +497,8 @@ class MainActivity : Activity() {
         authoritativeInput -> "Connected · ${activePane?.paneId}"
         else -> "Connected · confirming pane"
     }
+
+    private fun appVersionLabel(): String = "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
 
     private fun updateCtrlButton(enabled: Boolean) {
         ctrlButton?.text = if (enabled) "Ctrl on" else "Ctrl"
