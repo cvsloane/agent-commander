@@ -1,0 +1,963 @@
+# columns: table.column type nullable default
+agent_tasks.description text nullable=NO default=-
+agent_tasks.ended_at timestamp with time zone nullable=YES default=-
+agent_tasks.id uuid nullable=NO default=gen_random_uuid()
+agent_tasks.metadata jsonb nullable=NO default='{}'::jsonb
+agent_tasks.session_id uuid nullable=NO default=-
+agent_tasks.started_at timestamp with time zone nullable=NO default=-
+agent_tasks.status text nullable=NO default=-
+agent_tasks.tool_use_id text nullable=NO default=-
+agent_tokens.created_at timestamp with time zone nullable=NO default=now()
+agent_tokens.host_id uuid nullable=NO default=-
+agent_tokens.id bigint nullable=NO default=nextval('agent_tokens_id_seq'::regclass)
+agent_tokens.revoked_at timestamp with time zone nullable=YES default=-
+agent_tokens.token_hash text nullable=NO default=-
+agent_tokens.token_sha256 text nullable=YES default=-
+approvals.decided_by_user_id uuid nullable=YES default=-
+approvals.decided_payload jsonb nullable=YES default=-
+approvals.decision USER-DEFINED nullable=YES default=-
+approvals.id uuid nullable=NO default=-
+approvals.provider USER-DEFINED nullable=NO default=-
+approvals.requested_payload jsonb nullable=NO default=-
+approvals.session_id uuid nullable=NO default=-
+approvals.timed_out_at timestamp with time zone nullable=YES default=-
+approvals.ts_decided timestamp with time zone nullable=YES default=-
+approvals.ts_requested timestamp with time zone nullable=NO default=now()
+audit_log.action text nullable=NO default=-
+audit_log.id bigint nullable=NO default=nextval('audit_log_id_seq'::regclass)
+audit_log.object_id uuid nullable=YES default=-
+audit_log.object_type text nullable=NO default=-
+audit_log.payload jsonb nullable=NO default='{}'::jsonb
+audit_log.ts timestamp with time zone nullable=NO default=now()
+audit_log.user_id uuid nullable=YES default=-
+automation_agents.budget_policy_json jsonb nullable=NO default='{}'::jsonb
+automation_agents.created_at timestamp with time zone nullable=NO default=now()
+automation_agents.default_cwd text nullable=YES default=-
+automation_agents.fixed_host_id uuid nullable=YES default=-
+automation_agents.id uuid nullable=NO default=gen_random_uuid()
+automation_agents.max_parallel_runs integer nullable=NO default=1
+automation_agents.memory_policy_json jsonb nullable=NO default='{}'::jsonb
+automation_agents.name text nullable=NO default=-
+automation_agents.provider USER-DEFINED nullable=NO default=-
+automation_agents.reports_to_automation_agent_id uuid nullable=YES default=-
+automation_agents.role text nullable=NO default=-
+automation_agents.slug text nullable=NO default=-
+automation_agents.status text nullable=NO default='active'::text
+automation_agents.updated_at timestamp with time zone nullable=NO default=now()
+automation_agents.user_id uuid nullable=NO default=-
+automation_agents.wake_policy_json jsonb nullable=NO default='{}'::jsonb
+automation_agents.worker_pool_json jsonb nullable=NO default='{}'::jsonb
+automation_run_events.automation_run_id uuid nullable=NO default=-
+automation_run_events.created_at timestamp with time zone nullable=NO default=now()
+automation_run_events.event_type text nullable=NO default=-
+automation_run_events.id bigint nullable=NO default=nextval('automation_run_events_id_seq'::regclass)
+automation_run_events.level text nullable=NO default='info'::text
+automation_run_events.message text nullable=NO default=-
+automation_run_events.payload jsonb nullable=NO default='{}'::jsonb
+automation_run_events.seq integer nullable=NO default=-
+automation_runs.automation_agent_id uuid nullable=NO default=-
+automation_runs.ended_at timestamp with time zone nullable=YES default=-
+automation_runs.id uuid nullable=NO default=gen_random_uuid()
+automation_runs.log_ref_json jsonb nullable=NO default='{}'::jsonb
+automation_runs.memory_snapshot_json jsonb nullable=NO default='{}'::jsonb
+automation_runs.objective text nullable=NO default=-
+automation_runs.pending_followups_json jsonb nullable=NO default='[]'::jsonb
+automation_runs.repo_id uuid nullable=YES default=-
+automation_runs.result_summary text nullable=YES default=-
+automation_runs.session_id uuid nullable=YES default=-
+automation_runs.started_at timestamp with time zone nullable=NO default=now()
+automation_runs.status text nullable=NO default=-
+automation_runs.usage_json jsonb nullable=NO default='{}'::jsonb
+automation_runs.wakeup_id uuid nullable=NO default=-
+automation_runs.worker_report_json jsonb nullable=NO default='{}'::jsonb
+automation_runtime_states.active_host_id uuid nullable=YES default=-
+automation_runtime_states.active_session_id uuid nullable=YES default=-
+automation_runtime_states.automation_agent_id uuid nullable=NO default=-
+automation_runtime_states.created_at timestamp with time zone nullable=NO default=now()
+automation_runtime_states.id uuid nullable=NO default=gen_random_uuid()
+automation_runtime_states.last_run_id uuid nullable=YES default=-
+automation_runtime_states.last_session_id uuid nullable=YES default=-
+automation_runtime_states.repo_id uuid nullable=YES default=-
+automation_runtime_states.runtime_status text nullable=NO default='idle'::text
+automation_runtime_states.state_json jsonb nullable=NO default='{}'::jsonb
+automation_runtime_states.updated_at timestamp with time zone nullable=NO default=now()
+automation_runtime_states.usage_rollup_json jsonb nullable=NO default='{}'::jsonb
+automation_wakeups.automation_agent_id uuid nullable=NO default=-
+automation_wakeups.claimed_at timestamp with time zone nullable=YES default=-
+automation_wakeups.coalesced_into_run_id uuid nullable=YES default=-
+automation_wakeups.context_json jsonb nullable=NO default='{}'::jsonb
+automation_wakeups.finished_at timestamp with time zone nullable=YES default=-
+automation_wakeups.id uuid nullable=NO default=gen_random_uuid()
+automation_wakeups.idempotency_key text nullable=YES default=-
+automation_wakeups.repo_id uuid nullable=YES default=-
+automation_wakeups.requested_at timestamp with time zone nullable=NO default=now()
+automation_wakeups.source text nullable=NO default=-
+automation_wakeups.status text nullable=NO default='queued'::text
+commands.class text nullable=NO default=-
+commands.cmd_id uuid nullable=NO default=-
+commands.completed_at timestamp with time zone nullable=YES default=-
+commands.created_at timestamp with time zone nullable=NO default=now()
+commands.error jsonb nullable=YES default=-
+commands.expires_at timestamp with time zone nullable=NO default=-
+commands.host_id uuid nullable=NO default=-
+commands.idempotency_fingerprint text nullable=YES default=-
+commands.idempotency_key text nullable=YES default=-
+commands.payload jsonb nullable=NO default=-
+commands.result jsonb nullable=YES default=-
+commands.sent_at timestamp with time zone nullable=YES default=-
+commands.session_id uuid nullable=YES default=-
+commands.status text nullable=NO default='queued'::text
+commands.type text nullable=NO default=-
+events.event_id text nullable=YES default=-
+events.id bigint nullable=NO default=nextval('events_id_seq'::regclass)
+events.payload jsonb nullable=NO default=-
+events.search_vector tsvector nullable=YES default=-
+events.session_id uuid nullable=NO default=-
+events.ts timestamp with time zone nullable=NO default=now()
+events.type text nullable=NO default=-
+governance_approvals.automation_agent_id uuid nullable=NO default=-
+governance_approvals.automation_run_id uuid nullable=YES default=-
+governance_approvals.decided_at timestamp with time zone nullable=YES default=-
+governance_approvals.decided_by_user_id uuid nullable=YES default=-
+governance_approvals.decision_payload jsonb nullable=YES default=-
+governance_approvals.id uuid nullable=NO default=gen_random_uuid()
+governance_approvals.request_payload jsonb nullable=NO default='{}'::jsonb
+governance_approvals.requested_at timestamp with time zone nullable=NO default=now()
+governance_approvals.status text nullable=NO default='pending'::text
+governance_approvals.type text nullable=NO default=-
+governance_approvals.user_id uuid nullable=NO default=-
+hosts.agent_version text nullable=YES default=-
+hosts.capabilities jsonb nullable=NO default='{}'::jsonb
+hosts.created_at timestamp with time zone nullable=NO default=now()
+hosts.id uuid nullable=NO default=-
+hosts.last_acked_seq bigint nullable=NO default=0
+hosts.last_seen_at timestamp with time zone nullable=YES default=-
+hosts.name text nullable=NO default=-
+hosts.tailscale_ip inet nullable=YES default=-
+hosts.tailscale_name text nullable=YES default=-
+hosts.updated_at timestamp with time zone nullable=NO default=now()
+memory_entries.access_count integer nullable=NO default=0
+memory_entries.confidence double precision nullable=NO default=0.5
+memory_entries.content text nullable=NO default=-
+memory_entries.created_at timestamp with time zone nullable=NO default=now()
+memory_entries.embedding jsonb nullable=YES default=-
+memory_entries.embedding_dimensions integer nullable=YES default=-
+memory_entries.embedding_model text nullable=YES default=-
+memory_entries.expires_at timestamp with time zone nullable=YES default=-
+memory_entries.id uuid nullable=NO default=gen_random_uuid()
+memory_entries.ingestion_key text nullable=YES default=-
+memory_entries.last_accessed_at timestamp with time zone nullable=YES default=-
+memory_entries.metadata jsonb nullable=NO default='{}'::jsonb
+memory_entries.repo_id uuid nullable=YES default=-
+memory_entries.scope_type text nullable=NO default=-
+memory_entries.search_vector tsvector nullable=YES default=-
+memory_entries.session_id uuid nullable=YES default=-
+memory_entries.summary text nullable=NO default=-
+memory_entries.tier text nullable=NO default=-
+memory_entries.updated_at timestamp with time zone nullable=NO default=now()
+memory_entries.user_id uuid nullable=NO default=-
+memory_trajectories.automation_run_id uuid nullable=YES default=-
+memory_trajectories.created_at timestamp with time zone nullable=NO default=now()
+memory_trajectories.distilled_at timestamp with time zone nullable=YES default=-
+memory_trajectories.id uuid nullable=NO default=gen_random_uuid()
+memory_trajectories.ingestion_key text nullable=YES default=-
+memory_trajectories.objective text nullable=YES default=-
+memory_trajectories.outcome text nullable=NO default='unknown'::text
+memory_trajectories.repo_id uuid nullable=YES default=-
+memory_trajectories.session_id uuid nullable=YES default=-
+memory_trajectories.steps_json jsonb nullable=NO default='[]'::jsonb
+memory_trajectories.summary text nullable=NO default=-
+memory_trajectories.updated_at timestamp with time zone nullable=NO default=now()
+memory_trajectories.user_id uuid nullable=NO default=-
+notification_delivery_state.channel text nullable=NO default=-
+notification_delivery_state.dedupe_key text nullable=NO default=-
+notification_delivery_state.failure_count integer nullable=NO default=0
+notification_delivery_state.last_attempt_at timestamp with time zone nullable=YES default=-
+notification_delivery_state.last_sent_at timestamp with time zone nullable=YES default=-
+notification_delivery_state.next_attempt_at timestamp with time zone nullable=YES default=-
+notification_delivery_state.payload_hash text nullable=YES default=-
+notification_delivery_state.reserved_until timestamp with time zone nullable=YES default=-
+notification_delivery_state.updated_at timestamp with time zone nullable=NO default=now()
+notification_delivery_state.user_id uuid nullable=NO default=-
+notifications_log.attempt_count integer nullable=NO default=1
+notifications_log.channel text nullable=NO default=-
+notifications_log.created_at timestamp with time zone nullable=NO default=now()
+notifications_log.dedupe_key text nullable=NO default=-
+notifications_log.error text nullable=YES default=-
+notifications_log.event_type text nullable=NO default=-
+notifications_log.id bigint nullable=NO default=nextval('notifications_log_id_seq'::regclass)
+notifications_log.payload jsonb nullable=NO default='{}'::jsonb
+notifications_log.response_status integer nullable=YES default=-
+notifications_log.status text nullable=NO default=-
+notifications_log.target text nullable=YES default=-
+notifications_log.user_id uuid nullable=NO default=-
+projects.created_at timestamp with time zone nullable=NO default=now()
+projects.default_branch text nullable=YES default=-
+projects.description text nullable=YES default=-
+projects.display_name text nullable=YES default=-
+projects.git_remote text nullable=YES default=-
+projects.host_id uuid nullable=NO default=-
+projects.id uuid nullable=NO default=gen_random_uuid()
+projects.last_used_at timestamp with time zone nullable=YES default=-
+projects.path text nullable=NO default=-
+projects.repo_id uuid nullable=YES default=-
+projects.updated_at timestamp with time zone nullable=NO default=now()
+projects.usage_count integer nullable=YES default=0
+projects.user_id uuid nullable=NO default=-
+provider_usage.daily_reset_at timestamp with time zone nullable=YES default=-
+provider_usage.daily_utilization real nullable=YES default=-
+provider_usage.five_hour_reset_at timestamp with time zone nullable=YES default=-
+provider_usage.five_hour_utilization real nullable=YES default=-
+provider_usage.host_id uuid nullable=YES default=-
+provider_usage.id bigint nullable=NO default=nextval('provider_usage_id_seq'::regclass)
+provider_usage.provider text nullable=NO default=-
+provider_usage.raw_json jsonb nullable=YES default=-
+provider_usage.raw_text text nullable=YES default=-
+provider_usage.remaining_requests bigint nullable=YES default=-
+provider_usage.remaining_tokens bigint nullable=YES default=-
+provider_usage.reported_at timestamp with time zone nullable=NO default=now()
+provider_usage.reset_at timestamp with time zone nullable=YES default=-
+provider_usage.scope text nullable=NO default='account'::text
+provider_usage.session_id uuid nullable=YES default=-
+provider_usage.weekly_limit_tokens bigint nullable=YES default=-
+provider_usage.weekly_opus_reset_at timestamp with time zone nullable=YES default=-
+provider_usage.weekly_opus_utilization real nullable=YES default=-
+provider_usage.weekly_remaining_cost_cents integer nullable=YES default=-
+provider_usage.weekly_remaining_tokens bigint nullable=YES default=-
+provider_usage.weekly_reset_at timestamp with time zone nullable=YES default=-
+provider_usage.weekly_sonnet_reset_at timestamp with time zone nullable=YES default=-
+provider_usage.weekly_sonnet_utilization real nullable=YES default=-
+provider_usage.weekly_utilization real nullable=YES default=-
+push_subscriptions.auth text nullable=NO default=-
+push_subscriptions.created_at timestamp with time zone nullable=NO default=now()
+push_subscriptions.device_label text nullable=YES default=-
+push_subscriptions.endpoint text nullable=NO default=-
+push_subscriptions.failure_count integer nullable=NO default=0
+push_subscriptions.id uuid nullable=NO default=gen_random_uuid()
+push_subscriptions.last_seen_at timestamp with time zone nullable=NO default=now()
+push_subscriptions.p256dh text nullable=NO default=-
+push_subscriptions.user_id uuid nullable=NO default=-
+recent_launches.created_at timestamp with time zone nullable=NO default=now()
+recent_launches.host_id uuid nullable=NO default=-
+recent_launches.id uuid nullable=NO default=gen_random_uuid()
+recent_launches.last_launched_at timestamp with time zone nullable=NO default=now()
+recent_launches.launch_count integer nullable=NO default=1
+recent_launches.prompt_preview text nullable=YES default=-
+recent_launches.provider USER-DEFINED nullable=NO default=-
+recent_launches.title text nullable=YES default=-
+recent_launches.tmux_target text nullable=YES default=-
+recent_launches.updated_at timestamp with time zone nullable=NO default=now()
+recent_launches.user_id uuid nullable=NO default=-
+recent_launches.working_directory text nullable=NO default=-
+repos.canonical_key text nullable=NO default=-
+repos.created_at timestamp with time zone nullable=NO default=now()
+repos.display_name text nullable=YES default=-
+repos.git_remote_normalized text nullable=YES default=-
+repos.id uuid nullable=NO default=gen_random_uuid()
+repos.last_host_id uuid nullable=YES default=-
+repos.last_repo_root text nullable=YES default=-
+repos.repo_root_hash text nullable=YES default=-
+repos.updated_at timestamp with time zone nullable=NO default=now()
+schema_migrations.applied_at timestamp with time zone nullable=NO default=now()
+schema_migrations.name text nullable=NO default=-
+session_context.id uuid nullable=NO default=gen_random_uuid()
+session_context.key text nullable=NO default=-
+session_context.session_id uuid nullable=NO default=-
+session_context.updated_at timestamp with time zone nullable=NO default=now()
+session_context.value text nullable=NO default=-
+session_edges.child_session_id uuid nullable=NO default=-
+session_edges.created_at timestamp with time zone nullable=NO default=now()
+session_edges.edge_type text nullable=NO default=-
+session_edges.parent_session_id uuid nullable=NO default=-
+session_groups.color character varying nullable=YES default='#6366f1'::character varying
+session_groups.created_at timestamp with time zone nullable=YES default=now()
+session_groups.icon character varying nullable=YES default='folder'::character varying
+session_groups.id uuid nullable=NO default=gen_random_uuid()
+session_groups.name character varying nullable=NO default=-
+session_groups.parent_id uuid nullable=YES default=-
+session_groups.sort_order integer nullable=YES default=0
+session_groups.updated_at timestamp with time zone nullable=YES default=now()
+session_links.created_at timestamp with time zone nullable=NO default=now()
+session_links.id uuid nullable=NO default=gen_random_uuid()
+session_links.link_type character varying nullable=NO default=-
+session_links.source_session_id uuid nullable=NO default=-
+session_links.target_session_id uuid nullable=NO default=-
+session_metrics.approvals_denied bigint nullable=YES default=0
+session_metrics.approvals_granted bigint nullable=YES default=0
+session_metrics.approvals_requested bigint nullable=YES default=0
+session_metrics.created_at timestamp with time zone nullable=NO default=now()
+session_metrics.estimated_cost_cents integer nullable=YES default=0
+session_metrics.first_event_at timestamp with time zone nullable=YES default=-
+session_metrics.id bigint nullable=NO default=nextval('session_metrics_id_seq'::regclass)
+session_metrics.last_event_at timestamp with time zone nullable=YES default=-
+session_metrics.session_id uuid nullable=NO default=-
+session_metrics.tokens_cache_read bigint nullable=YES default=0
+session_metrics.tokens_cache_write bigint nullable=YES default=0
+session_metrics.tokens_in bigint nullable=YES default=0
+session_metrics.tokens_out bigint nullable=YES default=0
+session_metrics.tool_calls bigint nullable=YES default=0
+session_metrics.updated_at timestamp with time zone nullable=NO default=now()
+session_snapshots.capture_hash text nullable=NO default=-
+session_snapshots.capture_text text nullable=NO default=-
+session_snapshots.created_at timestamp with time zone nullable=NO default=now()
+session_snapshots.id bigint nullable=NO default=nextval('session_snapshots_id_seq'::regclass)
+session_snapshots.search_vector tsvector nullable=YES default=-
+session_snapshots.session_id uuid nullable=NO default=-
+session_usage_latest.cache_read_tokens integer nullable=YES default=-
+session_usage_latest.cache_write_tokens integer nullable=YES default=-
+session_usage_latest.context_left_percent numeric nullable=YES default=-
+session_usage_latest.context_total_tokens integer nullable=YES default=-
+session_usage_latest.context_used_tokens integer nullable=YES default=-
+session_usage_latest.estimated_cost_cents integer nullable=YES default=-
+session_usage_latest.five_hour_left_percent numeric nullable=YES default=-
+session_usage_latest.five_hour_reset_text text nullable=YES default=-
+session_usage_latest.input_tokens integer nullable=YES default=-
+session_usage_latest.output_tokens integer nullable=YES default=-
+session_usage_latest.provider text nullable=NO default=-
+session_usage_latest.raw_usage_line text nullable=YES default=-
+session_usage_latest.reported_at timestamp with time zone nullable=NO default=now()
+session_usage_latest.session_id uuid nullable=NO default=-
+session_usage_latest.session_left_percent numeric nullable=YES default=-
+session_usage_latest.session_reset_text text nullable=YES default=-
+session_usage_latest.session_utilization_percent numeric nullable=YES default=-
+session_usage_latest.total_tokens integer nullable=YES default=-
+session_usage_latest.weekly_left_percent numeric nullable=YES default=-
+session_usage_latest.weekly_opus_reset_text text nullable=YES default=-
+session_usage_latest.weekly_opus_utilization_percent numeric nullable=YES default=-
+session_usage_latest.weekly_reset_text text nullable=YES default=-
+session_usage_latest.weekly_sonnet_reset_text text nullable=YES default=-
+session_usage_latest.weekly_sonnet_utilization_percent numeric nullable=YES default=-
+session_usage_latest.weekly_utilization_percent numeric nullable=YES default=-
+sessions.archived_at timestamp with time zone nullable=YES default=-
+sessions.attention_reason text nullable=YES default=-
+sessions.created_at timestamp with time zone nullable=NO default=now()
+sessions.cwd text nullable=YES default=-
+sessions.fork_depth integer nullable=NO default=0
+sessions.forked_from uuid nullable=YES default=-
+sessions.git_branch text nullable=YES default=-
+sessions.git_remote text nullable=YES default=-
+sessions.group_id uuid nullable=YES default=-
+sessions.host_id uuid nullable=NO default=-
+sessions.id uuid nullable=NO default=-
+sessions.idled_at timestamp with time zone nullable=YES default=-
+sessions.kind USER-DEFINED nullable=NO default=-
+sessions.last_activity_at timestamp with time zone nullable=YES default=-
+sessions.metadata jsonb nullable=NO default='{}'::jsonb
+sessions.provider USER-DEFINED nullable=NO default=-
+sessions.repo_id uuid nullable=YES default=-
+sessions.repo_root text nullable=YES default=-
+sessions.role text nullable=NO default='standalone'::text
+sessions.search_vector tsvector nullable=YES default=-
+sessions.status USER-DEFINED nullable=NO default=-
+sessions.title text nullable=YES default=-
+sessions.tmux_pane_id text nullable=YES default=-
+sessions.tmux_pane_index integer nullable=YES default=-
+sessions.tmux_session_name text nullable=YES default=-
+sessions.tmux_target text nullable=YES default=-
+sessions.tmux_window_index integer nullable=YES default=-
+sessions.updated_at timestamp with time zone nullable=NO default=now()
+sessions.user_id uuid nullable=YES default=-
+summaries.action_type character varying nullable=NO default=-
+summaries.capture_hash character varying nullable=NO default=-
+summaries.created_at timestamp with time zone nullable=NO default=now()
+summaries.id integer nullable=NO default=nextval('summaries_id_seq'::regclass)
+summaries.session_id uuid nullable=YES default=-
+summaries.summary text nullable=NO default=-
+token_events.event_id bigint nullable=YES default=-
+token_events.id bigint nullable=NO default=nextval('token_events_id_seq'::regclass)
+token_events.recorded_at timestamp with time zone nullable=NO default=now()
+token_events.session_id uuid nullable=NO default=-
+token_events.tokens_cache_read integer nullable=YES default=0
+token_events.tokens_cache_write integer nullable=YES default=0
+token_events.tokens_in integer nullable=YES default=0
+token_events.tokens_out integer nullable=YES default=0
+token_events.tool_name text nullable=YES default=-
+tool_events.completed_at timestamp with time zone nullable=YES default=-
+tool_events.created_at timestamp with time zone nullable=NO default=now()
+tool_events.duration_ms integer nullable=YES default=-
+tool_events.id uuid nullable=NO default=gen_random_uuid()
+tool_events.provider character varying nullable=NO default=-
+tool_events.session_id uuid nullable=NO default=-
+tool_events.started_at timestamp with time zone nullable=NO default=-
+tool_events.success boolean nullable=YES default=-
+tool_events.tool_input jsonb nullable=YES default=-
+tool_events.tool_name character varying nullable=NO default=-
+tool_events.tool_output jsonb nullable=YES default=-
+user_settings.created_at timestamp with time zone nullable=NO default=now()
+user_settings.settings jsonb nullable=NO default='{}'::jsonb
+user_settings.updated_at timestamp with time zone nullable=NO default=now()
+user_settings.user_id uuid nullable=NO default=-
+user_settings_legacy_subjects.user_id uuid nullable=NO default=-
+user_settings_legacy_subjects.user_subject text nullable=NO default=-
+users.created_at timestamp with time zone nullable=NO default=now()
+users.email text nullable=YES default=-
+users.github_id text nullable=YES default=-
+users.id uuid nullable=NO default=gen_random_uuid()
+users.name text nullable=YES default=-
+users.role text nullable=NO default='viewer'::text
+users.updated_at timestamp with time zone nullable=NO default=now()
+work_items.assigned_automation_agent_id uuid nullable=YES default=-
+work_items.checkout_run_id uuid nullable=YES default=-
+work_items.created_at timestamp with time zone nullable=NO default=now()
+work_items.dedupe_key text nullable=YES default=-
+work_items.id uuid nullable=NO default=gen_random_uuid()
+work_items.objective text nullable=NO default=-
+work_items.payload_json jsonb nullable=NO default='{}'::jsonb
+work_items.priority integer nullable=NO default=0
+work_items.repo_id uuid nullable=YES default=-
+work_items.session_id uuid nullable=YES default=-
+work_items.status text nullable=NO default='queued'::text
+work_items.title text nullable=NO default=-
+work_items.updated_at timestamp with time zone nullable=NO default=now()
+work_items.user_id uuid nullable=NO default=-
+
+# constraints: table constraint type (columns)
+agent_tasks 2200_17274_1_not_null CHECK (-)
+agent_tasks 2200_17274_2_not_null CHECK (-)
+agent_tasks 2200_17274_3_not_null CHECK (-)
+agent_tasks 2200_17274_4_not_null CHECK (-)
+agent_tasks 2200_17274_5_not_null CHECK (-)
+agent_tasks 2200_17274_6_not_null CHECK (-)
+agent_tasks 2200_17274_8_not_null CHECK (-)
+agent_tasks agent_tasks_pkey PRIMARY KEY (id)
+agent_tasks agent_tasks_session_id_fkey FOREIGN KEY (session_id)
+agent_tasks agent_tasks_session_id_tool_use_id_key UNIQUE (session_id,tool_use_id)
+agent_tasks agent_tasks_status_check CHECK (-)
+agent_tokens 2200_16512_1_not_null CHECK (-)
+agent_tokens 2200_16512_2_not_null CHECK (-)
+agent_tokens 2200_16512_3_not_null CHECK (-)
+agent_tokens 2200_16512_4_not_null CHECK (-)
+agent_tokens agent_tokens_host_id_fkey FOREIGN KEY (host_id)
+agent_tokens agent_tokens_pkey PRIMARY KEY (id)
+approvals 2200_16487_1_not_null CHECK (-)
+approvals 2200_16487_2_not_null CHECK (-)
+approvals 2200_16487_3_not_null CHECK (-)
+approvals 2200_16487_4_not_null CHECK (-)
+approvals 2200_16487_7_not_null CHECK (-)
+approvals approvals_decided_by_user_id_fkey FOREIGN KEY (decided_by_user_id)
+approvals approvals_pkey PRIMARY KEY (id)
+approvals approvals_session_id_fkey FOREIGN KEY (session_id)
+audit_log 2200_16501_1_not_null CHECK (-)
+audit_log 2200_16501_2_not_null CHECK (-)
+audit_log 2200_16501_4_not_null CHECK (-)
+audit_log 2200_16501_5_not_null CHECK (-)
+audit_log 2200_16501_7_not_null CHECK (-)
+audit_log audit_log_pkey PRIMARY KEY (id)
+audit_log audit_log_user_id_fkey FOREIGN KEY (user_id)
+automation_agents 2200_16948_10_not_null CHECK (-)
+automation_agents 2200_16948_11_not_null CHECK (-)
+automation_agents 2200_16948_12_not_null CHECK (-)
+automation_agents 2200_16948_13_not_null CHECK (-)
+automation_agents 2200_16948_14_not_null CHECK (-)
+automation_agents 2200_16948_15_not_null CHECK (-)
+automation_agents 2200_16948_16_not_null CHECK (-)
+automation_agents 2200_16948_17_not_null CHECK (-)
+automation_agents 2200_16948_1_not_null CHECK (-)
+automation_agents 2200_16948_2_not_null CHECK (-)
+automation_agents 2200_16948_3_not_null CHECK (-)
+automation_agents 2200_16948_4_not_null CHECK (-)
+automation_agents 2200_16948_5_not_null CHECK (-)
+automation_agents 2200_16948_7_not_null CHECK (-)
+automation_agents automation_agents_fixed_host_id_fkey FOREIGN KEY (fixed_host_id)
+automation_agents automation_agents_pkey PRIMARY KEY (id)
+automation_agents automation_agents_reports_to_automation_agent_id_fkey FOREIGN KEY (reports_to_automation_agent_id)
+automation_agents automation_agents_role_check CHECK (-)
+automation_agents automation_agents_status_check CHECK (-)
+automation_agents automation_agents_user_id_fkey FOREIGN KEY (user_id)
+automation_agents automation_agents_user_id_name_key UNIQUE (user_id,name)
+automation_run_events 2200_17184_1_not_null CHECK (-)
+automation_run_events 2200_17184_2_not_null CHECK (-)
+automation_run_events 2200_17184_3_not_null CHECK (-)
+automation_run_events 2200_17184_4_not_null CHECK (-)
+automation_run_events 2200_17184_5_not_null CHECK (-)
+automation_run_events 2200_17184_6_not_null CHECK (-)
+automation_run_events 2200_17184_7_not_null CHECK (-)
+automation_run_events 2200_17184_8_not_null CHECK (-)
+automation_run_events automation_run_events_automation_run_id_fkey FOREIGN KEY (automation_run_id)
+automation_run_events automation_run_events_automation_run_id_seq_key UNIQUE (automation_run_id,seq)
+automation_run_events automation_run_events_level_check CHECK (-)
+automation_run_events automation_run_events_pkey PRIMARY KEY (id)
+automation_runs 2200_17011_10_not_null CHECK (-)
+automation_runs 2200_17011_11_not_null CHECK (-)
+automation_runs 2200_17011_13_not_null CHECK (-)
+automation_runs 2200_17011_14_not_null CHECK (-)
+automation_runs 2200_17011_15_not_null CHECK (-)
+automation_runs 2200_17011_1_not_null CHECK (-)
+automation_runs 2200_17011_2_not_null CHECK (-)
+automation_runs 2200_17011_3_not_null CHECK (-)
+automation_runs 2200_17011_6_not_null CHECK (-)
+automation_runs 2200_17011_7_not_null CHECK (-)
+automation_runs 2200_17011_8_not_null CHECK (-)
+automation_runs automation_runs_automation_agent_id_fkey FOREIGN KEY (automation_agent_id)
+automation_runs automation_runs_pkey PRIMARY KEY (id)
+automation_runs automation_runs_repo_id_fkey FOREIGN KEY (repo_id)
+automation_runs automation_runs_session_id_fkey FOREIGN KEY (session_id)
+automation_runs automation_runs_status_check CHECK (-)
+automation_runs automation_runs_wakeup_id_fkey FOREIGN KEY (wakeup_id)
+automation_runtime_states 2200_17137_10_not_null CHECK (-)
+automation_runtime_states 2200_17137_11_not_null CHECK (-)
+automation_runtime_states 2200_17137_12_not_null CHECK (-)
+automation_runtime_states 2200_17137_1_not_null CHECK (-)
+automation_runtime_states 2200_17137_2_not_null CHECK (-)
+automation_runtime_states 2200_17137_8_not_null CHECK (-)
+automation_runtime_states 2200_17137_9_not_null CHECK (-)
+automation_runtime_states automation_runtime_states_active_host_id_fkey FOREIGN KEY (active_host_id)
+automation_runtime_states automation_runtime_states_active_session_id_fkey FOREIGN KEY (active_session_id)
+automation_runtime_states automation_runtime_states_automation_agent_id_fkey FOREIGN KEY (automation_agent_id)
+automation_runtime_states automation_runtime_states_last_run_id_fkey FOREIGN KEY (last_run_id)
+automation_runtime_states automation_runtime_states_last_session_id_fkey FOREIGN KEY (last_session_id)
+automation_runtime_states automation_runtime_states_pkey PRIMARY KEY (id)
+automation_runtime_states automation_runtime_states_repo_id_fkey FOREIGN KEY (repo_id)
+automation_runtime_states automation_runtime_states_runtime_status_check CHECK (-)
+automation_wakeups 2200_16985_1_not_null CHECK (-)
+automation_wakeups 2200_16985_2_not_null CHECK (-)
+automation_wakeups 2200_16985_4_not_null CHECK (-)
+automation_wakeups 2200_16985_5_not_null CHECK (-)
+automation_wakeups 2200_16985_7_not_null CHECK (-)
+automation_wakeups 2200_16985_8_not_null CHECK (-)
+automation_wakeups automation_wakeups_automation_agent_id_fkey FOREIGN KEY (automation_agent_id)
+automation_wakeups automation_wakeups_coalesced_into_run_id_fkey FOREIGN KEY (coalesced_into_run_id)
+automation_wakeups automation_wakeups_pkey PRIMARY KEY (id)
+automation_wakeups automation_wakeups_repo_id_fkey FOREIGN KEY (repo_id)
+automation_wakeups automation_wakeups_source_check CHECK (-)
+automation_wakeups automation_wakeups_status_check CHECK (-)
+commands 2200_17230_11_not_null CHECK (-)
+commands 2200_17230_1_not_null CHECK (-)
+commands 2200_17230_2_not_null CHECK (-)
+commands 2200_17230_4_not_null CHECK (-)
+commands 2200_17230_5_not_null CHECK (-)
+commands 2200_17230_6_not_null CHECK (-)
+commands 2200_17230_7_not_null CHECK (-)
+commands 2200_17230_8_not_null CHECK (-)
+commands commands_class_check CHECK (-)
+commands commands_host_id_fkey FOREIGN KEY (host_id)
+commands commands_pkey PRIMARY KEY (cmd_id)
+commands commands_status_check CHECK (-)
+events 2200_16468_1_not_null CHECK (-)
+events 2200_16468_2_not_null CHECK (-)
+events 2200_16468_3_not_null CHECK (-)
+events 2200_16468_4_not_null CHECK (-)
+events 2200_16468_6_not_null CHECK (-)
+events events_pkey PRIMARY KEY (id)
+events events_session_id_fkey FOREIGN KEY (session_id)
+governance_approvals 2200_17047_1_not_null CHECK (-)
+governance_approvals 2200_17047_2_not_null CHECK (-)
+governance_approvals 2200_17047_3_not_null CHECK (-)
+governance_approvals 2200_17047_5_not_null CHECK (-)
+governance_approvals 2200_17047_6_not_null CHECK (-)
+governance_approvals 2200_17047_7_not_null CHECK (-)
+governance_approvals 2200_17047_9_not_null CHECK (-)
+governance_approvals governance_approvals_automation_agent_id_fkey FOREIGN KEY (automation_agent_id)
+governance_approvals governance_approvals_automation_run_id_fkey FOREIGN KEY (automation_run_id)
+governance_approvals governance_approvals_decided_by_user_id_fkey FOREIGN KEY (decided_by_user_id)
+governance_approvals governance_approvals_pkey PRIMARY KEY (id)
+governance_approvals governance_approvals_status_check CHECK (-)
+governance_approvals governance_approvals_type_check CHECK (-)
+governance_approvals governance_approvals_user_id_fkey FOREIGN KEY (user_id)
+hosts 2200_16393_10_not_null CHECK (-)
+hosts 2200_16393_1_not_null CHECK (-)
+hosts 2200_16393_2_not_null CHECK (-)
+hosts 2200_16393_5_not_null CHECK (-)
+hosts 2200_16393_8_not_null CHECK (-)
+hosts 2200_16393_9_not_null CHECK (-)
+hosts hosts_pkey PRIMARY KEY (id)
+memory_entries 2200_16880_10_not_null CHECK (-)
+memory_entries 2200_16880_14_not_null CHECK (-)
+memory_entries 2200_16880_17_not_null CHECK (-)
+memory_entries 2200_16880_18_not_null CHECK (-)
+memory_entries 2200_16880_1_not_null CHECK (-)
+memory_entries 2200_16880_2_not_null CHECK (-)
+memory_entries 2200_16880_3_not_null CHECK (-)
+memory_entries 2200_16880_6_not_null CHECK (-)
+memory_entries 2200_16880_7_not_null CHECK (-)
+memory_entries 2200_16880_8_not_null CHECK (-)
+memory_entries 2200_16880_9_not_null CHECK (-)
+memory_entries memory_entries_check CHECK (-)
+memory_entries memory_entries_check1 CHECK (-)
+memory_entries memory_entries_pkey PRIMARY KEY (id)
+memory_entries memory_entries_repo_id_fkey FOREIGN KEY (repo_id)
+memory_entries memory_entries_scope_type_check CHECK (-)
+memory_entries memory_entries_session_id_fkey FOREIGN KEY (session_id)
+memory_entries memory_entries_tier_check CHECK (-)
+memory_entries memory_entries_user_id_fkey FOREIGN KEY (user_id)
+memory_trajectories 2200_16918_11_not_null CHECK (-)
+memory_trajectories 2200_16918_12_not_null CHECK (-)
+memory_trajectories 2200_16918_1_not_null CHECK (-)
+memory_trajectories 2200_16918_2_not_null CHECK (-)
+memory_trajectories 2200_16918_7_not_null CHECK (-)
+memory_trajectories 2200_16918_8_not_null CHECK (-)
+memory_trajectories 2200_16918_9_not_null CHECK (-)
+memory_trajectories memory_trajectories_automation_run_id_fkey FOREIGN KEY (automation_run_id)
+memory_trajectories memory_trajectories_pkey PRIMARY KEY (id)
+memory_trajectories memory_trajectories_repo_id_fkey FOREIGN KEY (repo_id)
+memory_trajectories memory_trajectories_session_id_fkey FOREIGN KEY (session_id)
+memory_trajectories memory_trajectories_user_id_fkey FOREIGN KEY (user_id)
+notification_delivery_state 2200_17321_10_not_null CHECK (-)
+notification_delivery_state 2200_17321_1_not_null CHECK (-)
+notification_delivery_state 2200_17321_2_not_null CHECK (-)
+notification_delivery_state 2200_17321_3_not_null CHECK (-)
+notification_delivery_state 2200_17321_8_not_null CHECK (-)
+notification_delivery_state notification_delivery_state_channel_check CHECK (-)
+notification_delivery_state notification_delivery_state_failure_count_check CHECK (-)
+notification_delivery_state notification_delivery_state_pkey PRIMARY KEY (user_id,channel,dedupe_key)
+notification_delivery_state notification_delivery_state_user_id_fkey FOREIGN KEY (user_id)
+notifications_log 2200_17339_11_not_null CHECK (-)
+notifications_log 2200_17339_12_not_null CHECK (-)
+notifications_log 2200_17339_1_not_null CHECK (-)
+notifications_log 2200_17339_2_not_null CHECK (-)
+notifications_log 2200_17339_3_not_null CHECK (-)
+notifications_log 2200_17339_4_not_null CHECK (-)
+notifications_log 2200_17339_5_not_null CHECK (-)
+notifications_log 2200_17339_7_not_null CHECK (-)
+notifications_log 2200_17339_8_not_null CHECK (-)
+notifications_log notifications_log_attempt_count_check CHECK (-)
+notifications_log notifications_log_channel_check CHECK (-)
+notifications_log notifications_log_pkey PRIMARY KEY (id)
+notifications_log notifications_log_status_check CHECK (-)
+notifications_log notifications_log_user_id_fkey FOREIGN KEY (user_id)
+projects 2200_16785_11_not_null CHECK (-)
+projects 2200_16785_12_not_null CHECK (-)
+projects 2200_16785_1_not_null CHECK (-)
+projects 2200_16785_2_not_null CHECK (-)
+projects 2200_16785_3_not_null CHECK (-)
+projects 2200_16785_4_not_null CHECK (-)
+projects projects_host_id_fkey FOREIGN KEY (host_id)
+projects projects_pkey PRIMARY KEY (id)
+projects projects_repo_id_fkey FOREIGN KEY (repo_id)
+projects projects_user_id_host_id_path_key UNIQUE (user_id,host_id,path)
+provider_usage 2200_16745_1_not_null CHECK (-)
+provider_usage 2200_16745_2_not_null CHECK (-)
+provider_usage 2200_16745_5_not_null CHECK (-)
+provider_usage 2200_16745_6_not_null CHECK (-)
+provider_usage provider_usage_host_id_fkey FOREIGN KEY (host_id)
+provider_usage provider_usage_pkey PRIMARY KEY (id)
+provider_usage provider_usage_session_id_fkey FOREIGN KEY (session_id)
+push_subscriptions 2200_17301_1_not_null CHECK (-)
+push_subscriptions 2200_17301_2_not_null CHECK (-)
+push_subscriptions 2200_17301_3_not_null CHECK (-)
+push_subscriptions 2200_17301_4_not_null CHECK (-)
+push_subscriptions 2200_17301_5_not_null CHECK (-)
+push_subscriptions 2200_17301_7_not_null CHECK (-)
+push_subscriptions 2200_17301_8_not_null CHECK (-)
+push_subscriptions 2200_17301_9_not_null CHECK (-)
+push_subscriptions push_subscriptions_endpoint_key UNIQUE (endpoint)
+push_subscriptions push_subscriptions_failure_count_check CHECK (-)
+push_subscriptions push_subscriptions_pkey PRIMARY KEY (id)
+push_subscriptions push_subscriptions_user_id_fkey FOREIGN KEY (user_id)
+recent_launches 2200_17209_10_not_null CHECK (-)
+recent_launches 2200_17209_11_not_null CHECK (-)
+recent_launches 2200_17209_12_not_null CHECK (-)
+recent_launches 2200_17209_1_not_null CHECK (-)
+recent_launches 2200_17209_2_not_null CHECK (-)
+recent_launches 2200_17209_3_not_null CHECK (-)
+recent_launches 2200_17209_4_not_null CHECK (-)
+recent_launches 2200_17209_5_not_null CHECK (-)
+recent_launches 2200_17209_9_not_null CHECK (-)
+recent_launches recent_launches_host_id_fkey FOREIGN KEY (host_id)
+recent_launches recent_launches_pkey PRIMARY KEY (id)
+repos 2200_16848_1_not_null CHECK (-)
+repos 2200_16848_2_not_null CHECK (-)
+repos 2200_16848_8_not_null CHECK (-)
+repos 2200_16848_9_not_null CHECK (-)
+repos repos_canonical_key_key UNIQUE (canonical_key)
+repos repos_check CHECK (-)
+repos repos_last_host_id_fkey FOREIGN KEY (last_host_id)
+repos repos_pkey PRIMARY KEY (id)
+schema_migrations 2200_16385_1_not_null CHECK (-)
+schema_migrations 2200_16385_2_not_null CHECK (-)
+schema_migrations schema_migrations_pkey PRIMARY KEY (name)
+session_context 2200_16706_1_not_null CHECK (-)
+session_context 2200_16706_2_not_null CHECK (-)
+session_context 2200_16706_3_not_null CHECK (-)
+session_context 2200_16706_4_not_null CHECK (-)
+session_context 2200_16706_5_not_null CHECK (-)
+session_context session_context_pkey PRIMARY KEY (id)
+session_context session_context_session_id_fkey FOREIGN KEY (session_id)
+session_context session_context_session_id_key_key UNIQUE (session_id,key)
+session_edges 2200_17252_1_not_null CHECK (-)
+session_edges 2200_17252_2_not_null CHECK (-)
+session_edges 2200_17252_3_not_null CHECK (-)
+session_edges 2200_17252_4_not_null CHECK (-)
+session_edges session_edges_child_session_id_fkey FOREIGN KEY (child_session_id)
+session_edges session_edges_edge_type_check CHECK (-)
+session_edges session_edges_parent_session_id_fkey FOREIGN KEY (parent_session_id)
+session_edges session_edges_pkey PRIMARY KEY (parent_session_id,child_session_id,edge_type)
+session_groups 2200_16572_1_not_null CHECK (-)
+session_groups 2200_16572_2_not_null CHECK (-)
+session_groups session_groups_parent_id_fkey FOREIGN KEY (parent_id)
+session_groups session_groups_pkey PRIMARY KEY (id)
+session_links 2200_16682_1_not_null CHECK (-)
+session_links 2200_16682_2_not_null CHECK (-)
+session_links 2200_16682_3_not_null CHECK (-)
+session_links 2200_16682_4_not_null CHECK (-)
+session_links 2200_16682_5_not_null CHECK (-)
+session_links no_self_links CHECK (-)
+session_links session_links_link_type_check CHECK (-)
+session_links session_links_pkey PRIMARY KEY (id)
+session_links session_links_source_session_id_fkey FOREIGN KEY (source_session_id)
+session_links session_links_source_session_id_target_session_id_key UNIQUE (source_session_id,target_session_id)
+session_links session_links_target_session_id_fkey FOREIGN KEY (target_session_id)
+session_metrics 2200_16628_14_not_null CHECK (-)
+session_metrics 2200_16628_15_not_null CHECK (-)
+session_metrics 2200_16628_1_not_null CHECK (-)
+session_metrics 2200_16628_2_not_null CHECK (-)
+session_metrics session_metrics_pkey PRIMARY KEY (id)
+session_metrics session_metrics_session_id_fkey FOREIGN KEY (session_id)
+session_metrics session_metrics_session_id_key UNIQUE (session_id)
+session_snapshots 2200_16453_1_not_null CHECK (-)
+session_snapshots 2200_16453_2_not_null CHECK (-)
+session_snapshots 2200_16453_3_not_null CHECK (-)
+session_snapshots 2200_16453_4_not_null CHECK (-)
+session_snapshots 2200_16453_5_not_null CHECK (-)
+session_snapshots session_snapshots_pkey PRIMARY KEY (id)
+session_snapshots session_snapshots_session_id_fkey FOREIGN KEY (session_id)
+session_usage_latest 2200_16770_1_not_null CHECK (-)
+session_usage_latest 2200_16770_2_not_null CHECK (-)
+session_usage_latest 2200_16770_9_not_null CHECK (-)
+session_usage_latest session_usage_latest_pkey PRIMARY KEY (session_id)
+session_usage_latest session_usage_latest_session_id_fkey FOREIGN KEY (session_id)
+sessions 2200_16437_13_not_null CHECK (-)
+sessions 2200_16437_14_not_null CHECK (-)
+sessions 2200_16437_15_not_null CHECK (-)
+sessions 2200_16437_19_not_null CHECK (-)
+sessions 2200_16437_1_not_null CHECK (-)
+sessions 2200_16437_25_not_null CHECK (-)
+sessions 2200_16437_2_not_null CHECK (-)
+sessions 2200_16437_3_not_null CHECK (-)
+sessions 2200_16437_4_not_null CHECK (-)
+sessions 2200_16437_5_not_null CHECK (-)
+sessions sessions_forked_from_fkey FOREIGN KEY (forked_from)
+sessions sessions_group_id_fkey FOREIGN KEY (group_id)
+sessions sessions_host_id_fkey FOREIGN KEY (host_id)
+sessions sessions_pkey PRIMARY KEY (id)
+sessions sessions_repo_id_fkey FOREIGN KEY (repo_id)
+sessions sessions_role_check CHECK (-)
+sessions sessions_tmux_pane_index_nonnegative CHECK (-)
+sessions sessions_tmux_window_index_nonnegative CHECK (-)
+sessions sessions_user_id_fkey FOREIGN KEY (user_id)
+summaries 2200_16813_1_not_null CHECK (-)
+summaries 2200_16813_2_not_null CHECK (-)
+summaries 2200_16813_4_not_null CHECK (-)
+summaries 2200_16813_5_not_null CHECK (-)
+summaries 2200_16813_6_not_null CHECK (-)
+summaries summaries_capture_hash_key UNIQUE (capture_hash)
+summaries summaries_pkey PRIMARY KEY (id)
+summaries summaries_session_id_fkey FOREIGN KEY (session_id)
+token_events 2200_16655_1_not_null CHECK (-)
+token_events 2200_16655_2_not_null CHECK (-)
+token_events 2200_16655_9_not_null CHECK (-)
+token_events token_events_event_id_fkey FOREIGN KEY (event_id)
+token_events token_events_pkey PRIMARY KEY (id)
+token_events token_events_session_id_fkey FOREIGN KEY (session_id)
+tool_events 2200_16726_11_not_null CHECK (-)
+tool_events 2200_16726_1_not_null CHECK (-)
+tool_events 2200_16726_2_not_null CHECK (-)
+tool_events 2200_16726_3_not_null CHECK (-)
+tool_events 2200_16726_4_not_null CHECK (-)
+tool_events 2200_16726_7_not_null CHECK (-)
+tool_events tool_events_pkey PRIMARY KEY (id)
+tool_events tool_events_session_id_fkey FOREIGN KEY (session_id)
+user_settings 2200_16826_2_not_null CHECK (-)
+user_settings 2200_16826_3_not_null CHECK (-)
+user_settings 2200_16826_4_not_null CHECK (-)
+user_settings 2200_16826_5_not_null CHECK (-)
+user_settings user_settings_pkey PRIMARY KEY (user_id)
+user_settings user_settings_user_id_fkey FOREIGN KEY (user_id)
+user_settings_legacy_subjects 2200_17379_1_not_null CHECK (-)
+user_settings_legacy_subjects 2200_17379_2_not_null CHECK (-)
+user_settings_legacy_subjects user_settings_legacy_subjects_pkey PRIMARY KEY (user_subject)
+user_settings_legacy_subjects user_settings_legacy_subjects_user_id_fkey FOREIGN KEY (user_id)
+user_settings_legacy_subjects user_settings_legacy_subjects_user_id_key UNIQUE (user_id)
+users 2200_16526_1_not_null CHECK (-)
+users 2200_16526_5_not_null CHECK (-)
+users 2200_16526_6_not_null CHECK (-)
+users 2200_16526_7_not_null CHECK (-)
+users users_github_id_key UNIQUE (github_id)
+users users_pkey PRIMARY KEY (id)
+work_items 2200_17082_11_not_null CHECK (-)
+work_items 2200_17082_12_not_null CHECK (-)
+work_items 2200_17082_13_not_null CHECK (-)
+work_items 2200_17082_1_not_null CHECK (-)
+work_items 2200_17082_2_not_null CHECK (-)
+work_items 2200_17082_4_not_null CHECK (-)
+work_items 2200_17082_5_not_null CHECK (-)
+work_items 2200_17082_6_not_null CHECK (-)
+work_items 2200_17082_7_not_null CHECK (-)
+work_items work_items_assigned_automation_agent_id_fkey FOREIGN KEY (assigned_automation_agent_id)
+work_items work_items_checkout_run_id_fkey FOREIGN KEY (checkout_run_id)
+work_items work_items_pkey PRIMARY KEY (id)
+work_items work_items_repo_id_fkey FOREIGN KEY (repo_id)
+work_items work_items_session_id_fkey FOREIGN KEY (session_id)
+work_items work_items_status_check CHECK (-)
+work_items work_items_user_id_fkey FOREIGN KEY (user_id)
+
+# indexes
+agent_tasks agent_tasks_pkey :: CREATE UNIQUE INDEX agent_tasks_pkey ON public.agent_tasks USING btree (id)
+agent_tasks agent_tasks_session_id_tool_use_id_key :: CREATE UNIQUE INDEX agent_tasks_session_id_tool_use_id_key ON public.agent_tasks USING btree (session_id, tool_use_id)
+agent_tasks idx_agent_tasks_session :: CREATE INDEX idx_agent_tasks_session ON public.agent_tasks USING btree (session_id, started_at DESC)
+agent_tokens agent_tokens_host_idx :: CREATE INDEX agent_tokens_host_idx ON public.agent_tokens USING btree (host_id) WHERE (revoked_at IS NULL)
+agent_tokens agent_tokens_pkey :: CREATE UNIQUE INDEX agent_tokens_pkey ON public.agent_tokens USING btree (id)
+agent_tokens idx_agent_tokens_sha256 :: CREATE INDEX idx_agent_tokens_sha256 ON public.agent_tokens USING btree (token_sha256) WHERE (revoked_at IS NULL)
+approvals approvals_pending_idx :: CREATE INDEX approvals_pending_idx ON public.approvals USING btree (ts_requested DESC) WHERE (decision IS NULL)
+approvals approvals_pkey :: CREATE UNIQUE INDEX approvals_pkey ON public.approvals USING btree (id)
+approvals approvals_requested_idx :: CREATE INDEX approvals_requested_idx ON public.approvals USING btree (ts_requested DESC)
+approvals approvals_session_requested_idx :: CREATE INDEX approvals_session_requested_idx ON public.approvals USING btree (session_id, ts_requested DESC)
+approvals idx_approvals_pending :: CREATE INDEX idx_approvals_pending ON public.approvals USING btree (session_id) WHERE ((decision IS NULL) AND (timed_out_at IS NULL))
+audit_log audit_log_object_idx :: CREATE INDEX audit_log_object_idx ON public.audit_log USING btree (object_type, object_id, ts DESC)
+audit_log audit_log_pkey :: CREATE UNIQUE INDEX audit_log_pkey ON public.audit_log USING btree (id)
+audit_log audit_log_ts_idx :: CREATE INDEX audit_log_ts_idx ON public.audit_log USING btree (ts DESC)
+audit_log audit_log_user_idx :: CREATE INDEX audit_log_user_idx ON public.audit_log USING btree (user_id, ts DESC)
+automation_agents automation_agents_pkey :: CREATE UNIQUE INDEX automation_agents_pkey ON public.automation_agents USING btree (id)
+automation_agents automation_agents_user_id_name_key :: CREATE UNIQUE INDEX automation_agents_user_id_name_key ON public.automation_agents USING btree (user_id, name)
+automation_agents idx_automation_agents_reports_to :: CREATE INDEX idx_automation_agents_reports_to ON public.automation_agents USING btree (reports_to_automation_agent_id)
+automation_agents idx_automation_agents_slug_unique :: CREATE UNIQUE INDEX idx_automation_agents_slug_unique ON public.automation_agents USING btree (slug)
+automation_agents idx_automation_agents_user_status :: CREATE INDEX idx_automation_agents_user_status ON public.automation_agents USING btree (user_id, status)
+automation_run_events automation_run_events_automation_run_id_seq_key :: CREATE UNIQUE INDEX automation_run_events_automation_run_id_seq_key ON public.automation_run_events USING btree (automation_run_id, seq)
+automation_run_events automation_run_events_pkey :: CREATE UNIQUE INDEX automation_run_events_pkey ON public.automation_run_events USING btree (id)
+automation_run_events idx_automation_run_events_run_seq :: CREATE INDEX idx_automation_run_events_run_seq ON public.automation_run_events USING btree (automation_run_id, seq)
+automation_runs automation_runs_pkey :: CREATE UNIQUE INDEX automation_runs_pkey ON public.automation_runs USING btree (id)
+automation_runs idx_automation_runs_active_repo :: CREATE UNIQUE INDEX idx_automation_runs_active_repo ON public.automation_runs USING btree (automation_agent_id, repo_id) WHERE ((repo_id IS NOT NULL) AND (status = ANY (ARRAY['starting'::text, 'running'::text])))
+automation_runs idx_automation_runs_agent_started :: CREATE INDEX idx_automation_runs_agent_started ON public.automation_runs USING btree (automation_agent_id, started_at DESC)
+automation_runs idx_automation_runs_repo_status :: CREATE INDEX idx_automation_runs_repo_status ON public.automation_runs USING btree (repo_id, status, started_at DESC)
+automation_runs idx_automation_runs_session :: CREATE INDEX idx_automation_runs_session ON public.automation_runs USING btree (session_id)
+automation_runtime_states automation_runtime_states_pkey :: CREATE UNIQUE INDEX automation_runtime_states_pkey ON public.automation_runtime_states USING btree (id)
+automation_runtime_states idx_automation_runtime_states_active_session :: CREATE INDEX idx_automation_runtime_states_active_session ON public.automation_runtime_states USING btree (active_session_id)
+automation_runtime_states idx_automation_runtime_states_scope :: CREATE UNIQUE INDEX idx_automation_runtime_states_scope ON public.automation_runtime_states USING btree (automation_agent_id, COALESCE(repo_id, '00000000-0000-0000-0000-000000000000'::uuid))
+automation_wakeups automation_wakeups_pkey :: CREATE UNIQUE INDEX automation_wakeups_pkey ON public.automation_wakeups USING btree (id)
+automation_wakeups idx_automation_wakeups_active_dedupe :: CREATE UNIQUE INDEX idx_automation_wakeups_active_dedupe ON public.automation_wakeups USING btree (automation_agent_id, COALESCE(repo_id, '00000000-0000-0000-0000-000000000000'::uuid), idempotency_key) WHERE ((idempotency_key IS NOT NULL) AND (status = ANY (ARRAY['queued'::text, 'running'::text, 'blocked'::text])))
+automation_wakeups idx_automation_wakeups_agent_status :: CREATE INDEX idx_automation_wakeups_agent_status ON public.automation_wakeups USING btree (automation_agent_id, status, requested_at)
+automation_wakeups idx_automation_wakeups_repo_status :: CREATE INDEX idx_automation_wakeups_repo_status ON public.automation_wakeups USING btree (repo_id, status, requested_at)
+commands commands_pkey :: CREATE UNIQUE INDEX commands_pkey ON public.commands USING btree (cmd_id)
+commands idx_commands_expires_at :: CREATE INDEX idx_commands_expires_at ON public.commands USING btree (expires_at) WHERE (status = ANY (ARRAY['queued'::text, 'sent'::text]))
+commands idx_commands_host_deliverable :: CREATE INDEX idx_commands_host_deliverable ON public.commands USING btree (host_id, created_at, cmd_id) WHERE ((class = 'durable'::text) AND (status = 'queued'::text))
+commands idx_commands_host_idempotency :: CREATE UNIQUE INDEX idx_commands_host_idempotency ON public.commands USING btree (host_id, idempotency_key) WHERE (idempotency_key IS NOT NULL)
+commands idx_commands_terminal_retention :: CREATE INDEX idx_commands_terminal_retention ON public.commands USING btree (completed_at) WHERE (status = ANY (ARRAY['completed'::text, 'failed'::text, 'expired'::text]))
+events events_dedupe_idx :: CREATE UNIQUE INDEX events_dedupe_idx ON public.events USING btree (session_id, event_id) WHERE (event_id IS NOT NULL)
+events events_pkey :: CREATE UNIQUE INDEX events_pkey ON public.events USING btree (id)
+events events_retention_idx :: CREATE INDEX events_retention_idx ON public.events USING btree (ts, id)
+events events_session_ts_idx :: CREATE INDEX events_session_ts_idx ON public.events USING btree (session_id, ts DESC)
+events idx_events_search :: CREATE INDEX idx_events_search ON public.events USING gin (search_vector)
+events idx_events_session_id :: CREATE INDEX idx_events_session_id ON public.events USING btree (session_id, id DESC)
+governance_approvals governance_approvals_pkey :: CREATE UNIQUE INDEX governance_approvals_pkey ON public.governance_approvals USING btree (id)
+governance_approvals idx_governance_approvals_agent_status :: CREATE INDEX idx_governance_approvals_agent_status ON public.governance_approvals USING btree (automation_agent_id, status)
+governance_approvals idx_governance_approvals_user_status :: CREATE INDEX idx_governance_approvals_user_status ON public.governance_approvals USING btree (user_id, status, requested_at DESC)
+hosts hosts_last_acked_seq_idx :: CREATE INDEX hosts_last_acked_seq_idx ON public.hosts USING btree (last_acked_seq)
+hosts hosts_last_seen_idx :: CREATE INDEX hosts_last_seen_idx ON public.hosts USING btree (last_seen_at DESC)
+hosts hosts_pkey :: CREATE UNIQUE INDEX hosts_pkey ON public.hosts USING btree (id)
+memory_entries idx_memory_entries_expires_at :: CREATE INDEX idx_memory_entries_expires_at ON public.memory_entries USING btree (expires_at)
+memory_entries idx_memory_entries_ingestion_key :: CREATE UNIQUE INDEX idx_memory_entries_ingestion_key ON public.memory_entries USING btree (ingestion_key) WHERE (ingestion_key IS NOT NULL)
+memory_entries idx_memory_entries_repo :: CREATE INDEX idx_memory_entries_repo ON public.memory_entries USING btree (repo_id, tier)
+memory_entries idx_memory_entries_search :: CREATE INDEX idx_memory_entries_search ON public.memory_entries USING gin (search_vector)
+memory_entries idx_memory_entries_session :: CREATE INDEX idx_memory_entries_session ON public.memory_entries USING btree (session_id)
+memory_entries idx_memory_entries_user_scope :: CREATE INDEX idx_memory_entries_user_scope ON public.memory_entries USING btree (user_id, scope_type, tier)
+memory_entries memory_entries_pkey :: CREATE UNIQUE INDEX memory_entries_pkey ON public.memory_entries USING btree (id)
+memory_trajectories idx_memory_trajectories_ingestion_key :: CREATE UNIQUE INDEX idx_memory_trajectories_ingestion_key ON public.memory_trajectories USING btree (ingestion_key) WHERE (ingestion_key IS NOT NULL)
+memory_trajectories idx_memory_trajectories_session :: CREATE INDEX idx_memory_trajectories_session ON public.memory_trajectories USING btree (session_id)
+memory_trajectories idx_memory_trajectories_session_unique :: CREATE UNIQUE INDEX idx_memory_trajectories_session_unique ON public.memory_trajectories USING btree (session_id) WHERE (session_id IS NOT NULL)
+memory_trajectories idx_memory_trajectories_undistilled :: CREATE INDEX idx_memory_trajectories_undistilled ON public.memory_trajectories USING btree (distilled_at) WHERE (distilled_at IS NULL)
+memory_trajectories idx_memory_trajectories_user_repo :: CREATE INDEX idx_memory_trajectories_user_repo ON public.memory_trajectories USING btree (user_id, repo_id, created_at DESC)
+memory_trajectories memory_trajectories_pkey :: CREATE UNIQUE INDEX memory_trajectories_pkey ON public.memory_trajectories USING btree (id)
+notification_delivery_state idx_notification_delivery_retry :: CREATE INDEX idx_notification_delivery_retry ON public.notification_delivery_state USING btree (next_attempt_at) WHERE (next_attempt_at IS NOT NULL)
+notification_delivery_state notification_delivery_state_pkey :: CREATE UNIQUE INDEX notification_delivery_state_pkey ON public.notification_delivery_state USING btree (user_id, channel, dedupe_key)
+notifications_log idx_notifications_log_dedupe :: CREATE INDEX idx_notifications_log_dedupe ON public.notifications_log USING btree (user_id, channel, dedupe_key, created_at DESC)
+notifications_log idx_notifications_log_user_created :: CREATE INDEX idx_notifications_log_user_created ON public.notifications_log USING btree (user_id, channel, created_at DESC)
+notifications_log notifications_log_pkey :: CREATE UNIQUE INDEX notifications_log_pkey ON public.notifications_log USING btree (id)
+projects idx_projects_host :: CREATE INDEX idx_projects_host ON public.projects USING btree (host_id)
+projects idx_projects_last_used :: CREATE INDEX idx_projects_last_used ON public.projects USING btree (last_used_at DESC)
+projects idx_projects_path :: CREATE INDEX idx_projects_path ON public.projects USING btree (path)
+projects idx_projects_repo_id :: CREATE INDEX idx_projects_repo_id ON public.projects USING btree (repo_id)
+projects idx_projects_user :: CREATE INDEX idx_projects_user ON public.projects USING btree (user_id)
+projects idx_projects_user_host :: CREATE INDEX idx_projects_user_host ON public.projects USING btree (user_id, host_id)
+projects projects_pkey :: CREATE UNIQUE INDEX projects_pkey ON public.projects USING btree (id)
+projects projects_user_id_host_id_path_key :: CREATE UNIQUE INDEX projects_user_id_host_id_path_key ON public.projects USING btree (user_id, host_id, path)
+provider_usage idx_provider_usage_host :: CREATE INDEX idx_provider_usage_host ON public.provider_usage USING btree (host_id)
+provider_usage idx_provider_usage_latest :: CREATE INDEX idx_provider_usage_latest ON public.provider_usage USING btree (provider, host_id, scope, session_id, reported_at DESC)
+provider_usage idx_provider_usage_provider :: CREATE INDEX idx_provider_usage_provider ON public.provider_usage USING btree (provider)
+provider_usage idx_provider_usage_reported_at :: CREATE INDEX idx_provider_usage_reported_at ON public.provider_usage USING btree (reported_at)
+provider_usage idx_provider_usage_scope :: CREATE INDEX idx_provider_usage_scope ON public.provider_usage USING btree (scope)
+provider_usage idx_provider_usage_session :: CREATE INDEX idx_provider_usage_session ON public.provider_usage USING btree (session_id)
+provider_usage provider_usage_pkey :: CREATE UNIQUE INDEX provider_usage_pkey ON public.provider_usage USING btree (id)
+push_subscriptions idx_push_subscriptions_user :: CREATE INDEX idx_push_subscriptions_user ON public.push_subscriptions USING btree (user_id, last_seen_at DESC)
+push_subscriptions push_subscriptions_endpoint_key :: CREATE UNIQUE INDEX push_subscriptions_endpoint_key ON public.push_subscriptions USING btree (endpoint)
+push_subscriptions push_subscriptions_pkey :: CREATE UNIQUE INDEX push_subscriptions_pkey ON public.push_subscriptions USING btree (id)
+recent_launches idx_recent_launches_unique_combo :: CREATE UNIQUE INDEX idx_recent_launches_unique_combo ON public.recent_launches USING btree (user_id, host_id, provider, working_directory, COALESCE(tmux_target, ''::text))
+recent_launches idx_recent_launches_user_host_last :: CREATE INDEX idx_recent_launches_user_host_last ON public.recent_launches USING btree (user_id, host_id, last_launched_at DESC)
+recent_launches idx_recent_launches_user_last :: CREATE INDEX idx_recent_launches_user_last ON public.recent_launches USING btree (user_id, last_launched_at DESC)
+recent_launches recent_launches_pkey :: CREATE UNIQUE INDEX recent_launches_pkey ON public.recent_launches USING btree (id)
+repos idx_repos_git_remote :: CREATE INDEX idx_repos_git_remote ON public.repos USING btree (git_remote_normalized)
+repos idx_repos_last_host :: CREATE INDEX idx_repos_last_host ON public.repos USING btree (last_host_id)
+repos repos_canonical_key_key :: CREATE UNIQUE INDEX repos_canonical_key_key ON public.repos USING btree (canonical_key)
+repos repos_pkey :: CREATE UNIQUE INDEX repos_pkey ON public.repos USING btree (id)
+schema_migrations schema_migrations_pkey :: CREATE UNIQUE INDEX schema_migrations_pkey ON public.schema_migrations USING btree (name)
+session_context idx_session_context_key :: CREATE INDEX idx_session_context_key ON public.session_context USING btree (key)
+session_context idx_session_context_session :: CREATE INDEX idx_session_context_session ON public.session_context USING btree (session_id)
+session_context session_context_pkey :: CREATE UNIQUE INDEX session_context_pkey ON public.session_context USING btree (id)
+session_context session_context_session_id_key_key :: CREATE UNIQUE INDEX session_context_session_id_key_key ON public.session_context USING btree (session_id, key)
+session_edges idx_session_edges_child :: CREATE INDEX idx_session_edges_child ON public.session_edges USING btree (child_session_id)
+session_edges session_edges_pkey :: CREATE UNIQUE INDEX session_edges_pkey ON public.session_edges USING btree (parent_session_id, child_session_id, edge_type)
+session_groups idx_session_groups_parent :: CREATE INDEX idx_session_groups_parent ON public.session_groups USING btree (parent_id)
+session_groups session_groups_child_name_unique :: CREATE UNIQUE INDEX session_groups_child_name_unique ON public.session_groups USING btree (parent_id, lower((name)::text)) WHERE (parent_id IS NOT NULL)
+session_groups session_groups_pkey :: CREATE UNIQUE INDEX session_groups_pkey ON public.session_groups USING btree (id)
+session_groups session_groups_root_name_unique :: CREATE UNIQUE INDEX session_groups_root_name_unique ON public.session_groups USING btree (lower((name)::text)) WHERE (parent_id IS NULL)
+session_links idx_session_links_source :: CREATE INDEX idx_session_links_source ON public.session_links USING btree (source_session_id)
+session_links idx_session_links_target :: CREATE INDEX idx_session_links_target ON public.session_links USING btree (target_session_id)
+session_links idx_session_links_type :: CREATE INDEX idx_session_links_type ON public.session_links USING btree (link_type)
+session_links session_links_pkey :: CREATE UNIQUE INDEX session_links_pkey ON public.session_links USING btree (id)
+session_links session_links_source_session_id_target_session_id_key :: CREATE UNIQUE INDEX session_links_source_session_id_target_session_id_key ON public.session_links USING btree (source_session_id, target_session_id)
+session_metrics idx_session_metrics_session :: CREATE INDEX idx_session_metrics_session ON public.session_metrics USING btree (session_id)
+session_metrics idx_session_metrics_updated :: CREATE INDEX idx_session_metrics_updated ON public.session_metrics USING btree (updated_at)
+session_metrics session_metrics_pkey :: CREATE UNIQUE INDEX session_metrics_pkey ON public.session_metrics USING btree (id)
+session_metrics session_metrics_session_id_key :: CREATE UNIQUE INDEX session_metrics_session_id_key ON public.session_metrics USING btree (session_id)
+session_snapshots idx_snapshots_search :: CREATE INDEX idx_snapshots_search ON public.session_snapshots USING gin (search_vector)
+session_snapshots session_snapshots_pkey :: CREATE UNIQUE INDEX session_snapshots_pkey ON public.session_snapshots USING btree (id)
+session_snapshots session_snapshots_retention_idx :: CREATE INDEX session_snapshots_retention_idx ON public.session_snapshots USING btree (created_at, id)
+session_snapshots snapshots_session_created_idx :: CREATE INDEX snapshots_session_created_idx ON public.session_snapshots USING btree (session_id, created_at DESC)
+session_usage_latest idx_session_usage_context_left :: CREATE INDEX idx_session_usage_context_left ON public.session_usage_latest USING btree (context_left_percent)
+session_usage_latest idx_session_usage_provider :: CREATE INDEX idx_session_usage_provider ON public.session_usage_latest USING btree (provider)
+session_usage_latest idx_session_usage_reported :: CREATE INDEX idx_session_usage_reported ON public.session_usage_latest USING btree (reported_at)
+session_usage_latest session_usage_latest_pkey :: CREATE UNIQUE INDEX session_usage_latest_pkey ON public.session_usage_latest USING btree (session_id)
+sessions idx_sessions_archived :: CREATE INDEX idx_sessions_archived ON public.sessions USING btree (archived_at) WHERE (archived_at IS NOT NULL)
+sessions idx_sessions_attention_reason :: CREATE INDEX idx_sessions_attention_reason ON public.sessions USING btree (attention_reason) WHERE (attention_reason IS NOT NULL)
+sessions idx_sessions_forked_from :: CREATE INDEX idx_sessions_forked_from ON public.sessions USING btree (forked_from)
+sessions idx_sessions_group :: CREATE INDEX idx_sessions_group ON public.sessions USING btree (group_id)
+sessions idx_sessions_idled_at :: CREATE INDEX idx_sessions_idled_at ON public.sessions USING btree (idled_at) WHERE (idled_at IS NOT NULL)
+sessions idx_sessions_not_archived :: CREATE INDEX idx_sessions_not_archived ON public.sessions USING btree (id) WHERE (archived_at IS NULL)
+sessions idx_sessions_repo_id :: CREATE INDEX idx_sessions_repo_id ON public.sessions USING btree (repo_id)
+sessions idx_sessions_repo_root :: CREATE INDEX idx_sessions_repo_root ON public.sessions USING btree (repo_root)
+sessions idx_sessions_search :: CREATE INDEX idx_sessions_search ON public.sessions USING gin (search_vector)
+sessions idx_sessions_user_id :: CREATE INDEX idx_sessions_user_id ON public.sessions USING btree (user_id)
+sessions sessions_host_status_idx :: CREATE INDEX sessions_host_status_idx ON public.sessions USING btree (host_id, status)
+sessions sessions_last_activity_idx :: CREATE INDEX sessions_last_activity_idx ON public.sessions USING btree (last_activity_at DESC)
+sessions sessions_pkey :: CREATE UNIQUE INDEX sessions_pkey ON public.sessions USING btree (id)
+sessions sessions_provider_status_idx :: CREATE INDEX sessions_provider_status_idx ON public.sessions USING btree (provider, status)
+sessions sessions_tmux_roster_idx :: CREATE INDEX sessions_tmux_roster_idx ON public.sessions USING btree (host_id, tmux_session_name, tmux_window_index, tmux_pane_index) WHERE ((kind = 'tmux_pane'::session_kind) AND (archived_at IS NULL))
+summaries idx_summaries_capture_hash :: CREATE INDEX idx_summaries_capture_hash ON public.summaries USING btree (capture_hash)
+summaries idx_summaries_session_id :: CREATE INDEX idx_summaries_session_id ON public.summaries USING btree (session_id)
+summaries summaries_capture_hash_key :: CREATE UNIQUE INDEX summaries_capture_hash_key ON public.summaries USING btree (capture_hash)
+summaries summaries_pkey :: CREATE UNIQUE INDEX summaries_pkey ON public.summaries USING btree (id)
+token_events idx_token_events_recorded :: CREATE INDEX idx_token_events_recorded ON public.token_events USING btree (recorded_at)
+token_events idx_token_events_session :: CREATE INDEX idx_token_events_session ON public.token_events USING btree (session_id)
+token_events token_events_pkey :: CREATE UNIQUE INDEX token_events_pkey ON public.token_events USING btree (id)
+tool_events tool_events_pkey :: CREATE UNIQUE INDEX tool_events_pkey ON public.tool_events USING btree (id)
+tool_events tool_events_provider_idx :: CREATE INDEX tool_events_provider_idx ON public.tool_events USING btree (provider)
+tool_events tool_events_session_started_idx :: CREATE INDEX tool_events_session_started_idx ON public.tool_events USING btree (session_id, started_at DESC)
+tool_events tool_events_tool_name_idx :: CREATE INDEX tool_events_tool_name_idx ON public.tool_events USING btree (tool_name)
+user_settings idx_user_settings_updated_at :: CREATE INDEX idx_user_settings_updated_at ON public.user_settings USING btree (updated_at DESC)
+user_settings user_settings_pkey :: CREATE UNIQUE INDEX user_settings_pkey ON public.user_settings USING btree (user_id)
+user_settings_legacy_subjects user_settings_legacy_subjects_pkey :: CREATE UNIQUE INDEX user_settings_legacy_subjects_pkey ON public.user_settings_legacy_subjects USING btree (user_subject)
+user_settings_legacy_subjects user_settings_legacy_subjects_user_id_key :: CREATE UNIQUE INDEX user_settings_legacy_subjects_user_id_key ON public.user_settings_legacy_subjects USING btree (user_id)
+users users_email_idx :: CREATE INDEX users_email_idx ON public.users USING btree (email)
+users users_github_id_idx :: CREATE UNIQUE INDEX users_github_id_idx ON public.users USING btree (github_id) WHERE (github_id IS NOT NULL)
+users users_github_id_key :: CREATE UNIQUE INDEX users_github_id_key ON public.users USING btree (github_id)
+users users_pkey :: CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)
+work_items idx_work_items_active_dedupe :: CREATE UNIQUE INDEX idx_work_items_active_dedupe ON public.work_items USING btree (user_id, COALESCE(repo_id, '00000000-0000-0000-0000-000000000000'::uuid), dedupe_key) WHERE ((dedupe_key IS NOT NULL) AND (status = ANY (ARRAY['queued'::text, 'in_progress'::text, 'blocked'::text])))
+work_items idx_work_items_assignee_status :: CREATE INDEX idx_work_items_assignee_status ON public.work_items USING btree (assigned_automation_agent_id, status, priority DESC)
+work_items idx_work_items_session_id :: CREATE INDEX idx_work_items_session_id ON public.work_items USING btree (session_id)
+work_items idx_work_items_user_repo_status :: CREATE INDEX idx_work_items_user_repo_status ON public.work_items USING btree (user_id, repo_id, status, priority DESC, created_at)
+work_items work_items_pkey :: CREATE UNIQUE INDEX work_items_pkey ON public.work_items USING btree (id)
+
+# enums
+approval_decision = allow,deny
+session_kind = tmux_pane,job
+session_provider = claude_code,codex,shell,unknown,gemini_cli,opencode,cursor,aider,continue
+session_status = STARTING,RUNNING,IDLE,WAITING_FOR_INPUT,WAITING_FOR_APPROVAL,ERROR,DONE

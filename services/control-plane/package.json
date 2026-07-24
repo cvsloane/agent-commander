@@ -13,7 +13,10 @@
     "pretest": "pnpm --filter @agent-command/schema build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "lint": "cd ../.. && pnpm exec eslint services/control-plane/src"
+    "lint": "cd ../.. && pnpm exec eslint services/control-plane/src",
+    "test:integration": "vitest run -c vitest.integration.config.ts",
+    "db:schema:snapshot": "node scripts/schema-snapshot.js",
+    "db:schema:check": "node scripts/schema-snapshot.js --check"
   },
   "dependencies": {
     "@agent-command/schema": "workspace:*",
