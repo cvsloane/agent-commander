@@ -43,4 +43,25 @@ export default [
       ],
     },
   },
+  // Type-aware linting for the control plane. Its core is async WebSocket and
+  // Postgres work, where an unawaited promise is silent data loss rather than a
+  // visible crash -- no-floating-promises is the rule that catches it, and it
+  // requires type information.
+  {
+    files: ['services/control-plane/src/**/*.ts'],
+    languageOptions: {
+      parserOptions: {
+        project: ['./services/control-plane/tsconfig.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/await-thenable': 'error',
+      '@typescript-eslint/no-misused-promises': [
+        'error',
+        { checksVoidReturn: false },
+      ],
+    },
+  },
 ];
