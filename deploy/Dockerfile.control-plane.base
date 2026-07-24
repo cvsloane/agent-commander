@@ -27,21 +27,53 @@ COPY services/control-plane/ ./services/control-plane/
 RUN pnpm --filter @agent-command/schema build
 RUN pnpm --filter @agent-command/control-plane build
 
+# Resolve a production-only dependency tree so build tooling (typescript, tsx,
+# vitest, @types/*) never reaches the runtime image.
+FROM base AS prod-deps
+
+WORKDIR /app
+
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY patches/ ./patches/
+COPY packages/ac-schema/package.json ./packages/ac-schema/
+COPY services/control-plane/package.json ./services/control-plane/
+
+RUN pnpm install --frozen-lockfile --prod --ignore-scripts
+
 FROM base AS runner
 
 WORKDIR /app
 
-# Copy built files
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/packages/ac-schema/dist ./packages/ac-schema/dist
-COPY --from=builder /app/packages/ac-schema/package.json ./packages/ac-schema/
-COPY --from=builder /app/packages/ac-schema/node_modules ./packages/ac-schema/node_modules
-COPY --from=builder /app/services/control-plane/dist ./services/control-plane/dist
-COPY --from=builder /app/services/control-plane/package.json ./services/control-plane/
-COPY --from=builder /app/services/control-plane/node_modules ./services/control-plane/node_modules
+ENV NODE_ENV=production
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs \
+  && adduser --system --uid 1001 --ingroup nodejs controlplane
+
+# Production dependencies only
+COPY --from=prod-deps --chown=controlplane:nodejs /app/node_modules ./node_modules
+COPY --from=prod-deps --chown=controlplane:nodejs /app/packages/ac-schema/node_modules ./packages/ac-schema/node_modules
+COPY --from=prod-deps --chown=controlplane:nodejs /app/services/control-plane/node_modules ./services/control-plane/node_modules
+
+# Built output
+COPY --from=builder --chown=controlplane:nodejs /app/packages/ac-schema/dist ./packages/ac-schema/dist
+COPY --from=builder --chown=controlplane:nodejs /app/packages/ac-schema/package.json ./packages/ac-schema/
+COPY --from=builder --chown=controlplane:nodejs /app/services/control-plane/dist ./services/control-plane/dist
+COPY --from=builder --chown=controlplane:nodejs /app/services/control-plane/package.json ./services/control-plane/
+
+# Migration runner + SQL, so the image can migrate its own schema
+COPY --from=builder --chown=controlplane:nodejs /app/services/control-plane/scripts ./services/control-plane/scripts
+COPY --chown=controlplane:nodejs migrations ./migrations
+
+USER controlplane
 
 WORKDIR /app/services/control-plane
 
 EXPOSE 8080
+
+# Readiness-backed healthcheck: fails while Postgres is unreachable so the
+# orchestrator stops routing traffic to a container that cannot serve.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["node", "dist/index.js"]
