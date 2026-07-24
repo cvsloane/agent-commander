@@ -10,6 +10,25 @@ jobs:
   node:
     name: Node build + lint
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: agent
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: agent_command_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      INTEGRATION_DATABASE_URL: postgres://agent:test@localhost:5432/agent_command_test
+
     steps:
       - uses: actions/checkout@v6
 
@@ -45,6 +64,22 @@ jobs:
       - name: Workspace tests (schema, control plane, CLI, dashboard)
         run: pnpm test:ci
 
+      # Proves migrations apply to a pristine database, not just an upgraded one.
+      - name: Apply migrations to a fresh database
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: ${{ env.INTEGRATION_DATABASE_URL }}
+
+      # Executes real SQL: catches query typos, column drift, constraint
+      # violations, and driver type coercion that the mocked unit tier cannot.
+      - name: Control plane integration tests (real Postgres)
+        run: pnpm --filter @agent-command/control-plane test:integration
+
+      - name: Verify committed schema snapshot matches migrations
+        run: pnpm --filter @agent-command/control-plane db:schema:check
+        env:
+          DATABASE_URL: ${{ env.INTEGRATION_DATABASE_URL }}
+
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
 
@@ -74,6 +109,36 @@ jobs:
         working-directory: agents/agentd
         run: go test ./...
 
+  android:
+    name: Android build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Explicit SDK setup rather than relying on the runner image happening to
+      # ship the right platform/build-tools for compileSdk 35.
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests
+        working-directory: apps/android
+        run: ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Assemble debug APK
+        working-directory: apps/android
+        run: ./gradlew --no-daemon assembleDebug
+
   docker:
     name: Docker build
     runs-on: ubuntu-latest
@@ -88,3 +153,34 @@ jobs:
 
       - name: Build dashboard image
         run: docker build -f deploy/Dockerfile.dashboard.base -t agent-commander-dashboard .
+
+      # Both images must run as a non-root user. Regression guard: the
+      # control-plane image shipped as root until 2026-07.
+      - name: Verify images run as non-root
+        run: |
+          for image in agent-commander-control-plane agent-commander-dashboard; do
+            uid="$(docker run --rm --entrypoint sh "$image" -c 'id -u')"
+            if [ "$uid" = "0" ]; then
+              echo "::error::$image runs as root (uid 0)"
+              exit 1
+            fi
+            echo "$image runs as uid $uid"
+          done
+
+      - name: Scan control-plane image
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: agent-commander-control-plane
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+
+      - name: Scan dashboard image
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: agent-commander-dashboard
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
