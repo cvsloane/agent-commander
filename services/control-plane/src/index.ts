@@ -39,16 +39,22 @@ import { commandRouter } from './services/commandRouter.js';
 import { registerHttpSecurity } from './security/httpSecurity.js';
 import { startDataMaintenanceService } from './services/dataMaintenance.js';
 
+// Structured JSON logs in production (parseable by log shippers, no transport
+// worker overhead); human-readable pretty output only outside production.
 const app = Fastify({
   logger: {
-    level: 'info',
-    transport: {
-      target: 'pino-pretty',
-      options: {
-        translateTime: 'HH:MM:ss Z',
-        ignore: 'pid,hostname',
-      },
-    },
+    level: config.LOG_LEVEL,
+    ...(config.NODE_ENV === 'production'
+      ? {}
+      : {
+          transport: {
+            target: 'pino-pretty',
+            options: {
+              translateTime: 'HH:MM:ss Z',
+              ignore: 'pid,hostname',
+            },
+          },
+        }),
   },
 });
 
@@ -89,7 +95,7 @@ async function start(): Promise<void> {
   // Auth for REST (skip health + WS routes that handle their own auth)
   app.addHook('onRequest', async (request, reply) => {
     const url = request.url;
-    if (url.startsWith('/health') || url.startsWith('/metrics') || url.startsWith('/v1/agent/connect') || url.startsWith('/v1/ui/stream') || url.startsWith('/v1/ui/terminal') || url.startsWith('/v1/voice/transcribe') || url.startsWith('/v1/integrations/webhooks/')) {
+    if (url.startsWith('/health') || url.startsWith('/ready') || url.startsWith('/metrics') || url.startsWith('/v1/agent/connect') || url.startsWith('/v1/ui/stream') || url.startsWith('/v1/ui/terminal') || url.startsWith('/v1/voice/transcribe') || url.startsWith('/v1/integrations/webhooks/')) {
       return;
     }
 
@@ -149,13 +155,34 @@ async function start(): Promise<void> {
   registerAuthRoutes(app);
   registerAuditRoutes(app);
 
-  // Health check endpoint
+  // Liveness: process is up and the event loop is responsive. Deliberately does
+  // no I/O so a slow dependency cannot trigger a container restart loop.
   app.get('/health', { config: { rateLimit: false } }, async () => {
     const stats = pubsub.getStats();
     return {
       status: 'ok',
       timestamp: new Date().toISOString(),
       connections: stats,
+    };
+  });
+
+  // Readiness: safe to route traffic here. Checks the dependency we cannot serve
+  // without. Orchestrator healthchecks should target this, not /health.
+  app.get('/ready', { config: { rateLimit: false } }, async (_request, reply) => {
+    const database = await db.pingDatabase(config.READINESS_DB_TIMEOUT_MS);
+    if (!database.ok) {
+      app.log.error({ error: database.error }, 'Readiness probe failed: database unreachable');
+      return reply.status(503).send({
+        status: 'unavailable',
+        timestamp: new Date().toISOString(),
+        checks: { database: { status: 'down', error: database.error } },
+      });
+    }
+    return {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      checks: { database: { status: 'up' } },
+      connections: pubsub.getStats(),
     };
   });
 
@@ -200,4 +227,9 @@ const shutdown = async (): Promise<void> => {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-start();
+// Any failure before app.listen() (config, security plugins, route registration)
+// would otherwise surface as a bare unhandled rejection with no diagnostic.
+start().catch((error) => {
+  app.log.error({ error }, 'Control plane failed to start');
+  process.exit(1);
+});

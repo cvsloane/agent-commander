@@ -8,8 +8,11 @@ const OptionalPositiveInteger = z.preprocess(
 
 const ConfigSchema = z.object({
   DATABASE_URL: z.string().min(1),
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   HOST: z.string().default('0.0.0.0'),
   PORT: z.coerce.number().default(8080),
+  READINESS_DB_TIMEOUT_MS: z.coerce.number().int().positive().default(2_000),
   JWT_SECRET: z.string().min(16),
   METRICS_TOKEN: z.string().min(1).optional(),
   TAILNET_DOMAIN: z.string().optional(),

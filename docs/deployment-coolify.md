@@ -37,7 +37,10 @@ Domain:
 - `api.yourdomain.com` (optional, keep private if you are not exposing the API)
 
 Health check:
-- `/health`
+- `/ready` — returns 503 while Postgres is unreachable, so Coolify stops routing
+  to a container that cannot serve. Use this for the service health check.
+- `/health` — liveness only; returns 200 whenever the process is up. Use it for
+  restart policies, never for routing decisions.
 
 ### 3) Dashboard service (private)
 Create a service from this repo using `deploy/Dockerfile.dashboard.base`.

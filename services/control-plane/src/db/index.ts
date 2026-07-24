@@ -1854,6 +1854,25 @@ export async function testConnection(): Promise<boolean> {
   }
 }
 
+/**
+ * Readiness ping used by /ready. Bounded so a hung pool cannot stall the probe
+ * past the orchestrator's own healthcheck timeout.
+ */
+export async function pingDatabase(timeoutMs: number): Promise<{ ok: true } | { ok: false; error: string }> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`database ping timed out after ${timeoutMs}ms`)), timeoutMs);
+    });
+    await Promise.race([pool.query('SELECT 1'), timeout]);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 // Bulk Operations
 export interface BulkOperationError {
   session_id: string;
