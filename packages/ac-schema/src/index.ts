@@ -64,3 +64,6 @@ export * from './automation.js';
 
 // Orchestrator fleet aggregate schemas
 export * from './fleet.js';
+
+// REST response envelopes consumed by the dashboard
+export * from './apiResponses.js';
