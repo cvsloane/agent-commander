@@ -27,6 +27,16 @@ import type {
 
 const { Pool } = pg;
 
+// node-postgres returns BIGINT (int8) and NUMERIC as strings to avoid precision
+// loss on values that exceed the JS number range. Every such column in this
+// schema is a row id, sequence number, token counter, or 0-100 percentage --
+// all far inside Number.MAX_SAFE_INTEGER -- and @agent-command/schema types them
+// as `number`. Without these parsers the values arrive as strings and arithmetic
+// silently concatenates instead of adding: the session analytics panel rendered
+// tokens_in=1500 + tokens_out=800 as "1500800" rather than 2300.
+pg.types.setTypeParser(pg.types.builtins.INT8, (value) => Number(value));
+pg.types.setTypeParser(pg.types.builtins.NUMERIC, (value) => Number(value));
+
 export const pool = new Pool({
   connectionString: config.DATABASE_URL,
   max: 20,
