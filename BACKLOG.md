@@ -38,6 +38,33 @@ This is the git-tracked backlog for this workstream. Keep local next steps here;
   - Bridge memory: share repo-scoped memory entries with Hermes' knowledge stores (dedupe direction TBD), and let Hermes trigger memory distillation review.
   - Unify identity: map Hermes agent slugs ↔ automation_agents.slug (already exists) and reconcile scheduler_mode=external semantics with the new queued-until-host-online behavior.
 
+## From repo hardening pass (2026-07-24)
+
+- [ ] Burn down 111 dashboard react-hooks warnings, then promote the rules from
+      `warn` to `error` in `apps/dashboard/eslint.config.mjs`. Current counts:
+      70 `set-state-in-effect`, 33 `refs`, 6 `purity`, 1 `use-memo`,
+      1 `exhaustive-deps`. `set-state-in-effect` is the one most likely to be
+      hiding a real render-loop bug in the terminal views.
+- [ ] Decide the multi-replica question recorded in `docs/architecture.md`. To
+      scale the control plane horizontally, three in-process stores must move
+      out: pubsub client/agent maps, the WebSocket ticket store, and the user
+      cache. Until then the single instance is an invariant.
+- [ ] Remove `tools/eslint-typescript-compat` once typescript-eslint supports
+      TypeScript 7 (exit condition documented in that package). The linter is
+      currently a major version behind the compiler.
+- [ ] Extend the control-plane integration tier beyond the ~20 functions now
+      covered; `db/automationMemory.ts` (2926 lines) still has no real-SQL
+      coverage. Harness is in `tests/integration/`.
+- [ ] Continue the agentd `main.go` split. Provider-usage parsing now lives in
+      `internal/providerusage` (5708 -> 4813 lines); the remaining seams are
+      CLI commands, the ~25 `executeXxx` tmux command methods, and MCP handlers.
+- [ ] Consider validating the remaining ~55 unvalidated `fetchAPI` calls in
+      `apps/dashboard/src/lib/api.ts`. 24 of 80 now validate against
+      `@agent-command/schema` response envelopes.
+- [ ] Verify the new Android CI job on a real run: it was added without local
+      execution (no Android SDK on the dev machine) and may need build-tools or
+      Gradle cache tuning on first green.
+
 ## Ideas
 
 - Mobile `/tmux` should support a thumb-friendly "roster / terminal / actions" mode switch, with roster search always one tap away and terminal controls pinned above the mobile virtual key row.
@@ -60,5 +87,5 @@ This is the git-tracked backlog for this workstream. Keep local next steps here;
 - [ ] Window-strip arrow-key navigation dispatches live select_window per keypress (valid ARIA auto-activation but can burst commands) — consider focus-only + Enter-to-activate (Wave-5 review INFO).
 - [ ] Commit a refreshed docs-site screenshot of the Command Center (acceptance checklist residual NOT-MET).
 - [ ] Wave-6 batch-2 review LOWs: prune command-mark seenRef on marker disposal; 4px selection-handle offset; double-tap vs touch-scroll listener ordering; thumbnail "live capture" wording; scroll-freeze anchor drift at 10k scrollback saturation; heuristic ❯/› prompt-glyph tuning; stuck suppressClickRef edge (touch tap then BT-keyboard click).
-- [deps] Dependabot #39 (medium): uuid < 11.1.1 buffer bounds check in v3/v5/v6-with-buf — we only use v4(); bump uuid across lockfile at next dep pass. (2026-07-21)
+- [x] [deps] Dependabot #39 (medium): uuid < 11.1.1 buffer bounds check in v3/v5/v6-with-buf — we only use v4(); bump uuid across lockfile at next dep pass. (2026-07-21) — resolved 2026-07-24 via pnpm override to `uuid@^11.1.1`; next-auth now resolves 11.1.1 and 8.3.2 is gone from the lockfile.
 - [tests] Journey suite stabilization pass: attach/type input race + launch-sheet fill timeout flake under parallel load (both pass 10/10 isolated; ~3-7% flake in full parallel runs). Consider per-test WS-connected wait helper + launch sheet readiness gate. (2026-07-21)
