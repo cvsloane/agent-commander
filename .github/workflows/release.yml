@@ -83,3 +83,18 @@ jobs:
           workdir: agents/agentd
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Publish the Android APK as a release asset alongside the agentd binaries,
+      # with its checksum, so the artifact has a durable home outside git history.
+      - name: Attach Android APK to release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          apk="android-distribution/agent-command-android.apk"
+          if [ ! -f "$apk" ]; then
+            echo "No APK at $apk; skipping asset upload."
+            exit 0
+          fi
+          sha256sum "$apk" | awk '{print $1}' > "$apk.sha256"
+          gh release upload "$GITHUB_REF_NAME" "$apk" "$apk.sha256" --clobber

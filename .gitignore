@@ -63,3 +63,9 @@ scripts/install-usage-commands.sh
 
 # Track shared usage scripts (safe to commit)
 !scripts/codex-usage
+
+# Android release artifact: published to GitHub Releases, fetched at image
+# build time (see deploy/Dockerfile.dashboard.base APK_SOURCE). Keeping it in
+# git added ~2.3MB of permanent history per release.
+android-distribution/*.apk
+android-distribution/*.apk.sha256
