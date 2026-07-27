@@ -168,7 +168,7 @@ jobs:
           done
 
       - name: Scan control-plane image
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: agent-commander-control-plane
           format: table
@@ -177,7 +177,7 @@ jobs:
           severity: HIGH,CRITICAL
 
       - name: Scan dashboard image
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: agent-commander-dashboard
           format: table
