@@ -1,4 +1,4 @@
-package main
+package providerusage
 
 import "testing"
 
@@ -12,7 +12,7 @@ GPT-5.3-Codex-Spark limit:
 Weekly limit: [____________________] 100% left (resets 13:13 on 20 Feb)
 `
 
-	entries := parseCodexStatusText(status)
+	entries := ParseCodexStatusText(status)
 	if len(entries) == 0 {
 		t.Fatalf("expected entries, got none")
 	}
@@ -74,7 +74,7 @@ GPT-5.3-Codex-Spark limit:
 Weekly limit: [____________________] 100% left (resets 13:13 on 20 Feb)
 `
 
-	fields := extractUsageFields(nil, status)
+	fields := ExtractUsageFields(nil, status)
 	fiveHour, ok := fields["five_hour_utilization"].(float64)
 	if !ok {
 		t.Fatalf("expected five_hour_utilization float64, got %T", fields["five_hour_utilization"])
@@ -98,7 +98,7 @@ func TestExtractUsageFields_CodexSparkOnly(t *testing.T) {
 Weekly limit: [____________________] 100% left (resets 13:13 on 20 Feb)
 `
 
-	fields := extractUsageFields(nil, status)
+	fields := ExtractUsageFields(nil, status)
 	fiveHour, ok := fields["five_hour_utilization"].(float64)
 	if !ok {
 		t.Fatalf("expected five_hour_utilization float64, got %T", fields["five_hour_utilization"])
@@ -121,7 +121,7 @@ func TestExtractUsageFields_CodexLegacySingleBucket(t *testing.T) {
 Weekly limit: [____________________] 49% left (resets 13:18 on 16 Feb)
 `
 
-	fields := extractUsageFields(nil, status)
+	fields := ExtractUsageFields(nil, status)
 	fiveHour, ok := fields["five_hour_utilization"].(float64)
 	if !ok {
 		t.Fatalf("expected five_hour_utilization float64, got %T", fields["five_hour_utilization"])

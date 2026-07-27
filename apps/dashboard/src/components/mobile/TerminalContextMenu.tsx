@@ -89,8 +89,8 @@ export function TerminalContextMenu({
     const menuHeight = 220;
     const padding = 8;
 
-    let clampedX = Math.max(padding, Math.min(x, window.innerWidth - menuWidth - padding));
-    let clampedY = Math.max(padding, Math.min(y, window.innerHeight - menuHeight - padding));
+    const clampedX = Math.max(padding, Math.min(x, window.innerWidth - menuWidth - padding));
+    const clampedY = Math.max(padding, Math.min(y, window.innerHeight - menuHeight - padding));
 
     setPosition({ x: clampedX, y: clampedY });
     setVisible(true);

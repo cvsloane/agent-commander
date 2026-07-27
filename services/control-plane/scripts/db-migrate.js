@@ -76,6 +76,37 @@ async function isLegacyApplied(client, migrationName) {
   }
 }
 
+// Migration 017 was used twice before this guard existed. Both names are already
+// recorded in schema_migrations on deployed databases, so renaming either one
+// would make them re-run. Grandfather the collision and block new ones.
+const KNOWN_PREFIX_COLLISIONS = new Set(['017']);
+
+/**
+ * Two migrations sharing a numeric prefix apply in lexicographic order, which is
+ * deterministic but not the order the author intended -- and the ambiguity is
+ * invisible until a dependent migration fails on a fresh database.
+ */
+function assertUniquePrefixes(migrations) {
+  const byPrefix = new Map();
+  for (const name of migrations) {
+    const prefix = name.split('_', 1)[0];
+    if (!byPrefix.has(prefix)) byPrefix.set(prefix, []);
+    byPrefix.get(prefix).push(name);
+  }
+
+  const collisions = [...byPrefix.entries()]
+    .filter(([prefix, names]) => names.length > 1 && !KNOWN_PREFIX_COLLISIONS.has(prefix));
+
+  if (collisions.length > 0) {
+    const detail = collisions
+      .map(([prefix, names]) => `  ${prefix}: ${names.join(', ')}`)
+      .join('\n');
+    throw new Error(
+      `Duplicate migration number(s) detected. Renumber the new migration so ordering is unambiguous:\n${detail}`
+    );
+  }
+}
+
 function formatPgError(err) {
   if (!err || typeof err !== 'object') return String(err);
   const e = err;
@@ -99,6 +130,8 @@ async function main() {
   if (migrations.length === 0) {
     throw new Error(`No migrations found in ${migrationsDir}`);
   }
+
+  assertUniquePrefixes(migrations);
 
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();

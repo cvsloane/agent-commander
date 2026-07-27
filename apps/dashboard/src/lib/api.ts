@@ -7,6 +7,22 @@ import {
   DashboardSpawnResponseSchema,
   OrchestratorFleetResponseSchema,
   TranscriptResponseSchema,
+  ApprovalsResponseSchema,
+  AutomationAgentsResponseSchema,
+  AutomationRunEventsResponseSchema,
+  AutomationRunsResponseSchema,
+  AutomationWakeupsResponseSchema,
+  GovernanceApprovalsResponseSchema,
+  HostsResponseSchema,
+  MemorySearchResponseSchema,
+  ProjectsResponseSchema,
+  ReposResponseSchema,
+  SessionAgentTasksResponseSchema,
+  SessionDetailResponseSchema,
+  SessionEventsResponseSchema,
+  SessionUsageLatestResponseSchema,
+  UserSettingsResponseSchema,
+  WorkItemsResponseSchema,
   type SessionsResponse,
   type SessionGraphResponse,
   type SessionGraphRollup,
@@ -346,7 +362,7 @@ export async function getSession(id: string): Promise<{
   events: Event[];
   approvals: Approval[];
 }> {
-  return fetchAPI(`/v1/sessions/${id}`);
+  return fetchAPI(`/v1/sessions/${id}`, undefined, SessionDetailResponseSchema);
 }
 
 export async function getSessionEvents(
@@ -357,7 +373,7 @@ export async function getSessionEvents(
   if (cursor) params.set('cursor', cursor.toString());
 
   const query = params.toString();
-  return fetchAPI(`/v1/sessions/${id}/events${query ? `?${query}` : ''}`);
+  return fetchAPI(`/v1/sessions/${id}/events${query ? `?${query}` : ''}`, undefined, SessionEventsResponseSchema);
 }
 
 export async function getSessionGraph(id: string): Promise<SessionGraphResponse> {
@@ -371,7 +387,7 @@ export async function getOrchestratorFleet(): Promise<OrchestratorFleetResponse>
 export async function getSessionAgentTasks(
   id: string
 ): Promise<{ session_id: string; agent_tasks: AgentTask[] }> {
-  return fetchAPI(`/v1/sessions/${id}/agent-tasks`);
+  return fetchAPI(`/v1/sessions/${id}/agent-tasks`, undefined, SessionAgentTasksResponseSchema);
 }
 
 // Session usage (latest per session)
@@ -381,7 +397,7 @@ export async function getSessionUsageLatest(sessionIds?: string[]): Promise<{ us
     params.set('session_ids', sessionIds.join(','));
   }
   const query = params.toString();
-  return fetchAPI(`/v1/sessions/usage-latest${query ? `?${query}` : ''}`);
+  return fetchAPI(`/v1/sessions/usage-latest${query ? `?${query}` : ''}`, undefined, SessionUsageLatestResponseSchema);
 }
 
 export async function sendCommand(
@@ -442,7 +458,7 @@ export async function getApprovals(filters?: {
   if (filters?.session_id) params.set('session_id', filters.session_id);
 
   const query = params.toString();
-  return fetchAPI(`/v1/approvals${query ? `?${query}` : ''}`);
+  return fetchAPI(`/v1/approvals${query ? `?${query}` : ''}`, undefined, ApprovalsResponseSchema);
 }
 
 export async function decideApproval(
@@ -457,7 +473,7 @@ export async function decideApproval(
 
 // Hosts API
 export async function getHosts(): Promise<{ hosts: Host[] }> {
-  return fetchAPI('/v1/hosts');
+  return fetchAPI('/v1/hosts', undefined, HostsResponseSchema);
 }
 
 export async function updateHostCapabilities(
@@ -472,7 +488,7 @@ export async function updateHostCapabilities(
 
 // User Settings API
 export async function getUserSettings(): Promise<{ settings: UserSettings | null }> {
-  return fetchAPI('/v1/settings');
+  return fetchAPI('/v1/settings', undefined, UserSettingsResponseSchema);
 }
 
 export async function updateUserSettings(
@@ -550,7 +566,7 @@ export async function getProjects(filters?: {
   if (filters?.q) params.set('q', filters.q);
   if (filters?.limit) params.set('limit', filters.limit.toString());
   const query = params.toString();
-  return fetchAPI(`/v1/projects${query ? `?${query}` : ''}`);
+  return fetchAPI(`/v1/projects${query ? `?${query}` : ''}`, undefined, ProjectsResponseSchema);
 }
 
 export async function getHost(id: string): Promise<{ host: Host }> {
@@ -565,7 +581,7 @@ export async function getRepos(filters?: {
   if (filters?.q) params.set('q', filters.q);
   if (filters?.limit) params.set('limit', filters.limit.toString());
   const query = params.toString();
-  return fetchAPI(`/v1/repos${query ? `?${query}` : ''}`);
+  return fetchAPI(`/v1/repos${query ? `?${query}` : ''}`, undefined, ReposResponseSchema);
 }
 
 export async function generateHostToken(id: string): Promise<{ token: string }> {
@@ -574,7 +590,7 @@ export async function generateHostToken(id: string): Promise<{ token: string }> 
 
 // Automation API
 export async function getAutomationAgents(): Promise<{ agents: AutomationAgent[] }> {
-  return fetchAPI('/v1/automation-agents');
+  return fetchAPI('/v1/automation-agents', undefined, AutomationAgentsResponseSchema);
 }
 
 export async function createAutomationAgent(
@@ -626,7 +642,7 @@ export async function getAutomationRuns(filters?: {
   if (filters?.status) params.set('status', filters.status);
   if (filters?.limit) params.set('limit', String(filters.limit));
   const query = params.toString();
-  return fetchAPI(`/v1/automation-runs${query ? `?${query}` : ''}`);
+  return fetchAPI(`/v1/automation-runs${query ? `?${query}` : ''}`, undefined, AutomationRunsResponseSchema);
 }
 
 export async function getAttentionAutomationRuns(): Promise<{ runs: AutomationRun[] }> {
@@ -640,7 +656,7 @@ export async function getAttentionAutomationRuns(): Promise<{ runs: AutomationRu
 export async function getAutomationRunEvents(
   runId: string
 ): Promise<{ events: AutomationRunEvent[] }> {
-  return fetchAPI(`/v1/automation-runs/${runId}/events`);
+  return fetchAPI(`/v1/automation-runs/${runId}/events`, undefined, AutomationRunEventsResponseSchema);
 }
 
 export async function getAutomationWakeups(filters?: {
@@ -653,7 +669,7 @@ export async function getAutomationWakeups(filters?: {
   if (filters?.status) params.set('status', filters.status);
   if (filters?.limit) params.set('limit', String(filters.limit));
   const query = params.toString();
-  return fetchAPI(`/v1/automation-wakeups${query ? `?${query}` : ''}`);
+  return fetchAPI(`/v1/automation-wakeups${query ? `?${query}` : ''}`, undefined, AutomationWakeupsResponseSchema);
 }
 
 export async function getGovernanceApprovals(filters?: {
@@ -662,7 +678,7 @@ export async function getGovernanceApprovals(filters?: {
   const params = new URLSearchParams();
   if (filters?.status) params.set('status', filters.status);
   const query = params.toString();
-  return fetchAPI(`/v1/governance-approvals${query ? `?${query}` : ''}`);
+  return fetchAPI(`/v1/governance-approvals${query ? `?${query}` : ''}`, undefined, GovernanceApprovalsResponseSchema);
 }
 
 export async function decideGovernanceApproval(
@@ -689,7 +705,7 @@ export async function getWorkItems(filters?: {
   }
   if (filters?.limit) params.set('limit', String(filters.limit));
   const query = params.toString();
-  return fetchAPI(`/v1/work-items${query ? `?${query}` : ''}`);
+  return fetchAPI(`/v1/work-items${query ? `?${query}` : ''}`, undefined, WorkItemsResponseSchema);
 }
 
 export async function createWorkItem(
@@ -725,7 +741,7 @@ export async function searchMemory(
   if (queryInput.repo_id) params.set('repo_id', queryInput.repo_id);
   if (queryInput.tier) params.set('tier', queryInput.tier);
   if (queryInput.limit) params.set('limit', String(queryInput.limit));
-  return fetchAPI(`/v1/memory/search?${params.toString()}`);
+  return fetchAPI(`/v1/memory/search?${params.toString()}`, undefined, MemorySearchResponseSchema);
 }
 
 export async function createMemoryEntry(

@@ -119,7 +119,11 @@ export function startDataMaintenanceService(options: {
       stopped = true;
       if (retentionTimer) clearInterval(retentionTimer);
       clearInterval(approvalTimer);
-      await Promise.all([retentionInFlight, approvalsInFlight].filter(Boolean));
+      await Promise.all(
+        [retentionInFlight, approvalsInFlight].filter(
+          (inFlight): inFlight is Promise<void> => inFlight !== null
+        )
+      );
     },
   };
 }

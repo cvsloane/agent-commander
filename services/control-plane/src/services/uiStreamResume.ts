@@ -168,7 +168,9 @@ export function createUIStreamResumeService(database: UIStreamDatabase) {
       const messages = await Promise.all(
         replayable.map((topic) => {
           const cursor = typeof since === 'number' ? since : since[topic.type];
-          return cursor === undefined ? [] : replayTopic(userId, topic, cursor);
+          return cursor === undefined
+            ? Promise.resolve<ServerToUIMessage[]>([])
+            : replayTopic(userId, topic, cursor);
         })
       );
       return messages.flat();

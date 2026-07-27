@@ -56,11 +56,15 @@ export default [
       '@next/next/no-html-link-for-pages': 'off',
       'no-control-regex': 'off',
       'react/no-unescaped-entities': 'off',
-      'react-hooks/purity': 'off',
-      'react-hooks/refs': 'off',
-      'react-hooks/set-state-in-effect': 'off',
-      'react-hooks/use-memo': 'off',
-      'prefer-const': 'off',
+      // React Compiler-era correctness rules. set-state-in-effect in particular
+      // catches the render-loop class of bug a live terminal UI is prone to.
+      // Warn (not error) so CI stays green while the existing violations are
+      // burned down; promote to 'error' once the count reaches zero.
+      'react-hooks/purity': 'warn',
+      'react-hooks/refs': 'warn',
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/use-memo': 'warn',
+      'prefer-const': 'warn',
     },
   },
   {

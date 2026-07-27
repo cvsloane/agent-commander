@@ -100,18 +100,25 @@ var (
 	claudeTokensPattern = regexp.MustCompile(`(?i)tokens?[:\s]*([0-9,]+)\s*(?:in|input)(?:\s*\/\s*|\s+)([0-9,]+)\s*(?:out|output)`)
 
 	// Matches patterns like: "20% used" or "88% left"
-	percentUsedPattern = regexp.MustCompile(`(?i)([0-9]+(?:\\.[0-9]+)?)%\\s*used`)
-	percentLeftPattern = regexp.MustCompile(`(?i)([0-9]+(?:\\.[0-9]+)?)%\\s*left`)
-	resetLinePattern   = regexp.MustCompile(`(?i)^resets?\\s*(.*)$`)
+	//
+	// NOTE: these are raw string literals, so `\s` is the regex escape and `\\s`
+	// would mean "literal backslash followed by s". They were previously written
+	// double-escaped, which made them unmatchable against real console output.
+	percentUsedPattern = regexp.MustCompile(`(?i)([0-9]+(?:\.[0-9]+)?)%\s*used`)
+	percentLeftPattern = regexp.MustCompile(`(?i)([0-9]+(?:\.[0-9]+)?)%\s*left`)
+	resetLinePattern   = regexp.MustCompile(`(?i)^resets?\s*(.*)$`)
 
 	// Matches patterns like: "12.3K tokens used"
 	genericTokenPattern = regexp.MustCompile(`(?i)([0-9,.]+)\s*[KMB]?\s*tokens?\s*(?:used|total)`)
 
 	// Matches patterns like: "Context: 45% (12K / 128K tokens)"
-	codexContextPattern = regexp.MustCompile(`(?i)context\\s+window[:\s]*([0-9]+(?:\\.[0-9]+)?)%\\s*left\\s*\\(([0-9,.]+)\\s*[KMB]?\\s*used\\s*/\\s*([0-9,.]+)\\s*[KMB]?\\)`)
+	// The K/M/B suffix must stay *inside* the capture group -- otherwise
+	// "12.3K used" hands parseScaledNumber a bare "12.3" and the token count is
+	// recorded as 12 instead of 12300.
+	codexContextPattern = regexp.MustCompile(`(?i)context\s+window[:\s]*([0-9]+(?:\.[0-9]+)?)%\s*left\s*\(([0-9,.]+\s*[KMB]?)\s*used\s*/\s*([0-9,.]+\s*[KMB]?)\)`)
 
 	// Matches patterns like: "5h limit: ... 88% left (resets 17:50)"
-	codexLimitPattern = regexp.MustCompile(`(?i)^(5h\\s+limit|weekly\\s+limit)[:\\s].*?([0-9]+(?:\\.[0-9]+)?)%\\s*left(?:\\s*\\((?:resets?|reset)\\s*([^\\)]*)\\))?`)
+	codexLimitPattern = regexp.MustCompile(`(?i)^(5h\s+limit|weekly\s+limit)[:\s].*?([0-9]+(?:\.[0-9]+)?)%\s*left(?:\s*\((?:resets?|reset)\s*([^)]*)\))?`)
 
 	// Matches simple total pattern: "Total tokens: 12,345"
 	simpleTotalPattern = regexp.MustCompile(`(?i)total\s*tokens?[:\s]*([0-9,]+)`)
@@ -553,6 +560,9 @@ func parsePercent(s string) *float64 {
 func parseScaledNumber(s string) float64 {
 	s = strings.TrimSpace(s)
 	s = strings.ReplaceAll(s, ",", "")
+	// Drop internal whitespace so "12.3 K" scales the same as "12.3K".
+	s = strings.ReplaceAll(s, " ", "")
+	s = strings.ReplaceAll(s, "\t", "")
 
 	multiplier := 1.0
 	s = strings.ToUpper(s)

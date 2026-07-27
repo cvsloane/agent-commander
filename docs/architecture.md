@@ -52,6 +52,30 @@ agentd uses a sequence/ack protocol:
 - The control plane acks in order.
 - agentd persists a resend queue and replays on reconnect.
 
+## Deployment topology: single control-plane instance
+
+The control plane is **designed to run as exactly one instance**. This is a
+deliberate constraint, not an oversight, and it is load-bearing:
+
+- `services/pubsub.ts` holds UI clients and agent connections in in-process
+  `Map`s. Fan-out only reaches sockets attached to the local process.
+- `security/webSocketAuth.ts` keeps one-time WebSocket tickets in memory. A
+  ticket minted by one replica cannot be redeemed by another.
+- `index.ts` caches user identity per process to avoid an upsert per request.
+
+Consequences to plan around:
+
+- **Do not scale the control plane horizontally.** A second replica silently
+  breaks WebSocket fan-out and ticket redemption. Scale vertically instead.
+- Every deploy drops live WebSocket connections; clients reconnect and replay
+  via the sequence/ack protocol above, so this is disruptive but not lossy.
+- Agent and browser reconnect storms after a restart are expected behaviour.
+
+Moving to multiple replicas means externalising all three: Redis (or Postgres
+`LISTEN/NOTIFY`) for pubsub, a shared store for tickets, and dropping the user
+cache. That work is tracked in `BACKLOG.md`; until it is done, treat the single
+instance as an architectural invariant.
+
 ## Security boundaries
 
 - Dashboard users authenticate via NextAuth (GitHub or access code).

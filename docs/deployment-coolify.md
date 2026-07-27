@@ -37,10 +37,26 @@ Domain:
 - `api.yourdomain.com` (optional, keep private if you are not exposing the API)
 
 Health check:
-- `/health`
+- `/ready` — returns 503 while Postgres is unreachable, so Coolify stops routing
+  to a container that cannot serve. Use this for the service health check.
+- `/health` — liveness only; returns 200 whenever the process is up. Use it for
+  restart policies, never for routing decisions.
 
 ### 3) Dashboard service (private)
 Create a service from this repo using `deploy/Dockerfile.dashboard.base`.
+
+Android APK: the APK is no longer tracked in git — it is published as a GitHub
+release asset and pulled in at image build time. Build the production image with:
+
+```
+--build-arg APK_SOURCE=release
+--build-arg APK_RELEASE_TAG=v0.2.1     # or omit for `latest`
+--secret id=github_token,env=GITHUB_TOKEN   # only needed for a private repo
+```
+
+Without `APK_SOURCE=release` the build uses `android-distribution/` from the
+build context, and ships no APK if it is empty. That is not a build failure:
+`/api/downloads/android-apk` returns 404 and the Settings download is hidden.
 
 Environment:
 - `NEXTAUTH_URL=https://app.yourdomain.com`
