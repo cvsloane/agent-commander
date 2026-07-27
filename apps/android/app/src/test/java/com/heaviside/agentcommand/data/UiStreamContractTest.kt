@@ -461,3 +461,46 @@ class UiStreamContractTest {
         .toString()
 
 }
+
+class AttentionStreamContractTest {
+    @Test
+    fun `parses an attention change into a notifiable event`() {
+        val event = UiStreamEventParser.parse(
+            """
+            {"v":1,"type":"attention.changed","ts":"2026-07-26T18:00:00Z",
+             "payload":{"session_id":"22222222-2222-4222-8222-222222222222",
+                        "attention_reason":"WAITING_FOR_APPROVAL",
+                        "question":"Run the migration?"}}
+            """.trimIndent(),
+        )
+
+        assertTrue(event is AttentionChangedEvent)
+        val attention = event as AttentionChangedEvent
+        assertEquals("22222222-2222-4222-8222-222222222222", attention.sessionId)
+        assertEquals("WAITING_FOR_APPROVAL", attention.attentionReason)
+        assertEquals("Run the migration?", attention.question)
+        assertTrue(attention.needsAttention)
+    }
+
+    @Test
+    fun `treats a null attention reason as cleared`() {
+        val event = UiStreamEventParser.parse(
+            """
+            {"v":1,"type":"attention.changed","ts":"2026-07-26T18:00:00Z",
+             "payload":{"session_id":"s1","attention_reason":null}}
+            """.trimIndent(),
+        ) as AttentionChangedEvent
+
+        assertFalse(event.needsAttention)
+    }
+
+    @Test
+    fun `subscribes to the attention topic`() {
+        val subscription = UiStreamSocket.buildSubscription("2026-07-26T18:00:00Z", "sub-1")
+        val topics = subscription.getJSONObject("payload").getJSONArray("topics")
+        val types = (0 until topics.length()).map { topics.getJSONObject(it).getString("type") }
+
+        // Without this the app never receives attention changes at all.
+        assertTrue(types.contains("attention"))
+    }
+}

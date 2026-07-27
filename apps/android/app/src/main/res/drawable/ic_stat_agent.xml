@@ -1,0 +1,15 @@
+<!-- Status-bar icon. Must be a single-colour silhouette: Android tints it and
+     discards colour information, so anything else renders as a white blob. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M4,4h16v12H5.17L4,17.17V4M4,2C2.9,2 2,2.9 2,4v18l4,-4h14c1.1,0 2,-0.9 2,-2V4c0,-1.1 -0.9,-2 -2,-2H4z" />
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M11,5h2v6h-2zM11,12.5h2v2h-2z" />
+</vector>
