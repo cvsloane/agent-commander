@@ -368,7 +368,7 @@ class UiStreamContractTest {
             subscription.getJSONObject("payload").getString("subscription_id"),
         )
         assertEquals(
-            listOf("commands.result", "tmux.topology", "sessions"),
+            listOf("commands.result", "tmux.topology", "sessions", "attention"),
             (0 until subscription.getJSONObject("payload").getJSONArray("topics").length()).map {
                 subscription.getJSONObject("payload").getJSONArray("topics")
                     .getJSONObject(it)
