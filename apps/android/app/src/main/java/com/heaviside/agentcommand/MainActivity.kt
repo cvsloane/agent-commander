@@ -31,6 +31,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.core.widget.doAfterTextChanged
 import com.heaviside.agentcommand.data.AgentCommandApi
+import com.heaviside.agentcommand.data.AttentionChangedEvent
 import com.heaviside.agentcommand.data.CommandResultEvent
 import com.heaviside.agentcommand.data.NavigationResult
 import com.heaviside.agentcommand.data.SavedCredentials
@@ -1766,6 +1767,12 @@ class MainActivity : Activity() {
                                 is SessionsChangedEvent ->
                                     observeCreatedPanePersistence(event)
                                 is UiStreamSubscribedEvent -> Unit
+                                // While the activity is visible the operator can
+                                // see the pane state directly, so attention
+                                // changes need no notification here; the
+                                // foreground service handles them once the app
+                                // is backgrounded.
+                                is AttentionChangedEvent -> Unit
                             }
                         }
 
