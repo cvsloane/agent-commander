@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import { CommandRequestSchema, CommandPayloadSchema, UpdateSessionRequestSchema, BulkOperationRequestSchema, CopyToSessionPayloadSchema, DashboardSpawnRequestSchema, SCROLLBACK_DEFAULT_PAGE_SIZE, SCROLLBACK_MAX_LINES, ScrollbackRequestSchema, ScrollbackResponseSchema, TranscriptRequestSchema, TranscriptResponseSchema } from '@agent-command/schema';
+import { AttachDropFilePayloadSchema, FileBridgeResultSchema, PublishOutFilePayloadSchema, CommandRequestSchema, CommandPayloadSchema, UpdateSessionRequestSchema, BulkOperationRequestSchema, CopyToSessionPayloadSchema, DashboardSpawnRequestSchema, SCROLLBACK_DEFAULT_PAGE_SIZE, SCROLLBACK_MAX_LINES, ScrollbackRequestSchema, ScrollbackResponseSchema, TranscriptRequestSchema, TranscriptResponseSchema } from '@agent-command/schema';
 import * as db from '../db/index.js';
 import { sessionGraph } from '../db/sessionGraph.js';
 import { agentTasks } from '../db/agentTasks.js';
@@ -395,6 +395,113 @@ export function registerSessionRoutes(app: FastifyInstance): void {
       );
 
       return { cmd_id: cmdId };
+    }
+  );
+
+  // POST /v1/sessions/:id/attach-file - Copy a synced file into the session cwd.
+  //
+  // Nextcloud (or whatever sync client the host runs) has already moved the
+  // bytes onto the host; this is only the last hop into the working directory.
+  // The agent enforces that the name is a plain file inside the drop folder.
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/v1/sessions/:id/attach-file',
+    async (request, reply) => {
+      if (!request.user || !hasRole(request.user, 'operator')) {
+        return reply.status(403).send({ error: 'Forbidden' });
+      }
+      const { id: sessionId } = request.params;
+      if (!z.string().uuid().safeParse(sessionId).success) {
+        return reply.status(400).send({ error: 'Invalid session ID' });
+      }
+
+      const body = AttachDropFilePayloadSchema.safeParse(request.body);
+      if (!body.success) {
+        return reply.status(400).send({ error: 'Invalid attach request', details: body.error });
+      }
+
+      const session = await db.getSessionById(sessionId);
+      if (!session) {
+        return reply.status(404).send({ error: 'Session not found' });
+      }
+      const host = await db.getHostById(session.host_id);
+      const capabilities = host?.capabilities as Record<string, unknown> | null;
+      if (capabilities?.file_bridge !== true) {
+        return reply.status(403).send({ error: 'File bridge is disabled for this host' });
+      }
+
+      try {
+        const result = await commandRouter.dispatchAndWait(
+          session.host_id,
+          sessionId,
+          randomUUID(),
+          { type: 'attach_drop_file', payload: body.data }
+        );
+        if (!result.ok) {
+          return reply.status(500).send({
+            error: result.error?.message || 'Failed to attach file',
+            code: result.error?.code,
+          });
+        }
+        const parsed = FileBridgeResultSchema.safeParse(result.result);
+        if (!parsed.success) {
+          return reply.status(500).send({ error: 'Invalid response from agent' });
+        }
+        return parsed.data;
+      } catch (error) {
+        return reply.status(503).send({ error: (error as Error).message });
+      }
+    }
+  );
+
+  // POST /v1/sessions/:id/publish-file - Copy a file the agent produced into the
+  // outbound sync folder so it reaches the operator's other devices.
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/v1/sessions/:id/publish-file',
+    async (request, reply) => {
+      if (!request.user || !hasRole(request.user, 'operator')) {
+        return reply.status(403).send({ error: 'Forbidden' });
+      }
+      const { id: sessionId } = request.params;
+      if (!z.string().uuid().safeParse(sessionId).success) {
+        return reply.status(400).send({ error: 'Invalid session ID' });
+      }
+
+      const body = PublishOutFilePayloadSchema.safeParse(request.body);
+      if (!body.success) {
+        return reply.status(400).send({ error: 'Invalid publish request', details: body.error });
+      }
+
+      const session = await db.getSessionById(sessionId);
+      if (!session) {
+        return reply.status(404).send({ error: 'Session not found' });
+      }
+      const host = await db.getHostById(session.host_id);
+      const capabilities = host?.capabilities as Record<string, unknown> | null;
+      if (capabilities?.file_bridge !== true) {
+        return reply.status(403).send({ error: 'File bridge is disabled for this host' });
+      }
+
+      try {
+        const result = await commandRouter.dispatchAndWait(
+          session.host_id,
+          sessionId,
+          randomUUID(),
+          { type: 'publish_out_file', payload: body.data }
+        );
+        if (!result.ok) {
+          return reply.status(500).send({
+            error: result.error?.message || 'Failed to publish file',
+            code: result.error?.code,
+          });
+        }
+        const parsed = FileBridgeResultSchema.safeParse(result.result);
+        if (!parsed.success) {
+          return reply.status(500).send({ error: 'Invalid response from agent' });
+        }
+        return parsed.data;
+      } catch (error) {
+        return reply.status(503).send({ error: (error as Error).message });
+      }
     }
   );
 

@@ -32,8 +32,22 @@ object UiStreamEventParser {
                 message.getString("ts"),
                 message.getJSONObject("payload"),
             )
+            "attention.changed" -> parseAttentionChanged(
+                message.getString("ts"),
+                message.getJSONObject("payload"),
+            )
             else -> null
         }
+    }
+
+    private fun parseAttentionChanged(timestamp: String, payload: JSONObject): AttentionChangedEvent? {
+        val sessionId = payload.optString("session_id").takeIf(String::isNotBlank) ?: return null
+        return AttentionChangedEvent(
+            timestamp = timestamp,
+            sessionId = sessionId,
+            attentionReason = payload.optString("attention_reason").takeIf(String::isNotBlank),
+            question = payload.optString("question").takeIf(String::isNotBlank),
+        )
     }
 
     private fun parseCommandResult(timestamp: String, payload: JSONObject): CommandResultEvent =
@@ -269,7 +283,8 @@ class UiStreamSocket(
                         JSONArray()
                             .put(JSONObject().put("type", "commands.result"))
                             .put(JSONObject().put("type", "tmux.topology"))
-                            .put(JSONObject().put("type", "sessions")),
+                            .put(JSONObject().put("type", "sessions"))
+                            .put(JSONObject().put("type", "attention")),
                     ),
             )
     }

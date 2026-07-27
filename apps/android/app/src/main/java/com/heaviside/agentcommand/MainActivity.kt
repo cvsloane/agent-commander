@@ -31,6 +31,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.core.widget.doAfterTextChanged
 import com.heaviside.agentcommand.data.AgentCommandApi
+import com.heaviside.agentcommand.data.AttentionChangedEvent
 import com.heaviside.agentcommand.data.CommandResultEvent
 import com.heaviside.agentcommand.data.NavigationResult
 import com.heaviside.agentcommand.data.SavedCredentials
@@ -76,6 +77,7 @@ import com.heaviside.agentcommand.domain.hostSupportsPercentSplits
 import com.heaviside.agentcommand.domain.resolveDirectionalPaneTargets
 import com.heaviside.agentcommand.security.AppPreferenceStore
 import com.heaviside.agentcommand.security.SecureStore
+import com.heaviside.agentcommand.service.AttentionService
 import com.heaviside.agentcommand.terminal.ControllerOwnership
 import com.heaviside.agentcommand.terminal.RemoteTerminalView
 import com.heaviside.agentcommand.terminal.TerminalKey
@@ -187,6 +189,9 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         started = true
+        // The activity owns the stream while visible; stop the watcher so the two
+        // do not hold duplicate subscriptions.
+        AttentionService.stop(this)
         mainHandler.removeCallbacks(reconnectUiStream)
         connectUiStream()
         if (screen == Screen.TERMINAL && terminalSocket == null) connectTerminal()
@@ -202,6 +207,9 @@ class MainActivity : Activity() {
         )
         disconnectUiStream()
         disconnectTerminal()
+        // Hand off to the foreground service so an agent blocking on approval
+        // still reaches the operator while the app is away.
+        if (SecureStore(this).load() != null) AttentionService.start(this)
         super.onStop()
     }
 
@@ -1759,6 +1767,12 @@ class MainActivity : Activity() {
                                 is SessionsChangedEvent ->
                                     observeCreatedPanePersistence(event)
                                 is UiStreamSubscribedEvent -> Unit
+                                // While the activity is visible the operator can
+                                // see the pane state directly, so attention
+                                // changes need no notification here; the
+                                // foreground service handles them once the app
+                                // is backgrounded.
+                                is AttentionChangedEvent -> Unit
                             }
                         }
 

@@ -75,3 +75,21 @@ data class TmuxTopologyPane(
     val currentCommand: String,
     val currentPath: String,
 )
+
+/**
+ * An agent changed whether it is blocked on the operator.
+ *
+ * This is the event the whole background-notification path exists for: the app
+ * is closed, an agent hits an approval prompt, and without this nothing reaches
+ * the phone until the app is reopened.
+ */
+data class AttentionChangedEvent(
+    override val timestamp: String,
+    val sessionId: String,
+    val attentionReason: String?,
+    val question: String?,
+) : UiStreamEvent {
+    /** True when the agent is waiting on a human rather than working. */
+    val needsAttention: Boolean
+        get() = !attentionReason.isNullOrBlank()
+}

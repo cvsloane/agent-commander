@@ -40,6 +40,58 @@ export const KillWindowPayloadSchema = z.object({
 });
 export type KillWindowPayload = z.infer<typeof KillWindowPayloadSchema>;
 
+// A TCP service discovered on a host. `loopback` is the field that matters for
+// the UI: a listener bound to 127.0.0.1 is unreachable from any other device on
+// the tailnet, so offering a link to it would produce an undiagnosable error.
+export const ListeningPortSchema = z.object({
+  port: z.number().int().positive(),
+  address: z.string(),
+  loopback: z.boolean(),
+  pid: z.number().int().nonnegative().optional(),
+  process: z.string().optional(),
+});
+export type ListeningPort = z.infer<typeof ListeningPortSchema>;
+
+export const ListListeningPortsResultSchema = z.object({
+  ports: z.array(ListeningPortSchema),
+});
+export type ListListeningPortsResult = z.infer<typeof ListListeningPortsResultSchema>;
+
+// A file waiting in the host's inbound sync folder.
+export const DropFileSchema = z.object({
+  name: z.string(),
+  size_bytes: z.number().int().nonnegative(),
+  modified_at: z.string(),
+});
+export type DropFile = z.infer<typeof DropFileSchema>;
+
+export const ListDropFilesResultSchema = z.object({
+  files: z.array(DropFileSchema),
+  drop_dir: z.string(),
+  max_file_bytes: z.number().int().positive(),
+});
+export type ListDropFilesResult = z.infer<typeof ListDropFilesResultSchema>;
+
+export const AttachDropFilePayloadSchema = z.object({
+  // Plain file name within the drop folder; paths are rejected by the agent.
+  name: z.string().min(1),
+  working_directory: z.string().optional(),
+});
+export type AttachDropFilePayload = z.infer<typeof AttachDropFilePayloadSchema>;
+
+export const PublishOutFilePayloadSchema = z.object({
+  path: z.string().min(1),
+});
+export type PublishOutFilePayload = z.infer<typeof PublishOutFilePayloadSchema>;
+
+// Shared by attach and publish: where the file landed.
+export const FileBridgeResultSchema = z.object({
+  path: z.string(),
+  name: z.string(),
+  size_bytes: z.number().int().nonnegative(),
+});
+export type FileBridgeResult = z.infer<typeof FileBridgeResultSchema>;
+
 export const RenameWindowPayloadSchema = z.object({
   window_index: z.number().int().nonnegative(),
   name: z.string().min(1),

@@ -23,8 +23,10 @@ import (
 	"github.com/agent-command/agentd/internal/commands"
 	"github.com/agent-command/agentd/internal/config"
 	"github.com/agent-command/agentd/internal/console"
+	"github.com/agent-command/agentd/internal/filebridge"
 	"github.com/agent-command/agentd/internal/metrics"
 	"github.com/agent-command/agentd/internal/orchestrator"
+	"github.com/agent-command/agentd/internal/preview"
 	"github.com/agent-command/agentd/internal/proc"
 	"github.com/agent-command/agentd/internal/protocol"
 	"github.com/agent-command/agentd/internal/providers"
@@ -76,6 +78,9 @@ type Agent struct {
 	launchTemplates   *providers.LaunchTemplates
 
 	commandExecutor *commands.Executor
+
+	// fileBridge is nil when the host has no sync folders configured.
+	fileBridge *filebridge.Bridge
 
 	tmuxTopologyMu          sync.Mutex
 	tmuxTopologyTimer       *time.Timer
@@ -397,6 +402,20 @@ func runDaemon() {
 		gitCache:          tmux.NewGitCache(10 * time.Second),
 		gitStatusCache:    tmux.NewGitStatusCache(10 * time.Second),
 		usageTracker:      usage.NewUsageTracker(),
+	}
+
+	// A misconfigured sync folder must not stop the agent from starting; the
+	// bridge simply stays unavailable and the capability is not advertised.
+	bridge, err := filebridge.New(filebridge.Config{
+		Enabled:      cfg.FileBridge.Enabled,
+		DropDir:      cfg.FileBridge.DropDir,
+		OutDir:       cfg.FileBridge.OutDir,
+		MaxFileBytes: cfg.FileBridge.MaxFileBytes,
+	})
+	if err != nil {
+		log.Printf("File bridge disabled: %v", err)
+	} else {
+		agent.fileBridge = bridge
 	}
 
 	if err := agent.Run(); err != nil {
@@ -855,6 +874,16 @@ func (a *Agent) reportProviderUsage(provider, command string, parseJSON bool) {
 func (a *Agent) sendHello() error {
 	providers := a.providerAvailabilityMap()
 
+	previewPorts := a.cfg.Preview.Enabled
+	fileBridgeEnabled := a.fileBridge != nil
+	var dropDir, outDir string
+	var maxFileBytes int64
+	if fileBridgeEnabled {
+		dropDir = a.fileBridge.DropDir()
+		outDir = a.fileBridge.OutDir()
+		maxFileBytes = a.fileBridge.MaxFileBytes()
+	}
+
 	payload := protocol.AgentHelloPayload{
 		Host: protocol.AgentHostInfo{
 			ID:           a.cfg.Host.ID,
@@ -868,7 +897,13 @@ func (a *Agent) sendHello() error {
 				Terminal:      true,
 				ClaudeHooks:   true,
 				CodexExecJSON: true,
-				Providers:     providers,
+				PreviewPorts:  &previewPorts,
+				FileBridge:    &fileBridgeEnabled,
+
+				FileBridgeDropDir:      dropDir,
+				FileBridgeOutDir:       outDir,
+				FileBridgeMaxFileBytes: maxFileBytes,
+				Providers:              providers,
 			},
 		},
 		Resume: &protocol.AgentResume{LastAckedSeq: a.wsClient.GetLastAckedSeq()},
@@ -1188,6 +1223,16 @@ func (a *Agent) executeCommand(cmd commands.Dispatch) (map[string]any, error) {
 		err = a.executeCopyToSession(session, cmd.Command.Payload)
 	case "list_directory":
 		resultPayload, err = a.executeListDirectory(cmd.Command.Payload)
+	case "list_listening_ports":
+		resultPayload, err = a.executeListListeningPorts()
+	case "list_drop_files":
+		resultPayload, err = a.executeListDropFiles()
+	case "attach_drop_file":
+		// Falls back to the session cwd, so a missing session is only fatal when
+		// the caller did not name a working directory.
+		resultPayload, err = a.executeAttachDropFile(session, exists, cmd.Command.Payload)
+	case "publish_out_file":
+		resultPayload, err = a.executePublishOutFile(cmd.Command.Payload)
 	default:
 		err = fmt.Errorf("unknown command type: %s", cmd.Command.Type)
 	}
@@ -1732,6 +1777,135 @@ func (a *Agent) executeCopyToSession(sourceSession *SessionState, payload json.R
 		strings.Count(content, "\n"), sourceSession.ID, targetSession.ID)
 
 	return nil
+}
+
+// executeListListeningPorts reports TCP services running on this host. There is
+// no tunnel: the UI links to them at the host's tailnet address, so the
+// loopback flag on each entry is what decides whether a link is offered.
+func (a *Agent) executeListListeningPorts() (map[string]any, error) {
+	if !a.cfg.Preview.Enabled {
+		return nil, fmt.Errorf("port preview is not enabled on this host")
+	}
+
+	listeners, err := preview.ListListeners()
+	if err != nil {
+		return nil, err
+	}
+
+	ignored := make(map[int]struct{}, len(a.cfg.Preview.IgnorePorts))
+	for _, port := range a.cfg.Preview.IgnorePorts {
+		ignored[port] = struct{}{}
+	}
+
+	ports := make([]map[string]any, 0, len(listeners))
+	for _, l := range listeners {
+		if _, skip := ignored[l.Port]; skip {
+			continue
+		}
+		ports = append(ports, map[string]any{
+			"port":     l.Port,
+			"address":  l.Address,
+			"loopback": l.Loopback,
+			"pid":      l.PID,
+			"process":  l.Process,
+		})
+	}
+
+	// The tailnet address is not reported here: the control plane already stores
+	// tailscale_ip on the host record, and duplicating it would let the two
+	// drift. The UI joins these ports against that address.
+	return map[string]any{"ports": ports}, nil
+}
+
+func (a *Agent) executeListDropFiles() (map[string]any, error) {
+	if a.fileBridge == nil {
+		return nil, filebridge.ErrDisabled
+	}
+	files, err := a.fileBridge.ListDrop()
+	if err != nil {
+		return nil, err
+	}
+
+	entries := make([]map[string]any, 0, len(files))
+	for _, f := range files {
+		entries = append(entries, map[string]any{
+			"name":        f.Name,
+			"size_bytes":  f.SizeBytes,
+			"modified_at": f.ModifiedAt,
+		})
+	}
+	return map[string]any{
+		"files":          entries,
+		"drop_dir":       a.fileBridge.DropDir(),
+		"max_file_bytes": a.fileBridge.MaxFileBytes(),
+	}, nil
+}
+
+func (a *Agent) executeAttachDropFile(
+	session *SessionState,
+	sessionExists bool,
+	payload json.RawMessage,
+) (map[string]any, error) {
+	if a.fileBridge == nil {
+		return nil, filebridge.ErrDisabled
+	}
+
+	var p protocol.AttachDropFilePayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return nil, err
+	}
+
+	destDir := strings.TrimSpace(p.WorkingDirectory)
+	if destDir == "" {
+		if !sessionExists || session == nil {
+			return nil, fmt.Errorf("session not found and no working_directory was provided")
+		}
+		destDir = session.CWD
+	}
+	if strings.TrimSpace(destDir) == "" {
+		return nil, fmt.Errorf("session has no working directory to attach into")
+	}
+
+	_, resolvedDest, err := normalizeListDirectoryPath(destDir)
+	if err != nil {
+		return nil, err
+	}
+
+	path, size, err := a.fileBridge.Attach(p.Name, resolvedDest)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"path":       path,
+		"name":       filepath.Base(path),
+		"size_bytes": size,
+	}, nil
+}
+
+func (a *Agent) executePublishOutFile(payload json.RawMessage) (map[string]any, error) {
+	if a.fileBridge == nil {
+		return nil, filebridge.ErrDisabled
+	}
+
+	var p protocol.PublishOutFilePayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return nil, err
+	}
+
+	_, resolved, err := normalizeListDirectoryPath(p.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	path, size, err := a.fileBridge.Publish(resolved)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"path":       path,
+		"name":       filepath.Base(path),
+		"size_bytes": size,
+	}, nil
 }
 
 func (a *Agent) executeListDirectory(payload json.RawMessage) (map[string]any, error) {

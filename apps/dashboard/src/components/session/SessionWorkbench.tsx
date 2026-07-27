@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useState, type MutableRefObject } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Maximize2, Minimize2 } from 'lucide-react';
-import { getGroups } from '@/lib/api';
+import { getGroups, getHosts } from '@/lib/api';
 import { ActivityTimeline } from '@/components/ActivityTimeline';
 import { ConsoleView } from '@/components/ConsoleView';
 import { LinkedSessionsPanel } from '@/components/LinkedSessionsPanel';
+import { AttachFilePanel } from '@/components/session/AttachFilePanel';
+import { PreviewPortsPanel } from '@/components/session/PreviewPortsPanel';
 import { SessionAnalytics } from '@/components/analytics/SessionAnalytics';
 import type { TerminalController } from '@/components/TerminalView';
 import { TmuxTerminalWorkspace } from '@/components/tmux/TmuxTerminalWorkspace';
@@ -65,6 +67,19 @@ export function SessionWorkbench({
     queryKey: ['groups'],
     queryFn: getGroups,
   });
+
+  // Preview and the file bridge are per-host capabilities reported by agentd, so
+  // both panels stay hidden on hosts that have not enabled them.
+  const { data: hostsData } = useQuery({
+    queryKey: ['hosts'],
+    queryFn: getHosts,
+  });
+  const hostCapabilities = useMemo(() => {
+    const host = hostsData?.hosts.find((candidate) => candidate.id === session.host_id);
+    return (host?.capabilities ?? {}) as Record<string, unknown>;
+  }, [hostsData, session.host_id]);
+  const previewPortsEnabled = hostCapabilities.preview_ports === true;
+  const fileBridgeEnabled = hostCapabilities.file_bridge === true;
 
   const flatGroups = useMemo<SessionGroup[]>(
     () => groupsData?.flat ?? [],
@@ -278,6 +293,19 @@ export function SessionWorkbench({
               )}
             </CardContent>
           </Card>
+
+          {(previewPortsEnabled || fileBridgeEnabled) && (
+            <Card>
+              <CardContent className="space-y-4 py-4">
+                <PreviewPortsPanel hostId={session.host_id} enabled={previewPortsEnabled} />
+                <AttachFilePanel
+                  hostId={session.host_id}
+                  sessionId={session.id}
+                  enabled={fileBridgeEnabled}
+                />
+              </CardContent>
+            </Card>
+          )}
 
           <LinkedSessionsPanel
             sessionId={session.id}
