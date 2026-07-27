@@ -78,3 +78,23 @@ providers:
 storage:
   state_dir: "/var/lib/agentd"
   outbound_queue_max: 50000
+
+# Discover TCP services running on this host so the dashboard and mobile app can
+# link to them. No tunnel is created and no port is opened: links point at the
+# host's tailnet address, so this only works for devices on the same tailnet, and
+# only for services bound to 0.0.0.0 rather than 127.0.0.1.
+preview:
+  enabled: false
+  # Hide infrastructure listeners that are never what "preview" means.
+  ignore_ports: [22, 5432, 6379]
+
+# Expose a pair of synced folders to sessions. Point these at a directory your
+# sync client already manages (Nextcloud, Dropbox, Syncthing) and files dropped
+# from a phone or another machine become attachable to an agent session.
+# Nothing is transferred by agentd -- the sync client has already placed the file
+# on this host; agentd only copies it into the session's working directory.
+file_bridge:
+  enabled: false
+  drop_dir: "~/Nextcloud/AgentDrop"
+  out_dir: "~/Nextcloud/AgentOut"
+  max_file_bytes: 67108864 # 64 MiB

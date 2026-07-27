@@ -178,6 +178,23 @@ type ListDirectoryPayload struct {
 	ShowHidden bool   `json:"show_hidden"`
 }
 
+// ListListeningPortsPayload has no fields today; discovery is host-wide.
+type ListListeningPortsPayload struct{}
+
+// AttachDropFilePayload copies a file from the host's inbound sync folder into a
+// session's working directory. Name must be a plain file name in that folder.
+type AttachDropFilePayload struct {
+	Name string `json:"name"`
+	// WorkingDirectory overrides the session's cwd when set.
+	WorkingDirectory string `json:"working_directory,omitempty"`
+}
+
+// PublishOutFilePayload copies a file produced in a session into the outbound
+// sync folder so it reaches the operator's other devices.
+type PublishOutFilePayload struct {
+	Path string `json:"path"`
+}
+
 type CapturePaneResult struct {
 	Content           string `json:"content"`
 	LineCount         int    `json:"line_count"`

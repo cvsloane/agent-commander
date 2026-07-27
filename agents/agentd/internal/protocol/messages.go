@@ -100,6 +100,11 @@ type HostCapabilities struct {
 	ListDirectory           *bool           `json:"list_directory,omitempty"`
 	ListDirectoryRoots      []string        `json:"list_directory_roots,omitempty"`
 	ListDirectoryShowHidden *bool           `json:"list_directory_show_hidden,omitempty"`
+	PreviewPorts            *bool           `json:"preview_ports,omitempty"`
+	FileBridge              *bool           `json:"file_bridge,omitempty"`
+	FileBridgeDropDir       string          `json:"file_bridge_drop_dir,omitempty"`
+	FileBridgeOutDir        string          `json:"file_bridge_out_dir,omitempty"`
+	FileBridgeMaxFileBytes  int64           `json:"file_bridge_max_file_bytes,omitempty"`
 	Providers               map[string]bool `json:"providers"`
 }
 

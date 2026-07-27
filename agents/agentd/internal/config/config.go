@@ -15,6 +15,8 @@ type Config struct {
 	Security     SecurityConfig     `yaml:"security"`
 	Providers    ProvidersConfig    `yaml:"providers"`
 	Storage      StorageConfig      `yaml:"storage"`
+	Preview      PreviewConfig      `yaml:"preview"`
+	FileBridge   FileBridgeConfig   `yaml:"file_bridge"`
 }
 
 type TerminalConfig struct {
@@ -113,6 +115,26 @@ type OpenCodeConfig struct {
 type StorageConfig struct {
 	StateDir         string `yaml:"state_dir"`
 	OutboundQueueMax int    `yaml:"outbound_queue_max"`
+}
+
+// PreviewConfig controls discovery of TCP services running on this host so the
+// UI can link to them over the tailnet. Discovery is read-only and opens no
+// ports of its own.
+type PreviewConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// IgnorePorts hides infrastructure listeners (sshd, Postgres) that are never
+	// what an operator means by "preview".
+	IgnorePorts []int `yaml:"ignore_ports"`
+}
+
+// FileBridgeConfig exposes a pair of synced folders to sessions. Point these at
+// a Nextcloud (or any other sync client's) directory and files dropped from
+// another device become attachable to an agent session.
+type FileBridgeConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	DropDir      string `yaml:"drop_dir"`
+	OutDir       string `yaml:"out_dir"`
+	MaxFileBytes int64  `yaml:"max_file_bytes"`
 }
 
 func LoadConfig(path string) (*Config, error) {
