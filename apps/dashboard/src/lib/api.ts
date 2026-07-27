@@ -23,6 +23,8 @@ import {
   SessionUsageLatestResponseSchema,
   UserSettingsResponseSchema,
   WorkItemsResponseSchema,
+  HostPortsResponseSchema,
+  HostDropFilesResponseSchema,
   type SessionsResponse,
   type SessionGraphResponse,
   type SessionGraphRollup,
@@ -38,6 +40,9 @@ import {
   type DashboardSpawnRequest,
   type DashboardSpawnResponse,
   type OrchestratorFleetResponse,
+  type HostPortsResponse,
+  type HostDropFilesResponse,
+  type FileBridgeResult,
 } from '@agent-command/schema';
 import type {
   Session,
@@ -1119,4 +1124,60 @@ export async function listDirectory(
   if (showHidden) params.set('show_hidden', 'true');
 
   return fetchAPI(`/v1/hosts/${hostId}/directories?${params.toString()}`);
+}
+
+// Preview + file bridge -------------------------------------------------------
+
+/**
+ * TCP services running on a host, for one-tap preview over the tailnet.
+ * No tunnel is involved: the caller builds a URL from `tailscale_ip`, which is
+ * why `loopback` on each port matters -- a 127.0.0.1 listener is unreachable
+ * from any other device and must not be offered as a link.
+ */
+export async function getHostPorts(hostId: string): Promise<HostPortsResponse> {
+  return fetchAPI(`/v1/hosts/${hostId}/ports`, undefined, HostPortsResponseSchema);
+}
+
+/** Files waiting in the host's inbound sync folder (e.g. Nextcloud AgentDrop). */
+export async function getHostDropFiles(hostId: string): Promise<HostDropFilesResponse> {
+  return fetchAPI(`/v1/hosts/${hostId}/drop-files`, undefined, HostDropFilesResponseSchema);
+}
+
+/** Copy a synced file into the session's working directory. */
+export async function attachDropFile(
+  sessionId: string,
+  name: string,
+  workingDirectory?: string
+): Promise<FileBridgeResult> {
+  return fetchAPI(`/v1/sessions/${sessionId}/attach-file`, {
+    method: 'POST',
+    body: JSON.stringify({
+      name,
+      ...(workingDirectory ? { working_directory: workingDirectory } : {}),
+    }),
+  });
+}
+
+/** Copy a file produced in the session into the outbound sync folder. */
+export async function publishSessionFile(
+  sessionId: string,
+  path: string
+): Promise<FileBridgeResult> {
+  return fetchAPI(`/v1/sessions/${sessionId}/publish-file`, {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+  });
+}
+
+/**
+ * Preview URL for a port, or null when it cannot be reached from another
+ * device -- either the host has no tailnet address or the service is bound to
+ * loopback only.
+ */
+export function buildPreviewUrl(
+  port: { port: number; loopback: boolean },
+  tailscaleIp: string | null
+): string | null {
+  if (!tailscaleIp || port.loopback) return null;
+  return `http://${tailscaleIp}:${port.port}`;
 }
