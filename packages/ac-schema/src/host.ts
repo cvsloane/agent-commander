@@ -12,6 +12,13 @@ export const HostCapabilitiesSchema = z.object({
   list_directory: z.boolean().default(false),
   list_directory_roots: z.array(z.string()).default([]),
   list_directory_show_hidden: z.boolean().default(false),
+  // Host can enumerate its listening TCP ports for tailnet preview links.
+  preview_ports: z.boolean().default(false),
+  // Host exposes a pair of sync folders (e.g. Nextcloud) to sessions.
+  file_bridge: z.boolean().default(false),
+  file_bridge_drop_dir: z.string().optional(),
+  file_bridge_out_dir: z.string().optional(),
+  file_bridge_max_file_bytes: z.number().int().positive().optional(),
   providers: z.record(z.string(), z.boolean()).default({}),
 });
 export type HostCapabilities = z.infer<typeof HostCapabilitiesSchema>;

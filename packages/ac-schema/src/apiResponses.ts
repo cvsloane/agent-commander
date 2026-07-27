@@ -11,6 +11,7 @@ import {
   WorkItemSchema,
 } from './automation.js';
 import { EventSchema } from './event.js';
+import { ListDropFilesResultSchema, ListeningPortSchema } from './command.js';
 import { HostSchema } from './host.js';
 import { MemoryEntrySchema } from './memory.js';
 import { ProjectSchema } from './project.js';
@@ -131,3 +132,15 @@ export const MemorySearchResponseSchema = z.looseObject({
   results: z.array(MemoryEntrySchema.loose()),
 });
 export type MemorySearchResponse = z.infer<typeof MemorySearchResponseSchema>;
+
+// Ports discovered on a host, joined with the tailnet address the UI links to.
+// tailscale_ip is nullable: a host without one has no reachable preview URL.
+export const HostPortsResponseSchema = z.looseObject({
+  ports: z.array(ListeningPortSchema.loose()),
+  tailscale_ip: z.string().nullable(),
+  tailscale_name: z.string().nullable(),
+});
+export type HostPortsResponse = z.infer<typeof HostPortsResponseSchema>;
+
+export const HostDropFilesResponseSchema = ListDropFilesResultSchema.loose();
+export type HostDropFilesResponse = z.infer<typeof HostDropFilesResponseSchema>;

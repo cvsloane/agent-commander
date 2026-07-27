@@ -2,7 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import path from 'path';
-import { DirectoryEntrySchema } from '@agent-command/schema';
+import {
+  DirectoryEntrySchema,
+  ListDropFilesResultSchema,
+  ListListeningPortsResultSchema,
+} from '@agent-command/schema';
 import * as db from '../db/index.js';
 import { hasRole } from '../auth/rbac.js';
 import { pubsub } from '../services/pubsub.js';
@@ -378,6 +382,113 @@ export function registerHostRoutes(app: FastifyInstance): void {
           entries: validatedEntries,
           current_path: currentPath,
         };
+      } catch (error) {
+        return reply.status(503).send({ error: (error as Error).message });
+      }
+    }
+  );
+
+  // GET /v1/hosts/:id/ports - TCP services running on the host.
+  //
+  // Preview links point at the host's tailnet address, so this returns the
+  // host's tailscale_ip alongside the ports and marks loopback-only listeners,
+  // which are not reachable from any other device.
+  app.get<{ Params: { id: string } }>(
+    '/v1/hosts/:id/ports',
+    async (request, reply) => {
+      if (!request.user || !hasRole(request.user, 'operator')) {
+        return reply.status(403).send({ error: 'Forbidden' });
+      }
+
+      const { id } = request.params;
+      if (!z.string().uuid().safeParse(id).success) {
+        return reply.status(400).send({ error: 'Invalid host ID' });
+      }
+
+      const host = await db.getHostById(id);
+      if (!host) {
+        return reply.status(404).send({ error: 'Host not found' });
+      }
+
+      const capabilities = host.capabilities as Record<string, unknown> | null;
+      if (capabilities?.preview_ports !== true) {
+        return reply.status(403).send({ error: 'Port preview is disabled for this host' });
+      }
+      if (!isHostOnline(id)) {
+        return reply.status(503).send({ error: 'Host is offline' });
+      }
+
+      try {
+        const result = await commandRouter.dispatchHostAndWait(id, randomUUID(), {
+          type: 'list_listening_ports',
+          payload: {},
+        });
+        if (!result.ok) {
+          return reply.status(500).send({
+            error: result.error?.message || 'Failed to list ports',
+            code: result.error?.code,
+          });
+        }
+
+        const parsed = ListListeningPortsResultSchema.safeParse(result.result);
+        if (!parsed.success) {
+          return reply.status(500).send({ error: 'Invalid response from agent' });
+        }
+
+        return {
+          ports: parsed.data.ports,
+          tailscale_ip: host.tailscale_ip ?? null,
+          tailscale_name: host.tailscale_name ?? null,
+        };
+      } catch (error) {
+        return reply.status(503).send({ error: (error as Error).message });
+      }
+    }
+  );
+
+  // GET /v1/hosts/:id/drop-files - files waiting in the host's inbound sync folder.
+  app.get<{ Params: { id: string } }>(
+    '/v1/hosts/:id/drop-files',
+    async (request, reply) => {
+      if (!request.user || !hasRole(request.user, 'operator')) {
+        return reply.status(403).send({ error: 'Forbidden' });
+      }
+
+      const { id } = request.params;
+      if (!z.string().uuid().safeParse(id).success) {
+        return reply.status(400).send({ error: 'Invalid host ID' });
+      }
+
+      const host = await db.getHostById(id);
+      if (!host) {
+        return reply.status(404).send({ error: 'Host not found' });
+      }
+
+      const capabilities = host.capabilities as Record<string, unknown> | null;
+      if (capabilities?.file_bridge !== true) {
+        return reply.status(403).send({ error: 'File bridge is disabled for this host' });
+      }
+      if (!isHostOnline(id)) {
+        return reply.status(503).send({ error: 'Host is offline' });
+      }
+
+      try {
+        const result = await commandRouter.dispatchHostAndWait(id, randomUUID(), {
+          type: 'list_drop_files',
+          payload: {},
+        });
+        if (!result.ok) {
+          return reply.status(500).send({
+            error: result.error?.message || 'Failed to list drop files',
+            code: result.error?.code,
+          });
+        }
+
+        const parsed = ListDropFilesResultSchema.safeParse(result.result);
+        if (!parsed.success) {
+          return reply.status(500).send({ error: 'Invalid response from agent' });
+        }
+        return parsed.data;
       } catch (error) {
         return reply.status(503).send({ error: (error as Error).message });
       }
