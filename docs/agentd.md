@@ -117,6 +117,35 @@ environment at runtime.
 - `storage.state_dir` - local state + outbound queue.
 - `storage.outbound_queue_max` - max queued messages before backpressure.
 
+### Preview (`preview`)
+
+Reports the host's listening TCP ports so the UI can offer a one-tap link to a
+dev server. There is no tunnel: links point at the host's `tailscale_ip`, so
+previews work from any device on the same tailnet and nowhere else.
+
+- `preview.enabled` - advertise the `preview_ports` capability.
+- `preview.ignore_ports` - listeners to hide (sshd, Postgres, Redis).
+
+A service bound to `127.0.0.1` is listed but not linkable, because it is
+unreachable from any other device. Restart it on `0.0.0.0` to preview it.
+
+### File bridge (`file_bridge`)
+
+Exposes two folders managed by an existing sync client (Nextcloud, Dropbox,
+Syncthing) to agent sessions:
+
+- `file_bridge.drop_dir` - inbound. Drop a screenshot or log here from any
+  device and it becomes attachable to a session; attaching copies it into the
+  session's working directory without overwriting anything.
+- `file_bridge.out_dir` - outbound. Files published from a session land here and
+  sync back to your other devices.
+- `file_bridge.max_file_bytes` - per-file cap (default 64 MiB).
+
+agentd transfers nothing over the network: the sync client has already placed
+the file on this host, so attaching is a local copy regardless of file size.
+Only plain file names inside `drop_dir` are accepted, and symlinks that resolve
+outside it are rejected.
+
 ## Run (systemd)
 
 ```bash
