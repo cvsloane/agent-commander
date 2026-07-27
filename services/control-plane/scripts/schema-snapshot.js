@@ -42,6 +42,10 @@ async function buildSnapshot(client) {
     lines.push(`${c.table_name}.${c.column_name} ${c.data_type} nullable=${c.is_nullable} default=${def}`);
   }
 
+  // Postgres names the implicit NOT NULL check constraints after per-database
+  // OIDs ("2200_17274_1_not_null"), so they differ between any two instances and
+  // would make this snapshot report drift on every fresh database. Nullability
+  // is already recorded per column above, so excluding them loses nothing.
   const { rows: constraints } = await client.query(`
     SELECT tc.table_name, tc.constraint_name, tc.constraint_type,
            COALESCE(string_agg(kcu.column_name, ',' ORDER BY kcu.ordinal_position), '-') AS cols
@@ -49,6 +53,7 @@ async function buildSnapshot(client) {
     LEFT JOIN information_schema.key_column_usage kcu
       ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
     WHERE tc.table_schema = 'public'
+      AND tc.constraint_name !~ '^[0-9]+_[0-9]+_[0-9]+_not_null$'
     GROUP BY tc.table_name, tc.constraint_name, tc.constraint_type
     ORDER BY tc.table_name, tc.constraint_name
   `);
