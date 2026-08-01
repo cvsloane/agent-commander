@@ -10,6 +10,8 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 type ACPQuotaItem = ACPStatusResult['quota']['items'][number];
 type ACPActivation = ACPStatusResult['activations']['rows'][number];
 type ACPWorkItem = ACPStatusResult['queue']['items'][number];
+const SHARED_POOL_PREFIX = 'codex-account-';
+const UNKNOWN_ACTIVATION = 'unknown';
 
 function formatTime(value: string): string {
   const date = new Date(value);
@@ -24,7 +26,7 @@ function TimeValue({ value }: { value: string }) {
   );
 }
 
-function Notice({ children, role = 'status' }: { children: ReactNode; role?: 'status' | 'alert' }) {
+function Notice({ children, role }: { children: ReactNode; role?: 'status' | 'alert' }) {
   return (
     <p className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground" role={role}>
       {children}
@@ -34,7 +36,7 @@ function Notice({ children, role = 'status' }: { children: ReactNode; role?: 'st
 
 function Unavailable({ message }: { message?: string }) {
   return (
-    <Notice role="alert">
+    <Notice>
       <Badge variant="error" className="mr-2">
         Unavailable
       </Badge>
@@ -62,7 +64,7 @@ function SectionGrid({ children }: { children: ReactNode }) {
 }
 
 function QuotaItem({ item }: { item: ACPQuotaItem }) {
-  const shared = item.pool_id.startsWith('codex-account-');
+  const shared = item.pool_id.startsWith(SHARED_POOL_PREFIX);
   const label = shared
     ? item.status === 'exhausted'
       ? 'Exhausted · Shared / nonblocking'
@@ -91,8 +93,12 @@ function QuotaItem({ item }: { item: ACPQuotaItem }) {
   );
 }
 
+function isKnownActivation(row: ACPActivation): boolean {
+  return row.open_agents_version !== UNKNOWN_ACTIVATION && row.open_agents_path !== UNKNOWN_ACTIVATION;
+}
+
 function ActivationItem({ row }: { row: ACPActivation }) {
-  const known = row.open_agents_version !== 'unknown' && row.open_agents_path !== 'unknown';
+  const known = isKnownActivation(row);
   return (
     <li className="space-y-2 rounded-md border p-3">
       <div className="flex items-center justify-between gap-2">
@@ -176,8 +182,8 @@ export default function ACPStatusPanel({ host }: { host: Host | null }) {
         </CardHeader>
         <CardContent>
           <Notice>
-            <Badge variant="error" className="mr-2">
-              Unavailable
+            <Badge variant="secondary" className="mr-2">
+              Not connected
             </Badge>
             No capable online host is available. An updated online agentd must advertise ACP status.
           </Notice>
@@ -186,9 +192,10 @@ export default function ACPStatusPanel({ host }: { host: Host | null }) {
     );
 
   const pending = data === null && error === null;
-  const blockingQuota = data?.quota.available === true && data.quota.items.some((item) => item.status === 'exhausted' && !item.pool_id.startsWith('codex-account-'));
-  const activationAttention =
-    data?.activations.available === true && data.activations.rows.some((row) => row.open_agents_version === 'unknown' || row.open_agents_path === 'unknown');
+  const blockingQuota =
+    data?.quota.available === true &&
+    data.quota.items.some((item) => item.status === 'exhausted' && !item.pool_id.startsWith(SHARED_POOL_PREFIX));
+  const activationAttention = data?.activations.available === true && data.activations.rows.some((row) => !isKnownActivation(row));
   const partial = data !== null && (!data.quota.available || !data.activations.available || !data.queue.available);
   const statusLabel =
     pending || loading
@@ -216,7 +223,7 @@ export default function ACPStatusPanel({ host }: { host: Host | null }) {
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Badge variant={statusVariant}>{statusLabel}</Badge>
-          <Button type="button" variant="outline" size="mobile" onClick={() => setRefreshKey((value) => value + 1)} disabled={loading || pending} aria-label="Refresh ACP status">
+          <Button type="button" variant="outline" size="mobile" onClick={() => setRefreshKey((value) => value + 1)} disabled={loading || pending}>
             {loading ? 'Refreshing…' : 'Refresh status'}
           </Button>
         </div>
@@ -241,7 +248,20 @@ export default function ACPStatusPanel({ host }: { host: Host | null }) {
           </SectionGrid>
         ) : (
           <SectionGrid>
-            <Section id="acp-quota-title" title="Quota" status={data.quota.stale && <Badge variant="waiting">Stale</Badge>}>
+            <Section
+              id="acp-quota-title"
+              title="Quota"
+              status={
+                data.quota.available &&
+                (blockingQuota ? (
+                  <Badge variant="waiting">Needs attention</Badge>
+                ) : data.quota.stale ? (
+                  <Badge variant="waiting">Stale</Badge>
+                ) : (
+                  <Badge variant="running">Measured</Badge>
+                ))
+              }
+            >
               {data.quota.available ? (
                 <>
                   {data.quota.generated_at && (

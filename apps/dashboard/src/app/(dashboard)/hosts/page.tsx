@@ -491,7 +491,8 @@ export default function HostsPage() {
   };
   const acpStatusHosts = hosts.filter((host) => {
     const capabilities = host.capabilities as Record<string, unknown>;
-    return isOnline(host.last_seen_at || null) && capabilities.acp_status === true;
+    const presenceOnline = (host as Host & { online?: boolean }).online === true;
+    return presenceOnline && capabilities.acp_status === true;
   });
   const acpStatusHost = acpStatusHosts.find((host) => host.name === 'heavisidelinux')
     ?? acpStatusHosts[0]
