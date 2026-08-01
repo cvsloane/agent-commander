@@ -31,6 +31,7 @@ import {
   isForbiddenEnrollmentError,
   resolveHostApiBase,
 } from './hostEnrollment';
+import ACPStatusPanel from './ACPStatusPanel';
 
 interface OneTimeEnrollment {
   hostId: string;
@@ -488,6 +489,13 @@ export default function HostsPage() {
     if (!hydrated) return false;
     return isHostOnline(lastSeen);
   };
+  const acpStatusHosts = hosts.filter((host) => {
+    const capabilities = host.capabilities as Record<string, unknown>;
+    return isOnline(host.last_seen_at || null) && capabilities.acp_status === true;
+  });
+  const acpStatusHost = acpStatusHosts.find((host) => host.name === 'heavisidelinux')
+    ?? acpStatusHosts[0]
+    ?? null;
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-5 px-3 py-4 sm:px-4 sm:py-6">
@@ -520,6 +528,8 @@ export default function HostsPage() {
             : 'Failed to rotate the agent token.'}
         </div>
       )}
+
+      <ACPStatusPanel host={acpStatusHost} />
 
       {hosts.length === 0 ? (
         <EmptyState

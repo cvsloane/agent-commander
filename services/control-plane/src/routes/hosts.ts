@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import path from 'path';
 import {
+  ACPStatusResultSchema,
   DirectoryEntrySchema,
   ListDropFilesResultSchema,
   ListListeningPortsResultSchema,
@@ -425,10 +426,11 @@ export function registerHostRoutes(app: FastifyInstance): void {
           });
         }
 
-        if (!result.result || typeof result.result !== 'object') {
+        const parsed = ACPStatusResultSchema.safeParse(result.result);
+        if (!parsed.success) {
           return reply.status(500).send({ error: 'Invalid response from agent' });
         }
-        return result.result;
+        return parsed.data;
       } catch (error) {
         return reply.status(503).send({ error: (error as Error).message });
       }
