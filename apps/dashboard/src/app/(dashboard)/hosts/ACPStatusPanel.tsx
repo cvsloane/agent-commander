@@ -26,12 +26,8 @@ function TimeValue({ value }: { value: string }) {
   );
 }
 
-function Notice({ children, role }: { children: ReactNode; role?: 'status' | 'alert' }) {
-  return (
-    <p className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground" role={role}>
-      {children}
-    </p>
-  );
+function Notice({ children }: { children: ReactNode }) {
+  return <p className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">{children}</p>;
 }
 
 function Unavailable({ message }: { message?: string }) {
@@ -197,6 +193,10 @@ export default function ACPStatusPanel({ host }: { host: Host | null }) {
     data.quota.items.some((item) => item.status === 'exhausted' && !item.pool_id.startsWith(SHARED_POOL_PREFIX));
   const activationAttention = data?.activations.available === true && data.activations.rows.some((row) => !isKnownActivation(row));
   const partial = data !== null && (!data.quota.available || !data.activations.available || !data.queue.available);
+  const quotaUnmeasurable =
+    data?.quota.available === true &&
+    data.quota.items.length > 0 &&
+    data.quota.items.every((item) => item.status === 'unmeasurable');
   const statusLabel =
     pending || loading
       ? 'Loading'
@@ -257,6 +257,8 @@ export default function ACPStatusPanel({ host }: { host: Host | null }) {
                   <Badge variant="waiting">Needs attention</Badge>
                 ) : data.quota.stale ? (
                   <Badge variant="waiting">Stale</Badge>
+                ) : quotaUnmeasurable ? (
+                  <Badge variant="secondary">Unmeasurable</Badge>
                 ) : (
                   <Badge variant="running">Measured</Badge>
                 ))

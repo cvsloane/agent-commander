@@ -22,7 +22,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { formatRelativeTime, isHostOnline } from '@/lib/utils';
+import { formatRelativeTime } from '@/lib/utils';
 import { useHydrated } from '@/hooks/useHydrated';
 import {
   type HostEnrollmentResult,
@@ -40,6 +40,8 @@ interface OneTimeEnrollment {
   apiBase: string;
   kind: 'created' | 'rotated';
 }
+
+type HostWithPresence = Host & { online?: boolean };
 
 interface DirectoryAccessEditorProps {
   host: Host;
@@ -485,14 +487,10 @@ export default function HostsPage() {
 
   const hosts = data?.hosts || [];
 
-  const isOnline = (lastSeen: string | null) => {
-    if (!hydrated) return false;
-    return isHostOnline(lastSeen);
-  };
+  const isPresenceOnline = (host: Host): boolean => (host as HostWithPresence).online === true;
   const acpStatusHosts = hosts.filter((host) => {
     const capabilities = host.capabilities as Record<string, unknown>;
-    const presenceOnline = (host as Host & { online?: boolean }).online === true;
-    return presenceOnline && capabilities.acp_status === true;
+    return isPresenceOnline(host) && capabilities.acp_status === true;
   });
   const acpStatusHost = acpStatusHosts.find((host) => host.name === 'heavisidelinux')
     ?? acpStatusHosts[0]
@@ -546,7 +544,7 @@ export default function HostsPage() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {hosts.map((host) => {
-            const online = isOnline(host.last_seen_at || null);
+            const online = isPresenceOnline(host);
             const capabilities = host.capabilities as Record<string, unknown>;
             const showEditor = expandedHostId === host.id;
 
