@@ -97,6 +97,7 @@ type HostCapabilities struct {
 	Terminal                bool            `json:"terminal"`
 	ClaudeHooks             bool            `json:"claude_hooks"`
 	CodexExecJSON           bool            `json:"codex_exec_json"`
+	AcpStatus               bool            `json:"acp_status,omitempty"`
 	ListDirectory           *bool           `json:"list_directory,omitempty"`
 	ListDirectoryRoots      []string        `json:"list_directory_roots,omitempty"`
 	ListDirectoryShowHidden *bool           `json:"list_directory_show_hidden,omitempty"`

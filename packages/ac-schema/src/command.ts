@@ -488,6 +488,8 @@ export const ListDirectoryPayloadSchema = z.object({
 });
 export type ListDirectoryPayload = z.infer<typeof ListDirectoryPayloadSchema>;
 
+export const ACPStatusPayloadSchema = z.object({}).strict();
+
 // Directory entry (result from list_directory)
 export const DirectoryEntrySchema = z.object({
   name: z.string(),
@@ -516,6 +518,7 @@ export const CommandPayloadSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('capture_pane'), payload: CapturePanePayloadSchema }),
   z.object({ type: z.literal('capture_transcript'), payload: CaptureTranscriptPayloadSchema }),
   z.object({ type: z.literal('list_directory'), payload: ListDirectoryPayloadSchema }),
+  z.object({ type: z.literal('acp_status'), payload: ACPStatusPayloadSchema }),
   z.object({ type: z.literal('new_window'), payload: NewWindowPayloadSchema }),
   z.object({ type: z.literal('kill_window'), payload: KillWindowPayloadSchema }),
   z.object({ type: z.literal('rename_window'), payload: RenameWindowPayloadSchema }),

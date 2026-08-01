@@ -19,6 +19,7 @@ export const HostCapabilitiesSchema = z.object({
   file_bridge_drop_dir: z.string().optional(),
   file_bridge_out_dir: z.string().optional(),
   file_bridge_max_file_bytes: z.number().int().positive().optional(),
+  acp_status: z.boolean().default(false),
   providers: z.record(z.string(), z.boolean()).default({}),
 });
 export type HostCapabilities = z.infer<typeof HostCapabilitiesSchema>;
