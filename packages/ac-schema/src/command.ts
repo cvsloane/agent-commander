@@ -488,6 +488,73 @@ export const ListDirectoryPayloadSchema = z.object({
 });
 export type ListDirectoryPayload = z.infer<typeof ListDirectoryPayloadSchema>;
 
+export const ACPStatusPayloadSchema = z.object({}).strict();
+
+const ACPQuotaItemSchema = z
+  .object({
+    provider: z.string(),
+    pool_id: z.string(),
+    used_percent: z.number().nullable(),
+    resets_at: z.string().nullable(),
+    confidence: z.enum(['measured', 'unmeasurable']),
+    status: z.enum(['measured', 'exhausted', 'unmeasurable']),
+  })
+  .strict();
+
+const ACPQuotaSchema = z
+  .object({
+    available: z.boolean(),
+    error: z.string().optional(),
+    generated_at: z.string().optional(),
+    stale: z.boolean().optional(),
+    items: z.array(ACPQuotaItemSchema),
+  })
+  .strict();
+
+const ACPActivationSchema = z
+  .object({
+    machine: z.string(),
+    open_agents_version: z.string(),
+    open_agents_path: z.string(),
+    measured_at: z.string(),
+  })
+  .strict();
+
+const ACPActivationsSchema = z
+  .object({
+    available: z.boolean(),
+    error: z.string().optional(),
+    rows: z.array(ACPActivationSchema),
+  })
+  .strict();
+
+const ACPQueueItemSchema = z
+  .object({
+    task_id: z.string(),
+    repo: z.string(),
+    status: z.string(),
+    requested_at: z.string(),
+  })
+  .strict();
+
+const ACPQueueSchema = z
+  .object({
+    available: z.boolean(),
+    error: z.string().optional(),
+    empty: z.boolean().optional(),
+    items: z.array(ACPQueueItemSchema),
+  })
+  .strict();
+
+export const ACPStatusResultSchema = z
+  .object({
+    quota: ACPQuotaSchema,
+    activations: ACPActivationsSchema,
+    queue: ACPQueueSchema,
+  })
+  .strict();
+export type ACPStatusResult = z.infer<typeof ACPStatusResultSchema>;
+
 // Directory entry (result from list_directory)
 export const DirectoryEntrySchema = z.object({
   name: z.string(),
@@ -516,6 +583,7 @@ export const CommandPayloadSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('capture_pane'), payload: CapturePanePayloadSchema }),
   z.object({ type: z.literal('capture_transcript'), payload: CaptureTranscriptPayloadSchema }),
   z.object({ type: z.literal('list_directory'), payload: ListDirectoryPayloadSchema }),
+  z.object({ type: z.literal('acp_status'), payload: ACPStatusPayloadSchema }),
   z.object({ type: z.literal('new_window'), payload: NewWindowPayloadSchema }),
   z.object({ type: z.literal('kill_window'), payload: KillWindowPayloadSchema }),
   z.object({ type: z.literal('rename_window'), payload: RenameWindowPayloadSchema }),

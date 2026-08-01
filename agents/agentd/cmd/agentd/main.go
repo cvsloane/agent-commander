@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -874,6 +876,22 @@ func (a *Agent) reportProviderUsage(provider, command string, parseJSON bool) {
 func (a *Agent) sendHello() error {
 	providers := a.providerAvailabilityMap()
 
+	acpStatus := false
+	home, homeErr := os.UserHomeDir()
+	if homeErr == nil && home != "" {
+		acpStatus = true
+		for _, root := range []string{
+			filepath.Join(home, ".local", "state", "open-agents"),
+			filepath.Join(home, ".hermes", "coding"),
+		} {
+			info, statErr := os.Stat(root)
+			if statErr != nil || !info.IsDir() {
+				acpStatus = false
+				break
+			}
+		}
+	}
+
 	previewPorts := a.cfg.Preview.Enabled
 	fileBridgeEnabled := a.fileBridge != nil
 	var dropDir, outDir string
@@ -897,6 +915,7 @@ func (a *Agent) sendHello() error {
 				Terminal:      true,
 				ClaudeHooks:   true,
 				CodexExecJSON: true,
+				AcpStatus:     acpStatus,
 				PreviewPorts:  &previewPorts,
 				FileBridge:    &fileBridgeEnabled,
 
@@ -1223,6 +1242,8 @@ func (a *Agent) executeCommand(cmd commands.Dispatch) (map[string]any, error) {
 		err = a.executeCopyToSession(session, cmd.Command.Payload)
 	case "list_directory":
 		resultPayload, err = a.executeListDirectory(cmd.Command.Payload)
+	case "acp_status":
+		resultPayload, err = a.executeACPStatus(cmd.Command.Payload)
 	case "list_listening_ports":
 		resultPayload, err = a.executeListListeningPorts()
 	case "list_drop_files":
@@ -1975,6 +1996,252 @@ func (a *Agent) executeListDirectory(payload json.RawMessage) (map[string]any, e
 		"entries":      results,
 		"current_path": displayPath,
 	}, nil
+}
+
+const acpStatusStaleAfter = 5400 * time.Second
+
+func (a *Agent) executeACPStatus(payload json.RawMessage) (map[string]any, error) {
+	raw := bytes.TrimSpace(payload)
+	if len(raw) == 0 {
+		raw = []byte("{}")
+	}
+	var request protocol.EmptyCommandPayload
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &request); err != nil || json.Unmarshal(raw, &fields) != nil || fields == nil || len(fields) != 0 {
+		return nil, fmt.Errorf("acp_status accepts no payload")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return nil, fmt.Errorf("failed to resolve ACP state roots")
+	}
+
+	result := map[string]any{}
+	quota := map[string]any{"available": false, "items": []map[string]any{}}
+	if value, readErr := readACPJSON(filepath.Join(home, ".local", "state", "open-agents", "quota-latest.json")); readErr != nil {
+		quota["error"] = readErr.Error()
+	} else if parsed, parseErr := parseACPQuota(value); parseErr != nil {
+		quota["error"] = parseErr.Error()
+	} else {
+		quota = parsed
+	}
+	result["quota"] = quota
+	activations := map[string]any{"available": false, "rows": []map[string]any{}}
+	if value, readErr := readACPJSON(filepath.Join(home, ".local", "state", "open-agents", "capability-registry.json")); readErr != nil {
+		activations["error"] = readErr.Error()
+	} else if parsed, parseErr := parseACPActivations(value); parseErr != nil {
+		activations["error"] = parseErr.Error()
+	} else {
+		activations = parsed
+	}
+	result["activations"] = activations
+	result["queue"] = parseACPQueue(filepath.Join(home, ".hermes", "coding"))
+	return result, nil
+}
+func readACPJSON(filePath string) (any, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("ACP source unavailable: %w", err)
+	}
+	var value any
+	if err := json.Unmarshal(data, &value); err != nil {
+		return nil, fmt.Errorf("ACP source is malformed: %w", err)
+	}
+	return value, nil
+}
+
+func acpObject(value any) (map[string]any, bool) {
+	object, ok := value.(map[string]any)
+	return object, ok
+}
+
+func acpText(object map[string]any, key string) (string, bool) {
+	value, ok := object[key].(string)
+	return value, ok && strings.TrimSpace(value) != ""
+}
+
+func parseACPQuota(value any) (map[string]any, error) {
+	root, ok := acpObject(value)
+	if !ok {
+		return nil, fmt.Errorf("quota source must be an object")
+	}
+	generatedAt, ok := acpText(root, "generated_at")
+	if !ok {
+		return nil, fmt.Errorf("quota source has no generated_at")
+	}
+	generated, err := time.Parse(time.RFC3339, generatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("quota generated_at is invalid")
+	}
+
+	rawPools, ok := root["pools"]
+	if !ok {
+		return nil, fmt.Errorf("quota source has no pools")
+	}
+	pools, ok := rawPools.([]any)
+	if !ok {
+		return nil, fmt.Errorf("quota pools must be an array")
+	}
+	items := make([]map[string]any, 0, len(pools))
+	for _, rawPool := range pools {
+		pool, ok := acpObject(rawPool)
+		if !ok {
+			return nil, fmt.Errorf("quota pool is malformed")
+		}
+		provider, providerOK := acpText(pool, "provider")
+		poolID, poolOK := acpText(pool, "pool_id")
+		confidence, confidenceOK := acpText(pool, "confidence")
+		if !providerOK || !poolOK || !confidenceOK {
+			return nil, fmt.Errorf("quota pool is missing operator-safe fields")
+		}
+		if confidence != "measured" && confidence != "unmeasurable" {
+			return nil, fmt.Errorf("quota confidence is invalid")
+		}
+
+		usedValue, usedOK := pool["used_percent"]
+		if !usedOK {
+			return nil, fmt.Errorf("quota used_percent is invalid")
+		}
+		status := "measured"
+		var used any
+		switch typed := usedValue.(type) {
+		case float64:
+			used = typed
+			if typed >= 95 {
+				status = "exhausted"
+			}
+		case nil:
+			used, status = nil, "unmeasurable"
+		default:
+			return nil, fmt.Errorf("quota used_percent is invalid")
+		}
+
+		resetsValue, resetsOK := pool["resets_at"]
+		if !resetsOK {
+			return nil, fmt.Errorf("quota resets_at is invalid")
+		}
+		var resetsAt any
+		if resetsValue != nil {
+			resetsAt, resetsOK = resetsValue.(string)
+			if !resetsOK {
+				return nil, fmt.Errorf("quota resets_at is invalid")
+			}
+		}
+		items = append(items, map[string]any{
+			"provider": provider, "pool_id": poolID, "used_percent": used,
+			"resets_at": resetsAt, "confidence": confidence, "status": status,
+		})
+	}
+	return map[string]any{
+		"available": true, "generated_at": generatedAt,
+		"stale": time.Since(generated) > acpStatusStaleAfter, "items": items,
+	}, nil
+}
+
+func parseACPActivations(value any) (map[string]any, error) {
+	root, ok := acpObject(value)
+	if !ok {
+		return nil, fmt.Errorf("capability registry must be an object")
+	}
+	rawInstances, ok := root["harness_instances"]
+	if !ok {
+		return nil, fmt.Errorf("capability registry has no harness_instances")
+	}
+	instances, ok := rawInstances.([]any)
+	if !ok {
+		return nil, fmt.Errorf("capability registry harness_instances must be an array")
+	}
+
+	rows := map[string]map[string]any{}
+	for _, rawInstance := range instances {
+		instance, ok := acpObject(rawInstance)
+		if !ok {
+			return nil, fmt.Errorf("capability registry entry is malformed")
+		}
+		machine, machineOK := acpText(instance, "machine")
+		harness, harnessOK := acpText(instance, "harness")
+		if !machineOK || !harnessOK {
+			return nil, fmt.Errorf("capability registry entry is missing operator-safe fields")
+		}
+		if harness != "open-agents-release" {
+			continue
+		}
+		freshness, freshnessOK := acpObject(instance["freshness"])
+		measured, measuredOK := acpText(instance, "measured_at")
+		version, versionOK := acpText(freshness, "version")
+		activatedPath, pathOK := acpText(freshness, "activated_path")
+		if !freshnessOK || !measuredOK || !versionOK || !pathOK {
+			return nil, fmt.Errorf("capability registry activation is missing operator-safe fields")
+		}
+		if machine == "heavisidelinux" || machine == "homelinux" {
+			rows[machine] = map[string]any{
+				"machine": machine, "open_agents_version": version,
+				"open_agents_path": activatedPath, "measured_at": measured,
+			}
+		}
+	}
+
+	resultRows := make([]map[string]any, 0, 2)
+	for _, machine := range []string{"heavisidelinux", "homelinux"} {
+		if row, exists := rows[machine]; exists {
+			resultRows = append(resultRows, row)
+			continue
+		}
+		resultRows = append(resultRows, map[string]any{
+			"machine": machine, "open_agents_version": "unknown",
+			"open_agents_path": "unknown", "measured_at": "unknown",
+		})
+	}
+	return map[string]any{"available": true, "rows": resultRows}, nil
+}
+
+func parseACPQueue(codingRoot string) map[string]any {
+	items := make([]map[string]any, 0)
+	for _, state := range []string{"queue", "running", "awaiting-input", "needs-review"} {
+		entries, err := os.ReadDir(filepath.Join(codingRoot, state))
+		if err != nil {
+			return map[string]any{
+				"available": false, "error": fmt.Sprintf("queue source unavailable: %v", err),
+				"items": []map[string]any{},
+			}
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+				continue
+			}
+			value, readErr := readACPJSON(filepath.Join(codingRoot, state, entry.Name()))
+			if readErr != nil {
+				return map[string]any{"available": false, "error": readErr.Error(), "items": []map[string]any{}}
+			}
+			object, ok := acpObject(value)
+			if !ok {
+				return map[string]any{"available": false, "error": "queue item is malformed", "items": []map[string]any{}}
+			}
+			taskID, taskOK := acpText(object, "task_id")
+			repo, repoOK := acpText(object, "repo")
+			status, statusOK := acpText(object, "status")
+			requested, requestedOK := acpText(object, "requested_at")
+			if !taskOK || !repoOK || !statusOK || !requestedOK {
+				return map[string]any{"available": false, "error": "queue item is missing operator-safe fields", "items": []map[string]any{}}
+			}
+			if acpTerminalStatus(status) {
+				continue
+			}
+			items = append(items, map[string]any{
+				"task_id": taskID, "repo": repo, "status": status, "requested_at": requested,
+			})
+		}
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i]["task_id"].(string) < items[j]["task_id"].(string) })
+	return map[string]any{"available": true, "empty": len(items) == 0, "items": items}
+}
+
+func acpTerminalStatus(status string) bool {
+	switch strings.ToLower(strings.ReplaceAll(strings.TrimSpace(status), "_", "-")) {
+	case "done", "completed", "complete", "cancelled", "canceled", "failed", "error", "terminal":
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeListDirectoryPath(rawPath string) (string, string, error) {

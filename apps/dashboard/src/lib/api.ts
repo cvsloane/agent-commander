@@ -1,4 +1,5 @@
 import {
+  ACPStatusResultSchema,
   SessionsResponseSchema,
   TmuxRosterResponseSchema,
   SessionGraphResponseSchema,
@@ -45,6 +46,7 @@ import {
   type FileBridgeResult,
 } from '@agent-command/schema';
 import type {
+  ACPStatusResult,
   Session,
   SessionWithSnapshot,
   Approval,
@@ -479,6 +481,10 @@ export async function decideApproval(
 // Hosts API
 export async function getHosts(): Promise<{ hosts: Host[] }> {
   return fetchAPI('/v1/hosts', undefined, HostsResponseSchema);
+}
+
+export async function getHostACPStatus(hostId: string): Promise<ACPStatusResult> {
+  return fetchAPI(`/v1/hosts/${hostId}/acp-status`, undefined, ACPStatusResultSchema);
 }
 
 export async function updateHostCapabilities(

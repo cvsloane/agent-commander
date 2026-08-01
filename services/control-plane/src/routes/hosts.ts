@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import path from 'path';
 import {
+  ACPStatusResultSchema,
   DirectoryEntrySchema,
   ListDropFilesResultSchema,
   ListListeningPortsResultSchema,
@@ -382,6 +383,54 @@ export function registerHostRoutes(app: FastifyInstance): void {
           entries: validatedEntries,
           current_path: currentPath,
         };
+      } catch (error) {
+        return reply.status(503).send({ error: (error as Error).message });
+      }
+    }
+  );
+
+  app.get<{ Params: { id: string } }>(
+    '/v1/hosts/:id/acp-status',
+    async (request, reply) => {
+      if (!request.user || !hasRole(request.user, 'operator')) {
+        return reply.status(403).send({ error: 'Forbidden' });
+      }
+
+      const { id } = request.params;
+      if (!z.string().uuid().safeParse(id).success) {
+        return reply.status(400).send({ error: 'Invalid host ID' });
+      }
+
+      const host = await db.getHostById(id);
+      if (!host) {
+        return reply.status(404).send({ error: 'Host not found' });
+      }
+
+      const capabilities = host.capabilities as Record<string, unknown> | null;
+      if (capabilities?.acp_status !== true) {
+        return reply.status(403).send({ error: 'ACP status is disabled for this host' });
+      }
+      if (!isHostOnline(id)) {
+        return reply.status(503).send({ error: 'Host is offline' });
+      }
+
+      try {
+        const result = await commandRouter.dispatchHostAndWait(id, randomUUID(), {
+          type: 'acp_status',
+          payload: {},
+        });
+        if (!result.ok) {
+          return reply.status(500).send({
+            error: result.error?.message || 'Failed to read ACP status',
+            code: result.error?.code,
+          });
+        }
+
+        const parsed = ACPStatusResultSchema.safeParse(result.result);
+        if (!parsed.success) {
+          return reply.status(500).send({ error: 'Invalid response from agent' });
+        }
+        return parsed.data;
       } catch (error) {
         return reply.status(503).send({ error: (error as Error).message });
       }
