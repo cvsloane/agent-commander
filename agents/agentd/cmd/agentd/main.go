@@ -59,6 +59,8 @@ type Agent struct {
 	// Session state
 	sessions             map[string]*SessionState
 	sessionsMu           sync.RWMutex
+	sessionUpsertState   map[string]string
+	forceSessionSync     bool
 	transcriptPaths      map[string]string
 	claudeProjectsRoot   string
 	snapshotHash         map[string]string
@@ -450,6 +452,9 @@ func (a *Agent) Run() error {
 		if err := a.wsClient.ResendQueued(); err != nil {
 			log.Printf("Failed to replay outbound queue: %v", err)
 		}
+		a.sessionsMu.Lock()
+		a.forceSessionSync = true
+		a.sessionsMu.Unlock()
 	})
 
 	// Initialize outbound queue
@@ -4658,9 +4663,12 @@ func (a *Agent) syncPanes(panes []tmux.Pane, procSnap *proc.Snapshot) {
 	updatedSessions := make([]protocol.SessionUpsert, 0, len(observations))
 	activeSessionIDs := make([]string, 0, len(observations))
 	var staleIDs []string
+	staleSessionIDs := make(map[string]struct{}, len(observations))
 	pruneNow := false
 
 	a.sessionsMu.Lock()
+	forceSessionSync := a.forceSessionSync
+	a.forceSessionSync = false
 	for _, observation := range observations {
 		pane := observation.pane
 		seenPanes[pane.PaneID] = true
@@ -4791,6 +4799,7 @@ func (a *Agent) syncPanes(panes []tmux.Pane, procSnap *proc.Snapshot) {
 				LastActivityAt: session.LastActivity.UTC().Format(time.RFC3339),
 			})
 			staleIDs = append(staleIDs, id)
+			staleSessionIDs[id] = struct{}{}
 		}
 	}
 	for _, id := range staleIDs {
@@ -4798,6 +4807,7 @@ func (a *Agent) syncPanes(panes []tmux.Pane, procSnap *proc.Snapshot) {
 		delete(a.transcriptPaths, id)
 		delete(a.snapshotHash, id)
 		delete(a.providerUsageHash, id)
+		delete(a.sessionUpsertState, id)
 	}
 	a.refreshHierarchyMetadataLocked()
 	for index := range updatedSessions {
@@ -4809,13 +4819,48 @@ func (a *Agent) syncPanes(panes []tmux.Pane, procSnap *proc.Snapshot) {
 		a.lastPruneAt = time.Now().UTC()
 		pruneNow = true
 	}
+	if a.sessionUpsertState == nil {
+		a.sessionUpsertState = make(map[string]string)
+	}
+	filteredSessions := updatedSessions[:0]
+	pendingStates := make(map[string]string, len(updatedSessions))
+	for _, update := range updatedSessions {
+		stateUpdate := update
+		if update.Metadata != nil && update.Metadata.GitStatus != nil {
+			if data, err := json.Marshal(update.Metadata); err == nil {
+				var metadata map[string]any
+				if err := json.Unmarshal(data, &metadata); err == nil {
+					if gitStatus, ok := metadata["git_status"].(map[string]any); ok {
+						delete(gitStatus, "updated_at")
+						stateUpdate.Metadata = protocol.NewSessionMetadata(metadata)
+					}
+				}
+			}
+		}
+		state, err := json.Marshal(stateUpdate)
+		_, stale := staleSessionIDs[update.ID]
+		if err == nil && !forceSessionSync && !stale && a.sessionUpsertState[update.ID] == string(state) {
+			continue
+		}
+		filteredSessions = append(filteredSessions, update)
+		if err == nil && !stale {
+			pendingStates[update.ID] = string(state)
+		}
+	}
+	updatedSessions = filteredSessions
 	a.sessionsMu.Unlock()
 
 	for _, id := range staleIDs {
 		a.usageTracker.RemoveSession(id)
 	}
 	if len(updatedSessions) > 0 {
-		a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: updatedSessions})
+		if err := a.send(protocol.TypeSessionsUpsert, protocol.SessionsUpsertPayload{Sessions: updatedSessions}); err == nil && len(pendingStates) > 0 {
+			a.sessionsMu.Lock()
+			for id, state := range pendingStates {
+				a.sessionUpsertState[id] = state
+			}
+			a.sessionsMu.Unlock()
+		}
 	}
 	if pruneNow {
 		a.send(protocol.TypeSessionsPrune, protocol.SessionsPrunePayload{SessionIDs: activeSessionIDs})
