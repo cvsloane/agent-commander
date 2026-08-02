@@ -445,9 +445,6 @@ func (a *Agent) Run() error {
 		}
 	})
 	a.wsClient.SetOnConnect(func() {
-		a.sessionsMu.Lock()
-		a.forceSessionSync = true
-		a.sessionsMu.Unlock()
 		if err := a.sendHello(); err != nil {
 			log.Printf("Failed to send hello: %v", err)
 			return
@@ -455,6 +452,9 @@ func (a *Agent) Run() error {
 		if err := a.wsClient.ResendQueued(); err != nil {
 			log.Printf("Failed to replay outbound queue: %v", err)
 		}
+		a.sessionsMu.Lock()
+		a.forceSessionSync = true
+		a.sessionsMu.Unlock()
 	})
 
 	// Initialize outbound queue
