@@ -915,6 +915,9 @@ async function handleSessionUsageReport(
   payload: unknown
 ): Promise<void> {
   const parsed = SessionUsageSummarySchema.parse(payload);
+  const session = await db.getSessionById(parsed.session_id);
+  if (!session) return;
+
   await db.upsertSessionUsageLatest(parsed);
 
   pubsub.publishToUI({
