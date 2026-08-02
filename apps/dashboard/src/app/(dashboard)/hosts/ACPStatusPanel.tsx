@@ -64,6 +64,8 @@ function QuotaItem({ item }: { item: ACPQuotaItem }) {
   const label = shared
     ? item.status === 'exhausted'
       ? 'Exhausted · Shared / nonblocking'
+      : item.status === 'stale'
+        ? 'Stale · Shared / nonblocking'
       : 'Shared / nonblocking'
     : item.status === 'exhausted'
       ? 'Exhausted'
