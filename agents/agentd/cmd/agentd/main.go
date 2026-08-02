@@ -2098,7 +2098,7 @@ func parseACPQuota(value any) (map[string]any, error) {
 		if !providerOK || !poolOK || !confidenceOK {
 			return nil, fmt.Errorf("quota pool is missing operator-safe fields")
 		}
-		if confidence != "measured" && confidence != "unmeasurable" {
+		if confidence != "measured" && confidence != "stale" && confidence != "unmeasurable" {
 			return nil, fmt.Errorf("quota confidence is invalid")
 		}
 
@@ -2106,7 +2106,7 @@ func parseACPQuota(value any) (map[string]any, error) {
 		if !usedOK {
 			return nil, fmt.Errorf("quota used_percent is invalid")
 		}
-		status := "measured"
+		status := confidence
 		var used any
 		switch typed := usedValue.(type) {
 		case float64:

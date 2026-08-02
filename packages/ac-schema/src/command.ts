@@ -496,8 +496,8 @@ const ACPQuotaItemSchema = z
     pool_id: z.string(),
     used_percent: z.number().nullable(),
     resets_at: z.string().nullable(),
-    confidence: z.enum(['measured', 'unmeasurable']),
-    status: z.enum(['measured', 'exhausted', 'unmeasurable']),
+    confidence: z.enum(['measured', 'stale', 'unmeasurable']),
+    status: z.enum(['measured', 'stale', 'exhausted', 'unmeasurable']),
   })
   .strict();
 

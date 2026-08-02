@@ -67,9 +67,11 @@ function QuotaItem({ item }: { item: ACPQuotaItem }) {
       : 'Shared / nonblocking'
     : item.status === 'exhausted'
       ? 'Exhausted'
-      : item.status === 'unmeasurable'
-        ? 'Unmeasurable'
-        : 'Measured';
+      : item.status === 'stale'
+        ? 'Stale'
+        : item.status === 'unmeasurable'
+          ? 'Unmeasurable'
+          : 'Measured';
   return (
     <li className="space-y-2 rounded-md border p-3">
       <div className="flex items-start justify-between gap-2">
