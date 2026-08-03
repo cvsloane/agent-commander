@@ -22,6 +22,7 @@ const ConfigSchema = z.object({
   WS_ALLOWED_ORIGINS: z.string().optional(),
   WS_TICKET_TTL_SECONDS: z.coerce.number().int().positive().max(300).default(30),
   ACP_SOURCE_HOST_ID: z.string().uuid().optional(),
+  ACP_APPROVER_USER_ID: z.string().uuid().optional(),
   VAPID_PUBLIC_KEY: z.string().min(1).optional(),
   VAPID_PRIVATE_KEY: z.string().min(1).optional(),
   VAPID_SUBJECT: z.string().regex(/^(mailto:|https:)/).optional(),

@@ -16,15 +16,15 @@ import (
 )
 
 const (
-	maxRecordsPerState = 250
-	maxWorkRecords     = 200
-	maxAttentionItems   = 100
-	maxOutputBytes      = 64 * 1024
-	maxLogBytes         = 8 * 1024
-	quotaExhaustedUsed  = 95.0
+	maxRecordsPerState   = 250
+	maxWorkRecords       = 200
+	maxAttentionItems    = 100
+	maxOutputBytes       = 64 * 1024
+	maxLogBytes          = 8 * 1024
+	quotaExhaustedUsed   = 95.0
 	builderReserveFloor  = 15.0
 	reviewerReserveFloor = 20.0
-	statusStaleAfter    = 90 * time.Minute
+	statusStaleAfter     = 90 * time.Minute
 )
 
 var (
@@ -226,7 +226,7 @@ func ExecuteAction(payload []byte, machine string) (map[string]any, error) {
 		}
 		args = []string{
 			"program", "--answers", answersPath, "--",
-			request.Repo, strings.TrimSpace(request.Goal),
+			request.Repo + ":", strings.TrimSpace(request.Goal),
 		}
 	case "answer_program":
 		if err := validateID(request.ProgramID, "program_id"); err != nil {
@@ -485,8 +485,8 @@ func unavailableRouting(err error) map[string]any {
 func unavailableWork(err error) map[string]any {
 	return map[string]any{
 		"available": false, "error": err.Error(), "partial": false, "skipped_count": 0,
-		"records": []map[string]any{},
-		"counts": map[string]any{"active": 0, "attention": 0, "history": 0, "total": 0},
+		"records":  []map[string]any{},
+		"counts":   map[string]any{"active": 0, "attention": 0, "history": 0, "total": 0},
 		"selected": nil,
 	}
 }
@@ -680,8 +680,8 @@ func parseFleet(activations map[string]any, src source) map[string]any {
 	root, _ := value.(map[string]any)
 	instances, _ := root["harness_instances"].([]any)
 	expected := map[string]string{
-		"hermes-gateway": "gateway",
-		"dispatch-worker": "claim-queue-item",
+		"hermes-gateway":      "gateway",
+		"dispatch-worker":     "claim-queue-item",
 		"open-agents-release": "immutable-artifact",
 	}
 	for _, machine := range []string{"heavisidelinux", "homelinux"} {
@@ -1187,13 +1187,13 @@ func normalizeState(status, hint, kind string) string {
 		return "history"
 	case "queue", "queued", "claimed", "starting", "running":
 		return "active"
-	case "awaiting-input", "judgment", "blocked", "needs-review":
+	case "interview", "awaiting-approval", "awaiting-input", "judgment", "blocked", "needs-review":
 		return "attention"
 	}
 	switch normalized {
 	case "queue", "queued", "claimed", "starting", "running", "in-progress":
 		return "active"
-	case "awaiting-input", "judgment", "blocked", "needs-review":
+	case "interview", "awaiting-approval", "awaiting-input", "judgment", "blocked", "needs-review":
 		return "attention"
 	default:
 		if kind == "program" && normalized == "needs-review" {

@@ -62,7 +62,7 @@ function alignmentVariant(value: ACPStatusResult['fleet']['release_alignment']):
 }
 
 function isAwaitingInput(status: string): boolean {
-  return /awaiting[-_ ]input/i.test(status);
+  return /interview|awaiting[-_ ](?:approval|input)/i.test(status);
 }
 
 function isReviewGate(status: string): boolean {

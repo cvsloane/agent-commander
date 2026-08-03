@@ -174,13 +174,10 @@ async function readFleetFacts(sourceHostId: string, sourceStatus: ACPStatusResul
 function actorForRequest(request: FastifyRequest): string {
   const user = request.user;
   if (!user) return '';
-  const candidates = [user.name, user.email?.split('@')[0], user.sub, user.id]
-    .filter((value): value is string => Boolean(value))
-    .map((value) => value.trim().toLowerCase());
-  if (candidates.some((value) => value === 'chris' || value.startsWith('chris.') || value.startsWith('chris-'))) {
+  if (user.auth_type !== 'service' && config.ACP_APPROVER_USER_ID === user.id) {
     return 'chris';
   }
-  return candidates[0] || '';
+  return user.id;
 }
 
 async function rejectReservedAnswer(
