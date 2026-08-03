@@ -74,7 +74,7 @@ export function useAttentionQueue() {
   });
   const acpQuery = useQuery({
     queryKey: ['orchestrator', 'acp-attention'],
-    queryFn: getACPWorkspace,
+    queryFn: () => getACPWorkspace(),
     refetchInterval: 15_000,
   });
 
