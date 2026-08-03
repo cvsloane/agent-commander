@@ -23,13 +23,13 @@ End with exactly one terminal token:
 - Current production source: `origin/main` `b99a33cd202af2de69ac555d68a7e4a12fef0d9b`
 - ACP source of truth on the host: `~/.hermes/coding/`, `~/.local/state/open-agents/quota-latest.json`, `~/.local/state/open-agents/capability-registry.json`, and the activated `~/.local/share/open-agents/current/scripts/hermes-coding-dispatch.py` entrypoint.
 
-The plan and checklist are authority; this brief narrows implementation. If they conflict, stop and report the exact conflict rather than choosing a weaker condition.
+The plan and checklist are authority; this brief narrows implementation. The accepted Opus pre-dispatch review corrections recorded in `tasks/2026-08-02-agent-commander-acp-workspace-handoffs/w1-brief-review.md` are also authoritative. If these inputs conflict, stop and report the exact conflict rather than choosing a weaker condition.
 
 ## Verified Premises
 
 1. The current ACP component is mounted from `apps/dashboard/src/app/(dashboard)/hosts/page.tsx` and its three equal columns are defined in `ACPStatusPanel.tsx`.
 2. The current schema exposes only quota pools, activation rows, and task ID/repo/status/requested time. It has no program, objective, lane, route, attempt, verdict, blocker, cost, or detail contract.
-3. The local ACP store currently contains 0 queued, 0 running, 1 awaiting-input, 29 needs-review, 57 completed, and 59 failed task records, plus durable program records. `needs-review` is attention, not active work.
+3. The authoritative ACP store on heavisidelinux currently contains 0 queued, 0 running, 1 awaiting-input, 29 needs-review, 57 completed, and 59 failed task records, plus durable program records. These counts are a point-in-time premise, not UI constants. `needs-review` is attention, not active work.
 4. Agent Commander already has operator authorization, host command routing, React Query, global Attention, terminal links, tables/tabs/sheets, responsive navigation, and partial/error-state patterns. Reuse them.
 5. ACP already provides `enqueue`, `program`, `list`, `show`, and `tail` operations through `hermes-coding-dispatch.py`. Program commands accept structured answer and approval files and fail closed on a CLI approver allowlist.
 6. `CODING_DISPATCH_ALLOWED_CLI_APPROVERS` is currently unset. The AI Lead—not this Builder—will configure the sole non-secret value `chris` before production approval proof.
@@ -37,7 +37,7 @@ The plan and checklist are authority; this brief narrows implementation. If they
 8. Both machines pass gateway, dispatch-worker, and release capability checks.
 9. Agent Commander local main contains user-owned `030b409` and project-control commits not present in this base. The AI Lead owns integration. Do not reproduce, amend, or overwrite them.
 
-Recheck premises 1, 2, 4, and the actual ACP record shapes before editing. If a premise is false, report it; do not preserve a false brief by inventing compatibility data.
+Recheck premises 1, 2, 3, 4, and the actual ACP record shapes before editing. For premise 3, report the actual per-directory counts from the selected source host before relying on them. If a premise is false, report it; do not preserve a false brief by inventing compatibility data.
 
 ## Product Contract
 
@@ -85,8 +85,8 @@ Detail must expose fields only when the authoritative record provides them: Buil
 
 ### Fleet and releases
 
-- Show source `master`, `origin/master`, and activated release per machine when measurable.
-- Report aligned, different, or unknown from those facts. Show an intentional pin only if a source record explicitly states one; do not infer a pin from divergence.
+- Show each machine's activated release version/path and measurement time from `capability-registry.json`.
+- Report aligned, different, or unknown by comparing those machine activation facts. Show an intentional pin only if a source record explicitly states one; do not infer a pin from divergence.
 - Show gateway, dispatch-worker, and release capability results and measurement time for both machines when present.
 - Merely known activation is not alignment.
 
@@ -96,9 +96,9 @@ Use a fixed discriminated action contract across dashboard, control plane, agent
 
 1. `enqueue_task`: repo alias, objective, risk lane (`cheap`, `standard`, `critical`). The server derives source/requested-by identity.
 2. `start_program`: repo alias and goal. The server derives request identity and writes the structured temporary answers document.
-3. `answer_program`: full program ID and one non-empty answer.
-4. `approve_program`: full program ID and explicit approve statement. The trusted server derives `approved_by=chris`, current time, repo/goal, and the exact frozen approval snapshot from the durable record. It must not accept those authority fields from browser input.
-5. `cancel_program` or explicit denial only through ACP's supported program cancellation path. If ACP lacks an exact supported denial path, expose cancellation with truthful copy rather than inventing state mutation.
+3. `answer_program`: full program ID and one non-empty answer for an ordinary awaiting-input prompt. The trusted server checks the current gate and rejects reserved control answers: trimmed case-insensitive `cancel`, plus `retry` at a judgment/needs-review gate. The response directs the operator to the dedicated action instead; generic answer handling must never silently cancel or retry a program.
+4. `approve_program`: full program ID and explicit approve statement. Invoke ACP `program --program-id <id> --answers <answers-file> --approval-file <approval-file>`. The answers file contains `schema_version: 1`, a server-generated `request_id`, `requested_by`, and the approval answer. The approval file contains `schema_version`, `program_id`, repo, goal, `decision: "approved"`, statement, server-derived `approved_by=chris`, timezone-qualified current time, and `approval_snapshot`. Derive the exact `combined_sha256` snapshot from the program's setup task at `awaiting_input_history[-1].approval_snapshot.combined_sha256`; do not accept any authority or snapshot field from browser input. Let ACP re-verify the frozen plan/manifest against the worktree.
+5. `cancel_program`: full program ID and an explicit confirmation. Invoke the supported ACP cancellation path using `program --program-id <id> --answers <answers-file>`, where the server-owned structured answer is exactly `cancel`. This is the only action allowed to send the cancellation token. Do not invent a state mutation or downgrade cancellation to copy-only behavior.
 
 Every action:
 
@@ -116,14 +116,14 @@ Do not add a generic ACP command endpoint.
 
 - Extend the existing Attention aggregation with ACP attention items. Reuse its refresh/action infrastructure and link to `/acp` detail; do not create a second global attention store or decision implementation.
 - Awaiting input, judgment, blocked, and needs-review items qualify. Ordinary queued/running items do not.
-- When an authoritative Agent Commander session link exists, expose the existing terminal link. Do not infer pane identity or add a terminal client.
+- When an authoritative Agent Commander session link exists, expose the existing terminal link. Current ACP records do not provide that identity: in that case truthfully expose no terminal link. Do not infer one from ACP's `origin.session`, pane identity, or add a terminal client.
 
 ## Data and Security Boundaries
 
 - Agent Commander is a transport/presentation layer; ACP files remain authoritative.
 - Reads may sanitize ACP JSON files directly or invoke existing read-only ACP commands. Choose the smaller implementation that preserves source semantics and bounded output.
 - Mutations must invoke existing ACP commands. Do not reimplement queue/program state transitions in Go or TypeScript.
-- Prefer a dedicated operator-scoped `/v1/acp` route family so the dashboard does not choose a host. The control plane selects the online ACP-capable source host, preferring heavisidelinux and reporting the actual source.
+- Use a dedicated operator-scoped `/v1/acp` route family so the dashboard does not choose a host. Queue/program reads and every mutation are pinned to heavisidelinux, the sole authoritative ACP source host. If heavisidelinux is offline, not ACP-capable, or its activated release does not match its registry measurement, return unavailable with the exact reason. Never fail over ACP state reads or mutations to homelinux; its machine-local store is not a second queue. Fleet capability and activation facts may still be read independently from both machines.
 - Keep the existing host-scoped endpoint compatible if removing it would widen the change; the new page must not depend on a browser-selected host.
 - Redact prompt bodies, answers, logs, environment values, and filesystem roots from control-plane logs beyond the operator-safe fields already required by the UI.
 - Reject traversal (`..`, `/`, backslash, NUL), unknown action variants, extra strict-schema fields, non-allowlisted repo aliases, empty/oversized text, and non-operator requests.
@@ -147,7 +147,7 @@ Do not add a generic ACP command endpoint.
 - `apps/dashboard/src/app/(dashboard)/hosts/page.tsx` and `apps/dashboard/src/app/(dashboard)/hosts/ACPStatusPanel.tsx` for removal of the old mount/component.
 - `apps/dashboard/src/components/acp/**` and at most one `apps/dashboard/src/hooks/useACP*.ts` file.
 - `apps/dashboard/src/components/layout/SidebarNav.tsx` and `MobileBottomNav.tsx`.
-- Existing Attention store/hook/renderer files only where required to ingest, display, link, or act on ACP attention items.
+- `apps/dashboard/src/lib/attentionMerge.ts`, `apps/dashboard/src/hooks/useAttentionQueue.ts`, and `apps/dashboard/src/stores/orchestrator.ts`, plus the existing Attention renderer only where required to ingest, display, link, or act on ACP attention items. Make Attention type changes additive: widen the source union and keep existing session fields optional for ACP items so unchanged consumers and forbidden test files remain type-correct.
 - `tasks/2026-08-02-agent-commander-acp-workspace-handoffs/w1-builder.md` only.
 
 ## Forbidden Paths and Actions
@@ -197,4 +197,3 @@ Write `tasks/2026-08-02-agent-commander-acp-workspace-handoffs/w1-builder.md` us
 - confirmation that no tests, installs, services, live ACP records, credentials, or production state were touched.
 
 Commit the complete candidate and handoff. Do not push. End with exactly one required terminal token.
-

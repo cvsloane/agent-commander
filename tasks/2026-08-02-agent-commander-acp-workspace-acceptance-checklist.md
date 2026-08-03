@@ -39,7 +39,7 @@ Every mandatory item must pass. A Builder may propose a stronger criterion but c
 - [ ] **ROUTE-2 — Reviewer route:** The workspace shows `claude-opus-5`, high, Claude subscription, homelinux, current measurement, reserve, and selected/held reason.
 - [ ] **ROUTE-3 — Shared plan:** Team/shared OpenAI is visibly measured and labeled nonblocking/overflow. Its exhaustion does not mark dispatch blocked while a fresh non-shared route is healthy.
 - [ ] **ROUTE-4 — Pool clarity:** Raw pools are grouped under route summaries and show provider, pool, used/remaining, reset, confidence/freshness, and operational effect without one card per pool above the fold.
-- [ ] **REL-1 — Expected versus active:** Each machine shows expected or intentionally pinned ref, activated ref/path, measured time, and aligned, pinned, drifted, or unknown state.
+- [ ] **REL-1 — Activation integrity:** Each machine shows activated version/path and measured time from the capability registry, with aligned, different, or unknown state computed by comparing the machine activation facts. Intentional pinning appears only when an authoritative source explicitly records it.
 - [ ] **REL-2 — Capability truth:** Gateway, dispatch-worker, and release capability status for both machines is visible with freshness. Known identity alone is not labeled aligned.
 
 ## Attention and Terminal Integration
