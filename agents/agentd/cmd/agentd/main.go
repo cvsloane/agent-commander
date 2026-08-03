@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -22,6 +21,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/agent-command/agentd/internal/acp"
 	"github.com/agent-command/agentd/internal/commands"
 	"github.com/agent-command/agentd/internal/config"
 	"github.com/agent-command/agentd/internal/console"
@@ -1249,6 +1249,8 @@ func (a *Agent) executeCommand(cmd commands.Dispatch) (map[string]any, error) {
 		resultPayload, err = a.executeListDirectory(cmd.Command.Payload)
 	case "acp_status":
 		resultPayload, err = a.executeACPStatus(cmd.Command.Payload)
+	case "acp_action":
+		resultPayload, err = a.executeACPAction(cmd.Command.Payload)
 	case "list_listening_ports":
 		resultPayload, err = a.executeListListeningPorts()
 	case "list_drop_files":
@@ -2006,41 +2008,11 @@ func (a *Agent) executeListDirectory(payload json.RawMessage) (map[string]any, e
 const acpStatusStaleAfter = 5400 * time.Second
 
 func (a *Agent) executeACPStatus(payload json.RawMessage) (map[string]any, error) {
-	raw := bytes.TrimSpace(payload)
-	if len(raw) == 0 {
-		raw = []byte("{}")
-	}
-	var request protocol.EmptyCommandPayload
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &request); err != nil || json.Unmarshal(raw, &fields) != nil || fields == nil || len(fields) != 0 {
-		return nil, fmt.Errorf("acp_status accepts no payload")
-	}
-	home, err := os.UserHomeDir()
-	if err != nil || strings.TrimSpace(home) == "" {
-		return nil, fmt.Errorf("failed to resolve ACP state roots")
-	}
+	return acp.ReadStatus(payload, a.cfg.Host.Name)
+}
 
-	result := map[string]any{}
-	quota := map[string]any{"available": false, "items": []map[string]any{}}
-	if value, readErr := readACPJSON(filepath.Join(home, ".local", "state", "open-agents", "quota-latest.json")); readErr != nil {
-		quota["error"] = readErr.Error()
-	} else if parsed, parseErr := parseACPQuota(value); parseErr != nil {
-		quota["error"] = parseErr.Error()
-	} else {
-		quota = parsed
-	}
-	result["quota"] = quota
-	activations := map[string]any{"available": false, "rows": []map[string]any{}}
-	if value, readErr := readACPJSON(filepath.Join(home, ".local", "state", "open-agents", "capability-registry.json")); readErr != nil {
-		activations["error"] = readErr.Error()
-	} else if parsed, parseErr := parseACPActivations(value); parseErr != nil {
-		activations["error"] = parseErr.Error()
-	} else {
-		activations = parsed
-	}
-	result["activations"] = activations
-	result["queue"] = parseACPQueue(filepath.Join(home, ".hermes", "coding"))
-	return result, nil
+func (a *Agent) executeACPAction(payload json.RawMessage) (map[string]any, error) {
+	return acp.ExecuteAction(payload, a.cfg.Host.Name)
 }
 func readACPJSON(filePath string) (any, error) {
 	data, err := os.ReadFile(filePath)

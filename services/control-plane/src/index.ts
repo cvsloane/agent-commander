@@ -7,6 +7,7 @@ import { registerUIWebSocket } from './ws/ui.js';
 import { registerSessionRoutes } from './routes/sessions.js';
 import { registerApprovalRoutes } from './routes/approvals.js';
 import { registerHostRoutes } from './routes/hosts.js';
+import { registerACPRoutes } from './routes/acp.js';
 import { registerGroupRoutes } from './routes/groups.js';
 import { registerSearchRoutes } from './routes/search.js';
 import { registerMCPRoutes } from './routes/mcp.js';
@@ -129,6 +130,7 @@ async function start(): Promise<void> {
   registerSessionRoutes(app);
   registerApprovalRoutes(app);
   registerHostRoutes(app);
+  registerACPRoutes(app);
   registerGroupRoutes(app);
   registerSearchRoutes(app);
   registerMCPRoutes(app);

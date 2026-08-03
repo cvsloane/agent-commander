@@ -3,7 +3,8 @@ export type AttentionItemSource =
   | 'approval'
   | 'status'
   | 'governance'
-  | 'run';
+  | 'run'
+  | 'acp';
 
 export interface MergeableAttentionItem {
   id: string;
@@ -39,6 +40,7 @@ function priority(item: MergeableAttentionItem, now: number): number {
   if (item.source === 'governance') score += 120;
   else if (item.source === 'approval') score += 110;
   else if (item.source === 'run' && actionType === 'error') score += 100;
+  else if (item.source === 'acp') score += 95;
   else if (item.attentionReason) score += 90;
   else if (item.source === 'run') score += 80;
   else if (item.source === 'snapshot') score += 70;

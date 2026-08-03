@@ -1,5 +1,6 @@
 import {
   ACPStatusResultSchema,
+  ACPWorkspaceResponseSchema,
   SessionsResponseSchema,
   TmuxRosterResponseSchema,
   SessionGraphResponseSchema,
@@ -47,6 +48,7 @@ import {
 } from '@agent-command/schema';
 import type {
   ACPStatusResult,
+  ACPAction,
   Session,
   SessionWithSnapshot,
   Approval,
@@ -485,6 +487,33 @@ export async function getHosts(): Promise<{ hosts: Host[] }> {
 
 export async function getHostACPStatus(hostId: string): Promise<ACPStatusResult> {
   return fetchAPI(`/v1/hosts/${hostId}/acp-status`, undefined, ACPStatusResultSchema);
+}
+
+export async function getACPWorkspace(selection?: {
+  task_id?: string;
+  program_id?: string;
+}): Promise<ACPStatusResult> {
+  const params = new URLSearchParams();
+  if (selection?.task_id) params.set('task_id', selection.task_id);
+  if (selection?.program_id) params.set('program_id', selection.program_id);
+  const query = params.toString();
+  return fetchAPI(`/v1/acp${query ? `?${query}` : ''}`, undefined, ACPWorkspaceResponseSchema);
+}
+
+export interface ACPActionResult {
+  accepted: boolean;
+  queued: boolean;
+  status?: string;
+  task_id?: string;
+  program_id?: string;
+  output?: string;
+}
+
+export async function runACPAction(action: ACPAction): Promise<ACPActionResult> {
+  return fetchAPI('/v1/acp/actions', {
+    method: 'POST',
+    body: JSON.stringify(action),
+  });
 }
 
 export async function updateHostCapabilities(
