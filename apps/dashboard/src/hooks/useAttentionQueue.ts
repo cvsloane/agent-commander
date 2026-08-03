@@ -10,6 +10,7 @@ import type {
   Session,
 } from '@agent-command/schema';
 import {
+  APIError,
   getACPWorkspace,
   getApprovals,
   getAttentionAutomationRuns,
@@ -224,7 +225,8 @@ export function useAttentionQueue() {
     [rawItems]
   );
   const summaryState = useOrchestratorSummaries(items, true);
-  const errors = [sessionsQuery.error, approvalsQuery.error, governanceQuery.error, runsQuery.error, acpQuery.error]
+  const nonfatalACPError = acpQuery.error instanceof APIError && [403, 503].includes(acpQuery.error.status);
+  const errors = [sessionsQuery.error, approvalsQuery.error, governanceQuery.error, runsQuery.error, nonfatalACPError ? null : acpQuery.error]
     .filter((error): error is Error => error instanceof Error);
 
   return {

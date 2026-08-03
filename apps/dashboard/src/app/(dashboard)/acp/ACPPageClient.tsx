@@ -637,7 +637,7 @@ function CapacityTab({ data }: { data: ACPStatusResult }) {
                 <td className="px-3 py-3"><div>{item.provider}</div><code className="break-all text-xs text-muted-foreground">{item.pool_id}</code></td>
                 <td className="px-3 py-3">{item.used_percent === null ? 'Unmeasurable' : `${item.used_percent}%`} / {item.remaining_percent === null ? 'Unavailable' : `${item.remaining_percent}%`}</td>
                 <td className="whitespace-nowrap px-3 py-3 text-xs">{formatTime(item.resets_at || undefined)}</td>
-                <td className="px-3 py-3"><Badge variant={item.status === 'exhausted' && !item.shared ? 'waiting' : item.confidence === 'measured' ? 'running' : 'secondary'}>{item.confidence}</Badge><div className="mt-1 text-xs text-muted-foreground">Measured {formatTime(item.measured_at || data.quota.generated_at)}</div></td>
+                <td className="px-3 py-3"><Badge variant={item.status === 'exhausted' && !item.shared ? 'waiting' : item.confidence === 'measured' ? 'running' : 'secondary'}>{item.status === 'exhausted' ? 'Exhausted' : item.confidence}</Badge><div className="mt-1 text-xs text-muted-foreground">Measured {formatTime(item.measured_at || data.quota.generated_at)}</div></td>
                 <td className="px-3 py-3"><div>{valueOrUnavailable(item.pool_kind)}</div><div className="text-xs text-muted-foreground">{item.shared ? 'Shared / nonblocking' : valueOrUnavailable(item.effect)}</div></td>
               </tr>)}</tbody>
             </table>
@@ -649,7 +649,10 @@ function CapacityTab({ data }: { data: ACPStatusResult }) {
 }
 
 function FleetTab({ data }: { data: ACPStatusResult }) {
-  const machines = ['heavisidelinux', 'homelinux'];
+  const machines = Array.from(new Set([
+    ...data.fleet.activations.map((row) => row.machine),
+    ...data.fleet.capabilities.map((row) => row.machine),
+  ])).sort();
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2 rounded-lg border p-4">

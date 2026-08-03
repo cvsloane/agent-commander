@@ -148,7 +148,7 @@ func ReadStatus(payload []byte, machine string) (map[string]any, error) {
 		result["attention"] = buildAttention(records)
 	}
 
-	routing, routingErr := parseRouting(src, quota)
+	routing, routingErr := parseRouting(src, quota, records)
 	if routingErr != nil {
 		result["routing"] = unavailableRouting(routingErr)
 	} else {
@@ -576,7 +576,7 @@ func parseQuota(src source) (map[string]any, error) {
 			effect = "blocking"
 		} else if confidence != "measured" || used == nil {
 			effect = "held: quota freshness unavailable"
-		} else if *used >= 100-builderReserveFloor {
+		} else if *used >= 100-reviewerReserveFloor {
 			effect = "held: reserve floor"
 		}
 		item := map[string]any{
@@ -723,7 +723,7 @@ func parseFleet(activations map[string]any, src source) map[string]any {
 	}
 }
 
-func parseRouting(src source, quota map[string]any) (map[string]any, error) {
+func parseRouting(src source, quota map[string]any, records []record) (map[string]any, error) {
 	value, err := readJSON(src.routerPath)
 	if err != nil {
 		return nil, errors.New("ACP router policy is unavailable")
@@ -747,7 +747,7 @@ func parseRouting(src source, quota map[string]any) (map[string]any, error) {
 	if mapErr != nil {
 		return nil, mapErr
 	}
-	latestBuilder, latestReviewer := latestResolutions(src)
+	latestBuilder, latestReviewer := latestResolutions(records)
 	return map[string]any{
 		"available": true, "repositories": repositories, "builder": builder, "reviewer": reviewer,
 		"latest_builder_resolution": latestBuilder, "latest_reviewer_resolution": latestReviewer,
@@ -919,11 +919,7 @@ func repoAllowed(mapPath, alias string) bool {
 	return false
 }
 
-func latestResolutions(src source) (map[string]any, map[string]any) {
-	_, records, err := parseWork(src)
-	if err != nil {
-		return nil, nil
-	}
+func latestResolutions(records []record) (map[string]any, map[string]any) {
 	var builder, reviewer *record
 	for i := range records {
 		item := &records[i]
@@ -1458,11 +1454,19 @@ func readSafeLogTail(raw map[string]any, src source) string {
 	if err != nil {
 		return ""
 	}
-	relative, err := filepath.Rel(src.codingRoot, absolute)
+	resolvedRoot, err := filepath.EvalSymlinks(src.codingRoot)
+	if err != nil {
+		return ""
+	}
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return ""
+	}
+	relative, err := filepath.Rel(resolvedRoot, resolved)
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
 		return ""
 	}
-	data, err := os.ReadFile(absolute)
+	data, err := os.ReadFile(resolved)
 	if err != nil {
 		return ""
 	}

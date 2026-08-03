@@ -26,6 +26,8 @@ The Builder remains blocked until homelinux Opus rereviews the corrected brief a
 
 Verdict: `BLOCKS_DISPATCH`
 
+`BRIEF_VERDICT: BLOCKS_DISPATCH`
+
 The first corrected pass found eight additional factual issues. The brief was corrected directly:
 
 1. Approval uses the real `--approval` flag, not nonexistent `--approval-file`.

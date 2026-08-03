@@ -1001,7 +1001,7 @@ export const useOrchestratorStore = create<OrchestratorState>()(
               acpRecordKind: attention.kind,
               attentionReason: attention.reason,
               createdAt: Number.isNaN(createdAt) ? (previous?.createdAt ?? now) : createdAt,
-              dismissedAt: previous?.dismissedAt,
+              dismissedAt: previous?.attentionReason === attention.reason ? previous.dismissedAt : undefined,
             });
           }
           return { items };

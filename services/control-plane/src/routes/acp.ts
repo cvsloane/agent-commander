@@ -101,6 +101,7 @@ function unknownCapability(
 function unknownFleetFacts(machine: string): ACPStatusResult['fleet'] {
   return {
     available: false,
+    error: `${machine} fleet facts are unavailable`,
     release_alignment: 'unknown',
     activations: [unknownActivation(machine)],
     capabilities: REQUIRED_CAPABILITIES.map(([harness, capability]) =>
@@ -134,7 +135,9 @@ function mergeFleetFacts(facts: ACPStatusResult['fleet'][]): ACPStatusResult['fl
       : 'different';
   return {
     available: facts.some((fleet) => fleet.available),
+    error: facts.find((fleet) => fleet.error)?.error,
     release_alignment: releaseAlignment,
+    intentional_pin: facts.find((fleet) => fleet.intentional_pin)?.intentional_pin,
     activations,
     capabilities,
   };
@@ -144,7 +147,9 @@ function fleetFactsForMachine(fleet: ACPStatusResult['fleet'], machine: string):
   const fallback = unknownFleetFacts(machine);
   return {
     available: fleet.available,
+    error: fleet.error,
     release_alignment: 'unknown',
+    intentional_pin: fleet.intentional_pin,
     activations: fleet.activations.filter((row) => row.machine === machine).length
       ? fleet.activations.filter((row) => row.machine === machine)
       : fallback.activations,

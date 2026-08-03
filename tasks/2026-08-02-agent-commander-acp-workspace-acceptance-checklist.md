@@ -29,7 +29,7 @@ Every mandatory item must pass. A Builder may propose a stronger criterion but c
 - [ ] **ACT-3 — Judgment:** Supported answer, approve, and deny actions are typed, attributable to the authenticated operator, and update the authoritative ACP record.
 - [ ] **ACT-4 — No arbitrary execution:** Browser, dashboard API, control plane, and agentd accept only fixed ACP action schemas. No shell string, executable path, arbitrary argv, state-root path, or unrestricted file payload is accepted.
 - [ ] **ACT-5 — Authorization:** Every ACP read requires operator access and every mutation requires the existing authorized operator/admin boundary; permission-denied state is explicit.
-- [ ] **ACT-5a — Sole approver mapping:** Program approval maps the authenticated Human Owner to the sole fail-closed ACP CLI approver `chris`; another identity is refused, and no credential or broader Agent Commander role changes.
+- [ ] **ACT-5a — Sole approver mapping:** Program approval maps only the exact server-configured `ACP_APPROVER_USER_ID` to the sole fail-closed ACP CLI approver `chris`; absent/mismatched UUIDs and other identities are refused, and no credential or broader Agent Commander role changes.
 - [ ] **ACT-6 — Action truth:** A queued command is not presented as completed work. Submission, accepted queue write, running, review, terminal, and failed states remain distinct.
 - [ ] **ACT-7 — Existing runtime:** Actions invoke existing ACP entrypoints and durable records; no new scheduler, queue, database, or mirrored execution state is created.
 

@@ -1,6 +1,7 @@
 # W2 Integrated Build Receipt
 
-- Integrated production-code head: `0c2bba1`
+- Pre-review integrated production-code head: `0c2bba1bab3adb3ae54e13459a67d3d1bbb760f6`
+- Post-correction Opus-reviewed code head: `0f500bc88f72a2c8688cc00905c129e13071682b`
 - Frozen ACP implementation commit: `a8c43074e502f0122307ffaa693e36c7effcab5f`
 - Builder handoff commit in ACP worktree: `eaa8e94b0238e44184ecde2b00df03f8eeab3a99`
 - Local integration commits: `4dd7c2b` implementation, `ac03f5a` handoff, `0c2bba1` direct compile fix
@@ -15,7 +16,8 @@
 4. First `pnpm --filter @agent-command/control-plane build` — exit 2 on strict undefined/tuple inference in `routes/acp.ts` fleet fallback aggregation.
 5. Direct scoped correction in `services/control-plane/src/routes/acp.ts`: typed fallback helpers and identity-set comparison; no new behavior or abstraction outside that caller.
 6. Second `pnpm --filter @agent-command/control-plane build` — exit 0, passed.
-7. `git diff --check` on the ACP base-to-head candidate and integrated correction — passed.
+7. After the four Opus corrections, the affected Go, control-plane, and dashboard builds passed at `0f500bc88f72a2c8688cc00905c129e13071682b`.
+8. `git diff --check` on the ACP base-to-head candidate and integrated correction — passed.
 
 No test command, suite, install, migration, service, deployment, credential operation, live ACP action, or production mutation was run.
 

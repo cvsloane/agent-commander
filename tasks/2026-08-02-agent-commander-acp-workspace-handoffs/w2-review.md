@@ -22,5 +22,8 @@ Advisory findings about scan efficiency, partial quota tolerance, JSON receipts,
 - Scope: the exact four-file mandatory correction diff only
 - Result: all four mandatory findings closed; no new deployment-blocking defect
 - Final source verdict: `PASS`
+- Final reviewed code head: `0f500bc88f72a2c8688cc00905c129e13071682b`
 
 Deployment note: configure `ACP_APPROVER_USER_ID` as the lowercase authenticated Human Owner UUID. An absent or mismatched value fails closed.
+
+`REREVIEW_VERDICT: PASS`
