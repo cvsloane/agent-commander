@@ -1,6 +1,6 @@
 # W1 Builder Brief — Full Agent Commander ACP Workspace
 
-Lane: W1 · Risk: critical · Backend: ACP `coding-dispatch` · Builder: `gpt-5.6-luna` at max on heavisidelinux · Base: `b99a33cd202af2de69ac555d68a7e4a12fef0d9b`
+Lane: W1 · Risk: critical · Backend: ACP `coding-dispatch` · Builder: `gpt-5.6-luna` at max on heavisidelinux · Production baseline: `b99a33cd202af2de69ac555d68a7e4a12fef0d9b` · Worktree base: the exact ACP-selected local `HEAD`, recorded in the handoff
 
 ## Outcome
 
@@ -35,7 +35,7 @@ The plan and checklist are authority; this brief narrows implementation. The acc
 6. `CODING_DISPATCH_ALLOWED_CLI_APPROVERS` is currently unset. The AI Lead—not this Builder—will configure the sole non-secret value `chris` before production approval proof.
 7. The scoped ACP worker resolves `gpt-5.6-luna` at max. Fresh quota shows 69% non-shared OpenAI and 95% homelinux Claude remaining. Team/shared OpenAI is exhausted and nonblocking.
 8. Both machines pass gateway, dispatch-worker, and release capability checks.
-9. Agent Commander local main contains user-owned `030b409` and project-control commits not present in this base. The AI Lead owns integration. Do not reproduce, amend, or overwrite them.
+9. Agent Commander local main contains user-owned `030b409` and approved project-control commits ahead of production. ACP's isolated-worktree policy therefore selects local `HEAD` rather than the older `origin/main`. Confirm the actual worktree base descends from production `b99a33c` and differs only by those existing control commits. The AI Lead owns integration; do not amend, overwrite, or edit the project-control files except the granted W1 Builder handoff.
 
 Recheck premises 1, 2, 3, 4, 5, the Actions 4/5 flags and file schemas, and the actual ACP record shapes before editing. CLI facts must be checked against the exact heavisidelinux-activated release path reported by that host's own registry, not homelinux `current`. For premise 3, report the actual per-directory counts from the selected source host before relying on them. If the flags or schemas differ, return `BLOCKED_ACP_WORKSPACE`; if another premise is false, report it. Do not preserve a false brief by inventing compatibility data.
 
@@ -192,7 +192,7 @@ The ACP harness runs only the configured Go build. The AI Lead will apply the fr
 
 Write `tasks/2026-08-02-agent-commander-acp-workspace-handoffs/w1-builder.md` using the canonical Builder handoff schema. Include:
 
-- exact base and head;
+- exact ACP-selected worktree base and head, plus confirmation that the base descends from production `b99a33c`;
 - changed paths and diff summary;
 - checklist IDs addressed;
 - commands actually run and results;
