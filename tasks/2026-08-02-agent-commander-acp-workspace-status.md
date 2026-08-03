@@ -1,12 +1,12 @@
 # Agent Commander ACP Workspace — Status
 
 - Plan status/version: approved v1 full workspace
-- Current phase: W1 ACP continuation
+- Current phase: W1 ACP completion continuation
 - Overall state: running
-- Last updated: 2026-08-03T02:33:00Z
+- Last updated: 2026-08-03T03:06:14Z
 - Current accepted source and production baseline: `b99a33cd202af2de69ac555d68a7e4a12fef0d9b`
 - Preserved local baseline: `030b4095cf8d9473f7de0a4521cf0b97cf1fe9b9` plus approved control-file changes
-- Current candidate: same-task ACP continuation in the existing partial worktree; not reviewable until committed and verified
+- Current candidate: expanded but still uncommitted same-task worktree; concise completion continuation is being requeued after committing project-control receipts
 - Budget used/remaining: 0%; Luna non-shared pool 69% remaining; homelinux Claude all-models 95% remaining; team/shared OpenAI exhausted and nonblocking
 - Next Human Owner checkpoint: only if plan scope, forbidden authority, waiver, or residual-risk decision changes
 
@@ -15,7 +15,7 @@
 | Lane | Current role | State | Deliverable/ref | Last proof | Blocked on | Next action |
 |---|---|---|---|---|---|---|
 | W0 product and launch gate | AI Lead | complete | Approved plan and checklist | Canonical validator PASS with control-file check | none | Preserve as frozen authority |
-| W1 full ACP workspace | Luna Builder | running (resume 1) | Complete the partial vertical slice in the original ACP worktree | Human Owner authorized option 1; failed/queued/worktree hashes recorded; same task reclaimed at 2026-08-03T02:33:00Z with Luna/max/OpenAI rank 1 | Commit, Go verification, and Builder handoff | Monitor the actual worktree and task ledger |
+| W1 full ACP workspace | Luna Builder | recovering (resume 2) | Finish and freeze the existing vertical slice | Human Owner ruled synthetic USD budgets inapplicable to subscription/proxy routes; concise prompt and no synthetic cap recorded | Clean control-plane repo precondition | Commit control receipts, then reclaim the same task/worktree |
 | W2 independent acceptance | Opus Reviewer and Product Navigator | pending | Structured frozen-candidate verdict | Homelinux Claude 2.1.220; 95% quota remaining | W1 frozen | Review disposable copy with read-only tools |
 | W3 integration and release | AI Lead and Ops/Deploy | pending | PR, deployment, screenshots, real task proof | Production baseline `b99a33c` known | W2 PASS | Integrate once, deploy once, verify real path |
 
@@ -28,7 +28,7 @@
 | Builder route | pass | Scoped worker router resolved `gpt-5.6-luna` at max, rank 1, no skips | AI Lead | Recheck at dispatch |
 | Reviewer route | pass | Claude 2.1.220 login binary, Opus route previously proven, current pool 95% remaining | AI Lead | Recheck before transfer |
 | W1 brief contract | pass with corrections | Every Opus finding adopted; final CLI facts checked on the authoritative heavisidelinux activated release; no fourth pre-build review | AI Lead | Freeze the Builder prompt at enqueue |
-| W1 Builder completion | running | Same task/worktree resumed with `CODING_DISPATCH_TASK_TIMEOUT_SECONDS=7200`; prior timeout and hashes preserved in ACP audit | AI Lead | Builder terminal result |
+| W1 Builder completion | in progress | Synthetic USD guard disabled by Human Owner; current worktree-content SHA `effd1361`; first completion launch consumed no model turn because fresh control docs made the repo dirty | AI Lead | Same-task completion result |
 | Frontend acceptance | pending | Approved checklist and authenticated browser audit | Opus Reviewer and AI Lead | W1 frozen |
 | Production release | pending | Protected branch, Coolify, both agentd services | Ops/Deploy | W2 PASS and required checks green |
 
@@ -40,10 +40,10 @@
 - ACP's fail-closed CLI approver allowlist is currently unset. The approved full program flow requires the AI Lead to configure only `chris` in the canonical non-secret runtime environment before program-approval proof; broader access remains forbidden.
 - The control plane does not yet have `ACP_SOURCE_HOST_ID`; the AI Lead will map it to the authenticated heavisidelinux UUID during the one approved final deployment. Until then the new endpoint must fail closed.
 - The one-record timeout recovery was explicitly authorized and completed with before/after record hashes plus an unchanged worktree-content hash. No generic recovery behavior was added to ACP.
+- Human Owner corrected the budget model: these subscription/proxy routes are not billed APIs, so synthetic USD totals are telemetry and not execution limits. Real quota/reserve remains enforced.
 
 ## Immediate Next Sequence
 
-1. Monitor the resumed task and actual worktree without intervention.
-2. Require Luna's committed handoff token and the configured Go-only verifier.
-3. Inspect the exact frozen diff and scope before integration.
-4. Do not review or integrate an uncommitted/failed partial tree.
+1. Commit the approved project-control and budget-correction receipts so Agent Commander is clean.
+2. Requeue and reclaim the same concise completion task with `CODING_DISPATCH_MAX_BUDGET_USD=0`.
+3. Require Luna's commit/handoff and ACP's Go-only verifier before review or integration.

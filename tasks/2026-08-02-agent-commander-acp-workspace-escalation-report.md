@@ -1,6 +1,6 @@
 # Agent Commander ACP Workspace — Escalation Report
 
-Status: resolved — Human Owner selected option 1 at 2026-08-03T02:31:05Z; W1 resumed at 2026-08-03T02:33:00Z.
+Status: resolved again — Human Owner ruled at 2026-08-03T03:03:42Z that synthetic USD guards do not apply to subscription/proxy ACP routes.
 
 ## Exact wall
 
@@ -41,3 +41,32 @@ No other lane may proceed until W1 produces a committed, verified handoff.
 - ACP audit event: `timeout_recovery_authorized`
 - Recovery: same task ID, branch, and worktree; `resume_count=1`; 7,200-second timeout; same Go-only verifier.
 - No new lane, implementation, test, production mutation, or credential change.
+
+## Second wall: approved Luna budget exhausted
+
+The resumed worker ended with:
+
+> Reached maximum budget ($12)
+
+Evidence: `budget_exhausted`, 141 turns, `$12.110118` equivalent, 686,279 input tokens, 66,060 output tokens. The same worktree now includes a substantive 750-line `/acp` workspace plus the backend, routing, navigation, and Attention integration. It remains uncommitted and unverified; ACP did not reach its harness or Reviewer.
+
+- Failed record SHA-256: `8350191c7463f0f24ccbf8d33415c1294a6588e8f85f41f6ea0bcd8f5bfdb65c`
+- Current worktree-content SHA-256: `effd1361493286bc1b5e77ce697569eda7808f1212f531a3188657d5b8a0ec3b`
+- Base remains `3dccd71f92eb529b9286060f1ed5c2f2965a996c`; no commit exists.
+- No tests, deployment, services, credentials, or production state were touched.
+
+### Options
+
+1. **One final concise ACP continuation with an additional `$8` equivalent cap (recommended).** Preserve the same task/worktree, replace the repeated full prompt with a completion-only prompt that references the frozen brief, and limit Luna to cleanup, missing contract work, `git diff --check`, handoff, and commit. The ACP harness still owns the Go build; no tests are added or run. This uses more non-shared Luna quota but is expected to finish the nearly complete candidate without a second implementation.
+2. **Authorize the AI Lead to finish the remainder locally.** This avoids additional Luna quota but moves completion outside the requested ACP Builder lane; final homelinux Opus review would still be mandatory.
+3. **Hold/stop W1.** Preserve the failed record and worktree for later; Agent Commander and production remain unchanged.
+
+## Second resolution receipt
+
+The Human Owner directed: “forget model budgets we are not using billed apis.” ACP therefore records synthetic cost as telemetry but runs this subscription/proxy continuation with `CODING_DISPATCH_MAX_BUDGET_USD=0`. Route reachability and measured subscription quota/reserve remain enforced.
+
+- Prior budget-failed record SHA-256: `8350191c7463f0f24ccbf8d33415c1294a6588e8f85f41f6ea0bcd8f5bfdb65c`
+- Preserved worktree-content SHA-256: `effd1361493286bc1b5e77ce697569eda7808f1212f531a3188657d5b8a0ec3b`
+- Concise queued record SHA-256: `e39fe2c75ec1b3b3c592b62c8e6aad0163ca5fd720306df0e95dd93cf72dfe97`
+- ACP audit event: `synthetic_budget_guard_disabled`
+- Capacity policy: real subscription quota and route availability; team/shared pool remains nonblocking.

@@ -8,6 +8,7 @@
 - Approved scope/version: v1 full ACP workspace in Agent Commander
 - Approval provenance: direct Human Owner selections `1` and `use the orchestrate skill - or ACP itself, preferably - to implement this plan`
 - Pre-launch fact corrections: the full approved program-approval flow requires the existing fail-closed ACP CLI approver allowlist to contain only `chris`; and the control plane requires a server-owned `ACP_SOURCE_HOST_ID` mapped by the AI Lead to the existing heavisidelinux host UUID. These non-secret mappings are in-scope runtime preconditions, not credentials or broader role grants.
+- Model-budget correction: ACP's Luna and Opus routes use existing subscriptions/local proxy paths, not billed APIs. Synthetic USD estimates are telemetry only and must not stop a lane; `CODING_DISPATCH_MAX_BUDGET_USD` is disabled for these runs. Capacity gates remain real route reachability and measured subscription quota/reserve.
 
 The Human Owner selected the full workspace proposal, including one final pull request and production deployment, then explicitly directed implementation through ACP. This plan is the formal launch projection of that approved direction.
 
@@ -149,7 +150,7 @@ Maximum Builder parallelism is one. The backend and UI are one vertical candidat
 |---|---:|---:|---:|---:|
 | Overall project | 12 hours | Existing subscriptions only; 30% maximum additional Luna pool use and 20% maximum additional homelinux Claude pool use | 90 minutes without new evidence | 2 |
 | AI Lead | 12 hours | Current session; no incremental provider spend | 60 minutes | 2 |
-| W1 — ACP Builder | 5 hours | ACP task cap $12 equivalent; HOLD at 15% remaining non-shared OpenAI reserve | 45 minutes | 2 |
+| W1 — ACP Builder | 5 hours | Existing subscription only; no synthetic USD cap; HOLD at 15% remaining non-shared OpenAI reserve | 45 minutes | 2 |
 | W2 — Opus review | 2 hours | At most two bounded Opus review calls; HOLD at 20% remaining | 45 minutes | 2 |
 | W3 — integration/release | 5 hours | Existing GitHub and Coolify resources only | 60 minutes | 2 |
 
