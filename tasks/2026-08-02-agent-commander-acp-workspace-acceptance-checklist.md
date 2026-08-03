@@ -10,7 +10,7 @@ Every mandatory item must pass. A Builder may propose a stronger criterion but c
 ## Information Architecture and Product Job
 
 - [ ] **IA-1 — Dedicated area:** `/acp` is a top-level Agent Commander area on desktop with an intentional mobile navigation path; the ACP card wall is removed from Hosts.
-- [ ] **IA-2 — Clear job:** The page header and above-fold content answer what needs attention, what is running, whether dispatch is ready, which exact routes are selected, and whether releases are aligned.
+- [ ] **IA-2 — Clear job:** The page header and above-fold content answer what needs attention, what is running, whether dispatch is ready, which routing policies are configured, which routes were last resolved, and whether releases are aligned.
 - [ ] **IA-3 — Clear actions:** New task is the primary action and New program is secondary. Both are visible without scrolling at desktop and reachable on mobile.
 - [ ] **IA-4 — Product boundaries:** Automation remains long-lived agent scheduling, Attention remains global human intervention, Hosts remains machine administration, and ACP owns repo development orchestration.
 
@@ -35,8 +35,8 @@ Every mandatory item must pass. A Builder may propose a stronger criterion but c
 
 ## Routing, Capacity, and Releases
 
-- [ ] **ROUTE-1 — Builder route:** The workspace shows `gpt-5.6-luna`, max, OpenAI/CLIProxyAPI, heavisidelinux, current measurement, reserve, and selected/held reason.
-- [ ] **ROUTE-2 — Reviewer route:** The workspace shows `claude-opus-5`, high, Claude subscription, homelinux, current measurement, reserve, and selected/held reason.
+- [ ] **ROUTE-1 — Builder route:** The workspace reads the activated router's Builder policy (currently led by `gpt-5.6-luna` at max) and separately shows the latest authoritative resolved Builder model, machine, provider, reserve/freshness, and selected/held reason when recorded.
+- [ ] **ROUTE-2 — Reviewer route:** The workspace reads the activated router's adversary/reviewer policy (currently led by `claude-opus-5`) and separately shows the latest authoritative `program_reviewer_runtime_route` and selection reason when recorded; it does not mislabel the project's external homelinux review lane as an ACP resolution.
 - [ ] **ROUTE-3 — Shared plan:** Team/shared OpenAI is visibly measured and labeled nonblocking/overflow. Its exhaustion does not mark dispatch blocked while a fresh non-shared route is healthy.
 - [ ] **ROUTE-4 — Pool clarity:** Raw pools are grouped under route summaries and show provider, pool, used/remaining, reset, confidence/freshness, and operational effect without one card per pool above the fold.
 - [ ] **REL-1 — Activation integrity:** Each machine shows activated version/path and measured time from the capability registry, with aligned, different, or unknown state computed by comparing the machine activation facts. Intentional pinning appears only when an authoritative source explicitly records it.

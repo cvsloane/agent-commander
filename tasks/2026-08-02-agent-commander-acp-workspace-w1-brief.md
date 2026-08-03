@@ -21,7 +21,7 @@ End with exactly one terminal token:
 - Repo instructions: `/home/cvsloane/dev/agent-command/AGENTS.md`
 - Repo lessons: `/home/cvsloane/dev/agent-command/tasks/lessons.md`
 - Current production source: `origin/main` `b99a33cd202af2de69ac555d68a7e4a12fef0d9b`
-- ACP source of truth on the host: `~/.hermes/coding/`, `~/.local/state/open-agents/quota-latest.json`, `~/.local/state/open-agents/capability-registry.json`, and the activated `~/.local/share/open-agents/current/scripts/hermes-coding-dispatch.py` entrypoint.
+- ACP source of truth on the host: `~/.hermes/coding/`, `~/.local/state/open-agents/quota-latest.json`, each machine's own `~/.local/state/open-agents/capability-registry.json`, the activated `~/.local/share/open-agents/current/scripts/hermes-coding-dispatch.py` entrypoint, and the activated read-only `hermes/config/model-router.json` plus `hermes/config/llm-model-registry.json` routing policy files.
 
 The plan and checklist are authority; this brief narrows implementation. The accepted Opus pre-dispatch review corrections recorded in `tasks/2026-08-02-agent-commander-acp-workspace-handoffs/w1-brief-review.md` are also authoritative. If these inputs conflict, stop and report the exact conflict rather than choosing a weaker condition.
 
@@ -55,8 +55,8 @@ Show these as compact operational summaries, not a row of decorative cards:
 
 - Dispatch readiness and exact blocking reasons.
 - Needs-human count, active count, and most urgent items.
-- Builder route: `gpt-5.6-luna`, max, heavisidelinux, provider and reserve/freshness.
-- Reviewer route: `claude-opus-5`, high, homelinux, provider and reserve/freshness.
+- Configured Builder policy from the activated router plus the latest recorded resolved Builder route, selection reason, machine, provider, reserve, and freshness when a record provides them. Label configured policy and recorded resolution separately.
+- Configured adversary/reviewer policy from the activated router plus the latest recorded `program_reviewer_runtime_route` and `program_reviewer_runtime_selection_reason` when present. Do not present this project's separate homelinux Opus review lane as an ACP-selected route.
 - Release-integrity summary across heavisidelinux and homelinux.
 - Primary `New task` and secondary `New program` actions.
 
@@ -74,11 +74,13 @@ Rows prioritize objective/goal, repo, normalized state, updated/requested time, 
 
 Provide search, state/type/repo filters, bounded initial rows, and distinct empty versus zero-result states. Do not load an unbounded full log or render one card per record.
 
+Extend the existing agentd ACP queue parsing beyond `queue`, `running`, `awaiting-input`, and `needs-review` so the bounded history categories above are available. Reuse the existing parser seam; this is required source ingestion, not a second store.
+
 Detail must expose fields only when the authoritative record provides them: Builder/Reviewer machine, provider, model, effort, attempts/checkpoints, duration, cost/tokens, verification, verdict/reason/blockers, changed files, worktree/ref, program gates/lanes/dependencies/budget/next action, receipt and safe log tail. Missing fields say unavailable; never infer success.
 
 ### Capacity and routing
 
-- Lead with the exact configured Builder and Reviewer routes and whether each route is selectable now.
+- Lead with the activated router's configured Builder and adversary/reviewer policies and whether their lead candidates are selectable now. Beside them show the latest recorded resolved Builder and program Reviewer routes and reasons when authoritative task fields exist; otherwise say no resolution is recorded.
 - Group raw quota pools underneath in a compact table showing provider, pool, used/remaining, reset, confidence/freshness, role/effect, and shared/nonblocking status.
 - The `codex-account-` team/shared pool remains visible but never independently blocks while a fresh routable non-shared OpenAI pool is below its ceiling.
 - Do not add a model picker. The user selects risk; ACP selects the exact route.
@@ -97,7 +99,7 @@ Use a fixed discriminated action contract across dashboard, control plane, agent
 1. `enqueue_task`: repo alias, objective, risk lane (`cheap`, `standard`, `critical`). The server derives source/requested-by identity.
 2. `start_program`: repo alias and goal. The server derives request identity and writes the structured temporary answers document.
 3. `answer_program`: full program ID and one non-empty answer for an ordinary awaiting-input prompt. The trusted server checks the current gate and rejects reserved control answers: trimmed case-insensitive `cancel`, plus `retry` at a judgment/needs-review gate. The response directs the operator to the dedicated action instead; generic answer handling must never silently cancel or retry a program.
-4. `approve_program`: full program ID and explicit approve statement. Invoke ACP `program --program-id <id> --answers <answers-file> --approval-file <approval-file>`. The answers file contains `schema_version: 1`, a server-generated `request_id`, `requested_by`, and the approval answer. The approval file contains `schema_version`, `program_id`, repo, goal, `decision: "approved"`, statement, server-derived `approved_by=chris`, timezone-qualified current time, and `approval_snapshot`. Derive the exact `combined_sha256` snapshot from the program's setup task at `awaiting_input_history[-1].approval_snapshot.combined_sha256`; do not accept any authority or snapshot field from browser input. Let ACP re-verify the frozen plan/manifest against the worktree.
+4. `approve_program`: full program ID and explicit approve statement. Invoke ACP `program --program-id <id> --answers <answers-file> --approval <approval-file>`. The answers file is exactly `schema_version: 1`, a server-generated `request_id`, `requested_by`, and `answers: {}`; it has no top-level `answer` field. The approval statement lives only in the approval file. That file contains `schema_version`, `program_id`, repo, goal, `decision: "approved"`, statement, server-derived `approved_by=chris`, timezone-qualified current time, and `approval_snapshot`. Derive the exact 64-hex `combined_sha256` snapshot from the program's setup task at `awaiting_input_history[-1].approval_snapshot.combined_sha256`; do not accept any authority or snapshot field from browser input. Let ACP re-verify the frozen plan/manifest against the worktree.
 5. `cancel_program`: full program ID and an explicit confirmation. Invoke the supported ACP cancellation path using `program --program-id <id> --answers <answers-file>`, where the server-owned structured answer is exactly `cancel`. This is the only action allowed to send the cancellation token. Do not invent a state mutation or downgrade cancellation to copy-only behavior.
 
 Every action:
@@ -105,6 +107,7 @@ Every action:
 - requires the existing authenticated operator/admin boundary;
 - validates IDs as IDs, never paths;
 - uses argv arrays and the activated ACP entrypoint, never `sh -c` or browser-supplied executable text;
+- emits every server-controlled flag before `--`, passes `--` before positional repo/objective/goal text, and rejects an objective or goal whose trimmed value begins with `-`; untrusted text can never be parsed as a CLI option;
 - uses a bounded timeout and output size;
 - creates structured temporary input files with mode 0600 inside an owned temporary directory, then removes them on success or error;
 - returns accepted/queued truth separately from eventual work completion;
@@ -123,7 +126,7 @@ Do not add a generic ACP command endpoint.
 - Agent Commander is a transport/presentation layer; ACP files remain authoritative.
 - Reads may sanitize ACP JSON files directly or invoke existing read-only ACP commands. Choose the smaller implementation that preserves source semantics and bounded output.
 - Mutations must invoke existing ACP commands. Do not reimplement queue/program state transitions in Go or TypeScript.
-- Use a dedicated operator-scoped `/v1/acp` route family so the dashboard does not choose a host. Queue/program reads and every mutation are pinned to heavisidelinux, the sole authoritative ACP source host. If heavisidelinux is offline, not ACP-capable, or its activated release does not match its registry measurement, return unavailable with the exact reason. Never fail over ACP state reads or mutations to homelinux; its machine-local store is not a second queue. Fleet capability and activation facts may still be read independently from both machines.
+- Use a dedicated operator-scoped `/v1/acp` route family so the dashboard does not choose a host. Resolve queue/program reads and every mutation by the server-owned `ACP_SOURCE_HOST_ID` UUID configured by the AI Lead for heavisidelinux; never trust the browser or agent-reported host name for authority. Require that exact database host to be online and advertise `capabilities.acp_status === true`; when the configured ID is absent, unknown, offline, or incapable, return unavailable with the exact reason. Never fail over ACP state reads or mutations to another host. Fleet capability and activation facts are read independently from each machine's own registry; an unreachable registry is `unknown`, never `different`.
 - Keep the existing host-scoped endpoint compatible if removing it would widen the change; the new page must not depend on a browser-selected host.
 - Redact prompt bodies, answers, logs, environment values, and filesystem roots from control-plane logs beyond the operator-safe fields already required by the UI.
 - Reject traversal (`..`, `/`, backslash, NUL), unknown action variants, extra strict-schema fields, non-allowlisted repo aliases, empty/oversized text, and non-operator requests.
@@ -142,12 +145,13 @@ Do not add a generic ACP command endpoint.
 - `packages/ac-schema/src/command.ts` and directly required existing ACP schema export file.
 - `agents/agentd/cmd/agentd/main.go` and at most one directly required new `agents/agentd/internal/acp/**` file if keeping the logic in `main.go` would materially harm readability.
 - `services/control-plane/src/routes/hosts.ts`, one new dedicated ACP route file, and the existing route-registration file directly required to mount it.
+- `services/control-plane/src/config.ts` only to parse the optional server-owned `ACP_SOURCE_HOST_ID` UUID; the Builder does not edit an environment file.
 - `apps/dashboard/src/lib/api.ts`.
 - `apps/dashboard/src/app/(dashboard)/acp/**`.
 - `apps/dashboard/src/app/(dashboard)/hosts/page.tsx` and `apps/dashboard/src/app/(dashboard)/hosts/ACPStatusPanel.tsx` for removal of the old mount/component.
 - `apps/dashboard/src/components/acp/**` and at most one `apps/dashboard/src/hooks/useACP*.ts` file.
 - `apps/dashboard/src/components/layout/SidebarNav.tsx` and `MobileBottomNav.tsx`.
-- `apps/dashboard/src/lib/attentionMerge.ts`, `apps/dashboard/src/hooks/useAttentionQueue.ts`, and `apps/dashboard/src/stores/orchestrator.ts`, plus the existing Attention renderer only where required to ingest, display, link, or act on ACP attention items. Make Attention type changes additive: widen the source union and keep existing session fields optional for ACP items so unchanged consumers and forbidden test files remain type-correct.
+- `apps/dashboard/src/lib/attentionMerge.ts`, `apps/dashboard/src/hooks/useAttentionQueue.ts`, `apps/dashboard/src/stores/orchestrator.ts`, `apps/dashboard/src/components/orchestrator/OrchestratorSurface.tsx`, `OrchestratorItem.tsx`, `item-renderers/AttentionItemPresentation.tsx`, `item-renderers/AttentionItemActions.tsx`, `attentionActions.ts`, and `apps/dashboard/src/components/layout/AttentionSummary.tsx` only where required to ingest, present, and link ACP attention items. Widen only the `AttentionItemSource` union; ACP items supply `sessionId: null` and a normalized `sessionStatus`, so existing fields stay required. Presentation/link additions are in scope; do not duplicate or rewrite decision logic in `attentionActions.ts`.
 - `tasks/2026-08-02-agent-commander-acp-workspace-handoffs/w1-builder.md` only.
 
 ## Forbidden Paths and Actions

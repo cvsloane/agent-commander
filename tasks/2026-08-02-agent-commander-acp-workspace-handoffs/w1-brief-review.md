@@ -21,3 +21,20 @@ The reviewer found the 20-file/~2,000-line proportionality ceiling reasonable be
 ## Gate state
 
 The Builder remains blocked until homelinux Opus rereviews the corrected brief and returns `NO_FINDINGS`.
+
+## Rereview 1
+
+Verdict: `BLOCKS_DISPATCH`
+
+The first corrected pass found eight additional factual issues. The brief was corrected directly:
+
+1. Approval uses the real `--approval` flag, not nonexistent `--approval-file`.
+2. Approval answers contain `answers: {}` and no top-level answer; the statement lives only in the snapshot-bound approval file.
+3. Every existing Attention presentation/link file needed for ATTN-1/2 is named explicitly; existing decision logic remains untouched.
+4. Route UI now separates activated router policy from last recorded resolved route and does not present the external W2 reviewer as ACP-selected.
+5. Server flags precede `--`; positional user text follows it and leading-option text is rejected.
+6. ACP source authority now resolves from the server-owned `ACP_SOURCE_HOST_ID` UUID rather than agent-reported name.
+7. Fleet activation is read per host from each machine's own registry, with unreachable facts reported as unknown.
+8. Attention types retain required session fields; ACP supplies `sessionId: null` and widens only the source union.
+
+The brief also names extension of the existing queue parser for bounded history ingestion. A final rereview is required before dispatch.
