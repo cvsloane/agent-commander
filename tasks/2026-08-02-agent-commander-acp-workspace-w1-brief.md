@@ -21,7 +21,7 @@ End with exactly one terminal token:
 - Repo instructions: `/home/cvsloane/dev/agent-command/AGENTS.md`
 - Repo lessons: `/home/cvsloane/dev/agent-command/tasks/lessons.md`
 - Current production source: `origin/main` `b99a33cd202af2de69ac555d68a7e4a12fef0d9b`
-- ACP source of truth on the host: `~/.hermes/coding/`, `~/.local/state/open-agents/quota-latest.json`, each machine's own `~/.local/state/open-agents/capability-registry.json`, the activated `~/.local/share/open-agents/current/scripts/hermes-coding-dispatch.py` entrypoint, and the activated read-only `hermes/config/model-router.json` plus `hermes/config/llm-model-registry.json` routing policy files.
+- ACP source of truth on the host: `~/.hermes/coding/`, `~/.local/state/open-agents/quota-latest.json`, each machine's own `~/.local/state/open-agents/capability-registry.json`, the activated `~/.local/share/open-agents/current/scripts/hermes-coding-dispatch.py` entrypoint, the activated read-only `hermes/config/model-router.json` plus `hermes/config/llm-model-registry.json` routing policy files, and the alias column of activated `hermes/config/coding-dispatch-map.md`. Never return or log the map's filesystem path column.
 
 The plan and checklist are authority; this brief narrows implementation. The accepted Opus pre-dispatch review corrections recorded in `tasks/2026-08-02-agent-commander-acp-workspace-handoffs/w1-brief-review.md` are also authoritative. If these inputs conflict, stop and report the exact conflict rather than choosing a weaker condition.
 
@@ -37,7 +37,7 @@ The plan and checklist are authority; this brief narrows implementation. The acc
 8. Both machines pass gateway, dispatch-worker, and release capability checks.
 9. Agent Commander local main contains user-owned `030b409` and project-control commits not present in this base. The AI Lead owns integration. Do not reproduce, amend, or overwrite them.
 
-Recheck premises 1, 2, 3, 4, and the actual ACP record shapes before editing. For premise 3, report the actual per-directory counts from the selected source host before relying on them. If a premise is false, report it; do not preserve a false brief by inventing compatibility data.
+Recheck premises 1, 2, 3, 4, 5, the Actions 4/5 flags and file schemas, and the actual ACP record shapes before editing. CLI facts must be checked against the exact heavisidelinux-activated release path reported by that host's own registry, not homelinux `current`. For premise 3, report the actual per-directory counts from the selected source host before relying on them. If the flags or schemas differ, return `BLOCKED_ACP_WORKSPACE`; if another premise is false, report it. Do not preserve a false brief by inventing compatibility data.
 
 ## Product Contract
 
@@ -74,7 +74,7 @@ Rows prioritize objective/goal, repo, normalized state, updated/requested time, 
 
 Provide search, state/type/repo filters, bounded initial rows, and distinct empty versus zero-result states. Do not load an unbounded full log or render one card per record.
 
-Extend the existing agentd ACP queue parsing beyond `queue`, `running`, `awaiting-input`, and `needs-review` so the bounded history categories above are available. Reuse the existing parser seam; this is required source ingestion, not a second store.
+Extend the existing agentd ACP queue parsing beyond `queue`, `running`, `awaiting-input`, and `needs-review` so the bounded history categories above are available. Reuse the existing parser seam; this is required source ingestion, not a second store. Parse records independently: skip an unreadable, non-object, or structurally invalid record, keep the section available, and return the skipped count so the UI shows the existing partial-source state instead of blanking all Work.
 
 Detail must expose fields only when the authoritative record provides them: Builder/Reviewer machine, provider, model, effort, attempts/checkpoints, duration, cost/tokens, verification, verdict/reason/blockers, changed files, worktree/ref, program gates/lanes/dependencies/budget/next action, receipt and safe log tail. Missing fields say unavailable; never infer success.
 
@@ -99,8 +99,8 @@ Use a fixed discriminated action contract across dashboard, control plane, agent
 1. `enqueue_task`: repo alias, objective, risk lane (`cheap`, `standard`, `critical`). The server derives source/requested-by identity.
 2. `start_program`: repo alias and goal. The server derives request identity and writes the structured temporary answers document.
 3. `answer_program`: full program ID and one non-empty answer for an ordinary awaiting-input prompt. The trusted server checks the current gate and rejects reserved control answers: trimmed case-insensitive `cancel`, plus `retry` at a judgment/needs-review gate. The response directs the operator to the dedicated action instead; generic answer handling must never silently cancel or retry a program.
-4. `approve_program`: full program ID and explicit approve statement. Invoke ACP `program --program-id <id> --answers <answers-file> --approval <approval-file>`. The answers file is exactly `schema_version: 1`, a server-generated `request_id`, `requested_by`, and `answers: {}`; it has no top-level `answer` field. The approval statement lives only in the approval file. That file contains `schema_version`, `program_id`, repo, goal, `decision: "approved"`, statement, server-derived `approved_by=chris`, timezone-qualified current time, and `approval_snapshot`. Derive the exact 64-hex `combined_sha256` snapshot from the program's setup task at `awaiting_input_history[-1].approval_snapshot.combined_sha256`; do not accept any authority or snapshot field from browser input. Let ACP re-verify the frozen plan/manifest against the worktree.
-5. `cancel_program`: full program ID and an explicit confirmation. Invoke the supported ACP cancellation path using `program --program-id <id> --answers <answers-file>`, where the server-owned structured answer is exactly `cancel`. This is the only action allowed to send the cancellation token. Do not invent a state mutation or downgrade cancellation to copy-only behavior.
+4. `approve_program`: full program ID, explicit approve statement, and the exact approval digest displayed with the frozen plan. The displayed digest is a non-authoritative concurrency token: the trusted server freshly reads `awaiting_input_history[-1].approval_snapshot.combined_sha256`, refuses a mismatch, and only then invokes ACP `program --program-id <id> --answers <answers-file> --approval <approval-file>`. The answers file is exactly `schema_version: 1`, a server-generated `request_id`, `requested_by`, and `answers: {}`; it has no top-level `answer` field. The approval statement lives only in the approval file. That file contains `schema_version`, `program_id`, repo, goal, `decision: "approved"`, statement, server-derived `approved_by=chris`, timezone-qualified current time, and the freshly verified 64-hex `approval_snapshot`. Never use the browser token as authority. Let ACP re-verify the frozen plan/manifest against the worktree.
+5. `cancel_program`: full program ID and an explicit confirmation. This action is also the explicit denial path for a frozen plan. Invoke the supported ACP cancellation path using `program --program-id <id> --answers <answers-file>`, where the server-owned structured answer is exactly `cancel`. This is the only action allowed to send the cancellation token. Do not invent a state mutation or downgrade cancellation to copy-only behavior. Judgment `retry` is outside v1; needs-review copy must say that retry remains available only through the authorized ACP CLI, not point to a nonexistent workspace action.
 
 Every action:
 
@@ -119,6 +119,7 @@ Do not add a generic ACP command endpoint.
 
 - Extend the existing Attention aggregation with ACP attention items. Reuse its refresh/action infrastructure and link to `/acp` detail; do not create a second global attention store or decision implementation.
 - Awaiting input, judgment, blocked, and needs-review items qualify. Ordinary queued/running items do not.
+- ACP attention items use the source record's real timestamp for `createdAt`, never ingestion time, and a neutral normalized `sessionStatus` such as `ACP_ATTENTION` rather than `WAITING_FOR_INPUT`, `WAITING_FOR_APPROVAL`, or `ERROR`. This keeps pre-existing ACP history from firing browser/audio alerts on first load without editing notification hooks.
 - When an authoritative Agent Commander session link exists, expose the existing terminal link. Current ACP records do not provide that identity: in that case truthfully expose no terminal link. Do not infer one from ACP's `origin.session`, pane identity, or add a terminal client.
 
 ## Data and Security Boundaries

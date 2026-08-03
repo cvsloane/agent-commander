@@ -38,3 +38,18 @@ The first corrected pass found eight additional factual issues. The brief was co
 8. Attention types retain required session fields; ACP supplies `sessionId: null` and widens only the source union.
 
 The brief also names extension of the existing queue parser for bounded history ingestion. A final rereview is required before dispatch.
+
+## Rereview 2 and dispatch disposition
+
+Verdict: `BLOCKS_DISPATCH`
+
+The final bounded pass found six direct spec issues. All were adopted:
+
+1. The Builder must recheck the exact CLI flags and schemas against heavisidelinux's activated release and block on mismatch.
+2. Approval carries the displayed digest only as a concurrency token; the server freshly reads and compares the authoritative digest before producing the approval receipt.
+3. The activated coding-dispatch map's alias column is the repo allowlist source; filesystem paths remain redacted.
+4. History parsing is per-record tolerant and returns a skipped count as partial-source state.
+5. Existing ACP attention uses source timestamps and a neutral status so first load cannot emit a notification/audio storm.
+6. `cancel_program` is the frozen-plan denial action; judgment retry is explicitly outside v1 and its copy points to the authorized ACP CLI, not a nonexistent workspace action.
+
+The AI Lead verified the approval flag, answer schema, snapshot binding, reserved-token behavior, and activated release identity directly on heavisidelinux release `817a8ee7afdaaf9557202d65f2834eef78658d8f`. The pre-dispatch review-loop ceiling is reached, so there is no fourth brief call. The corrected brief is accepted for dispatch under the plan's factual-resolution rule; the mandatory fresh Opus review remains on the frozen implementation candidate.
