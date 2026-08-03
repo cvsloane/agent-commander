@@ -563,8 +563,10 @@ func parseQuota(src source) (map[string]any, error) {
 		} else if *used >= quotaExhaustedUsed {
 			status = "exhausted"
 		}
+		usedPercent := any(nil)
 		remaining := any(nil)
 		if used != nil {
+			usedPercent = *used
 			remaining = maxFloat(0, 100-*used)
 		}
 		effect := "routable"
@@ -580,7 +582,7 @@ func parseQuota(src source) (map[string]any, error) {
 			effect = "held: reserve floor"
 		}
 		item := map[string]any{
-			"provider": provider, "pool_id": poolID, "used_percent": used,
+			"provider": provider, "pool_id": poolID, "used_percent": usedPercent,
 			"remaining_percent": remaining, "resets_at": resets, "confidence": confidence,
 			"status": status, "shared": shared, "routing_enabled": routingEnabled,
 			"effect": effect,
