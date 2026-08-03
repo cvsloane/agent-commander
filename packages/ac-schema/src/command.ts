@@ -488,16 +488,121 @@ export const ListDirectoryPayloadSchema = z.object({
 });
 export type ListDirectoryPayload = z.infer<typeof ListDirectoryPayloadSchema>;
 
-export const ACPStatusPayloadSchema = z.object({}).strict();
+export const ACPRepoAliasSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/)
+  .refine((value) => !value.includes('..'), 'repo alias cannot contain traversal');
+export type ACPRepoAlias = z.infer<typeof ACPRepoAliasSchema>;
+
+export const ACPRecordIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(256)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/)
+  .refine((value) => !value.includes('..'), 'record ID cannot contain traversal');
+export type ACPRecordId = z.infer<typeof ACPRecordIdSchema>;
+
+const ACPActionTextSchema = z.string().trim().min(1).max(4_000);
+export const ACPLaneSchema = z.enum(['cheap', 'standard', 'critical']);
+export type ACPLane = z.infer<typeof ACPLaneSchema>;
+
+export const ACPActionSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('enqueue_task'),
+    repo: ACPRepoAliasSchema,
+    objective: ACPActionTextSchema,
+    lane: ACPLaneSchema,
+  }).strict(),
+  z.object({
+    type: z.literal('start_program'),
+    repo: ACPRepoAliasSchema,
+    goal: ACPActionTextSchema,
+  }).strict(),
+  z.object({
+    type: z.literal('answer_program'),
+    program_id: ACPRecordIdSchema,
+    answer: ACPActionTextSchema,
+  }).strict(),
+  z.object({
+    type: z.literal('approve_program'),
+    program_id: ACPRecordIdSchema,
+    statement: ACPActionTextSchema,
+    approval_digest: z.string().trim().regex(/^[a-fA-F0-9]{64}$/),
+  }).strict(),
+  z.object({
+    type: z.literal('cancel_program'),
+    program_id: ACPRecordIdSchema,
+    confirmation: z.literal('cancel'),
+  }).strict(),
+]);
+export type ACPAction = z.infer<typeof ACPActionSchema>;
+
+const ACPAgentRequestFields = {
+  request_id: ACPRecordIdSchema,
+  requested_by: z.string().trim().min(1).max(128),
+};
+
+export const ACPAgentActionSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('enqueue_task'),
+    repo: ACPRepoAliasSchema,
+    objective: ACPActionTextSchema,
+    lane: ACPLaneSchema,
+    ...ACPAgentRequestFields,
+  }).strict(),
+  z.object({
+    type: z.literal('start_program'),
+    repo: ACPRepoAliasSchema,
+    goal: ACPActionTextSchema,
+    ...ACPAgentRequestFields,
+  }).strict(),
+  z.object({
+    type: z.literal('answer_program'),
+    program_id: ACPRecordIdSchema,
+    answer: ACPActionTextSchema,
+    ...ACPAgentRequestFields,
+  }).strict(),
+  z.object({
+    type: z.literal('approve_program'),
+    program_id: ACPRecordIdSchema,
+    statement: ACPActionTextSchema,
+    approval_digest: z.string().trim().regex(/^[a-fA-F0-9]{64}$/),
+    approved_by: z.literal('chris'),
+    ...ACPAgentRequestFields,
+  }).strict(),
+  z.object({
+    type: z.literal('cancel_program'),
+    program_id: ACPRecordIdSchema,
+    confirmation: z.literal('cancel'),
+    ...ACPAgentRequestFields,
+  }).strict(),
+]);
+export type ACPAgentAction = z.infer<typeof ACPAgentActionSchema>;
+
+export const ACPStatusPayloadSchema = z.object({
+  task_id: ACPRecordIdSchema.optional(),
+  program_id: ACPRecordIdSchema.optional(),
+}).strict();
+export type ACPStatusPayload = z.infer<typeof ACPStatusPayloadSchema>;
 
 const ACPQuotaItemSchema = z
   .object({
     provider: z.string(),
     pool_id: z.string(),
+    pool_kind: z.string().optional(),
     used_percent: z.number().nullable(),
+    remaining_percent: z.number().nullable(),
     resets_at: z.string().nullable(),
+    measured_at: z.string().optional(),
     confidence: z.enum(['measured', 'stale', 'unmeasurable']),
     status: z.enum(['measured', 'stale', 'exhausted', 'unmeasurable']),
+    shared: z.boolean(),
+    routing_enabled: z.boolean(),
+    effect: z.string().optional(),
   })
   .strict();
 
@@ -528,32 +633,185 @@ const ACPActivationsSchema = z
   })
   .strict();
 
-const ACPQueueItemSchema = z
+const ACPFleetCapabilitySchema = z
   .object({
-    task_id: z.string(),
-    repo: z.string(),
-    status: z.string(),
-    requested_at: z.string(),
+    machine: z.string(),
+    harness: z.string(),
+    capability: z.string(),
+    available: z.boolean(),
+    measured_at: z.string().optional(),
+    version: z.string().optional(),
   })
   .strict();
 
-const ACPQueueSchema = z
+const ACPFleetSchema = z
   .object({
     available: z.boolean(),
     error: z.string().optional(),
-    empty: z.boolean().optional(),
-    items: z.array(ACPQueueItemSchema),
+    release_alignment: z.enum(['aligned', 'different', 'unknown']),
+    intentional_pin: z.string().optional(),
+    activations: z.array(ACPActivationSchema),
+    capabilities: z.array(ACPFleetCapabilitySchema),
+  })
+  .strict();
+
+const ACPPolicySchema = z
+  .object({
+    role: z.enum(['builder', 'reviewer']),
+    lead_model: z.string().optional(),
+    provider: z.string().optional(),
+    effort: z.string().optional(),
+    candidates: z.array(z.string()),
+    rationale: z.string().optional(),
+    selectable: z.boolean(),
+    selectable_reason: z.string(),
+  })
+  .strict();
+
+const ACPRouteResolutionSchema = z
+  .object({
+    task_id: ACPRecordIdSchema.optional(),
+    program_id: ACPRecordIdSchema.optional(),
+    model: z.string().optional(),
+    provider: z.string().optional(),
+    effort: z.string().optional(),
+    machine: z.string().optional(),
+    reserve: z.string().optional(),
+    freshness: z.string().optional(),
+    selection_reason: z.string().optional(),
+    recorded_at: z.string().optional(),
+  })
+  .strict();
+
+const ACPRoutingSchema = z
+  .object({
+    available: z.boolean(),
+    error: z.string().optional(),
+    repositories: z.array(ACPRepoAliasSchema),
+    builder: ACPPolicySchema,
+    reviewer: ACPPolicySchema,
+    latest_builder_resolution: ACPRouteResolutionSchema.nullable(),
+    latest_reviewer_resolution: ACPRouteResolutionSchema.nullable(),
+  })
+  .strict();
+
+const ACPRecordSummarySchema = z
+  .object({
+    kind: z.enum(['task', 'program']),
+    id: ACPRecordIdSchema,
+    repo: z.string(),
+    objective: z.string().optional(),
+    state: z.enum(['active', 'attention', 'history']),
+    raw_status: z.string(),
+    lane: z.string().optional(),
+    program_id: ACPRecordIdSchema.optional(),
+    program_relation: z.string().optional(),
+    requested_at: z.string().optional(),
+    updated_at: z.string().optional(),
+    next_action: z.string().optional(),
+    attention_reason: z.string().optional(),
+    machine: z.string().optional(),
+    provider: z.string().optional(),
+    model: z.string().optional(),
+    effort: z.string().optional(),
+    detail_available: z.boolean(),
+  })
+  .strict();
+
+const ACPProgramDetailSchema = z
+  .object({
+    gates: z.array(z.string()).optional(),
+    lanes: z.array(z.string()).optional(),
+    dependencies: z.array(z.string()).optional(),
+    budget: z.record(z.string(), z.unknown()).optional(),
+    next_action: z.string().optional(),
+    setup_gate: z.string().optional(),
+  })
+  .strict();
+
+const ACPRecordDetailSchema = ACPRecordSummarySchema.extend({
+  attempts: z.number().int().nonnegative().optional(),
+  checkpoints: z.array(z.string()).optional(),
+  duration_ms: z.number().int().nonnegative().optional(),
+  cost_usd: z.number().nonnegative().optional(),
+  input_tokens: z.number().int().nonnegative().optional(),
+  output_tokens: z.number().int().nonnegative().optional(),
+  verification_status: z.string().optional(),
+  verification: z.string().optional(),
+  verdict: z.string().optional(),
+  verdict_reason: z.string().optional(),
+  blockers: z.array(z.string()).optional(),
+  changed_files: z.array(z.string()).optional(),
+  worktree_ref: z.string().optional(),
+  receipt_target: z.string().optional(),
+  log_tail: z.string().optional(),
+  approval_snapshot_digest: z.string().regex(/^[a-fA-F0-9]{64}$/).optional(),
+  builder_machine: z.string().optional(),
+  builder_provider: z.string().optional(),
+  builder_model: z.string().optional(),
+  builder_effort: z.string().optional(),
+  reviewer_machine: z.string().optional(),
+  reviewer_provider: z.string().optional(),
+  reviewer_model: z.string().optional(),
+  reviewer_effort: z.string().optional(),
+  program: ACPProgramDetailSchema.optional(),
+}).strict();
+
+const ACPWorkSchema = z
+  .object({
+    available: z.boolean(),
+    error: z.string().optional(),
+    partial: z.boolean(),
+    skipped_count: z.number().int().nonnegative(),
+    records: z.array(ACPRecordSummarySchema),
+    counts: z.object({
+      active: z.number().int().nonnegative(),
+      attention: z.number().int().nonnegative(),
+      history: z.number().int().nonnegative(),
+      total: z.number().int().nonnegative(),
+    }).strict(),
+    selected: ACPRecordDetailSchema.nullable(),
+  })
+  .strict();
+
+const ACPAttentionSchema = z
+  .object({
+    id: ACPRecordIdSchema,
+    record_id: ACPRecordIdSchema,
+    kind: z.enum(['task', 'program']),
+    title: z.string(),
+    repo: z.string(),
+    reason: z.string(),
+    created_at: z.string(),
+    session_id: z.null(),
+    session_status: z.literal('ACP_ATTENTION'),
+  })
+  .strict();
+
+const ACPReadinessSchema = z
+  .object({
+    available: z.boolean(),
+    ready: z.boolean(),
+    reasons: z.array(z.string()),
   })
   .strict();
 
 export const ACPStatusResultSchema = z
   .object({
+    source: z.object({ available: z.boolean(), error: z.string().optional() }).strict(),
+    readiness: ACPReadinessSchema,
+    routing: ACPRoutingSchema,
     quota: ACPQuotaSchema,
     activations: ACPActivationsSchema,
-    queue: ACPQueueSchema,
+    fleet: ACPFleetSchema,
+    work: ACPWorkSchema,
+    attention: z.array(ACPAttentionSchema),
   })
   .strict();
 export type ACPStatusResult = z.infer<typeof ACPStatusResultSchema>;
+export type ACPRecordSummary = z.infer<typeof ACPRecordSummarySchema>;
+export type ACPRecordDetail = z.infer<typeof ACPRecordDetailSchema>;
+export type ACPAttention = z.infer<typeof ACPAttentionSchema>;
 
 // Directory entry (result from list_directory)
 export const DirectoryEntrySchema = z.object({
@@ -584,6 +842,7 @@ export const CommandPayloadSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('capture_transcript'), payload: CaptureTranscriptPayloadSchema }),
   z.object({ type: z.literal('list_directory'), payload: ListDirectoryPayloadSchema }),
   z.object({ type: z.literal('acp_status'), payload: ACPStatusPayloadSchema }),
+  z.object({ type: z.literal('acp_action'), payload: ACPAgentActionSchema }),
   z.object({ type: z.literal('new_window'), payload: NewWindowPayloadSchema }),
   z.object({ type: z.literal('kill_window'), payload: KillWindowPayloadSchema }),
   z.object({ type: z.literal('rename_window'), payload: RenameWindowPayloadSchema }),

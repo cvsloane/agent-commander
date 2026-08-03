@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback } from 'react';
-import { CheckCircle, Moon, Sun, X } from 'lucide-react';
+import Link from 'next/link';
+import { CheckCircle, ExternalLink, Moon, Sun, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn, getProviderIcon } from '@/lib/utils';
@@ -56,6 +57,9 @@ export function OrchestratorItem({
 
   const showIdleToggle = item.sessionId
     && ['snapshot', 'approval', 'status'].includes(item.source);
+  const acpHref = item.source === 'acp' && item.acpRecordId
+    ? `/acp?${item.acpRecordKind === 'program' ? 'program_id' : 'task_id'}=${encodeURIComponent(item.acpRecordId)}`
+    : null;
 
   return (
     <Card className={cn(
@@ -79,6 +83,18 @@ export function OrchestratorItem({
             </div>
 
             <AttentionItemDetails item={item} />
+            {item.source === 'acp' && item.attentionReason && (
+              <p className="mt-1 text-sm text-muted-foreground">{item.attentionReason}</p>
+            )}
+            {acpHref && (
+              <Link
+                href={acpHref}
+                className="mt-3 inline-flex min-h-11 items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                Open ACP detail
+              </Link>
+            )}
             {showSummary && (
               <AttentionItemSummary item={item} enabled={summariesEnabled} />
             )}

@@ -7,6 +7,7 @@ import type {
   ApprovalType,
   AutomationRun,
   GovernanceApproval,
+  ACPAttention,
 } from '@agent-command/schema';
 import {
   analyzeSnapshot,
@@ -41,8 +42,10 @@ export interface OrchestratorItem extends MergeableAttentionItem {
   sessionProvider: string | null;
   sessionHostId?: string | null;
   sessionStatus: string;
-  source: 'snapshot' | 'approval' | 'status' | 'governance' | 'run';
+  source: 'snapshot' | 'approval' | 'status' | 'governance' | 'run' | 'acp';
   action: DetectedAction | null;
+  acpRecordId?: string;
+  acpRecordKind?: 'task' | 'program';
   approval?: Approval;
   approvalInput?: ApprovalInput;
   approvalType?: ApprovalType;
@@ -97,6 +100,7 @@ interface OrchestratorState {
   ingestSnapshot: (sessionId: string, captureText: string, captureHash?: string) => void;
   ingestApproval: (approval: Approval, session?: Session) => void;
   ingestAttention: (sessionId: string, signal: ServerAttentionSignal) => void;
+  ingestACPAttention: (items: ACPAttention[], options?: { fullSync?: boolean }) => void;
   ingestAutomationRuns: (runs: AutomationRun[], options?: { fullSync?: boolean }) => void;
   ingestGovernanceApprovals: (
     approvals: GovernanceApproval[],
@@ -968,6 +972,39 @@ export const useOrchestratorStore = create<OrchestratorState>()(
               },
             ],
           };
+        });
+      },
+
+      ingestACPAttention: (attentionItems, options) => {
+        const fullSync = options?.fullSync ?? false;
+        set((state) => {
+          const incomingIds = new Set(attentionItems.map((item) => item.id));
+          const previousACP = state.items.filter((item) => item.source === 'acp');
+          const items = state.items.filter((item) => item.source !== 'acp');
+          if (!fullSync) {
+            items.push(...previousACP.filter((item) => !incomingIds.has(item.id)));
+          }
+          const now = Date.now();
+          for (const attention of attentionItems) {
+            const previous = previousACP.find((item) => item.id === attention.id);
+            const createdAt = new Date(attention.created_at).getTime();
+            items.push({
+              id: attention.id,
+              sessionId: null,
+              sessionTitle: attention.title,
+              sessionCwd: null,
+              sessionProvider: 'ACP',
+              sessionStatus: 'ACP_ATTENTION',
+              source: 'acp',
+              action: null,
+              acpRecordId: attention.record_id,
+              acpRecordKind: attention.kind,
+              attentionReason: attention.reason,
+              createdAt: Number.isNaN(createdAt) ? (previous?.createdAt ?? now) : createdAt,
+              dismissedAt: previous?.attentionReason === attention.reason ? previous.dismissedAt : undefined,
+            });
+          }
+          return { items };
         });
       },
 

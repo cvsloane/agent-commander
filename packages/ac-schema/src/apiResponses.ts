@@ -11,7 +11,11 @@ import {
   WorkItemSchema,
 } from './automation.js';
 import { EventSchema } from './event.js';
-import { ListDropFilesResultSchema, ListeningPortSchema } from './command.js';
+import {
+  ACPStatusResultSchema,
+  ListDropFilesResultSchema,
+  ListeningPortSchema,
+} from './command.js';
 import { HostSchema } from './host.js';
 import { MemoryEntrySchema } from './memory.js';
 import { ProjectSchema } from './project.js';
@@ -144,3 +148,6 @@ export type HostPortsResponse = z.infer<typeof HostPortsResponseSchema>;
 
 export const HostDropFilesResponseSchema = ListDropFilesResultSchema.loose();
 export type HostDropFilesResponse = z.infer<typeof HostDropFilesResponseSchema>;
+
+export const ACPWorkspaceResponseSchema = ACPStatusResultSchema;
+export type ACPWorkspaceResponse = z.infer<typeof ACPWorkspaceResponseSchema>;

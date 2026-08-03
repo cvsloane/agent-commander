@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   Bell,
+  GitBranch,
   Layers,
   Server,
   Boxes,
@@ -41,6 +42,11 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
       href: '/orchestrator?tab=attention',
       label: 'Attention',
       icon: <Bell className="h-4 w-4" />,
+    },
+    {
+      href: '/acp',
+      label: 'ACP',
+      icon: <GitBranch className="h-4 w-4" />,
     },
     {
       href: '/sessions',

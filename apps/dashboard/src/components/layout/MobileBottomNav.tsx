@@ -2,14 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Bell, LayoutDashboard, Layers, Menu } from 'lucide-react';
+import { Bell, GitBranch, LayoutDashboard, Menu } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/ui';
 
 const primaryItems = [
   { href: '/', label: 'Command Center', icon: LayoutDashboard },
   { href: '/orchestrator?tab=attention', label: 'Attention', icon: Bell },
-  { href: '/sessions', label: 'Sessions', icon: Layers },
+  { href: '/acp', label: 'ACP', icon: GitBranch },
 ] as const;
 
 function isItemActive(pathname: string, href: string): boolean {

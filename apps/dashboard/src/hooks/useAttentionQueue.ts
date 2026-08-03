@@ -10,6 +10,8 @@ import type {
   Session,
 } from '@agent-command/schema';
 import {
+  APIError,
+  getACPWorkspace,
   getApprovals,
   getAttentionAutomationRuns,
   getGovernanceApprovals,
@@ -39,6 +41,7 @@ export function useAttentionQueue() {
   const ingestSnapshot = useOrchestratorStore((state) => state.ingestSnapshot);
   const ingestApproval = useOrchestratorStore((state) => state.ingestApproval);
   const ingestAttention = useOrchestratorStore((state) => state.ingestAttention);
+  const ingestACPAttention = useOrchestratorStore((state) => state.ingestACPAttention);
   const ingestAutomationRuns = useOrchestratorStore((state) => state.ingestAutomationRuns);
   const ingestGovernanceApprovals = useOrchestratorStore(
     (state) => state.ingestGovernanceApprovals
@@ -70,6 +73,11 @@ export function useAttentionQueue() {
     // lower cadence. WebSocket transitions remain immediate.
     refetchInterval: 60_000,
   });
+  const acpQuery = useQuery({
+    queryKey: ['orchestrator', 'acp-attention'],
+    queryFn: () => getACPWorkspace(),
+    refetchInterval: 15_000,
+  });
 
   useEffect(() => {
     if (!sessionsQuery.data) return;
@@ -86,6 +94,11 @@ export function useAttentionQueue() {
     if (!runsQuery.data) return;
     ingestAutomationRuns(runsQuery.data.runs, { fullSync: true });
   }, [ingestAutomationRuns, runsQuery.data]);
+
+  useEffect(() => {
+    if (!acpQuery.data) return;
+    ingestACPAttention(acpQuery.data.attention, { fullSync: true });
+  }, [acpQuery.data, ingestACPAttention]);
 
   useEffect(() => {
     if (!governanceQuery.data) return;
@@ -185,8 +198,9 @@ export function useAttentionQueue() {
       approvalsQuery.refetch(),
       governanceQuery.refetch(),
       runsQuery.refetch(),
+      acpQuery.refetch(),
     ]);
-  }, [approvalsQuery, governanceQuery, runsQuery, sessionsQuery]);
+  }, [acpQuery, approvalsQuery, governanceQuery, runsQuery, sessionsQuery]);
 
   const handleIdle = useCallback(async (sessionId: string) => {
     try {
@@ -211,7 +225,8 @@ export function useAttentionQueue() {
     [rawItems]
   );
   const summaryState = useOrchestratorSummaries(items, true);
-  const errors = [sessionsQuery.error, approvalsQuery.error, governanceQuery.error, runsQuery.error]
+  const nonfatalACPError = acpQuery.error instanceof APIError && [403, 503].includes(acpQuery.error.status);
+  const errors = [sessionsQuery.error, approvalsQuery.error, governanceQuery.error, runsQuery.error, nonfatalACPError ? null : acpQuery.error]
     .filter((error): error is Error => error instanceof Error);
 
   return {
@@ -220,12 +235,13 @@ export function useAttentionQueue() {
     errors,
     isLoading:
       items.length === 0 &&
-      [sessionsQuery, approvalsQuery, governanceQuery, runsQuery].some((query) => query.isLoading),
+      [sessionsQuery, approvalsQuery, governanceQuery, runsQuery, acpQuery].some((query) => query.isLoading),
     isRefreshing:
       sessionsQuery.isFetching ||
       approvalsQuery.isFetching ||
       governanceQuery.isFetching ||
-      runsQuery.isFetching,
+      runsQuery.isFetching ||
+      acpQuery.isFetching,
     refresh,
     dismissItem,
     handleIdle,
