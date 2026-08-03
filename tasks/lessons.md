@@ -133,3 +133,7 @@
 - Date: 2026-07-23
   Correction: Awaiting each bulk termination serially with the router's 30-second default could outlive the dashboard's 15-second and Android's 30-second request deadlines, making correlated completion truth unobservable.
   Rule: Fit server-side acknowledgement waits inside the shortest supported client deadline. Dispatch independent bulk commands concurrently with an explicit bounded timeout, then reduce settled outcomes in request order and apply one final state mutation without retries.
+
+- Date: 2026-08-02
+  Correction: ACP was added to the Hosts page as three raw status columns, but the owner needed a dedicated development-orchestration workspace; the live result overflowed, buried release and work state beneath quota cards, and could not start, steer, or review ACP work.
+  Rule: Treat ACP as a top-level operator product area organized around programs, tasks, decisions, routing, review, and release readiness. Keep host telemetry subordinate, summarize dense data before drilldown, and visually inspect the authenticated production route before calling frontend integration complete.
