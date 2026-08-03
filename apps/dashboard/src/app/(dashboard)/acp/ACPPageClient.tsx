@@ -743,7 +743,7 @@ export default function ACPPageClient() {
       {notice && <div className={notice.kind === 'success' ? 'rounded-md border border-green-500/30 bg-green-500/10 p-3 text-sm' : 'rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive'} role={notice.kind === 'success' ? 'status' : 'alert'}>{notice.message}</div>}
 
       <Tabs value={activeTab} onValueChange={(value) => updateParams({ tab: value === 'overview' ? null : value })} className="space-y-4">
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4"><TabsTrigger value="overview" className="min-h-11">Overview</TabsTrigger><TabsTrigger value="work" className="min-h-11">Work</TabsTrigger><TabsTrigger value="capacity" className="min-h-11">Capacity and Routing</TabsTrigger><TabsTrigger value="fleet" className="min-h-11">Fleet and Releases</TabsTrigger></TabsList>
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 xl:grid-cols-4"><TabsTrigger value="overview" className="min-h-11">Overview</TabsTrigger><TabsTrigger value="work" className="min-h-11">Work</TabsTrigger><TabsTrigger value="capacity" className="min-h-11">Capacity and Routing</TabsTrigger><TabsTrigger value="fleet" className="min-h-11">Fleet and Releases</TabsTrigger></TabsList>
         <TabsContent value="overview"><OverviewTab data={data} onSelect={selectRecord} /></TabsContent>
         <TabsContent value="work"><WorkTab data={data} selectedId={selectedId} onSelect={selectRecord} /></TabsContent>
         <TabsContent value="capacity"><CapacityTab data={data} /></TabsContent>
