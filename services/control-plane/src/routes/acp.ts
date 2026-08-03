@@ -72,47 +72,64 @@ async function readACPStatus(hostId: string, query: ACPQuery = {}): Promise<ACPS
   return parsed.data;
 }
 
+type ACPActivation = ACPStatusResult['fleet']['activations'][number];
+type ACPCapability = ACPStatusResult['fleet']['capabilities'][number];
+
+const REQUIRED_CAPABILITIES = [
+  ['hermes-gateway', 'gateway'],
+  ['dispatch-worker', 'claim-queue-item'],
+  ['open-agents-release', 'immutable-artifact'],
+] as const;
+
+function unknownActivation(machine: string): ACPActivation {
+  return {
+    machine,
+    open_agents_version: 'unknown',
+    open_agents_path: 'unknown',
+    measured_at: 'unknown',
+  };
+}
+
+function unknownCapability(
+  machine: string,
+  harness: string,
+  capability: string
+): ACPCapability {
+  return { machine, harness, capability, available: false, measured_at: 'unknown' };
+}
+
 function unknownFleetFacts(machine: string): ACPStatusResult['fleet'] {
   return {
     available: false,
     release_alignment: 'unknown',
-    activations: [{
-      machine,
-      open_agents_version: 'unknown',
-      open_agents_path: 'unknown',
-      measured_at: 'unknown',
-    }],
-    capabilities: [
-      ['hermes-gateway', 'gateway'],
-      ['dispatch-worker', 'claim-queue-item'],
-      ['open-agents-release', 'immutable-artifact'],
-    ].map(([harness, capability]) => ({ machine, harness, capability, available: false, measured_at: 'unknown' })),
+    activations: [unknownActivation(machine)],
+    capabilities: REQUIRED_CAPABILITIES.map(([harness, capability]) =>
+      unknownCapability(machine, harness, capability)
+    ),
   };
 }
 
 function mergeFleetFacts(facts: ACPStatusResult['fleet'][]): ACPStatusResult['fleet'] {
   const machines = ['heavisidelinux', 'homelinux'];
-  const activations = machines.map((machine) => facts
+  const activations: ACPActivation[] = machines.map((machine) => facts
     .flatMap((fleet) => fleet.activations)
     .find((row) => row.machine === machine && row.open_agents_version !== 'unknown')
     || facts.flatMap((fleet) => fleet.activations).find((row) => row.machine === machine)
-    || unknownFleetFacts(machine).activations[0]);
+    || unknownActivation(machine));
   const capabilities = machines.flatMap((machine) => {
     const rows = facts.flatMap((fleet) => fleet.capabilities).filter((row) => row.machine === machine);
     const known = new Map(rows.map((row) => [`${row.harness}:${row.capability}`, row]));
-    return [
-      ['hermes-gateway', 'gateway'],
-      ['dispatch-worker', 'claim-queue-item'],
-      ['open-agents-release', 'immutable-artifact'],
-    ].map(([harness, capability]) => known.get(`${harness}:${capability}`)
-      || unknownFleetFacts(machine).capabilities.find((row) => row.harness === harness)!
+    return REQUIRED_CAPABILITIES.map(([harness, capability]) => known.get(`${harness}:${capability}`)
+      || unknownCapability(machine, harness, capability)
     );
   });
   const knownActivations = activations.every((row) => row.open_agents_version !== 'unknown' && row.open_agents_path !== 'unknown');
+  const activationIdentities = new Set(
+    activations.map((row) => `${row.open_agents_version}\u0000${row.open_agents_path}`)
+  );
   const releaseAlignment = !knownActivations
     ? 'unknown'
-    : activations[0].open_agents_version === activations[1].open_agents_version
-      && activations[0].open_agents_path === activations[1].open_agents_path
+    : activationIdentities.size === 1
       ? 'aligned'
       : 'different';
   return {
