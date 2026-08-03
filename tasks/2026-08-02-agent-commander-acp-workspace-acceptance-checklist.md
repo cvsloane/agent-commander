@@ -58,9 +58,9 @@ Every mandatory item must pass. A Builder may propose a stronger criterion but c
 
 ## Integration, Proof, and Scope
 
-- [ ] **INT-1 — Frozen candidate:** ACP produces one frozen Agent Commander candidate with exact base/head, changed paths, real worktree diff, and Luna Max attempt identity.
-- [ ] **INT-2 — Mechanical build:** Go agentd, schema, control plane, dashboard production build, and diff check pass once on the frozen candidate. No new tests or local suite runs are added.
-- [ ] **INT-3 — Independent review:** Fresh homelinux Opus 5 returns PASS for the exact frozen candidate; all mandatory findings are resolved inside the attempt ceiling.
+- [x] **INT-1 — Frozen candidate:** ACP produces one frozen Agent Commander candidate with exact base/head, changed paths, real worktree diff, and Luna Max attempt identity.
+- [x] **INT-2 — Mechanical build:** Go agentd, schema, control plane, dashboard production build, and diff check pass once on the frozen candidate. No new tests or local suite runs are added.
+- [x] **INT-3 — Independent review:** Fresh homelinux Opus 5 returns PASS for the exact frozen candidate; all mandatory findings are resolved inside the attempt ceiling.
 - [ ] **INT-4 — One integration:** One protected application PR merges the reviewed content, required repository checks pass, and landed-tree comparison proves the reviewed paths are present.
 - [ ] **INT-5 — Ordered deployment:** When the wire schema changes, dashboard/control-plane deploy before agentd. Both agentd hosts then run the exact accepted binary, with rollback copies retained.
 - [ ] **INT-6 — Production identity:** `origin/main`, both production containers, and both agentd binaries identify the accepted candidate; public health and authenticated ACP routes pass.
