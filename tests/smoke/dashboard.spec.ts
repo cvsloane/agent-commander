@@ -1401,7 +1401,7 @@ test('uses unified bottom navigation to steer an orchestrator card on mobile', a
   const mobileNav = page.getByRole('navigation', { name: 'Primary mobile navigation' });
   await expect(mobileNav.getByRole('link', { name: 'Command Center' })).toBeVisible();
   await expect(mobileNav.getByRole('link', { name: 'Attention' })).toBeVisible();
-  await expect(mobileNav.getByRole('link', { name: 'Sessions' })).toBeVisible();
+  await expect(mobileNav.getByRole('link', { name: 'ACP' })).toBeVisible();
   await expect(mobileNav.getByRole('button', { name: 'More' })).toBeVisible();
 
   await mobileNav.getByRole('link', { name: 'Attention' }).click();
