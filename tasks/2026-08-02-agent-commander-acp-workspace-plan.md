@@ -7,6 +7,7 @@
 - Approved at: 2026-08-03T00:42:24Z
 - Approved scope/version: v1 full ACP workspace in Agent Commander
 - Approval provenance: direct Human Owner selections `1` and `use the orchestrate skill - or ACP itself, preferably - to implement this plan`
+- Pre-launch fact correction: the full approved program-approval flow requires the existing fail-closed ACP CLI approver allowlist to contain only `chris`; this non-secret mapping is an in-scope runtime precondition, not a credential or broader role grant.
 
 The Human Owner selected the full workspace proposal, including one final pull request and production deployment, then explicitly directed implementation through ACP. This plan is the formal launch projection of that approved direction.
 
@@ -21,7 +22,7 @@ Agent Commander remains the presentation and authenticated command layer. ACP an
 - A top-level ACP navigation item opens a dedicated `/acp` route on desktop and an intentional mobile route; the large ACP panel is removed from Hosts.
 - The workspace provides Overview, Work, Capacity and Routing, and Fleet and Releases views with the approved information and interaction hierarchy.
 - Programs and tasks show human-readable objective, repo, normalized state, lane, machine, Builder model and effort, Reviewer model and effort, attempt, updated time, next action, and inspectable evidence when the source record provides it.
-- New task, new program, setup answer, explicit approval or denial, and supported judgment actions use fixed typed Agent Commander commands that invoke existing ACP entrypoints; no request can carry an arbitrary executable or filesystem path.
+- New task, new program, setup answer, explicit approval or denial, and supported judgment actions use fixed typed Agent Commander commands that invoke existing ACP entrypoints; no request can carry an arbitrary executable or filesystem path. Program approval remains fail-closed unless the authenticated operator maps to the sole configured ACP CLI approver `chris`.
 - ACP items requiring Human Owner input appear in the existing Attention experience and link back to the relevant ACP detail.
 - Builder routing displays `gpt-5.6-luna` at max on heavisidelinux; Reviewer routing displays `claude-opus-5` at high on homelinux. Exhausted team/shared OpenAI remains visible and nonblocking while healthy non-shared capacity exists.
 - Release presentation compares each machine's expected or intentionally pinned ref with its activated ref and measurement freshness; it never treats merely known activation as proof of alignment.
@@ -126,7 +127,7 @@ Maximum Builder parallelism is one. The backend and UI are one vertical candidat
 | External/provider action | autonomous-with-receipt | Only approved ACP model calls, GitHub PR actions, Coolify deploy, and authenticated Agent Commander reads | Attempt records and provider/deployment IDs | None |
 | Spending | forbidden | Existing subscriptions and infrastructure must suffice | Quota receipts; no incremental paid service | Plan revision before incremental spend |
 | Delete/retire/cut over | autonomous-with-receipt | Limited to removing the superseded Hosts-page ACP mount and disposable review copies; source remains recoverable in Git | Diff and cleanup receipt | None |
-| Credential/access change | forbidden | Existing Bitwarden-backed Agent Commander credential and host trust suffice | No credential mutation | Plan revision required |
+| Credential/access change | autonomous-with-receipt | Limited to adding `chris` as the sole non-secret `CODING_DISPATCH_ALLOWED_CLI_APPROVERS` value required by the approved program flow; no credential, dashboard role, or host trust change | Before/after key presence without secret output, program approval receipt, rollback removal command | None; broader access or any credential mutation remains forbidden |
 
 ## Acceptance and Review
 
@@ -137,6 +138,7 @@ Maximum Builder parallelism is one. The backend and UI are one vertical candidat
 - Independent Reviewer: fresh `claude-opus-5` at high on homelinux, read-only disposable content-verified copy, different provider and machine from the Luna Builder.
 - Product review: the same frozen review includes the frontend audit; after deployment the AI Lead captures authenticated 390x844, 768x1024, and 1400x900 production screenshots and re-scores. A final score below 85 or any hard fail returns the exact finding to one bounded correction pass.
 - Real-path proof: one real development task submitted from `/acp`, route identity observed, terminal state and receipt inspected, and the global Attention linkage exercised if the task creates a judgment or held state.
+- Program-approval precondition: before the production action proof, the AI Lead writes only `CODING_DISPATCH_ALLOWED_CLI_APPROVERS=chris` into the canonical Hermes runtime environment, restarts no service unless the existing invocation path requires it, and proves a non-allowlisted identity is still refused.
 - Human-reserved checks: any change to the approved product scope, acceptance waiver, incremental spend, credential change, database mutation, or acceptance of a known non-waivable finding.
 - Non-waivable: no arbitrary command/path payload; operator authorization on every write; shared/team exhaustion does not block healthy non-shared routing; review stays Opus on homelinux; activation alignment is truthful; `needs-review` is not active; no text overlap or clipped primary action; no second ACP source of truth; no test expansion.
 
@@ -186,6 +188,7 @@ The status file is current operational truth. The log and metrics are append-onl
 - Production resource: Coolify `agent-console` (`dcgs4ccgkco44w4gkkg0kks8`). Record the active deployment and container identities again immediately before rollout.
 - Dashboard/control-plane rollback redeploys `b99a33c`. Agentd rollback restores the checksum-named binary backups made immediately before replacement and restarts one host at a time.
 - If only the new ACP UI fails, the reviewed source can remove `/acp` and restore the old Hosts mount from Git without changing ACP state. No ACP queue or program file is mutated during rollback.
+- The non-secret CLI approver mapping rolls back by removing only `CODING_DISPATCH_ALLOWED_CLI_APPROVERS=chris` from the canonical Hermes runtime environment; existing credentials and Agent Commander roles remain unchanged.
 - Recovery evidence: failed checklist ID, frozen candidate SHA, prior deployment and binary identities, relevant logs, authenticated route result, and exact rollback outcome.
 
 ## Launch Checklist

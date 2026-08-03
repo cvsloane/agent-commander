@@ -35,6 +35,7 @@
 - Agent Commander local `main` is one project-status commit ahead of `origin/main` and carries the newly recorded ACP frontend lesson. Integration must preserve both.
 - The local ACP store has 29 historical `needs-review` items and one awaiting-input program judgment. The workspace must classify these honestly without treating them as running or cleaning them automatically.
 - The homelinux-local quota snapshot is older than the authoritative fleet snapshot. Reviewer admission uses the fresh authoritative snapshot and rechecks before review.
+- ACP's fail-closed CLI approver allowlist is currently unset. The approved full program flow requires the AI Lead to configure only `chris` in the canonical non-secret runtime environment before program-approval proof; broader access remains forbidden.
 
 ## Immediate Next Sequence
 
