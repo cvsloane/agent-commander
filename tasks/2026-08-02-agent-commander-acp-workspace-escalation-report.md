@@ -1,6 +1,6 @@
 # Agent Commander ACP Workspace — Escalation Report
 
-Status: active — W1 held at 2026-08-03T02:09:59Z.
+Status: resolved — Human Owner selected option 1 at 2026-08-03T02:31:05Z; W1 resumed at 2026-08-03T02:33:00Z.
 
 ## Exact wall
 
@@ -32,3 +32,12 @@ ACP exposes no public resume command for a generic timed-out task. The existing 
 3. **Hold/stop W1.** Preserve the failed record and worktree for later inspection; Agent Commander and production remain unchanged.
 
 No other lane may proceed until W1 produces a committed, verified handoff.
+
+## Resolution receipt
+
+- Failed record SHA-256: `d2601fdc4dbc4b73c9e32d9f1312f73addd6eab92df75e2bd831a49d620c67c3`
+- Worktree-content SHA-256 before recovery: `3a054cf7a163ba9bdde3a950babff2a29d25921509b5588ad83198e0b02c35c2`
+- Queued recovery record SHA-256: `04959aa1d2aa4a0f29464988e99d2bf873bc0b979c796bcebebd22344a98e35f`
+- ACP audit event: `timeout_recovery_authorized`
+- Recovery: same task ID, branch, and worktree; `resume_count=1`; 7,200-second timeout; same Go-only verifier.
+- No new lane, implementation, test, production mutation, or credential change.
