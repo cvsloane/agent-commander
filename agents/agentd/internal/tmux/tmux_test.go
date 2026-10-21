@@ -186,7 +186,8 @@ func TestCapturePaneRangePagesStableContiguousHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	signal := fmt.Sprintf("ac-capture-%d", time.Now().UnixNano())
-	command := fmt.Sprintf("for i in $(seq 1 200); do printf 'PAGE-%%03d\\n' \"$i\"; done; tmux wait-for -S %s", signal)
+	// Keep the pane open without a shell prompt adding a line after the signal.
+	command := fmt.Sprintf("for i in $(seq 1 200); do printf 'PAGE-%%03d\\n' \"$i\"; done; tmux wait-for -S %s; exec cat >/dev/null", signal)
 	if err := client.SendInput(paneID, command, true); err != nil {
 		t.Fatal(err)
 	}
